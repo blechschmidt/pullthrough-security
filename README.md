@@ -1,5 +1,14 @@
 # pullthrough-security
 
+[![CI](https://github.com/blechschmidt/pullthrough-security/actions/workflows/ci.yml/badge.svg)](https://github.com/blechschmidt/pullthrough-security/actions/workflows/ci.yml)
+[![Docs](https://github.com/blechschmidt/pullthrough-security/actions/workflows/pages.yml/badge.svg)](https://blechschmidt.github.io/pullthrough-security/)
+[![Go](https://img.shields.io/github/go-mod/go-version/blechschmidt/pullthrough-security)](go.mod)
+[![Release](https://img.shields.io/github/v/release/blechschmidt/pullthrough-security?sort=semver&display_name=tag)](https://github.com/blechschmidt/pullthrough-security/releases)
+[![Container](https://img.shields.io/badge/ghcr.io-pullthrough--security-2496ED?logo=docker&logoColor=white)](https://github.com/blechschmidt/pullthrough-security/pkgs/container/pullthrough-security)
+![Platforms](https://img.shields.io/badge/platforms-linux%2Famd64%20%7C%20linux%2Farm64-informational)
+
+📖 **Documentation site:** <https://blechschmidt.github.io/pullthrough-security/>
+
 An enterprise pull-through proxy focused on software supply-chain security. It
 caches content pulled from upstream registries and source forges, scans Git
 commits with an LLM API, and associates package artifacts with the Git commits

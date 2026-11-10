@@ -107,7 +107,7 @@ type registry struct {
 	// blobs maps "sha256:<hex>" -> content.
 	blobs map[string][]byte
 	// manifests maps "sha256:<hex>" -> manifest JSON.
-	manifests map[string][]byte
+	manifests       map[string][]byte
 	blobDigests     []string
 	manifestDigests []string
 	indexBody       []byte

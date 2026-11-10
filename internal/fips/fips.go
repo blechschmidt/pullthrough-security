@@ -114,7 +114,7 @@ func Detect(enabled, requireModule bool) Mode {
 		Enabled:        enabled,
 		RequireModule:  requireModule,
 		ModuleActive:   fips140.Enabled(),
-		ModuleEnforced: fips140.Enforced(),
+		ModuleEnforced: moduleEnforced(),
 		ModuleVersion:  moduleVersion(),
 		BuildVariant:   BuildVariant,
 	}

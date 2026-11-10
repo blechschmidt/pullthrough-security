@@ -1,0 +1,45 @@
+# Jekyll configuration for the GitHub Pages documentation site.
+#
+# The site is built from this `docs/` directory by .github/workflows/pages.yml
+# using the GitHub Pages gem (actions/jekyll-build-pages), so only plugins that
+# ship with that gem are used here. No per-page front matter is required: the
+# default GitHub Pages plugins below render the existing plain-Markdown docs as
+# a browsable site and rewrite the inter-document `*.md` links to the generated
+# `*.html` pages.
+title: pullthrough-security
+description: >-
+  Enterprise pull-through proxy focused on software supply-chain security —
+  caching, LLM Git-commit scanning, package→commit provenance, and dozens of
+  admission gates.
+# GitHub Pages-supported remote theme (clean, responsive, light/dark friendly).
+theme: jekyll-theme-cayman
+
+# Rendered with the GitHub-Pages default plugin set (all bundled in the
+# github-pages gem, so no extra install is needed on the runner).
+plugins:
+  - jekyll-relative-links      # rewrite [x](y.md) -> y.html so cross-doc links work
+  - jekyll-optional-front-matter # render .md files that have no YAML front matter
+  - jekyll-readme-index        # serve docs/README.md as the site index (/)
+  - jekyll-titles-from-headings # derive <title>/page title from the first H1
+
+# Turn the Markdown cross-references between docs into working site links.
+relative_links:
+  enabled: true
+  collections: false
+
+optional_front_matter:
+  remove_originals: true
+
+readme_index:
+  enabled: true
+  remove_originals: true
+
+titles_from_headings:
+  enabled: true
+
+# Keep the generated site lean and avoid leaking build scaffolding.
+exclude:
+  - _config.yml
+  - Gemfile
+  - Gemfile.lock
+  - vendor

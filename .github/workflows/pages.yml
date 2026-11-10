@@ -1,0 +1,62 @@
+name: Docs (GitHub Pages)
+
+# Build the operator/user documentation in docs/ into a static site and publish
+# it to GitHub Pages. The site is a plain-Markdown Jekyll build (github-pages
+# gem) configured in docs/_config.yml; inter-document *.md links are rewritten
+# to the generated *.html pages, and docs/README.md becomes the site index.
+#
+# Pages must be enabled once for the repository with its "Source" set to
+# "GitHub Actions" (Settings → Pages). After that this workflow keeps the
+# published site at https://<owner>.github.io/<repo>/ in sync with docs/ on main.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Least-privilege token with just the scopes the Pages deployment needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress publish so a
+# running deployment can finish cleanly.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build with Jekyll (GitHub Pages gem)
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
