@@ -68,6 +68,12 @@ Run `ptctl mutguard -h` for every flag. The most important ones:
 | `--short` | pass `-test.short` to each mutant run (default on; faster) |
 | `--test-timeout` | per-mutant timeout; a timeout counts as **killed** (an infinite-loop mutant was caught) |
 
+Each mutant's test run is also bounded in **resident memory** (default 2 GiB,
+Linux-enforced): a mutant that induces runaway allocation — e.g. a flipped loop
+bound — is SIGKILLed as its own process and scored as **killed**, rather than
+exhausting host RAM and OOM-reclaiming the CI runner mid-run. `GOMEMLIMIT` is
+set on the child to throttle growth so the watchdog reliably catches it.
+
 ### Why it is deterministic
 
 A given `(seed, --max-per-package, --operators)` always enumerates the same
