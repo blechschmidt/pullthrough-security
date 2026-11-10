@@ -100,16 +100,31 @@ func sampleEvent(sev Severity) Event {
 
 func TestForwarderDeliversAndBatches(t *testing.T) {
 	sink := newCaptureSink("s1")
+	sink.gate = make(chan struct{})
+	sink.started = make(chan struct{})
 	f := New(Options{
 		Sinks:        []Sink{sink},
 		BatchSize:    10,
-		BatchTimeout: 20 * time.Millisecond,
+		BatchTimeout: time.Second, // long: coalescing is forced via the gate, not the timer
 	})
 	defer f.Close()
 
-	for i := 0; i < 5; i++ {
+	// Emit one event: the dispatcher drains it and parks inside DeliverBatch on
+	// the gate. Once `started` fires, the dispatcher is provably blocked.
+	f.Emit(sampleEvent(SeverityHigh))
+	<-sink.started
+
+	// With the dispatcher parked mid-delivery, emit a burst. These four cannot be
+	// drained until the dispatcher returns, so they accumulate in the queue and
+	// are guaranteed to coalesce into a single batch when it resumes. This makes
+	// the coalescing assertion deterministic regardless of scheduler timing (the
+	// previous version raced the dispatcher's drain against the emits and flaked
+	// on busy CI runners).
+	for i := 0; i < 4; i++ {
 		f.Emit(sampleEvent(SeverityHigh))
 	}
+	close(sink.gate)
+
 	waitFor(t, time.Second, func() bool { return sink.eventCount() == 5 })
 
 	if got := f.Metrics().Enqueued; got != 5 {
@@ -118,9 +133,10 @@ func TestForwarderDeliversAndBatches(t *testing.T) {
 	if got := f.Metrics().PerSink["s1"].Delivered; got != 5 {
 		t.Fatalf("delivered = %d, want 5", got)
 	}
-	// All five arrived close together, so they should coalesce into one batch.
-	if bc := sink.batchCount(); bc != 1 {
-		t.Fatalf("batch count = %d, want 1 (events should coalesce)", bc)
+	// Batch 1 is the first event; batch 2 is the four-event burst coalesced into
+	// a single batch — exactly two deliveries, not five.
+	if bc := sink.batchCount(); bc != 2 {
+		t.Fatalf("batch count = %d, want 2 (burst should coalesce into one batch)", bc)
 	}
 }
 
