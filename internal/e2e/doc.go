@@ -16,4 +16,13 @@
 // has its own against its live upstream) and whole-pipeline behavior, and guards
 // against cross-cutting regressions. Its artifact is a single coverage/efficacy
 // matrix (ecosystem × gates-exercised) written to the task attachments dir.
+//
+// A sibling suite (Task 168, llmscan_test.go) adds a per-ecosystem LLM
+// commit-scan admission test: for every package ecosystem it configures the
+// proxy instead of the official registry, wires the production provenance →
+// policy admission bridge to a MOCK LLM commit scanner, and proves that a "good"
+// package (benign source commit) is admitted while a "bad" package (a source
+// commit the mock LLM flags malicious) is blocked with a 403 before serving. It
+// emits its own ecosystem × {scanned, good-admit, bad-block} efficacy matrix and
+// fails CI if any package ecosystem lacks both outcomes.
 package e2e
