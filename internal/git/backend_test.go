@@ -134,6 +134,67 @@ func TestPassthroughUploadPack(t *testing.T) {
 	}
 }
 
+// TestPassthroughForwardsGitProtocol guards the protocol-v2 clone path: a modern
+// git client negotiates "version=2" on the ref advertisement and then POSTs v2
+// commands, so the proxy must relay the Git-Protocol header on BOTH legs. If the
+// POST leg drops it the upstream reads a v2 command as a v0 negotiation and
+// answers 400 (found by cloning through the proxy with a real git client).
+func TestPassthroughForwardsGitProtocol(t *testing.T) {
+	const v2Request = "0014command=ls-refs\n0001000bpeel\n0000"
+	got := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got[r.Method] = r.Header.Get("Git-Protocol")
+		if r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", ctUploadPackResult)
+			// Mirror a strict forge: a v2 command without the header is a 400.
+			if r.Header.Get("Git-Protocol") != "version=2" {
+				http.Error(w, "expected flush after ref listing", http.StatusBadRequest)
+				return
+			}
+			_, _ = io.WriteString(w, "0000")
+			return
+		}
+		w.Header().Set("Content-Type", ctUploadPackAdvertisement)
+		_, _ = io.WriteString(w, "000eversion 2\n0000")
+	}))
+	defer srv.Close()
+
+	b := newPassthroughBackend(t, srv.URL, upstream.Credentials{}, nil, 0)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/o/r.git/info/refs?service=git-upload-pack", nil)
+	req.Header.Set("Git-Protocol", "version=2")
+	b.ServeBackendHTTP(rr, req, "/o/r.git/info/refs")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("info/refs status = %d, want 200", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/o/r.git/git-upload-pack", strings.NewReader(v2Request))
+	req.Header.Set("Content-Type", ctUploadPackRequest)
+	req.Header.Set("Git-Protocol", "version=2")
+	b.ServeBackendHTTP(rr, req, "/o/r.git/git-upload-pack")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("upload-pack status = %d, want 200; body=%q", rr.Code, rr.Body.String())
+	}
+
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		if got[method] != "version=2" {
+			t.Errorf("upstream %s Git-Protocol = %q, want version=2", method, got[method])
+		}
+	}
+
+	// A client that negotiated nothing (protocol v0) must not have a header
+	// invented on its behalf.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/o/r.git/git-upload-pack", strings.NewReader("0000"))
+	req.Header.Set("Content-Type", ctUploadPackRequest)
+	b.ServeBackendHTTP(rr, req, "/o/r.git/git-upload-pack")
+	if got[http.MethodPost] != "" {
+		t.Errorf("upstream POST Git-Protocol = %q for a v0 client, want empty", got[http.MethodPost])
+	}
+}
+
 func TestPassthroughUploadPackWrongContentType(t *testing.T) {
 	b := newPassthroughBackend(t, "https://github.com", upstream.Credentials{}, nil, 0)
 	rr := httptest.NewRecorder()

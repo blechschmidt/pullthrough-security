@@ -3,29 +3,36 @@
 // Artifactory (and thus ConanCenter) and the reference conan_server expose,
 // bringing the native-code ecosystem to parity with the pip/npm/cargo/maven
 // backends: recipe and package files are proxied and cached content-addressably
-// beneath their immutable revisions, fetched bytes are verified against the
-// revision's conanmanifest.txt before they are cached or served, conaninfo.txt
-// package descriptors are surfaced to the admission gates, and the package
-// coordinate (name/version@user/channel) is attached for nameguard, vulnscan,
-// provenance, policy, and license enforcement.
+// beneath their immutable revisions, fetched bytes are MD5-verified before they
+// are cached or served, conaninfo.txt package descriptors are surfaced to the
+// admission gates, and the package coordinate (name/version@user/channel) is
+// attached for nameguard, vulnscan, provenance, policy, and license enforcement.
 //
 // Protocol mapping (Conan v2, see path.go for the full route table):
 //
-//	GET /v2/ping                                                server capabilities (live)
+//	GET /v1/ping | /v2/ping                                     server capabilities (live)
 //	GET /v2/users/authenticate | check_credentials              auth passthrough (live)
 //	GET /v2/conans/search | .../search                          search (live)
 //	GET .../latest | .../revisions                              revision pointers/lists (revalidated)
 //	GET .../revisions/{rrev}/files[/{file}]                     recipe files (immutable, verified)
 //	GET .../packages/{pid}/revisions/{prev}/files[/{file}]      package files (immutable, verified)
 //
+// The capability probe is the one request a Conan 2.x client still sends to the
+// v1 route: it reads the X-Conan-Server-Capabilities header of GET /v1/ping
+// before any /v2 call, so that header must be relayed (it is — the probe is
+// served live, and live responses carry the upstream's headers).
+//
 // Security model: a recipe revision (rrev) and package revision (prev) are
 // content hashes of the files they pin, so the cache key (which embeds them) is
-// itself content-addressable. On a cache miss the backend additionally fetches
-// the revision's conanmanifest.txt and verifies the fetched file against its
-// declared MD5 — streaming for large archives, in memory for the small
-// conaninfo.txt — so a tampered mirror can neither poison the cache nor reach a
-// client. The stronger per-file digests the upstream advertises via
-// X-Checksum-* headers are passed through to the client unchanged.
+// itself content-addressable. On a cache miss the backend additionally verifies
+// the fetched file's MD5 — streaming for large archives, in memory for the small
+// conaninfo.txt — so a corrupted or tampered transfer can neither poison the
+// cache nor reach a client. The expected digest comes from the revision's
+// conanmanifest.txt where the manifest records one (conanfile.py,
+// conaninfo.txt). The manifest lists a revision's files in their unpacked form,
+// so the conan_export.tgz / conan_sources.tgz / conan_package.tgz archives are
+// never in it; those are verified against the X-Checksum-Md5 header that
+// Artifactory-based remotes (ConanCenter included) send with every file.
 //
 // Client configuration points the Conan remote at "<publicBase>/v1/<name>"
 // (see docs/clients.md): `conan remote add proxy <publicBase>/v1/<name>`.
@@ -73,9 +80,19 @@ const (
 	MetaPackageRevision = "conan.packageRevision"
 	// MetaConanInfo is "1" when the served file is a package conaninfo.txt.
 	MetaConanInfo = "conan.conaninfo"
-	// MetaChecksumVerified records "md5" when a file was verified against its
-	// conanmanifest.txt, or "none" when no manifest entry was available.
+	// MetaChecksumVerified records "md5" when a file's MD5 was verified before it
+	// was cached or served, or "none" when the upstream declared no digest for it.
 	MetaChecksumVerified = "conan.checksumVerified"
+	// MetaChecksumSource records where the expected MD5 came from when
+	// MetaChecksumVerified is "md5": "manifest" (the revision's conanmanifest.txt)
+	// or "upstream-header" (the X-Checksum-Md5 header sent with the file).
+	MetaChecksumSource = "conan.checksumSource"
+)
+
+// Values of MetaChecksumSource.
+const (
+	checksumSourceManifest = "manifest"
+	checksumSourceHeader   = "upstream-header"
 )
 
 // Size bounds for the small documents the backend buffers on the pull path.
@@ -223,12 +240,13 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 	return resolved, nil
 }
 
-// Fetch implements backends.Backend. For content files it first fetches the
-// revision's conanmanifest.txt and verifies the file against its declared MD5 —
-// streaming for large archives, in memory for conaninfo.txt (which it also
-// surfaces to the admission gates). Discovery documents, search, file listings,
-// and the manifest itself are proxied directly, with upstream checksum headers
-// passed through unchanged.
+// Fetch implements backends.Backend. For content files it resolves the expected
+// MD5 (from the revision's conanmanifest.txt, else the upstream's X-Checksum-Md5
+// header) and verifies the file against it — streaming for large archives, in
+// memory for conaninfo.txt (which it also surfaces to the admission gates).
+// Discovery documents, search, file listings, and the manifest itself are
+// proxied directly, with the upstream's response headers (notably the ping's
+// X-Conan-Server-Capabilities) handed to the gateway for relay.
 func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*backends.FetchResult, error) {
 	if resolved == nil {
 		return nil, errors.New("conan: nil resolved")
@@ -248,10 +266,11 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 	b.recordKindMetric(resolved)
 
 	header := make(http.Header)
-	// PropagateResponseHeaders forwards the upstream's X-Checksum-Sha256 / -Sha1 /
-	// -Md5 headers (Artifactory sets these) so the client can run its own
-	// verification against the strong digests even though the proxy verifies with
-	// the manifest's MD5.
+	// PropagateResponseHeaders hands the upstream's end-to-end headers to the
+	// gateway: the ping's X-Conan-Server-Capabilities (which the client requires)
+	// and Artifactory's X-Checksum-Sha256 / -Sha1 / -Md5. The gateway relays them
+	// on live (non-cacheable) responses; a cacheable file is served from its cache
+	// entry, which does not replay them.
 	upstream.PropagateResponseHeaders(header, resp.Header)
 	if resp.ETag != "" {
 		header.Set("ETag", resp.ETag)
@@ -276,13 +295,25 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 
 	b.metrics.incFilesServed()
 
-	// Resolve the expected MD5 from the revision's conanmanifest.txt. A missing
-	// manifest (or an entry absent from it) is recorded and the file is served
-	// unverified — fail-open is the only option when the upstream publishes no
-	// manifest, and the absence is observable via metrics.
+	// Resolve the expected MD5. The revision's conanmanifest.txt is the primary
+	// source, but it records a revision's files in their unpacked form, so it
+	// covers conanfile.py and conaninfo.txt and never the .tgz archives that carry
+	// everything else. For those (and for a remote that publishes no manifest) the
+	// digest is taken from the X-Checksum-Md5 header Artifactory-based remotes send
+	// with the file. When neither exists the file is served unverified — fail-open
+	// is the only option when the upstream declares no digest — and the gap is
+	// recorded in the cache metadata and observable via metrics.
 	expected, haveChecksum := b.fetchExpectedChecksum(ctx, resolved)
+	source := checksumSourceManifest
+	if !haveChecksum {
+		if md5hex, ok := headerMD5(resp.Header); ok {
+			expected = expectedChecksum{filename: resolved.Metadata[metaFilename], md5hex: md5hex}
+			haveChecksum, source = true, checksumSourceHeader
+		}
+	}
 	if haveChecksum {
 		resolved.Metadata[MetaChecksumVerified] = "md5"
+		resolved.Metadata[MetaChecksumSource] = source
 	} else {
 		b.metrics.incManifestMissing()
 		resolved.Metadata[MetaChecksumVerified] = "none"
@@ -357,8 +388,9 @@ func (b *Backend) fetchConanInfo(resolved *backends.Resolved, resp *upstream.Res
 
 // fetchExpectedChecksum fetches the conanmanifest.txt sibling of the requested
 // file (same revision, filename replaced) and returns the MD5 it declares for
-// the file. A missing or unparseable manifest, or a filename absent from it,
-// yields ok=false (served unverified).
+// the file. A missing or unparseable manifest, or a filename absent from it (as
+// the .tgz archives always are), yields ok=false; the caller then falls back to
+// the upstream's X-Checksum-Md5 header.
 func (b *Backend) fetchExpectedChecksum(ctx context.Context, resolved *backends.Resolved) (expectedChecksum, bool) {
 	filename := resolved.Metadata[metaFilename]
 	if filename == "" {

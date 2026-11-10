@@ -502,6 +502,11 @@ type Options struct {
 	// (Task 120). It is independent of whether the binary links the validated Go
 	// FIPS module; it applies the approved parameters defensively in all builds.
 	FIPSEnabled bool
+	// RegistryRoot, when non-nil and naming at least one upstream, additionally
+	// serves the Docker/OCI Registry v2 API at the host root ("/v2/..."), the only
+	// place container clients can address a registry. Requests are mapped onto
+	// the regular "/v1/<upstream>/v2/..." route space. See RegistryRoot.
+	RegistryRoot *RegistryRoot
 }
 
 // Gateway is the core proxy. It is constructed via New and started with Run.
@@ -574,7 +579,17 @@ func (g *Gateway) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", g.handleHealth)
 	mux.HandleFunc("/readyz", g.handleReady)
-	mux.Handle("/v1/", g.withTracing(g.withAccessControl(g.withRateLimit(http.HandlerFunc(g.handleBackend)))))
+	backend := g.withTracing(g.withAccessControl(g.withRateLimit(http.HandlerFunc(g.handleBackend))))
+	mux.Handle("/v1/", backend)
+
+	// Host-root Docker/OCI Registry v2 alias. Container clients always insert
+	// "/v2/" directly after the registry host, so they cannot reach the
+	// path-prefixed mount; the alias rewrites each request onto
+	// "/v1/<upstream>/v2/..." and reuses the very same handler chain, so the
+	// access-control envelope and every admission gate apply unchanged.
+	if rr := g.opts.RegistryRoot; rr != nil && len(rr.Upstreams) > 0 {
+		mux.Handle(registryRootPrefix, g.handleRegistryRoot(backend))
+	}
 
 	// Operational telemetry: the Prometheus endpoint and the admin API/dashboard.
 	// Both are optional and mounted only when wired and enabled. They sit outside
@@ -1343,6 +1358,19 @@ func (g *Gateway) serveEntry(w http.ResponseWriter, r *http.Request, entry *cach
 	// transfers against this content-addressable, immutable artifact.
 	h.Set("Accept-Ranges", "bytes")
 
+	// Replay the response headers the backend declared part of this artifact's
+	// protocol contract (backends.SetResponseHeader). They were persisted with the
+	// entry, so a cache hit carries them exactly like the original fetch did.
+	// Headers the proxy computes itself, and hop-by-hop headers, are never taken
+	// from the cache.
+	if declared := backends.ResponseHeaders(entry.Stat.Metadata); len(declared) > 0 {
+		replay := make(http.Header, len(declared))
+		for name, value := range declared {
+			replay.Set(name, value)
+		}
+		upstream.PropagateResponseHeaders(h, replay)
+	}
+
 	if etagMatches(r.Header.Get("If-None-Match"), etag) ||
 		notModifiedSince(r.Header.Get("If-Modified-Since"), entry.Stat.ModTime) {
 		w.WriteHeader(http.StatusNotModified)
@@ -1413,8 +1441,9 @@ func (g *Gateway) streamFull(w http.ResponseWriter, r *http.Request, entry *cach
 }
 
 // writeFetchError maps a fetch/load failure onto an appropriate client status:
-// an upstream StatusError is relayed with its status; context cancellation is
-// silent; everything else is a 502 Bad Gateway.
+// an upstream StatusError is relayed with its status (and, for a redirect, the
+// mount-mapped Location the backend supplied); context cancellation is silent;
+// everything else is a 502 Bad Gateway.
 func (g *Gateway) writeFetchError(w http.ResponseWriter, r *http.Request, name string, resolved *backends.Resolved, err error) {
 	if errors.Is(err, context.Canceled) || errors.Is(r.Context().Err(), context.Canceled) {
 		return // client went away; nothing to report
@@ -1432,6 +1461,12 @@ func (g *Gateway) writeFetchError(w http.ResponseWriter, r *http.Request, name s
 		// identity is flagged even though no artifact was ever served.
 		if se.Status == http.StatusNotFound || se.Status == http.StatusGone {
 			g.observeAnomaly(r, name, g.ecosystemFor(name), resolved, 0, true)
+		}
+		// An upstream redirect the proxy did not follow is relayed with the target
+		// the backend mapped onto its own mount, so the client can follow it back
+		// through the proxy. Without one the bare status is relayed, as before.
+		if se.Location != "" && se.Status >= 300 && se.Status < 400 {
+			w.Header().Set("Location", se.Location)
 		}
 		http.Error(w, fmt.Sprintf("upstream returned status %d", se.Status), se.Status)
 		return
@@ -1456,8 +1491,33 @@ func metadataForFetch(resolved *backends.Resolved, result *backends.FetchResult)
 		if etag := result.Header.Get("ETag"); etag != "" {
 			meta[cache.MetaETag] = etag
 		}
+		// The verification headers a backend attaches to a fetched artifact
+		// describe the content itself (which digest or signature the proxy checked
+		// before admitting it), so they are as true on a cache hit as on the fetch
+		// that produced them. Persist them with the entry; serveEntry replays them.
+		// Without this they were set on the fetch result and then dropped, because
+		// a cacheable artifact is always served from its cache entry.
+		for _, name := range verificationResponseHeaders {
+			backends.SetResponseHeader(meta, name, result.Header.Get(name))
+		}
 	}
 	return meta
+}
+
+// verificationResponseHeaders are the proxy-generated response headers that
+// report how an artifact was verified. They are a property of the content, not
+// of one upstream response, so they are persisted with the cache entry (see
+// metadataForFetch). Arbitrary upstream headers are deliberately not: replaying
+// a Date, an Age or a Set-Cookie for as long as an artifact stays cached would be
+// wrong. A backend that needs another header to survive caching declares it
+// explicitly with backends.SetResponseHeader.
+var verificationResponseHeaders = []string{
+	"X-Checksum-Verified",
+	"X-Content-Hash-Verified",
+	"X-Tree-Hash-Verified",
+	"X-Signature-Verified",
+	"X-Repository-Signature",
+	"X-Terraform-Signature",
 }
 
 // deriveETag synthesizes a stable validator for a cache entry whose upstream

@@ -3,6 +3,7 @@ package helm
 import (
 	"path"
 	"strings"
+	"unicode/utf8"
 )
 
 // The classic Helm chart-repository protocol addresses three families of
@@ -10,21 +11,37 @@ import (
 // before classification):
 //
 //	Repository index (mutable, revalidated, parsed for chart digests):
-//	  GET /index.yaml
+//	  GET /index.yaml                      rewritten so every chart URL points
+//	                                       back at this mount (see rewrite.go)
 //
 //	Chart archives (immutable, content-addressed, SHA-256-verified):
-//	  GET /<name>-<version>.tgz            the packaged chart itself
-//	  GET /<sub>/.../<name>-<version>.tgz  charts may be served under a subpath
-//	                                       (the index's urls are honored verbatim)
+//	  GET /-/<chart>/<version>/<file>      index-resolved: the archive the
+//	                                       repository index lists for that chart
+//	                                       version, wherever it is hosted
+//	  GET /<name>-<version>.tgz            repository-relative: the packaged chart
+//	  GET /<sub>/.../<name>-<version>.tgz  fetched from the same path under the
+//	                                       upstream base
 //
 //	Provenance (immutable, cached, served as-is; presence feeds the gates):
+//	  GET /-/<chart>/<version>/<file>.prov
 //	  GET /<name>-<version>.tgz.prov       detached PGP provenance signature
 //
-// Classification derives the chart coordinate (name + version) from the archive
-// basename so it can feed nameguard, the vulnerability/license/signature gates,
-// provenance, and the risk engine, and decides cacheability: only the immutable
-// per-version artifacts (.tgz and .tgz.prov) are cached; the index is revalidated
-// live.
+// The index-resolved form is what a rewritten index.yaml hands to clients. It
+// names an index entry rather than a location: the chart name and version are
+// explicit path segments (so the coordinate the admission gates see is the
+// index's own, never a guess from a filename), and the upstream URL is looked up
+// in the repository index when the archive is fetched. A request can therefore
+// only ever reach a URL the upstream index lists for that chart version — the
+// proxy is not an open relay — yet the archive may live on any host.
+//
+// The repository-relative form is the path a client derives from an index whose
+// urls are relative; it predates the index rewrite and keeps working. There the
+// coordinate is derived from the archive basename.
+//
+// Either way classification feeds the chart coordinate (name + version) to
+// nameguard, the vulnerability/license/signature gates, provenance, and the risk
+// engine, and decides cacheability: only the immutable per-version artifacts
+// (archives and their .prov sidecars) are cached; the index is revalidated live.
 
 // resourceKind enumerates the classes of resource a classic Helm path can
 // address.
@@ -52,15 +69,35 @@ type resource struct {
 	name string
 	// version is the chart version, for kindChart/kindProvenance.
 	version string
-	// filename is the .tgz basename (without any ".prov" suffix), used to recover
-	// the digest from the index authoritatively.
+	// filename is the archive basename (without any ".prov" suffix). For a
+	// repository-relative path it recovers the digest from the index; for an
+	// index-resolved path it selects which of the entry's listed URLs is meant.
 	filename string
+	// indexed marks the index-resolved form ("/-/<chart>/<version>/<file>"): the
+	// upstream URL is not derived from the path but looked up in the repository
+	// index at fetch time.
+	indexed bool
+	// root marks the repository's own index ("/index.yaml" directly under the
+	// mount), the one document the backend rewrites. An index.yaml found deeper
+	// in the tree is some other repository's and is proxied as-is.
+	root bool
 }
 
 const (
 	indexFile = "index.yaml"
 	chartExt  = ".tgz"
 	provExt   = ".prov"
+
+	// indexedPrefix is the reserved first path segment of an index-resolved
+	// archive URL. No chart repository serves a directory named "-", so it cannot
+	// shadow a repository-relative path that works today (npm reserves the same
+	// segment for its tarballs for the same reason).
+	indexedPrefix = "-"
+
+	// maxSegmentLen bounds a chart name, version, or archive filename carried in
+	// an index-resolved URL. Real ones are a few dozen bytes; the cap keeps a
+	// hostile index from minting absurd URLs and cache keys.
+	maxSegmentLen = 255
 )
 
 // classify parses an inbound path (route prefix already stripped, leading slash
@@ -80,10 +117,14 @@ func classify(p string) (resource, bool) {
 		}
 	}
 
+	if segs[0] == indexedPrefix {
+		return classifyIndexed(segs[1:])
+	}
+
 	last := segs[len(segs)-1]
 
 	if last == indexFile {
-		return resource{kind: kindIndex}, true
+		return resource{kind: kindIndex, root: len(segs) == 1}, true
 	}
 
 	// Provenance sidecar: "<name>-<version>.tgz.prov".
@@ -106,6 +147,47 @@ func classify(p string) (resource, bool) {
 	}
 
 	return resource{}, false
+}
+
+// classifyIndexed parses the segments after the reserved "-" prefix of an
+// index-resolved URL: exactly <chart>/<version>/<file>, where a trailing ".prov"
+// on the file selects that archive's provenance sidecar. The chart name and
+// version are taken verbatim — they are the repository index's own key and
+// version, which the rewritten index put there — so no filename heuristic is
+// involved. Every segment must be one the index rewrite could have emitted
+// (addressable); anything else was not handed out by this backend.
+func classifyIndexed(segs []string) (resource, bool) {
+	if len(segs) != 3 {
+		return resource{}, false
+	}
+	name, version, file := segs[0], segs[1], segs[2]
+	kind := kindChart
+	if strings.HasSuffix(file, provExt) {
+		file = strings.TrimSuffix(file, provExt)
+		kind = kindProvenance
+	}
+	if !addressable(name) || !addressable(version) || !addressable(file) {
+		return resource{}, false
+	}
+	return resource{kind: kind, name: name, version: version, filename: file, indexed: true}, true
+}
+
+// addressable reports whether s can be carried as one path segment of an
+// index-resolved URL and come back unchanged: non-empty, bounded, not a dot
+// segment, free of path separators (a backslash is normalized to a slash by
+// some clients and intermediaries) and of control characters, and valid UTF-8.
+// The index rewrite only mints URLs from addressable values and classification
+// only accepts them, so the two always agree on what a URL names.
+func addressable(s string) bool {
+	if s == "" || s == "." || s == ".." || len(s) > maxSegmentLen || !utf8.ValidString(s) {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 || c == 0x7f || c == '/' || c == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 // splitChartFilename splits a chart archive basename ("<name>-<version>.tgz")

@@ -6,9 +6,15 @@ import "strings"
 // ConanCenter, https://center2.conan.io) and the reference conan_server both
 // implement. Every endpoint lives under a "/v2" prefix and addresses a package
 // by its full reference — name, version, user, channel — with ConanCenter using
-// the placeholder "_" for an absent user/channel (e.g. "zlib/1.2.13/_/_"):
+// the placeholder "_" for an absent user/channel (e.g. "zlib/1.2.13/_/_"). The
+// one exception is the capability probe: a Conan 2.x client still sends it to
+// the legacy "/v1/ping" route (its v2 URL router hard-codes it, "the v2 ping is
+// not returning capabilities"), reads the X-Conan-Server-Capabilities response
+// header, and refuses to use the remote at all unless that probe succeeds and
+// advertises "revisions". ConanCenter does not even serve "/v2/ping" (404).
 //
-//	GET /v2/ping                                            server capability probe
+//	GET /v1/ping                                            server capability probe (the one clients send)
+//	GET /v2/ping                                            server capability probe (v2 spelling)
 //	GET /v2/users/authenticate | /v2/users/check_credentials   auth
 //	GET /v2/conans/search                                   recipe search
 //	GET /v2/conans/{n}/{v}/{u}/{c}/latest                   latest recipe revision (mutable)
@@ -30,10 +36,13 @@ import "strings"
 //
 // The recipe content files are conanfile.py, conanmanifest.txt,
 // conan_export.tgz, and conan_sources.tgz; the package content files are
-// conaninfo.txt, conanmanifest.txt, and conan_package.tgz. conanmanifest.txt
-// lists the MD5 digest of every sibling file in the revision — the ecosystem's
-// own integrity record — which the backend uses to verify fetched content before
-// it is cached or served (see checksum.go / manifest.go).
+// conaninfo.txt, conanmanifest.txt, and conan_package.tgz. conanmanifest.txt is
+// the ecosystem's own integrity record: it lists the MD5 digest of every file of
+// the revision in its unpacked form — conanfile.py and conaninfo.txt by name,
+// plus the members of the .tgz archives, but not the archives themselves. The
+// backend verifies fetched content against it, falling back to the per-file
+// X-Checksum-Md5 the upstream sends for the archives, before anything is cached
+// or served (see checksum.go / manifest.go).
 //
 // This file classifies an inbound path (with the "/v1/<name>" route prefix
 // already stripped, retaining its leading slash) into one of these resource
@@ -45,7 +54,9 @@ import "strings"
 type resourceKind int
 
 const (
-	// kindPing is the GET /v2/ping capability probe (served live).
+	// kindPing is the capability probe, GET /v1/ping (what clients send) or
+	// GET /v2/ping. Served live so the upstream's X-Conan-Server-Capabilities
+	// header is relayed.
 	kindPing resourceKind = iota
 	// kindUsers is an authentication endpoint (authenticate / check_credentials).
 	kindUsers
@@ -115,6 +126,14 @@ func classify(path string) (resource, bool) {
 		if s == "" || s == "." || s == ".." {
 			return resource{}, false
 		}
+	}
+	if segs[0] == "v1" {
+		// The capability probe is the only v1 route a Conan 2.x client uses (see
+		// the header comment); the rest of the Conan 1.x API stays unsupported.
+		if len(segs) == 2 && segs[1] == "ping" {
+			return resource{kind: kindPing}, true
+		}
+		return resource{}, false
 	}
 	if segs[0] != "v2" {
 		return resource{}, false

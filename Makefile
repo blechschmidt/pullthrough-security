@@ -46,6 +46,38 @@ test: ## Run the test suite
 test-integration: ## Run integration tests (needs MinIO/Git fixtures; see docs)
 	$(GO) test -tags integration $(GOFLAGS) ./...
 
+# --- Ecosystem tests: real package managers through the proxy (Task 170) -----
+#
+# For every supported ecosystem, run the ecosystem's REAL client (npm, pip,
+# cargo, go, dotnet, mvn, docker, helm, bundler, composer, terraform, conan,
+# conda, apt-get, dnf, git, mix, bazel, julia, cpanm, R, dart pub, ovsx, nix,
+# deno, cabal, brew, ansible-galaxy, r10k, huggingface_hub) — configured to use
+# the pull-through proxy — against the
+# real proxy binary and the real upstream registry, with a mock LLM scanning the
+# packages' source commits: a good package installs (and re-installs from the
+# cache), a bad package is refused. Needs Docker and network access; each client
+# runs in its ecosystem's official image, so no other toolchain is required.
+# See docs/ecosystem-tests.md.
+#
+#   make test-ecosystems                       # every ecosystem
+#   make test-ecosystems ECOSYSTEMS="npm pip"  # a selection
+#   make test-ecosystems ECOSYSTEMS=npm ECOTEST_KEEP=1 ECOTEST_WORKDIR=/tmp/eco
+#
+# CGO is disabled so the test binary is statically linked: it is re-executed
+# inside every client image as the loopback forwarder that makes the proxy the
+# only thing a (network-less) client container can reach.
+ECOSYSTEMS ?=
+
+.PHONY: test-ecosystems
+test-ecosystems: ## Run each ecosystem's real package manager through the proxy (needs Docker); ECOSYSTEMS="npm pip" selects
+	CGO_ENABLED=0 ECOTEST_ECOSYSTEMS="$(ECOSYSTEMS)" $(GO) test -tags ecosystem -count=1 -v -timeout 180m \
+		-run '^TestEcosystems$$' ./internal/ecotest/
+
+.PHONY: test-ecosystems-list
+test-ecosystems-list: ## List the ecosystems the real-package-manager suite covers
+	@CGO_ENABLED=0 $(GO) test -tags ecosystem -c -o $(BIN_DIR)/ecotest.test ./internal/ecotest && \
+		ECOTEST_LIST=1 $(BIN_DIR)/ecotest.test
+
 # --- Coverage guard (Task 117) ----------------------------------------------
 #
 # `covguard` runs the suite with coverage, aggregates per-package + total
@@ -151,6 +183,7 @@ FUZZ_TARGETS := \
 	internal/backends/terraform:FuzzParseSHASUMS \
 	internal/backends/conan:FuzzClassify \
 	internal/backends/conan:FuzzParseManifest \
+	internal/backends/conan:FuzzHeaderMD5 \
 	internal/backends/swift:FuzzClassify \
 	internal/backends/swift:FuzzParseReleaseMetadata \
 	internal/backends/dart:FuzzClassify \
@@ -160,9 +193,12 @@ FUZZ_TARGETS := \
 	internal/backends/conda:FuzzRepodataChecksum \
 	internal/backends/cran:FuzzClassify \
 	internal/backends/cran:FuzzParsePackages \
+	internal/backends/hex:FuzzClassify \
+	internal/backends/hex:FuzzParsePackageResource \
 	internal/backends/bazel:FuzzClassify \
 	internal/backends/bazel:FuzzParseSource \
 	internal/backends/bazel:FuzzParseIntegrity \
+	internal/backends/bazel:FuzzArchiveFileName \
 	internal/vulnscan:FuzzExtract \
 	internal/vulnscan:FuzzParseVEX \
 	internal/vulnscan:FuzzParseGoRequires \
@@ -371,6 +407,14 @@ gate-reference-gen: ## Regenerate docs/gates-reference.md from the admission-gat
 .PHONY: gate-reference-check
 gate-reference-check: ## Fail if docs/gates-reference.md is stale vs the gate catalog
 	$(GO) run ./cmd/gen-gate-reference -check -o docs/gates-reference.md
+
+.PHONY: ecosystem-reference-gen
+ecosystem-reference-gen: ## Regenerate docs/ecosystem-tests-reference.md from the ecosystem test catalog
+	$(GO) run ./cmd/gen-ecosystem-reference -o docs/ecosystem-tests-reference.md
+
+.PHONY: ecosystem-reference-check
+ecosystem-reference-check: ## Fail if docs/ecosystem-tests-reference.md is stale vs the ecosystem test catalog
+	$(GO) run ./cmd/gen-ecosystem-reference -check -o docs/ecosystem-tests-reference.md
 
 .PHONY: config-validate
 config-validate: ## Validate a config file: make config-validate CONFIG=path/to/config.yaml

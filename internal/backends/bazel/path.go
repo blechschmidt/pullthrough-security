@@ -11,7 +11,8 @@ import "strings"
 //	/modules/<name>/<version>/MODULE.bazel           module file          (immutable, cacheable)
 //	/modules/<name>/<version>/source.json            source descriptor    (immutable; rewritten, live)
 //	/modules/<name>/<version>/patches/<file>         module patch         (immutable, cacheable)
-//	/modules/<name>/<version>/archive                source archive        (proxy-synthetic, verified, cacheable)
+//	/modules/<name>/<version>/overlay/<path>         module overlay file  (immutable, cacheable)
+//	/modules/<name>/<version>/archive[/<file>]       source archive        (proxy-synthetic, verified, cacheable)
 //
 // source.json names the external source archive the module is built from,
 // together with its Subresource-Integrity ("integrity") digest:
@@ -21,13 +22,27 @@ import "strings"
 //
 // The archive lives at an arbitrary external URL, not under the registry. To
 // bring archive fetches through the proxy (so they are cached and integrity-
-// verified) the backend rewrites source.json's "url"/"urls" to a proxy-synthetic
-// "/modules/<name>/<version>/archive" endpoint (see source.go). A request to
-// that endpoint re-reads the module's source.json, resolves the real external
-// URL and the expected integrity, fetches the archive, and verifies the fetched
-// bytes against the SRI digest before they are cached or served (see bazel.go /
-// integrity.go). This mirrors the proxy-synthetic artifact endpoints the
-// Terraform and Dart backends use for externally-hosted archives.
+// verified) the backend rewrites source.json's "url" to a proxy-synthetic
+// "/modules/<name>/<version>/archive/<file>" endpoint (see source.go). A
+// request to that endpoint re-reads the module's source.json, resolves the real
+// external URL and the expected integrity, fetches the archive, and verifies the
+// fetched bytes against the SRI digest before they are cached or served (see
+// bazel.go / integrity.go). This mirrors the proxy-synthetic artifact endpoints
+// the Terraform and Dart backends use for externally-hosted archives.
+//
+// The trailing <file> exists for Bazel's benefit only. Bazel picks the
+// decompressor from the suffix of the downloaded file's name, and it names that
+// file after the last path segment of the URL; an endpoint ending in ".../archive"
+// therefore fails with "Expected a file with a .zip, ... suffix". So the rewritten
+// URL carries the upstream archive's own file name (e.g. "platforms-0.0.10.tar.gz").
+// The name is cosmetic to the proxy: it selects nothing, every spelling —
+// including the original extension-less ".../archive" — resolves to the same
+// module version and the same cache entry, and the bytes are always the ones
+// source.json's integrity vouches for.
+//
+// Patches and overlay files (both declared with their own integrity in
+// source.json, both fetched by Bazel from the registry itself) are immutable
+// per-version files and are proxied and cached as they are.
 //
 // This file classifies an inbound path (with the "/v1/<name>" route prefix
 // already stripped, retaining its leading slash) into one of these resource
@@ -53,6 +68,11 @@ const (
 	kindSource
 	// kindPatch is a module version's patch file. Immutable, cacheable.
 	kindPatch
+	// kindOverlay is a module version's overlay file: a file source.json's
+	// "overlay" map tells Bazel (7.2+) to download from the registry and lay over
+	// the extracted archive — typically BUILD.bazel / MODULE.bazel files at any
+	// depth. Immutable, cacheable.
+	kindOverlay
 	// kindArchive is the proxy-synthetic source-archive endpoint for a module
 	// version: on fetch the backend reads source.json, fetches the external
 	// archive, and verifies it against the declared SRI integrity. Immutable,
@@ -64,10 +84,20 @@ const (
 // archive's external URL and integrity.
 const sourceFile = "source.json"
 
-// archiveEndpoint is the final path segment of the proxy-synthetic archive
-// endpoint. It is not a real BCR file; source.json's "url" is rewritten to point
-// at it so archive fetches flow through (and are verified by) the proxy.
+// archiveEndpoint is the path segment of the proxy-synthetic archive endpoint,
+// "/modules/<name>/<version>/archive". It is not a real BCR file; source.json's
+// "url" is rewritten to point beneath it so archive fetches flow through (and
+// are verified by) the proxy. The endpoint is addressed either bare (the
+// original form) or with one trailing file-name segment (see isArchiveFileName).
 const archiveEndpoint = "archive"
+
+// Bounds on the client-supplied tails of the archive and overlay routes. Real
+// values are far smaller (BCR's deepest overlay path has 7 segments).
+const (
+	maxArchiveFileName = 255
+	maxOverlayDepth    = 32
+	maxOverlaySegment  = 255
+)
 
 // resource is the parsed classification of an inbound Bazel registry request.
 type resource struct {
@@ -76,7 +106,9 @@ type resource struct {
 	// config; version is empty for metadata.json.
 	name    string
 	version string
-	// filename is the final path component (the metadata/source/patch file).
+	// filename is the final path component (the metadata/source/patch file), the
+	// path below "overlay/" for an overlay file, or the cosmetic file name that
+	// trailed the archive endpoint ("archive" itself for the bare form).
 	filename string
 }
 
@@ -132,11 +164,23 @@ func classify(path string) (resource, bool) {
 		return resource{kind: kindSource, name: name, version: version, filename: rest[0]}, true
 	case len(rest) == 1 && rest[0] == archiveEndpoint:
 		return resource{kind: kindArchive, name: name, version: version, filename: rest[0]}, true
+	case len(rest) == 2 && rest[0] == archiveEndpoint:
+		// /archive/<file>: the file name only tells Bazel the archive format; it
+		// does not select what is served.
+		if !isArchiveFileName(rest[1]) {
+			return resource{}, false
+		}
+		return resource{kind: kindArchive, name: name, version: version, filename: rest[1]}, true
 	case len(rest) == 2 && rest[0] == "patches":
 		if !isPatchFile(rest[1]) {
 			return resource{}, false
 		}
 		return resource{kind: kindPatch, name: name, version: version, filename: rest[1]}, true
+	case len(rest) >= 2 && rest[0] == "overlay":
+		if !isOverlayPath(rest[1:]) {
+			return resource{}, false
+		}
+		return resource{kind: kindOverlay, name: name, version: version, filename: strings.Join(rest[1:], "/")}, true
 	default:
 		return resource{}, false
 	}
@@ -195,13 +239,65 @@ func isPatchFile(name string) bool {
 	return strings.HasSuffix(name, ".patch") || strings.HasSuffix(name, ".diff")
 }
 
+// isArchiveFileName reports whether s is acceptable as the cosmetic file name
+// trailing the archive endpoint: a single plain name over [A-Za-z0-9._+-]. The
+// proxy only ever writes names from this alphabet into a rewritten source.json
+// (see archiveFileName), so nothing else is a URL it handed out.
+func isArchiveFileName(s string) bool {
+	if s == "" || len(s) > maxArchiveFileName || s == "." || s == ".." {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isFileNameByte(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// isFileNameByte reports whether c belongs to the conservative file-name
+// alphabet [A-Za-z0-9._+-]: every byte of it is inert in a URL path.
+func isFileNameByte(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '.' || c == '_' || c == '+' || c == '-':
+		return true
+	default:
+		return false
+	}
+}
+
+// isOverlayPath reports whether segs is an acceptable overlay file path: the
+// relative path of a file inside the module's source tree (overlay keys are
+// commonly nested, e.g. "src/lib/BUILD.bazel"). Each segment must be a plain
+// name over [A-Za-z0-9._+-~@=,] — a superset of everything BCR uses — and never
+// "." or "..", so the path cannot leave the module version's overlay directory
+// and stays inert in the synthesized upstream URL.
+func isOverlayPath(segs []string) bool {
+	if len(segs) == 0 || len(segs) > maxOverlayDepth {
+		return false
+	}
+	for _, s := range segs {
+		if s == "" || len(s) > maxOverlaySegment || s == "." || s == ".." {
+			return false
+		}
+		for i := 0; i < len(s); i++ {
+			if c := s[i]; !isFileNameByte(c) && c != '~' && c != '@' && c != '=' && c != ',' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // cacheable reports whether the resource may be cached. The immutable per-version
-// files (MODULE.bazel, patches) and the proxy-synthetic archive are content-
-// addressable; the registry config, module metadata, and the (rewritten)
-// source.json are mutable/live and revalidated rather than cached.
+// files (MODULE.bazel, patches, overlay files) and the proxy-synthetic archive
+// are content-addressable; the registry config, module metadata, and the
+// (rewritten) source.json are mutable/live and revalidated rather than cached.
 func (r resource) cacheable() bool {
 	switch r.kind {
-	case kindModuleBazel, kindPatch, kindArchive:
+	case kindModuleBazel, kindPatch, kindOverlay, kindArchive:
 		return true
 	default:
 		return false
@@ -233,6 +329,8 @@ func (r resource) kindLabel() string {
 		return "source"
 	case kindPatch:
 		return "patch"
+	case kindOverlay:
+		return "overlay"
 	case kindArchive:
 		return "archive"
 	default:

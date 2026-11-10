@@ -1,8 +1,9 @@
 name: CI
 
 # Build, test, lint, and publish container images.
-# - PRs and branch pushes: run tests/lint and a no-push image build (validates the
-#   Dockerfile without publishing).
+# - PRs and branch pushes: run tests/lint, the ecosystem suites (hermetic, and
+#   with each ecosystem's real package manager pulling through the proxy), and a
+#   no-push image build (validates the Dockerfile without publishing).
 # - Pushes to main and version tags (v*): additionally publish multi-arch images
 #   to GHCR with provenance + SBOM attestations.
 
@@ -97,6 +98,14 @@ jobs:
       - name: Check gate reference is up to date
         if: matrix.arch == 'amd64'
         run: make gate-reference-check
+
+      # The ecosystem test reference is generated from the real-package-manager
+      # test catalog and its client scripts (internal/ecotest) — the very client
+      # configurations the `ecosystem` jobs execute; fail if the committed docs no
+      # longer match what is tested.
+      - name: Check ecosystem test reference is up to date
+        if: matrix.arch == 'amd64'
+        run: make ecosystem-reference-check
 
       - name: Test (race + coverage)
         run: go test -race -covermode=atomic -coverprofile=coverage-${{ matrix.arch }}.out ./...
@@ -275,6 +284,218 @@ jobs:
         run: go test ./internal/selfrelease/...
 
   # ----------------------------------------------------------------------- #
+  # Ecosystem integration suites, hermetic (Tasks 144 + 168). For every
+  # supported ecosystem these drive an in-process gateway over a recorded
+  # upstream: the whole-pipeline suite (routing, cache, digest verification,
+  # gates, SARIF, dossier) and the LLM commit-scan admission suite (a mock LLM
+  # scans a package's source commit; a benign commit admits the package, a
+  # malicious one blocks it). They need no network and no client tooling, so they
+  # are deterministic and gate the image build. They live behind the
+  # `integration` build tag, which the `test` job does not set.
+  integration:
+    name: Ecosystem integration suites (hermetic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run the per-ecosystem pipeline and LLM-scan admission suites
+        env:
+          PT_TEST_REPORT_DIR: ${{ runner.temp }}/integration-report
+        run: go test -race -tags integration ./internal/e2e/...
+
+      - name: Publish matrices
+        if: always()
+        run: |
+          for f in e2e-coverage-matrix.md llm-scan-matrix.md; do
+            if [ -f "$RUNNER_TEMP/integration-report/$f" ]; then
+              cat "$RUNNER_TEMP/integration-report/$f" >> "$GITHUB_STEP_SUMMARY"
+              echo >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - name: Upload matrices
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-report
+          path: ${{ runner.temp }}/integration-report
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
+  # Ecosystem tests with REAL package managers (Task 170).
+  #
+  # Every other suite speaks HTTP to the proxy the way its author read each
+  # protocol's specification. These jobs instead run each ecosystem's real
+  # client — npm, pip, cargo, go, dotnet, mvn, the Docker Engine, helm, bundler,
+  # composer, terraform, conan, conda, apt-get, dnf, git, mix, bazel, julia,
+  # cpanm, R, dart pub, ovsx, nix, deno, cabal, brew, ansible-galaxy, r10k,
+  # huggingface_hub — configured to use the
+  # pull-through proxy instead of the public registry, against the real proxy
+  # binary fronting the real upstream. Per ecosystem they assert:
+  #
+  #   1. the client installs a package through the proxy, the artifact lands in
+  #      the proxy's cache, and its admission was decided by the LLM scan of the
+  #      source commit it is pinned to (benign);
+  #   2. a second install from a pristine client is served from the cache;
+  #   3. a package whose source commit the LLM flagged malicious is refused, and
+  #      the real client fails.
+  #
+  # The LLM is a mock speaking the provider's wire format; everything else is
+  # real. Client containers run with no network at all (the proxy is reachable
+  # through a loopback forwarder only), so an install that succeeds provably took
+  # nothing from anywhere but the proxy. See docs/ecosystem-tests.md.
+  #
+  # Layout: one build job compiles the proxy and the (static) test binary once
+  # and derives the job matrix from the test catalog; one job per ecosystem runs
+  # the test; a final job assembles the matrix and fails unless every ecosystem
+  # ran and passed. The legs need only Docker — no Go toolchain, no sources.
+  #
+  # These jobs depend on the public registries being up, so they do not gate the
+  # image build (a registry outage must not block a release); they do turn the
+  # workflow red, and they also run on the nightly schedule as a canary for
+  # upstream protocol or client changes.
+  ecosystem-build:
+    name: Ecosystem tests · build
+    runs-on: ubuntu-latest
+    outputs:
+      ecosystems: ${{ steps.list.outputs.ecosystems }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Static binaries: the test binary is re-executed inside every client
+      # image (glibc and musl alike) as the loopback forwarder.
+      - name: Build the proxy and the ecosystem test binary
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p ecotest-bin
+          go build -o ecotest-bin/pullthrough ./cmd/pullthrough
+          go test -c -tags ecosystem -o ecotest-bin/ecotest.test ./internal/ecotest
+
+      # The matrix comes from the test catalog itself, so adding an ecosystem to
+      # the catalog adds its CI leg without touching this workflow.
+      - name: Derive the ecosystem matrix from the test catalog
+        id: list
+        run: |
+          ecosystems="$(ECOTEST_LIST=1 ecotest-bin/ecotest.test)"
+          echo "ecosystems=${ecosystems}" >> "$GITHUB_OUTPUT"
+          echo "Ecosystems: ${ecosystems}"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecotest-bin
+          path: ecotest-bin
+          retention-days: 1
+
+  ecosystem:
+    name: Ecosystem · ${{ matrix.ecosystem }}
+    needs: ecosystem-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        ecosystem: ${{ fromJSON(needs.ecosystem-build.outputs.ecosystems) }}
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ecotest-bin
+          path: ecotest-bin
+
+      - name: Run the real ${{ matrix.ecosystem }} client through the proxy
+        env:
+          ECOTEST_ECOSYSTEMS: ${{ matrix.ecosystem }}
+          ECOTEST_WORKDIR: ${{ runner.temp }}/ecotest
+          ECOTEST_REPORT_DIR: ${{ runner.temp }}/ecotest-report
+        run: |
+          chmod +x ecotest-bin/pullthrough ecotest-bin/ecotest.test
+          export ECOTEST_BIN="$PWD/ecotest-bin/pullthrough"
+          ecotest-bin/ecotest.test -test.run '^TestEcosystems$' -test.v -test.timeout 40m
+
+      - name: Publish result
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ecotest-report/ecosystem-matrix.md" ]; then
+            cat "$RUNNER_TEMP/ecotest-report/ecosystem-matrix.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The per-ecosystem result row; the matrix job assembles them.
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-result-${{ matrix.ecosystem }}
+          path: ${{ runner.temp }}/ecotest-report/${{ matrix.ecosystem }}.json
+          if-no-files-found: warn
+
+      # Proxy log, proxy config and client output, to diagnose a failure without
+      # re-running it. (The client scratch directories are not uploaded: they are
+      # written by the container's user and hold only installed packages.)
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-logs-${{ matrix.ecosystem }}
+          path: |
+            ${{ runner.temp }}/ecotest/${{ matrix.ecosystem }}/logs
+            ${{ runner.temp }}/ecotest/${{ matrix.ecosystem }}/proxy/config.yaml
+          if-no-files-found: ignore
+
+  ecosystem-matrix:
+    name: Ecosystem tests · matrix
+    needs: [ecosystem-build, ecosystem]
+    # Run even when legs failed: a red matrix is exactly when it is needed.
+    if: always() && needs.ecosystem-build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ecotest-bin
+          path: ecotest-bin
+
+      - name: Download results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ecosystem-result-*
+          path: ecotest-results
+
+      # Fails unless EVERY catalog ecosystem produced a result and passed, so a
+      # leg that never started (or was cancelled) cannot go unnoticed.
+      - name: Assemble the ecosystem matrix
+        env:
+          ECOTEST_AGGREGATE: "1"
+          ECOTEST_REPORT_DIR: ecotest-results
+        run: |
+          chmod +x ecotest-bin/ecotest.test
+          mkdir -p ecotest-results
+          ecotest-bin/ecotest.test -test.run '^TestEcosystemMatrix$' -test.v
+
+      - name: Upload matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-matrix
+          path: |
+            ecotest-results/ecosystem-matrix.md
+            ecotest-results/ecosystem-matrix.json
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
   # Extended fuzzing of the protocol/manifest parsers. Runs only on the nightly
   # schedule or manual dispatch (never on PRs, which use the fast seed-corpus
   # regression above). A discovered crasher is written under testdata/fuzz and
@@ -339,7 +560,7 @@ jobs:
     # only the extended-fuzzing job, not the image publish pipeline.
     if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    needs: [test, redteam, lint-manifests]
+    needs: [test, redteam, integration, lint-manifests]
     permissions:
       contents: read
       packages: write

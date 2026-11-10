@@ -40,6 +40,8 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `server.intercept.hosts` | map[string]string | {} |
 | `server.intercept.passthroughUnmatched` | bool | false |
 | `server.intercept.allowPlainHttp` | bool | false |
+| `server.registry.enabled` | bool | — |
+| `server.registry.defaultUpstream` | string | — |
 
 ## `logging`
 
@@ -307,6 +309,11 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `provenance.storeDir` | string | — |
 | `provenance.trustRootsFile` | string | — |
 | `provenance.useSystemTrustRoots` | bool | false |
+| `provenance.pins[].ecosystem` | string | — |
+| `provenance.pins[].name` | string | — |
+| `provenance.pins[].version` | string | — |
+| `provenance.pins[].repository` | string | — |
+| `provenance.pins[].commit` | string | — |
 
 ## `provgraph`
 

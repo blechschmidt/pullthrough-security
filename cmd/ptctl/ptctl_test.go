@@ -95,9 +95,19 @@ func TestSnippetsMountAndToken(t *testing.T) {
 		{"go", []string{"GOPROXY=https://proxy.example.com/v1/x,direct", "password secret-tok"}, true},
 		{"nuget", []string{"/v1/x/v3/index.json", "ClearTextPassword", "secret-tok"}, true},
 		{"maven", []string{"<url>https://proxy.example.com/v1/x</url>", "<password>secret-tok</password>"}, true},
-		{"docker", []string{"docker login proxy.example.com", "secret-tok"}, true},
+		{"docker", []string{"docker login proxy.example.com", "secret-tok",
+			// Explicit reference: the upstream is the repository's first component.
+			"docker pull proxy.example.com/x/library/alpine:latest",
+			// The Docker Engine rejects a mirror URL with a path: bare proxy URL only.
+			`"registry-mirrors": ["https://proxy.example.com"]`}, true},
 		{"helm", []string{"helm repo add pullthrough https://proxy.example.com/v1/x", "secret-tok"}, true},
-		{"terraform", []string{".well-known/terraform.json", "secret-tok"}, true},
+		{"terraform", []string{
+			// A host block serves the public registry from the proxy, so .tf
+			// source addresses stay unchanged.
+			`host "registry.terraform.io"`,
+			`"providers.v1" = "https://proxy.example.com/v1/x/v1/providers/"`,
+			`"modules.v1"   = "https://proxy.example.com/v1/x/v1/modules/"`,
+			`credentials "registry.terraform.io"`, "secret-tok"}, true},
 		{"conan", []string{"conan remote add x https://proxy.example.com/v1/x", "secret-tok"}, true},
 	}
 	for _, c := range cases {

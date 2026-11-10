@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/binary"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,21 @@ func FuzzClassify(f *testing.F) {
 		"/tarballs/../etc/passwd.tar",
 		"/packages/../../etc/passwd",
 		"", "/", "////",
+		// The /installs/ tree (Hex/Rebar self-install), both list generations.
+		"/installs/hex-1.x.csv",
+		"/installs/hex-1.x.csv.signed",
+		"/installs/hex.csv",
+		"/installs/rebar3-1.x.csv.signed",
+		"/installs/rebar.csv",
+		"/installs/1.16.0/hex-2.7.0.ez",
+		"/installs/1.18.0/hex-2.7.0-otp-27.ez",
+		"/installs/1.15.0-rc.0/rebar3-3.22.0",
+		"/installs/1.16.0/hex.ez",
+		"/installs/1.16.0/../../names",
+		"/installs/../tarballs/jason-1.4.1.tar",
+		"/installs/1.16.0/hex-2.7.0%2e%2e.ez",
+		"/installs/hex-1.x.csv.signed.signed",
+		"/installs",
 	}
 	for _, s := range seeds {
 		f.Add(s)
@@ -52,6 +68,34 @@ func FuzzClassify(f *testing.F) {
 			}
 			if res.name == "" || res.version == "" {
 				t.Fatalf("tarball with incomplete coordinate: %q -> %+v", path, res)
+			}
+		}
+		// Whatever is cached must be a tarball with the full coordinate the
+		// admission gates need.
+		if res.cacheable() && (res.kind != kindTarball || res.name == "" || res.version == "") {
+			t.Fatalf("cacheable resource without a full coordinate: %q -> %+v", path, res)
+		}
+		if res.kind == kindInstall {
+			// Live pass-through only: never cached, verified, or given a coordinate.
+			if res.cacheable() || res.verifiableFile() || res.coordinateName() != "" || res.version != "" {
+				t.Fatalf("install file must be coordinate-less pass-through: %q -> %+v", path, res)
+			}
+			// The accepted path is one or two segments drawn from a fixed, inert
+			// alphabet — nothing that could redirect the upstream request.
+			segs := strings.Split(res.filename, "/")
+			if len(segs) < 1 || len(segs) > 2 {
+				t.Fatalf("install path with %d segments: %q -> %q", len(segs), path, res.filename)
+			}
+			for _, s := range segs {
+				if s == "" || s == "." || s == ".." {
+					t.Fatalf("install path with an empty or dot segment: %q -> %q", path, res.filename)
+				}
+				for i := 0; i < len(s); i++ {
+					c := s[i]
+					if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '.' || c == '-' || c == '+') {
+						t.Fatalf("install path with unexpected byte %q: %q -> %q", c, path, res.filename)
+					}
+				}
 			}
 		}
 	})

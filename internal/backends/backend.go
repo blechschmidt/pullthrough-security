@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // Request is a protocol-agnostic description of an inbound proxy request,
@@ -64,6 +65,49 @@ type Resolved struct {
 	// Metadata carries backend-specific attributes to persist with the cache
 	// entry.
 	Metadata map[string]string
+}
+
+// ResponseHeaderMetaPrefix marks a Resolved.Metadata key whose value is a
+// response header the proxy must send whenever it serves the artifact — from a
+// fresh fetch and from the cache alike. The key is the prefix followed by the
+// header name ("response-header:X-Repo-Commit").
+//
+// A cached artifact is served from its cache entry, which carries the content
+// and the persisted Metadata but not the upstream response's headers. Most
+// protocols do not care; some clients, however, treat specific response headers
+// as part of the artifact and refuse a response without them (the Hugging Face
+// client requires X-Repo-Commit on every file it resolves). A backend names
+// exactly those headers here. It is deliberately opt-in and per header: relaying
+// every upstream header would replay stale or per-response values (Date, Age,
+// Set-Cookie) for as long as the artifact stays cached.
+const ResponseHeaderMetaPrefix = "response-header:"
+
+// SetResponseHeader records, in a Resolved's metadata, a response header that
+// must accompany the artifact whenever it is served (see
+// ResponseHeaderMetaPrefix). An empty value is ignored.
+func SetResponseHeader(meta map[string]string, name, value string) {
+	if meta == nil || name == "" || value == "" {
+		return
+	}
+	meta[ResponseHeaderMetaPrefix+http.CanonicalHeaderKey(name)] = value
+}
+
+// ResponseHeaders returns the response headers recorded in metadata by
+// SetResponseHeader, keyed by canonical header name. It returns nil when there
+// are none.
+func ResponseHeaders(meta map[string]string) map[string]string {
+	var out map[string]string
+	for k, v := range meta {
+		name, ok := strings.CutPrefix(k, ResponseHeaderMetaPrefix)
+		if !ok || name == "" || v == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string)
+		}
+		out[http.CanonicalHeaderKey(name)] = v
+	}
+	return out
 }
 
 // FetchResult is the outcome of Backend.Fetch. The caller owns Content and must

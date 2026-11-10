@@ -14,6 +14,7 @@ type Metrics struct {
 	checksumMissing  atomic.Uint64 // tarballs served without a usable outer_checksum
 	resourceFetched  atomic.Uint64 // /packages/<name> resources fetched and parsed for verification
 	registryServed   atomic.Uint64 // signed registry resources served (names/versions/packages)
+	installsServed   atomic.Uint64 // /installs/ files served (Hex/Rebar builds lists, signatures, builds)
 }
 
 // Snapshot is an immutable copy of the counters for a single scrape.
@@ -24,6 +25,7 @@ type Snapshot struct {
 	ChecksumMissing  float64
 	ResourceFetched  float64
 	RegistryServed   float64
+	InstallsServed   float64
 }
 
 // Stats returns the current counter values.
@@ -35,6 +37,7 @@ func (m *Metrics) Stats() Snapshot {
 		ChecksumMissing:  float64(m.checksumMissing.Load()),
 		ResourceFetched:  float64(m.resourceFetched.Load()),
 		RegistryServed:   float64(m.registryServed.Load()),
+		InstallsServed:   float64(m.installsServed.Load()),
 	}
 }
 
@@ -44,3 +47,4 @@ func (m *Metrics) incChecksumMismatch() { m.checksumMismatch.Add(1) }
 func (m *Metrics) incChecksumMissing()  { m.checksumMissing.Add(1) }
 func (m *Metrics) incResourceFetched()  { m.resourceFetched.Add(1) }
 func (m *Metrics) incRegistryServed()   { m.registryServed.Add(1) }
+func (m *Metrics) incInstallsServed()   { m.installsServed.Add(1) }

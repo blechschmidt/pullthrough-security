@@ -2,6 +2,8 @@
 
 # cloop task-runner internal state (not part of the source tree)
 /.cloop/
+# Agent tooling state (worktrees of delegated work)
+/.claude/
 /.perf-cache/
 
 # Build artifacts

@@ -251,6 +251,15 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 		resolved.Metadata[MetaCommit] = commit
 		header.Set("X-Repo-Commit", commit)
 	}
+	// The Hub client (huggingface_hub, and through it transformers/datasets)
+	// reads a file's identity from response headers and rejects a resolve
+	// response without X-Repo-Commit as "not served by a Hugging Face Hub
+	// endpoint". A commit-pinned file is cached and later served from the cache
+	// entry, so these headers are declared part of the artifact: the gateway
+	// replays them on every serve, hit or miss.
+	for _, name := range hubIdentityHeaders {
+		backends.SetResponseHeader(resolved.Metadata, name, resp.Header.Get(name))
+	}
 
 	// Metadata documents (/api/...) are proxied without content verification.
 	if resolved.Metadata[metaResolve] != "1" {
@@ -267,6 +276,13 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 
 	return b.fetchBlob(resolved, resp, header)
 }
+
+// hubIdentityHeaders are the Hub response headers a client uses to identify a
+// resolved file: the commit the revision resolved to, and — for an LFS/Xet
+// object, whose bytes come from a CDN — the content's own ETag (its SHA-256) and
+// size. X-Linked-Etag takes precedence over ETag in the client, so it must
+// survive caching for a weight file's checksum to be the one the client checks.
+var hubIdentityHeaders = []string{"X-Repo-Commit", "X-Linked-Etag", "X-Linked-Size"}
 
 // fetchBlob serves a resolved repository blob: it peeks the leading bytes to
 // recognize a git-lfs pointer, otherwise streams the real content through a

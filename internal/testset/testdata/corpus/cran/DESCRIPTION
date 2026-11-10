@@ -1,0 +1,13 @@
+Package: pullthroughtestset
+Type: Package
+Title: Minimal Real R Build for the Pull-Through Proxy Test Set
+Version: 0.1.0
+Description: Declares one real CRAN dependency (R6). Installing the
+    dependencies drives the proxy's CRAN backend: R fetches the
+    src/contrib/PACKAGES index and then the R6 source tarball, which the
+    backend verifies against the MD5sum the index records. Point R at the
+    proxy with options(repos = c(CRAN = "https://proxy.example.com/v1/cran")).
+License: MIT + file LICENSE
+Encoding: UTF-8
+Imports:
+    R6

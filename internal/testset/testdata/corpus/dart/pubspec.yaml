@@ -1,0 +1,15 @@
+# Minimal real Dart build for the pull-through proxy test set.
+#
+# Declares one real pub.dev dependency (path). `dart pub get` drives the proxy's
+# pub backend: the client fetches the package's version listing (archive URLs
+# rewritten through the proxy) and then the package archive, which the backend
+# verifies against the SHA-256 the listing records.
+#
+#   PUB_HOSTED_URL=https://proxy.example.com/v1/dart dart pub get
+name: pullthrough_testset
+description: Minimal real Dart build for the pull-through proxy test set.
+publish_to: none
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  path: 1.9.0

@@ -673,6 +673,54 @@ type ServerConfig struct {
 	// the same caching + admission pipeline — no per-tool reconfiguration needed
 	// beyond trusting the CA.
 	Intercept InterceptConfig `yaml:"intercept"`
+	// Registry configures the host-root Docker/OCI Registry v2 alias ("/v2/...").
+	// Container clients (Docker, containerd, podman, skopeo, the Helm OCI client)
+	// always insert "/v2/" directly after the registry host and therefore cannot
+	// address the path-prefixed "/v1/<upstream>/v2/" mount; the alias serves the
+	// same upstreams at the host root, through the same access-control and
+	// admission pipeline.
+	Registry RegistryConfig `yaml:"registry"`
+}
+
+// RegistryConfig configures the host-root Docker/OCI Registry v2 alias. It only
+// has an effect when at least one registry upstream (type "docker", or type
+// "helm" with settings.oci: "true") is configured.
+type RegistryConfig struct {
+	// Enabled toggles the alias. It defaults to true (nil): the alias adds an
+	// address for upstreams that are already configured, not a new capability, and
+	// without it no container client can pull through the proxy unless an external
+	// reverse proxy rewrites "/v2/" for it. Set false to serve registry upstreams
+	// only under "/v1/<upstream>/v2/".
+	Enabled *bool `yaml:"enabled"`
+	// DefaultUpstream names the registry upstream that serves requests whose
+	// repository carries no upstream prefix, i.e. registry-mirror mode: a Docker
+	// daemon with `"registry-mirrors": ["https://proxy.example.com"]` requests
+	// "/v2/library/alpine/..." and is served by this upstream. When empty, only
+	// upstream-prefixed repositories ("proxy.example.com/<upstream>/<repository>")
+	// and requests carrying containerd's "ns" mirror hint are served.
+	DefaultUpstream string `yaml:"defaultUpstream"`
+}
+
+// EnabledOrDefault resolves the tri-state Enabled flag (default true).
+func (c RegistryConfig) EnabledOrDefault() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// IsRegistryUpstream reports whether an upstream speaks the Docker/OCI Registry
+// v2 API and can therefore be reached through the host-root "/v2/" alias: a
+// "docker" upstream, or a "helm" upstream in OCI mode.
+func (u UpstreamConfig) IsRegistryUpstream() bool {
+	switch u.Type {
+	case "docker":
+		return true
+	case "helm":
+		return strings.EqualFold(strings.TrimSpace(u.Settings["oci"]), "true")
+	default:
+		return false
+	}
 }
 
 // InterceptConfig configures the TLS-interception forward-proxy mode (Task 100).
@@ -1704,6 +1752,33 @@ type ProvenanceConfig struct {
 	// certificate pool as the attestation trust anchor. Defaults to false so chain
 	// trust is only asserted against an explicitly configured root.
 	UseSystemTrustRoots bool `yaml:"useSystemTrustRoots"`
+	// Pins are operator-asserted package -> source-commit associations for
+	// coordinates no attestation or registry metadata covers (most ecosystems
+	// publish neither; internal packages often have no public metadata at all).
+	// A pin is authoritative for the coordinates it matches and its commit's scan
+	// verdict gates the package through the admission policy exactly as an
+	// attested link would. It is an assertion, not evidence: a pinned link has
+	// "claimed" confidence and never satisfies requireAttested.
+	Pins []ProvenancePin `yaml:"pins"`
+}
+
+// ProvenancePin is one operator-asserted package -> source-commit association.
+type ProvenancePin struct {
+	// Ecosystem is the upstream type the pin applies to (e.g. "npm", "pip",
+	// "docker"). Empty or "*" applies it to every ecosystem.
+	Ecosystem string `yaml:"ecosystem"`
+	// Name is the package name exactly as the backend reports it, matched
+	// case-insensitively (e.g. "@scope/pkg", "org.apache.commons:commons-lang3",
+	// "library/alpine"). Required; patterns are not accepted.
+	Name string `yaml:"name"`
+	// Version is the exact version the pin applies to. Empty or "*" applies it to
+	// every version of the package.
+	Version string `yaml:"version"`
+	// Repository is the canonical source repository URL, shown next to the commit.
+	Repository string `yaml:"repository"`
+	// Commit is the full source commit hash (40 hex characters, or 64 for a
+	// SHA-256 repository). Required.
+	Commit string `yaml:"commit"`
 }
 
 // ProvgraphConfig configures the supply-chain provenance & dependency graph
@@ -4923,6 +4998,12 @@ func (c *Config) Validate() error {
 	if err := c.validateIntercept(); err != nil {
 		return err
 	}
+	if err := c.validateRegistry(); err != nil {
+		return err
+	}
+	if err := c.validateProvenancePins(); err != nil {
+		return err
+	}
 
 	switch c.Cache.Backend {
 	case "memory":
@@ -5625,6 +5706,118 @@ func (c *Config) validateFIPS() error {
 			if m.TLS != nil && !fips.TLSMinVersionApproved(m.TLS.MinVersion) {
 				return fmt.Errorf("config: fips.enabled requires upstream %q mirror %d tls.minVersion >= 1.2, got %q", name, i, m.TLS.MinVersion)
 			}
+		}
+	}
+	return nil
+}
+
+// validateProvenancePins checks the operator-asserted package -> commit pins:
+// each needs an exact package name and a full commit hash, no two may assert the
+// same coordinate, and pins require the provenance subsystem that serves them.
+// The checks mirror provenance.NewPinSet so a bad pin is reported by
+// `verify-config` rather than at startup.
+func (c *Config) validateProvenancePins() error {
+	pins := c.Provenance.Pins
+	if len(pins) == 0 {
+		return nil
+	}
+	if !c.Provenance.Enabled {
+		return fmt.Errorf("config: provenance.pins is set but provenance.enabled is false (pins are served by the provenance subsystem)")
+	}
+	norm := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "*" {
+			return ""
+		}
+		return s
+	}
+	seen := make(map[string]int, len(pins))
+	for i, p := range pins {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			return fmt.Errorf("config: provenance.pins[%d].name is required", i)
+		}
+		if strings.ContainsAny(name, "*?") {
+			return fmt.Errorf("config: provenance.pins[%d].name %q must be an exact package name, not a pattern", i, name)
+		}
+		commit := strings.TrimSpace(p.Commit)
+		if !isFullCommitHash(commit) {
+			return fmt.Errorf("config: provenance.pins[%d].commit %q must be a full 40- or 64-character hex commit hash", i, commit)
+		}
+		version := strings.TrimSpace(p.Version)
+		if version == "*" {
+			version = ""
+		}
+		key := norm(p.Ecosystem) + "\x00" + strings.ToLower(name) + "\x00" + version
+		if j, dup := seen[key]; dup {
+			return fmt.Errorf("config: provenance.pins[%d] duplicates provenance.pins[%d] (same ecosystem, name and version)", i, j)
+		}
+		seen[key] = i
+	}
+	return nil
+}
+
+// isFullCommitHash reports whether s is a full Git commit hash (40 hex
+// characters for SHA-1, 64 for SHA-256).
+func isFullCommitHash(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// validateRegistry checks the host-root Docker/OCI Registry v2 alias
+// configuration: a named default upstream must exist, be enabled, and speak the
+// Registry v2 API, and no other gateway surface may be mounted inside the "/v2/"
+// path space the alias owns.
+func (c *Config) validateRegistry() error {
+	rc := c.Server.Registry
+	if !rc.EnabledOrDefault() {
+		if strings.TrimSpace(rc.DefaultUpstream) != "" {
+			return fmt.Errorf("config: server.registry.defaultUpstream is set but server.registry.enabled is false")
+		}
+		return nil
+	}
+
+	hasRegistry := false
+	for _, up := range c.Upstreams {
+		if up.IsEnabled() && up.IsRegistryUpstream() {
+			hasRegistry = true
+			break
+		}
+	}
+
+	if name := strings.TrimSpace(rc.DefaultUpstream); name != "" {
+		up, ok := c.Upstreams[name]
+		switch {
+		case !ok:
+			return fmt.Errorf("config: server.registry.defaultUpstream references unknown upstream %q", name)
+		case !up.IsEnabled():
+			return fmt.Errorf("config: server.registry.defaultUpstream references disabled upstream %q", name)
+		case !up.IsRegistryUpstream():
+			return fmt.Errorf("config: server.registry.defaultUpstream %q is not a registry upstream (want type docker, or type helm with settings.oci: \"true\")", name)
+		}
+	}
+
+	if !hasRegistry {
+		return nil // the alias is not mounted, so nothing can collide with it
+	}
+	for _, mount := range []struct{ label, path string }{
+		{"observability.metricsPath", c.Observability.MetricsPath},
+		{"observability.adminPathPrefix", c.Observability.AdminPathPrefix},
+		{"observability.portalPathPrefix", c.Observability.PortalPathPrefix},
+		{"scanning.watch.webhookPath", c.Scanning.Watch.WebhookPath},
+	} {
+		p := strings.TrimRight(strings.TrimSpace(mount.path), "/")
+		if p == "/v2" || strings.HasPrefix(p, "/v2/") {
+			return fmt.Errorf("config: %s %q collides with the host-root registry alias at /v2/ (move it, or set server.registry.enabled: false)", mount.label, p)
 		}
 	}
 	return nil

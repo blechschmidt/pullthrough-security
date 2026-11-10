@@ -1,0 +1,17 @@
+# Minimal real Conda build for the pull-through proxy test set.
+#
+# An environment file is the standard dependency declaration consumed by conda,
+# mamba and micromamba. Creating the environment drives the proxy's Conda
+# backend: the client fetches each subdir's repodata index (noarch + the
+# platform), resolves tzdata, and downloads the package archive, which the
+# backend verifies against the SHA-256 the repodata records.
+#
+# The only channel is the proxy mount, which is the channel root (conda-forge):
+#
+#   conda env create -f environment.yml
+name: pullthrough-testset
+channels:
+  - https://proxy.example.com/v1/conda
+  - nodefaults
+dependencies:
+  - tzdata=2024a

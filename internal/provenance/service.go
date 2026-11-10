@@ -21,6 +21,7 @@ import (
 //     from.
 type Service struct {
 	resolvers []Resolver
+	pins      *PinSet
 	store     LinkStore
 	verdicts  VerdictLookup
 	logger    *slog.Logger
@@ -60,6 +61,11 @@ type ServiceOptions struct {
 	// need a repository hint (e.g. GitHub) after the ecosystem-metadata resolvers
 	// that discover it.
 	Resolvers []Resolver
+	// Pins are operator-asserted package -> commit associations. A pin is
+	// authoritative for the coordinates it matches: it is consulted before the
+	// link store and the resolver chain, so the operator's explicit assertion is
+	// never shadowed by a previously persisted or metadata-derived link. Optional.
+	Pins *PinSet
 	// Store persists resolved links. Optional; without it every Resolve re-runs
 	// the resolver chain.
 	Store LinkStore
@@ -77,6 +83,7 @@ func NewService(opts ServiceOptions) *Service {
 	}
 	return &Service{
 		resolvers: opts.Resolvers,
+		pins:      opts.Pins,
 		store:     opts.Store,
 		verdicts:  opts.Verdicts,
 		logger:    logger,
@@ -87,12 +94,21 @@ func NewService(opts ServiceOptions) *Service {
 // Name implements Resolver.
 func (s *Service) Name() string { return "provenance" }
 
-// Resolve implements Resolver. It returns a cached link when present, otherwise
-// runs the resolver chain, persists the result, and returns it. ErrNoProvenance
-// is returned when no resolver can establish an association.
+// Resolve implements Resolver. An operator pin, when one matches, is
+// authoritative. Otherwise it returns a cached link when present, or runs the
+// resolver chain, persists the result, and returns it. ErrNoProvenance is
+// returned when no resolver can establish an association.
 func (s *Service) Resolve(ctx context.Context, art Artifact) (*Link, error) {
+	if link, ok := s.pins.Link(art, s.now()); ok {
+		s.rememberPin(ctx, link)
+		return link, nil
+	}
 	if s.store != nil {
-		if l, err := s.store.Get(ctx, art); err == nil {
+		// A stored link that originated from a pin is honored only while a pin
+		// still matches (handled above). Once the operator removes or narrows the
+		// pin, the stale assertion must not keep answering from the store: fall
+		// through to the resolver chain, which overwrites it if it finds a link.
+		if l, err := s.store.Get(ctx, art); err == nil && l.ResolverName != PinResolverName {
 			return l, nil
 		}
 	}
@@ -110,6 +126,28 @@ func (s *Service) Resolve(ctx context.Context, art Artifact) (*Link, error) {
 		"resolver", link.ResolverName, "confidence", link.Confidence,
 		"repository", link.RepositoryURL, "commit", link.CommitSHA)
 	return link, nil
+}
+
+// rememberPin persists a pinned link so it appears in the admin "consumed
+// packages" view alongside resolver-discovered links. The store is only written
+// when the pinned association is new or has changed, so a hot coordinate does not
+// cost a write per pull.
+func (s *Service) rememberPin(ctx context.Context, link *Link) {
+	if s.store == nil {
+		return
+	}
+	if prev, err := s.store.Get(ctx, link.Artifact); err == nil &&
+		prev.ResolverName == PinResolverName &&
+		prev.CommitSHA == link.CommitSHA && prev.RepositoryURL == link.RepositoryURL {
+		return
+	}
+	if err := s.store.Put(ctx, link); err != nil {
+		s.logger.Warn("provenance: persisting pinned link failed", "artifact", link.Artifact.Name, "error", err)
+		return
+	}
+	s.logger.Info("provenance pinned",
+		"ecosystem", link.Artifact.Ecosystem, "name", link.Artifact.Name, "version", link.Artifact.Version,
+		"repository", link.RepositoryURL, "commit", link.CommitSHA)
 }
 
 // runChain executes the resolver chain, threading discovered repository hints and
@@ -156,13 +194,32 @@ func (s *Service) ResolveEnriched(ctx context.Context, art Artifact) (*EnrichedL
 }
 
 // Links returns every persisted link (empty when no store is configured), for
-// administrative inspection.
+// administrative inspection. A link that was recorded from an operator pin is
+// listed only while a pin still asserts it, so removing a pin also removes its
+// association from the view rather than leaving a stale claim behind.
 func (s *Service) Links(ctx context.Context) ([]*Link, error) {
 	if s.store == nil {
 		return nil, nil
 	}
-	return s.store.List(ctx)
+	links, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := links[:0]
+	for _, l := range links {
+		if l.ResolverName == PinResolverName {
+			pin, ok := s.pins.Match(l.Artifact)
+			if !ok || pin.Commit != l.CommitSHA {
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	return out, nil
 }
+
+// PinCount reports how many operator pins the service was configured with.
+func (s *Service) PinCount() int { return s.pins.Len() }
 
 // LinksWithVerdicts returns every persisted link joined with its source commit's
 // scan verdict, for the admin/consumed-packages view.

@@ -12,12 +12,15 @@
 package bazel
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,5 +107,71 @@ func TestLiveModuleFlow(t *testing.T) {
 	}
 	if st := m.Stats(); st.ArchivesVerified < 1 || st.SourceFetched < 1 {
 		t.Errorf("verification metrics not recorded: %+v", st)
+	}
+
+	// The named form of the endpoint — what a rewritten source.json points at —
+	// serves the same verified archive.
+	named, namedBody := liveFetch(t, b, "/modules/"+mod+"/"+ver+"/archive/platforms-0.0.10.tar.gz")
+	if !bytes.Equal(namedBody, body) {
+		t.Error("the named archive endpoint served different bytes than the bare one")
+	}
+	if named.Resolved.CacheKey != fr.Resolved.CacheKey {
+		t.Errorf("cache keys differ: %q vs %q", named.Resolved.CacheKey, fr.Resolved.CacheKey)
+	}
+}
+
+// TestLiveRewriteOfRealDescriptors rewrites live BCR descriptors of each shape
+// the registry uses and checks what a Bazel client would be handed.
+func TestLiveRewriteOfRealDescriptors(t *testing.T) {
+	const publicBase = "https://proxy.example.com/v1/bazel"
+	hc := &http.Client{Timeout: 60 * time.Second}
+	b, err := New(Options{
+		Name:          "bcr-live",
+		UpstreamURL:   liveBCR,
+		PublicBaseURL: publicBase,
+		Client:        upstream.NewWithHTTPClient(hc, "pullthrough-integration/1"),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	cases := []struct {
+		module  string // "<name>/<version>"
+		wantURL string // expected rewritten url suffix; "" = passed through untouched
+	}{
+		{"platforms/0.0.10", "/archive/platforms-0.0.10.tar.gz"},
+		{"abc/0.0.0-20250408-yosyshq", "/archive/e55d316cc9a7f72a84a76eda555aa6ec083c9d0d.zip"}, // overlay
+		{"bison/3.8.2.bcr.10", "/archive/bison-3.8.2.tar.xz"},                                   // mirror_urls
+		{"eigen/3.4.1", "/archive/download.tar.gz"},                                             // archive_type
+		{"pico-sdk/2.1.1-develop.bcr.20250113-4b6e6475", ""},                                    // git_repository
+	}
+	for _, c := range cases {
+		_, body := liveFetch(t, b, "/modules/"+c.module+"/source.json")
+		var doc map[string]any
+		if err := json.Unmarshal(body, &doc); err != nil {
+			t.Errorf("%s: source.json is not JSON: %v", c.module, err)
+			continue
+		}
+		if c.wantURL == "" {
+			if _, ok := doc["url"]; ok || doc["type"] != "git_repository" {
+				t.Errorf("%s: a git_repository descriptor must pass through untouched: %s", c.module, body)
+			}
+			continue
+		}
+		if want := publicBase + "/modules/" + c.module + c.wantURL; doc["url"] != want {
+			t.Errorf("%s: url = %v, want %q", c.module, doc["url"], want)
+		}
+		if _, ok := doc["mirror_urls"]; ok {
+			t.Errorf("%s: mirror_urls must not reach the client", c.module)
+		}
+		if s, _ := doc["integrity"].(string); !strings.HasPrefix(s, "sha") {
+			t.Errorf("%s: integrity missing from the rewritten descriptor: %s", c.module, body)
+		}
+	}
+
+	// An overlay file is served from the registry and is cacheable.
+	fr, build := liveFetch(t, b, "/modules/abc/0.0.0-20250408-yosyshq/overlay/BUILD.bazel")
+	if len(build) == 0 || !fr.Resolved.Cacheable {
+		t.Errorf("overlay file: %d bytes, cacheable=%v", len(build), fr.Resolved.Cacheable)
 	}
 }

@@ -266,24 +266,30 @@ func mavenSnippet(ctx Context, b Backend) Snippet {
 }
 
 func dockerSnippet(ctx Context, b Backend) Snippet {
-	// The Docker CLI always appends /v2/ after the host, so a path-prefixed mount
-	// cannot be pulled directly: either use a registry mirror (Docker Hub) or an
-	// ingress /v2/ rewrite (any registry). The login command targets the host.
+	// Container clients always put /v2/ directly after the registry host, so the
+	// path-prefixed mount is unreachable for them; the proxy serves the Registry
+	// v2 API at its host root (server.registry) instead. An explicit reference
+	// names the upstream as the repository's first path component. A daemon-wide
+	// mirror must be the bare proxy URL — the Docker Engine rejects a mirror URL
+	// that carries a path.
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "# Daemon-wide mirror for Docker Hub (/etc/docker/daemon.json):\n")
-	fmt.Fprintf(&sb, "#   { \"registry-mirrors\": [\"%s\"] }\n", ctx.mount(b))
 	if ctx.Token != "" {
 		fmt.Fprintf(&sb, "echo %q | docker login %s --username pullthrough --password-stdin\n", ctx.Token, ctx.Host)
 	} else {
 		fmt.Fprintf(&sb, "docker login %s --username pullthrough   # enter your proxy token as the password\n", ctx.Host)
 	}
+	fmt.Fprintf(&sb, "\n# Pull by explicit reference: <proxy>/%s/<repository>:<tag>\n", b.Name)
+	fmt.Fprintf(&sb, "docker pull %s/%s/library/alpine:latest\n", ctx.Host, b.Name)
+	fmt.Fprintf(&sb, "\n# Or mirror Docker Hub daemon-wide (/etc/docker/daemon.json):\n")
+	fmt.Fprintf(&sb, "#   { \"registry-mirrors\": [\"%s\"] }\n", ctx.ProxyBase)
 	return Snippet{
-		Title: fmt.Sprintf("Docker — %s (login + mirror)", b.Name),
+		Title: fmt.Sprintf("Docker — %s (login + pull)", b.Name),
 		File:  "docker-login.sh",
 		Lang:  "bash",
 		Body:  sb.String(),
 		Notes: append(ctx.authNote(),
-			"Pull by explicit reference needs an ingress that rewrites /v2/ to /v1/"+b.Name+"/v2/ (see docs/clients.md)."),
+			"The explicit reference works for every registry upstream and fails closed when the proxy refuses an image.",
+			"Mirror mode needs server.registry.defaultUpstream: "+b.Name+" on the proxy, and the Docker Engine falls back to Docker Hub when a mirror refuses a pull — rely on it for enforcement only where direct egress is blocked (see docs/clients.md)."),
 	}
 }
 
@@ -321,9 +327,14 @@ func rubygemsSnippet(ctx Context, b Backend) Snippet {
 
 func composerSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
-	body := "{\n  \"repositories\": [\n    { \"type\": \"composer\", \"url\": \"" + mount + "\" }\n  ]\n}\n"
+	// Listing the proxy alone is not enough: Composer keeps consulting
+	// packagist.org unless that default repository is switched off, and then
+	// fetches whatever the proxy refused (or has not been asked for) directly.
+	body := "{\n  \"repositories\": [\n    { \"type\": \"composer\", \"url\": \"" + mount + "\" },\n" +
+		"    { \"packagist.org\": false }\n  ]\n}\n"
 	notes := append(ctx.authNote(),
-		"Add to composer.json. To route all Packagist traffic through the proxy, also add \"packagist.org\": false.")
+		"Add to composer.json. The \"packagist.org\": false entry keeps Composer from fetching around the proxy.",
+		"Or, for every project at once: composer config --global repos.packagist composer "+mount)
 	if ctx.Token != "" {
 		notes = append(notes, "Auth: composer config --global --auth http-basic."+ctx.Host+" pullthrough "+ctx.Token)
 	}
@@ -555,35 +566,62 @@ func dartSnippet(ctx Context, b Backend) Snippet {
 }
 
 func terraformSnippet(ctx Context, b Backend) Snippet {
+	// A `host` block overrides service discovery for the public registry's
+	// hostname, so provider and module addresses in .tf files stay unchanged
+	// (hashicorp/null resolves through the proxy). Terraform sends the credentials
+	// configured for that same hostname to the service URLs, i.e. to the proxy.
 	mount := ctx.mount(b)
-	host := ctx.Host + "/v1/" + b.Name
+	registry := registryHost(b.URL, "registry.terraform.io")
 	var sb strings.Builder
-	sb.WriteString("# Use the proxy as a provider/module registry host.\n")
+	sb.WriteString("# ~/.terraformrc (OpenTofu: ~/.tofurc)\n")
+	fmt.Fprintf(&sb, "host %q {\n  services = {\n", registry)
+	fmt.Fprintf(&sb, "    \"providers.v1\" = \"%s/v1/providers/\"\n", mount)
+	fmt.Fprintf(&sb, "    \"modules.v1\"   = \"%s/v1/modules/\"\n", mount)
+	sb.WriteString("  }\n}\n")
 	if ctx.Token != "" {
-		sb.WriteString("# ~/.terraformrc:\n")
-		fmt.Fprintf(&sb, "credentials \"%s\" {\n  token = %q\n}\n", ctx.Host, ctx.Token)
+		fmt.Fprintf(&sb, "\ncredentials %q {\n  token = %q\n}\n", registry, ctx.Token)
 	}
-	sb.WriteString("# Reference providers as " + host + "/<namespace>/<type>.\n")
+	notes := append(ctx.authNote(),
+		"Provider and module source addresses in your .tf files stay as they are: the host block serves "+registry+" from the proxy.")
+	if ctx.Token == "" {
+		notes = append(notes, "If the proxy requires auth, add: credentials \""+registry+"\" { token = \"<your proxy token>\" }.")
+	}
 	return Snippet{
-		Title: fmt.Sprintf("Terraform — %s", b.Name),
+		Title: fmt.Sprintf("Terraform — %s (CLI config)", b.Name),
 		File:  "terraformrc",
 		Lang:  "hcl",
 		Body:  sb.String(),
-		Notes: append(ctx.authNote(),
-			"Discovery is served at "+mount+"/.well-known/terraform.json."),
+		Notes: notes,
 	}
+}
+
+// registryHost returns the host of an upstream URL, or fallback when the URL is
+// empty or unparsable.
+func registryHost(raw, fallback string) string {
+	if u, err := url.Parse(strings.TrimSpace(raw)); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return fallback
 }
 
 func gitSnippet(ctx Context, b Backend) Snippet {
 	mount := WithUserinfo(ctx.mount(b), ctx.Token)
 	body := "git clone " + mount + "/<owner>/<repo>.git\n"
+	notes := append(ctx.authNote(),
+		"Read-only (fetch/clone). Set an existing checkout with: git remote set-url origin "+ctx.mount(b)+"/<owner>/<repo>.git.")
+	// Rewriting the forge's base URL sends existing clone URLs, submodules and
+	// dependency manifests through the proxy without editing them.
+	if u, err := url.Parse(strings.TrimSpace(b.URL)); err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http") {
+		forge := u.Scheme + "://" + u.Host + "/"
+		body += "\n# Or route every " + forge + " URL through the proxy:\n" +
+			"git config --global url.\"" + mount + "/\".insteadOf \"" + forge + "\"\n"
+	}
 	return Snippet{
 		Title: fmt.Sprintf("Git over HTTPS — %s", b.Name),
 		File:  "git-clone.sh",
 		Lang:  "bash",
 		Body:  body,
-		Notes: append(ctx.authNote(),
-			"Read-only (fetch/clone). Set an existing checkout with: git remote set-url origin "+ctx.mount(b)+"/<owner>/<repo>.git."),
+		Notes: notes,
 	}
 }
 

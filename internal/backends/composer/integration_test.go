@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,15 +96,16 @@ func TestLiveMetadataParses(t *testing.T) {
 	}
 }
 
-// TestLiveDistDownloads resolves a real dist reference end-to-end: it reads the
-// live metadata, picks a version, and fetches the archive through the backend's
-// /dist path, confirming the metadata-driven download + verification flow works
-// against the real upstream.
+// TestLiveDistDownloads resolves a real dist end-to-end: it reads the live
+// metadata as the proxy serves it (dist URLs rewritten), picks a version, and
+// fetches the archive through the dist path that version's rewritten URL names,
+// confirming the metadata-driven download + verification flow works against the
+// real upstream (including GitHub's api -> codeload redirect).
 func TestLiveDistDownloads(t *testing.T) {
 	m := &Metrics{}
 	b := liveBackend(t, m)
 
-	// Read metadata to discover a real dist reference.
+	// Read the served metadata to discover a real dist URL.
 	res := liveResolve(t, b, "/p2/psr/log.json")
 	fr, err := b.Fetch(context.Background(), res)
 	if err != nil {
@@ -117,18 +119,31 @@ func TestLiveDistDownloads(t *testing.T) {
 		t.Fatalf("ParseMetadata: %v", err)
 	}
 
-	var reference string
+	var distURL, version string
 	for _, v := range md.Packages["psr/log"] {
 		if v.Dist.Reference != "" && v.Dist.URL != "" {
-			reference = v.Dist.Reference
+			distURL, version = v.Dist.URL, v.Version
 			break
 		}
 	}
-	if reference == "" {
-		t.Skip("no usable dist reference in live metadata")
+	if distURL == "" {
+		t.Skip("no usable dist in live metadata")
+	}
+	// The served URL must point at this backend's dist endpoint, not at the
+	// upstream's archive host.
+	const mount = "/v1/packagist-live"
+	if !strings.HasPrefix(distURL, mount+"/dist/psr/log/") {
+		t.Fatalf("served dist URL %q is not routed through the proxy", distURL)
+	}
+	u, err := url.Parse(distURL)
+	if err != nil {
+		t.Fatalf("served dist URL %q: %v", distURL, err)
 	}
 
-	distRes := liveResolve(t, b, "/dist/psr/log/"+reference+".zip")
+	distRes := liveResolve(t, b, strings.TrimPrefix(u.Path, mount))
+	if want := (backends.Coordinate{Name: "psr/log", Version: version}); distRes.Coordinate != want {
+		t.Fatalf("dist coordinate = %+v, want %+v", distRes.Coordinate, want)
+	}
 	distFR, err := b.Fetch(context.Background(), distRes)
 	if err != nil {
 		skipIfOffline(t, err)

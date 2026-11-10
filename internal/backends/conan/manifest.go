@@ -4,11 +4,20 @@ import "strings"
 
 // conanmanifest.txt is Conan's per-revision integrity record. Its wire format is
 // a leading timestamp line followed by one "relative/path: md5hex" line per file
-// in the revision:
+// of the revision as it exists unpacked in the client's cache. A real recipe
+// manifest (ConanCenter's zlib/1.3.1) reads:
 //
-//	1700000000
-//	conanfile.py: 5d41402abc4b2a76b9719d911017c592
-//	conan_sources.tgz: 7d793037a0760186574b0282f2f435e7
+//	1765284693
+//	conandata.yml: 7388d3b9c983326938e00bcdaadb8533
+//	conanfile.py: 373b2b3b570caa67d7fcce21b9d484c1
+//	export_source/patches/1.3.1/0001-fix-cmake.patch: 258ad7382f40ea5933cd48a5501f843d
+//
+// and a package manifest lists conaninfo.txt plus the packaged files
+// (include/zlib.h, lib/libz.a, ...). Only conanfile.py and conaninfo.txt are
+// transferred under the name the manifest records; everything else travels
+// inside conan_export.tgz / conan_sources.tgz / conan_package.tgz, which the
+// manifest never names — so a lookup for an archive finds no entry (see
+// checksum.go for how those are verified).
 //
 // The digest is a 32-character hex MD5 and always appears last on the line; the
 // path may itself contain spaces or colons (unusual, but possible for recipe

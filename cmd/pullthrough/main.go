@@ -949,6 +949,7 @@ func run() error {
 		InterceptAddr:    cfg.Server.Intercept.ListenAddr,
 		WebhookPath:      watchWebhookPath(cfg),
 		FIPSEnabled:      fipsMode.Enabled,
+		RegistryRoot:     buildRegistryRoot(cfg, logger),
 	})
 	if err != nil {
 		return err
@@ -2209,17 +2210,45 @@ func buildProvenance(cfg *config.Config, registry *backends.Registry, scanner sc
 		return nil, noop, err
 	}
 
+	pins, err := buildProvenancePins(cfg.Provenance.Pins)
+	if err != nil {
+		_ = closeStore()
+		return nil, noop, err
+	}
+
 	svc := provenance.NewService(provenance.ServiceOptions{
 		Resolvers: resolvers,
+		Pins:      pins,
 		Store:     store,
 		Verdicts:  verdictLookup(scanner),
 		Logger:    logger,
 	})
 	logger.Info("provenance association enabled",
 		"resolvers", len(resolvers),
+		"pins", pins.Len(),
 		"requireAttested", cfg.Provenance.RequireAttested,
 		"trustRoots", roots != nil)
 	return svc, closeStore, nil
+}
+
+// buildProvenancePins converts the configured operator pins (package -> source
+// commit assertions) into the provenance service's validated pin set.
+func buildProvenancePins(cfgPins []config.ProvenancePin) (*provenance.PinSet, error) {
+	pins := make([]provenance.Pin, 0, len(cfgPins))
+	for _, p := range cfgPins {
+		pins = append(pins, provenance.Pin{
+			Ecosystem:  p.Ecosystem,
+			Name:       p.Name,
+			Version:    p.Version,
+			Repository: p.Repository,
+			Commit:     p.Commit,
+		})
+	}
+	set, err := provenance.NewPinSet(pins)
+	if err != nil {
+		return nil, fmt.Errorf("provenance: %w", err)
+	}
+	return set, nil
 }
 
 // buildPolicy constructs the admission-policy engine (Task 9) when policy
@@ -4211,18 +4240,20 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		})
 	case "composer":
 		return composer.New(composer.Options{
-			Name:        name,
-			UpstreamURL: up.URL,
-			Client:      client,
-			Credentials: creds,
+			Name:          name,
+			UpstreamURL:   up.URL,
+			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			Client:        client,
+			Credentials:   creds,
 		})
 	case "helm":
 		return helm.New(helm.Options{
-			Name:        name,
-			UpstreamURL: up.URL,
-			Client:      client,
-			Credentials: creds,
-			OCI:         strings.EqualFold(strings.TrimSpace(up.Settings["oci"]), "true"),
+			Name:          name,
+			UpstreamURL:   up.URL,
+			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			Client:        client,
+			Credentials:   creds,
+			OCI:           strings.EqualFold(strings.TrimSpace(up.Settings["oci"]), "true"),
 		})
 	case "apt", "deb":
 		gpgKey, err := loadBackendGPGKey(name, up.Settings)
@@ -4338,6 +4369,9 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 			BottleRegistryURL: strings.TrimSpace(up.Settings["bottleRegistryUrl"]),
 			Client:            client,
 			Credentials:       creds,
+			// A sealed (air-gapped) instance must not reach upstream from Resolve
+			// either: skip the formula-API recovery of a bottle's version.
+			Offline: cfg.Cache.Sealed,
 		})
 	case "ansible":
 		return ansible.New(ansible.Options{

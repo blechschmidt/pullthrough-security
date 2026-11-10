@@ -107,32 +107,6 @@ func TestNormalizeSHA256(t *testing.T) {
 	}
 }
 
-func TestRewriteMetadata(t *testing.T) {
-	origin := "https://galaxy.ansible.com"
-	public := "https://proxy.example.com/v1/ansible"
-	body := []byte(`{"download_url":"https://galaxy.ansible.com/api/v3/.../community-general-8.0.0.tar.gz","rel":"./x","n":{"href":"https://galaxy.ansible.com/api/v3/next"}}`)
-	out, changed := rewriteMetadata(body, origin, public)
-	if !changed {
-		t.Fatal("expected rewrite")
-	}
-	var m map[string]any
-	if err := json.Unmarshal(out, &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if m["download_url"] != public+"/api/v3/.../community-general-8.0.0.tar.gz" {
-		t.Errorf("download_url = %v", m["download_url"])
-	}
-	if m["rel"] != "./x" {
-		t.Errorf("relative link must be untouched, got %v", m["rel"])
-	}
-	if _, changed := rewriteMetadata([]byte(`{"a":"./b"}`), origin, public); changed {
-		t.Error("body without an upstream URL must not be marked changed")
-	}
-	if _, changed := rewriteMetadata([]byte("not json"), origin, public); changed {
-		t.Error("non-JSON body must not be marked changed")
-	}
-}
-
 func TestVerifyingReaderMismatch(t *testing.T) {
 	served := []byte("POISONED")
 	real := sha256.Sum256([]byte("the real bytes"))

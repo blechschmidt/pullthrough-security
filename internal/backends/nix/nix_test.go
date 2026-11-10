@@ -378,6 +378,38 @@ func TestNarInfoFingerprintMatchesNixFormat(t *testing.T) {
 	}
 }
 
+// TestCoordinatesAreConcrete pins the coordinate contract the admission gates
+// rely on. The policy gate (and with it provenance pins, the dependency firewall
+// and break-glass approvals) only evaluates a coordinate that has BOTH a name
+// and a version; a store path used to be reported with a name only, so no such
+// gate ever saw a Nix artifact. The content address is name and version alike.
+func TestCoordinatesAreConcrete(t *testing.T) {
+	b := newTestBackend(t, newFakeCache(t), nil, nil)
+	resolve := func(path string) backends.Coordinate {
+		t.Helper()
+		res, err := b.Resolve(context.Background(), &backends.Request{Method: http.MethodGet, Path: path, Query: url.Values{}, Header: http.Header{}})
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", path, err)
+		}
+		return res.Coordinate
+	}
+
+	const storeHash = "n5glp21rsz314qssw9fbvfswgy3kc68f"
+	if got, want := resolve("/"+storeHash+".narinfo"), (backends.Coordinate{Name: storeHash, Version: storeHash}); got != want {
+		t.Errorf("narinfo coordinate = %+v, want %+v", got, want)
+	}
+
+	const fileHash = "1qi9kgysh7rpfnj20zxiys6xg15265ws0sc5kybmw1zdj8asc37j"
+	if got, want := resolve("/nar/"+fileHash+".nar.xz"), (backends.Coordinate{Name: fileHash, Version: fileHash}); got != want {
+		t.Errorf("nar coordinate = %+v, want %+v", got, want)
+	}
+
+	// The cache descriptor is not an artifact and must stay ungated.
+	if got := resolve("/nix-cache-info"); got != (backends.Coordinate{}) {
+		t.Errorf("nix-cache-info coordinate = %+v, want none", got)
+	}
+}
+
 func TestCacheInfoPassthrough(t *testing.T) {
 	fc := newFakeCache(t)
 	info := "StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 40\n"

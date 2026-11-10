@@ -16,6 +16,12 @@
 //	GET /versions                         all versions        (signed protobuf, mutable, live)
 //	GET /packages/<name>                  one package's releases (signed protobuf, mutable, live)
 //	GET /tarballs/<name>-<version>.tar    release tarball     (immutable, verified, cacheable)
+//	GET /installs/...                     Hex/Rebar self-install lists and builds (live)
+//
+// The /installs/ tree is what `mix local.hex`, `mix local.rebar`, and Hex's own
+// update check read when HEX_MIRROR points at the proxy. It is passed through
+// live and byte-exact (the lists are signature-checked by Mix) and is neither
+// cached nor gated; path.go explains why.
 //
 // Security model: a tarball filename pins its version, so the cache key (which
 // embeds the full repository path) is itself content-addressable. On a cache
@@ -190,7 +196,8 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 // Fetch implements backends.Backend. Release tarballs are verified against the
 // outer_checksum the sibling /packages/<name> resource declares — streaming so a
 // mismatch aborts the cache write and client stream without buffering. The
-// signed registry resources are proxied directly, byte-exact.
+// signed registry resources and the /installs/ tree are proxied directly,
+// byte-exact.
 func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*backends.FetchResult, error) {
 	if resolved == nil {
 		return nil, errors.New("hex: nil resolved")
@@ -218,10 +225,15 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 
 	mediaType := b.mediaType(resolved, resp.ContentType)
 
-	// Registry resources (names/versions/packages) are proxied without content
-	// verification; the client performs its own signature check against them.
+	// Registry resources (names/versions/packages) and the /installs/ tree are
+	// proxied byte-exact without content verification; the client performs its
+	// own signature and checksum checks against them.
 	if resolved.Metadata[metaVerify] != "1" {
-		b.metrics.incRegistryServed()
+		if resolved.Metadata[metaKind] == "install" {
+			b.metrics.incInstallsServed()
+		} else {
+			b.metrics.incRegistryServed()
+		}
 		return &backends.FetchResult{
 			Resolved:  resolved,
 			Content:   resp.Body,

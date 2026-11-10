@@ -35,6 +35,25 @@ server:
     hosts: {}
     passthroughUnmatched: false    # refuse (don't blind-tunnel) unconfigured hosts
     allowPlainHttp: false          # also intercept absolute-form http:// requests
+  # registry serves the Docker/OCI Registry v2 API at the host root (/v2/...), in
+  # addition to each registry upstream's /v1/<upstream>/v2/ mount. Container
+  # clients (Docker, containerd, podman, skopeo, the Helm OCI client) always put
+  # /v2/ directly after the registry host and cannot address a path-prefixed
+  # registry, and the Docker Engine rejects a registry-mirror URL that carries a
+  # path — so the host root is the only place they can reach. Requests run through
+  # the same access control and admission gates as any other pull. It has no
+  # effect without a registry upstream (type docker, or helm with oci: "true").
+  #   - "<proxy-host>/<upstream>/<repository>" always works:
+  #       docker pull proxy.example.com/dockerhub/library/alpine:3.19
+  #   - defaultUpstream additionally serves UN-prefixed repositories, which is
+  #     what a registry mirror receives:
+  #       /etc/docker/daemon.json  {"registry-mirrors": ["https://proxy.example.com"]}
+  #   - containerd/CRI-O mirror requests name their registry ("?ns=ghcr.io") and
+  #     are routed to the upstream fronting that registry.
+  # See docs/clients.md ("Docker / OCI images").
+  registry:
+    # enabled: true                # default; false serves registries only under /v1/<upstream>/v2/
+    defaultUpstream: dockerhub     # "" = only upstream-prefixed repositories and ns-hinted requests
 
 logging:
   level: info        # debug | info | warn | error
@@ -129,6 +148,13 @@ upstreams:
   goproxy:
     type: go
     url: https://proxy.golang.org
+    # The proxy also serves the Go checksum database under /sumdb/<name>/ (the
+    # GOPROXY protocol's checksum-database proxying), so a client that can reach
+    # only the proxy still verifies every module against sum.golang.org instead
+    # of failing or having verification switched off. Responses are signed by the
+    # database and verified by the go command, so this adds no trust in the proxy.
+    # settings:
+    #   sumdb: sum.golang.org      # space/comma-separated database names; "off" disables
   nuget:
     type: nuget
     url: https://api.nuget.org
@@ -156,10 +182,14 @@ upstreams:
     #   token: ${RUBYGEMS_API_KEY}
   packagist:
     # Composer/Packagist (PHP) pull-through. Point at the metadata repository
-    # (repo.packagist.org or a Satis/Toran mirror). packages.json, the v2 metadata
-    # layout (/p2/<vendor>/<package>.json), and dist archives are proxied; a dist
-    # archive is verified against the SHA-1 shasum its metadata declares before it
-    # is cached. Add "<proxy>/v1/packagist" as a composer repository (see docs/clients.md).
+    # (repo.packagist.org or a Satis/Toran mirror). packages.json and the v2
+    # metadata layout (/p2/<vendor>/<package>.json) are served rewritten, so every
+    # metadata lookup and dist download comes back through the proxy. Dist
+    # archives are cached, admission-gated by vendor/package@version, and verified
+    # against the SHA-1 shasum when the metadata declares one (GitHub-generated
+    # archives have none and are cached as fetched). Set server.publicUrl so the
+    # rewritten URLs are absolute. Clients use "<proxy>/v1/packagist" as their
+    # composer repository and disable packagist.org (see docs/clients.md).
     type: composer
     url: https://repo.packagist.org
     # credentials:
@@ -167,9 +197,12 @@ upstreams:
     #   password: ${PACKAGIST_TOKEN}
   bitnami:
     # Helm pull-through, classic chart-repository protocol (helm repo add). Point
-    # at the repository root that serves index.yaml. The index is served live; a
-    # chart .tgz is verified against the SHA-256 digest published for it in
-    # index.yaml before it is cached. `helm repo add charts <proxy>/v1/bitnami`
+    # at the repository root that serves index.yaml. The index is served live,
+    # with its chart URLs rewritten to lead back through the proxy (using
+    # server.publicUrl when set), so archives the repository hosts elsewhere —
+    # another host, or an OCI registry — are fetched by the proxy too. A chart
+    # .tgz is verified against the SHA-256 digest published for it in index.yaml
+    # before it is cached. `helm repo add charts <proxy>/v1/bitnami`
     # (see docs/clients.md).
     type: helm
     url: https://charts.bitnami.com/bitnami
@@ -206,9 +239,10 @@ upstreams:
   dockerhub:
     # Docker Registry v2 / OCI distribution pull-through. The backend performs
     # the upstream bearer-token handshake automatically; public images pull
-    # anonymously. Pull e.g. "docker pull <proxy-host>/v1/dockerhub/v2/..."-style
-    # mirroring (or front it at /v2/ via your ingress). Manifests and blobs
-    # referenced by digest are cached and digest-verified; tags are revalidated.
+    # anonymously. Clients reach it at the host root (server.registry, above):
+    # "docker pull <proxy-host>/dockerhub/library/alpine", or as a daemon-wide
+    # registry mirror. Manifests and blobs referenced by digest are cached and
+    # digest-verified; tags are revalidated.
     type: docker
     url: https://registry-1.docker.io
     # Optional: authenticate to raise Docker Hub rate limits or pull private
@@ -421,6 +455,27 @@ provenance:
   # root (https://github.com/sigstore/root-signing) or a corporate CA.
   # trustRootsFile: /etc/pullthrough/fulcio-root.pem
   useSystemTrustRoots: false  # when no trustRootsFile is set, trust the system CA pool
+  # Operator pins: state explicitly which source commit a package is built from.
+  # Most ecosystems publish no attestation, and an internal package often has no
+  # public metadata at all; a pin lets such a package be gated on its source
+  # commit's scan verdict (policy.default.blockMalicious / blockAtRiskScore)
+  # exactly like an attested one. A pin is authoritative for the coordinates it
+  # matches (it is consulted before stored links and the resolvers). It is an
+  # assertion, not evidence: the link has "claimed" confidence and never satisfies
+  # requireAttested. `ecosystem` is the upstream type; `name` is the package name
+  # as the backend reports it (see the "package" field of a policy audit record),
+  # matched case-insensitively; `version` is exact, or omitted for every version;
+  # `commit` is the full 40- (or 64-) character hash.
+  pins: []
+  #   - ecosystem: npm
+  #     name: "@acme/widgets"
+  #     version: "1.4.2"
+  #     repository: https://github.com/acme/widgets
+  #     commit: 0123456789abcdef0123456789abcdef01234567
+  #   - ecosystem: docker             # every tag/digest of the image
+  #     name: acme/api
+  #     repository: https://github.com/acme/api
+  #     commit: 89abcdef0123456789abcdef0123456789abcdef
 
 # ---------------------------------------------------------------------------
 # Supply-chain provenance & dependency graph (Task 33)

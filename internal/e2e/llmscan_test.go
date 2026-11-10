@@ -181,10 +181,7 @@ func assertVerdict(t *testing.T, ctx context.Context, sc *llmScenario, f testset
 func writeLLMMatrix(t *testing.T, results []llmResult) {
 	sort.Slice(results, func(i, j int) bool { return results[i].Backend < results[j].Backend })
 
-	dir := os.Getenv("CLOOP_TASK_ATTACHMENTS")
-	if dir == "" {
-		dir = "."
-	}
+	dir := artifactDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Logf("could not ensure artifact dir %q: %v", dir, err)
 		return

@@ -146,6 +146,48 @@ otherwise a verified-but-unchained signature is downgraded to `claimed`. With no
 lacking verified provenance; the `policy` engine offers finer, per-ecosystem
 control.
 
+### Operator pins
+
+Attestations and registry metadata cover only part of the ecosystems the proxy
+fronts: most registries publish neither, and an internal package often has no
+public metadata at all. For those, an operator states the association explicitly
+with a **pin**:
+
+```yaml
+provenance:
+  enabled: true
+  pins:
+    - ecosystem: npm                 # the upstream type; omit or "*" for any
+      name: "@acme/widgets"          # the package, as the backend reports it
+      version: "1.4.2"               # exact; omit to pin every version
+      repository: https://github.com/acme/widgets
+      commit: 0123456789abcdef0123456789abcdef01234567   # full hash
+```
+
+- A pin is **authoritative** for the coordinates it matches: it is consulted
+  before previously stored links and before the resolver chain, so an explicit
+  operator assertion is never shadowed by a metadata-derived link. The most
+  specific pin wins (exact version over every-version, exact ecosystem over any).
+- The pinned commit's **scan verdict gates the package** through the admission
+  policy exactly as an attested link would: a package pinned to a commit the
+  scanner flagged malicious is refused (`blockMalicious`, `blockAtRiskScore`).
+  Have the commit scanned by watching the repository (`scanning.watch`).
+- A pin is an **assertion, not evidence**: the link is recorded with `claimed`
+  confidence under the resolver name `operator-pin`, and never satisfies
+  `requireAttested` or `requireSignature`.
+- Removing or narrowing a pin takes effect at the next start; a link recorded
+  from a pin is not honored once no pin asserts it any more.
+- `name` is matched case-insensitively and must be the coordinate the backend
+  reports — the `package` field of a policy record in the audit log — which
+  follows the ecosystem's protocol, not always the name a user types: a Maven
+  `groupId:artifactId`, a CPAN distribution (`Try-Tiny`, not `Try::Tiny`), a
+  Julia package UUID, a Nix store-path hash, an OCI repository
+  (`library/alpine`).
+
+The real-package-manager [ecosystem tests](ecosystem-tests.md) use pins to gate
+every ecosystem's packages on an LLM scan verdict; the pin each test uses is
+listed in [ecosystem-tests-reference.md](ecosystem-tests-reference.md).
+
 ---
 
 ## Policy (admission gating)

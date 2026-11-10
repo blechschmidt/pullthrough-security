@@ -17,20 +17,27 @@
 //	GET /modules/<name>/<version>/MODULE.bazel      module file        (immutable, cacheable)
 //	GET /modules/<name>/<version>/source.json       source descriptor  (rewritten, live)
 //	GET /modules/<name>/<version>/patches/<file>    module patch       (immutable, cacheable)
-//	GET /modules/<name>/<version>/archive           source archive     (proxy-synthetic, verified, cacheable)
+//	GET /modules/<name>/<version>/overlay/<path>    module overlay file (immutable, cacheable)
+//	GET /modules/<name>/<version>/archive[/<file>]  source archive     (proxy-synthetic, verified, cacheable)
 //
 // Security model: a module version pins its source archive, and source.json
 // records that archive's SRI integrity digest — the ecosystem's own integrity
 // record, which Bazel itself verifies. The archive lives at an arbitrary
-// external URL, so the backend rewrites source.json's "url"/"urls" to a
-// proxy-synthetic "/modules/<name>/<version>/archive" endpoint; a request to
-// that endpoint re-reads source.json, resolves the external URL and the expected
-// integrity, fetches the archive, and verifies the fetched bytes against the SRI
-// — streaming, so a mismatch aborts the cache write and the client stream
-// without buffering the archive. A tampered mirror can neither poison the cache
-// nor reach a client. source.json's integrity is left byte-exact in the
-// rewritten descriptor, so a Bazel client still performs its own end-to-end
-// verification.
+// external URL, so the backend rewrites source.json's "url" to a
+// proxy-synthetic "/modules/<name>/<version>/archive/<file>" endpoint (and drops
+// "mirror_urls", so no declared location lets a client fetch around the proxy);
+// a request to that endpoint re-reads source.json, resolves the external URL and
+// the expected integrity, fetches the archive, and verifies the fetched bytes
+// against the SRI — streaming, so a mismatch aborts the cache write and the
+// client stream without buffering the archive. A tampered mirror can neither
+// poison the cache nor reach a client. source.json's integrity is left
+// byte-exact in the rewritten descriptor, so a Bazel client still performs its
+// own end-to-end verification.
+//
+// The <file> segment is the upstream archive's own file name. Bazel infers the
+// archive format from the suffix of the URL's last path segment, so the endpoint
+// has to end in one ("platforms-0.0.10.tar.gz"); the bare ".../archive" form
+// remains valid and addresses the same cache entry (see path.go).
 //
 // OSV coverage: Bazel modules are intentionally not OSV-scanned by coordinate —
 // OSV.dev defines no Bazel-module ecosystem (see internal/vulnscan/purl.go). A
@@ -194,6 +201,11 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 	// external archive); every other resource maps straight to its registry path.
 	if res.kind == kindArchive {
 		resolved.UpstreamURL = b.sourceURL(res.name, res.version)
+		// The file name that may trail the endpoint is cosmetic (it tells Bazel the
+		// archive format), so every spelling of the endpoint shares one cache entry
+		// — the one the bare ".../archive" form has always used. A client therefore
+		// cannot multiply cache entries for an archive by varying the name.
+		resolved.CacheKey = b.cacheKey(archivePath(res.name, res.version))
 	} else {
 		abs := b.joinPath(req.Path)
 		if enc := req.Query.Encode(); enc != "" {
@@ -274,10 +286,10 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 }
 
 // fetchSource buffers the source.json body, rewrites its archive URL to the
-// proxy's synthetic archive endpoint, and returns the rewritten bytes. A body
-// that does not decode to a JSON object (or declares no archive URL) is served
-// unchanged, so a descriptor using a non-archive source (local_path,
-// git_repository, …) still reaches the client.
+// proxy's synthetic archive endpoint (dropping any mirror URLs), and returns the
+// rewritten bytes. A body that does not decode to a JSON object, declares no
+// archive URL, or describes a non-archive source (git_repository, local_path) is
+// served unchanged, so such a descriptor still reaches the client intact.
 func (b *Backend) fetchSource(resolved *backends.Resolved, resp *upstream.Response, header http.Header) (*backends.FetchResult, error) {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSourceBytes+1))
 	drainClose(resp.Body)
@@ -308,9 +320,11 @@ func (b *Backend) fetchSource(resolved *backends.Resolved, resp *upstream.Respon
 }
 
 // fetchArchive resolves a synthetic archive request: it reads the module's
-// source.json to recover the external archive URL and the SRI integrity, then
+// source.json to recover the external archive URL(s) and the SRI integrity, then
 // fetches the archive and verifies the fetched bytes against the integrity —
-// streaming, so a mismatch aborts the cache write and client stream.
+// streaming, so a mismatch aborts the cache write and client stream. The file
+// name a request may carry after ".../archive/" plays no part: what is fetched
+// and verified is decided by source.json alone.
 func (b *Backend) fetchArchive(ctx context.Context, resolved *backends.Resolved) (*backends.FetchResult, error) {
 	name := resolved.Metadata[metaName]
 	version := resolved.Metadata[metaVersion]
@@ -338,15 +352,14 @@ func (b *Backend) fetchArchive(ctx context.Context, resolved *backends.Resolved)
 	}
 	b.metrics.incSourceFetched()
 
-	archiveURL, ok := info.primaryURL()
-	if !ok {
+	candidates := info.archiveURLs()
+	if len(candidates) == 0 {
 		return nil, &backends.StatusError{
 			Status: http.StatusBadGateway,
 			URL:    resolved.UpstreamURL,
 			Body:   fmt.Sprintf("source.json for %s@%s declares no http(s) archive url", name, version),
 		}
 	}
-	resolved.Metadata[MetaArchiveURL] = archiveURL
 
 	expected, haveIntegrity := parseIntegrity(info.Integrity)
 	if haveIntegrity {
@@ -356,22 +369,16 @@ func (b *Backend) fetchArchive(ctx context.Context, resolved *backends.Resolved)
 		resolved.Metadata[MetaChecksumVerified] = "none"
 	}
 
-	// Step 2: fetch the archive. Credentials are sent only when the archive stays
-	// on the registry's own host; an external archive (the common case — a GitHub
-	// release) must not receive the proxy's registry token.
-	creds := b.creds
-	if !sameHost(b.base, archiveURL) {
-		creds = upstream.Credentials{}
-	}
-	archResp, err := b.getWithCreds(ctx, archiveURL, resolved.IfNoneMatch, creds)
+	// Step 2: fetch the archive from the primary URL, falling back to the
+	// descriptor's mirror URLs (which the rewritten source.json no longer exposes
+	// to the client) when it is unavailable.
+	archResp, archiveURL, err := b.openArchive(ctx, candidates, resolved.IfNoneMatch)
 	if err != nil {
 		return nil, err
 	}
+	resolved.Metadata[MetaArchiveURL] = archiveURL
 	if archResp.NotModified {
 		return &backends.FetchResult{Resolved: resolved, Status: http.StatusNotModified, NotModified: true}, nil
-	}
-	if !archResp.IsSuccess() {
-		return nil, b.statusError(archResp, archiveURL)
 	}
 
 	b.metrics.incArchivesServed()
@@ -403,9 +410,44 @@ func (b *Backend) fetchArchive(ctx context.Context, resolved *backends.Resolved)
 	}, nil
 }
 
+// openArchive requests the archive from each candidate URL in turn and returns
+// the first usable response (2xx, or 304 for a conditional request) together
+// with the URL that produced it. Candidates after the first are the descriptor's
+// mirror URLs: they are only consulted when the one before failed, exactly as a
+// Bazel client would use them. When every candidate fails, the error of the
+// first — the canonical location — is returned.
+//
+// Credentials are sent only to a candidate on the registry's own host; an
+// external archive (the common case — a GitHub release) must not receive the
+// proxy's registry token.
+func (b *Backend) openArchive(ctx context.Context, candidates []string, ifNoneMatch string) (*upstream.Response, string, error) {
+	var firstErr error
+	for _, candidate := range candidates {
+		creds := b.creds
+		if !sameHost(b.base, candidate) {
+			creds = upstream.Credentials{}
+		}
+		resp, err := b.getWithCreds(ctx, candidate, ifNoneMatch, creds)
+		if err == nil {
+			if resp.NotModified || resp.IsSuccess() {
+				return resp, candidate, nil
+			}
+			err = b.statusError(resp, candidate)
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+		if ctx.Err() != nil {
+			// The client went away (or the deadline passed): do not walk the mirrors.
+			break
+		}
+	}
+	return nil, "", firstErr
+}
+
 // mediaType selects the response content type for a directly-proxied resource.
 // The JSON descriptors are served as application/json; MODULE.bazel and patches
-// as text; otherwise the upstream content type is preserved.
+// as text; otherwise (overlay files) the upstream content type is preserved.
 func (b *Backend) mediaType(resolved *backends.Resolved, upstreamCT string) string {
 	switch resolved.Metadata[metaKind] {
 	case "registry", "metadata", "source":
@@ -463,16 +505,23 @@ func (b *Backend) sourceURL(name, version string) string {
 	return out.String()
 }
 
+// archivePath is the canonical (bare) path of a module version's synthetic
+// archive endpoint, relative to the registry root.
+func archivePath(name, version string) string {
+	return "/modules/" + name + "/" + version + "/" + archiveEndpoint
+}
+
 // publicArchiveURL composes the proxy-synthetic archive endpoint a rewritten
-// source.json points at. When no absolute public base is configured it falls
-// back to the root-relative form, which most clients resolve against the
-// registry URL they were configured with.
+// source.json points beneath (rewriteSourceJSON appends the archive's file
+// name). When no absolute public base is configured it falls back to the
+// root-relative form; that form is not usable in a source.json (Bazel requires
+// an absolute URL there), which is why rewriting is disabled without one.
 func (b *Backend) publicArchiveURL(name, version string) string {
 	base := b.publicBase
 	if base == "" {
 		base = "/v1/" + b.name
 	}
-	return base + "/modules/" + name + "/" + version + "/" + archiveEndpoint
+	return base + archivePath(name, version)
 }
 
 // cacheKey derives a stable cache key from the backend name and the layout path.

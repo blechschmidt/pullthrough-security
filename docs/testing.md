@@ -1,16 +1,41 @@
 # Testing
 
-The proxy is covered by three tiers of automated tests, each gated so the
+The proxy is covered by several tiers of automated tests, each gated so the
 default developer loop stays fast and deterministic.
 
 | Tier | Build tag | How to run | When it runs |
 | ---- | --------- | ---------- | ------------ |
 | Unit + component | _(none)_ | `make test` | every PR, locally |
-| Integration | `integration` | `make test-integration` | on demand (needs Git/MinIO fixtures) |
+| Integration | `integration` | `make test-integration` | on demand (needs Git/MinIO fixtures); the hermetic per-ecosystem suites in `internal/e2e` run on every PR (`integration` job) |
+| Ecosystem (real package managers) | `ecosystem` | `make test-ecosystems` | every PR and nightly, one CI job per ecosystem (needs Docker + network) |
 | Fuzz | `fuzz` | `make fuzz` / `make fuzz-seed` | seed corpora on every PR; extended nightly |
 | Red-team gate-efficacy | _(none)_ | `make redteam` / `ptctl redteam` | every PR (regression gate) |
 | Chaos / fault-injection | _(none)_ | `make chaos` | every PR (resilience gate) |
 | Coverage-regression gate | _(none)_ | `make covguard` / `ptctl covguard` | every PR (coverage gate) |
+
+The **ecosystem** tier (`internal/ecotest`, Task 170) is the only one that does
+not speak HTTP to the proxy itself: for every supported ecosystem it runs the
+ecosystem's real client — `npm`, `pip`, `cargo`, `go`, `dotnet`, `mvn`, the
+Docker Engine, `helm`, `bundler`, `composer`, `terraform`, `conan`, `conda`,
+`apt-get`, `dnf`, `git`, `mix`, `bazel`, `julia`, `cpanm`, `R`, `dart pub`,
+`ovsx`, `nix`, `deno`, `cabal`, `brew`, `ansible-galaxy`, `r10k`,
+`huggingface_hub` — configured to use the proxy, against the real
+proxy binary and the real registry, with a mock LLM scanning the packages' source
+commits. A good package must install (and re-install from the cache); a bad one
+must be refused and the client must fail. Client containers have no network, so
+an install that succeeds took nothing from anywhere but the proxy. See
+[ecosystem-tests.md](ecosystem-tests.md); the verified client configurations are
+published in [ecosystem-tests-reference.md](ecosystem-tests-reference.md).
+
+The hermetic **per-ecosystem integration suites** (`internal/e2e`, Tasks 144 and
+168) drive an in-process gateway over a recorded upstream for every ecosystem:
+the whole pull + admission pipeline, and the LLM commit-scan admission path
+(benign commit admits, malicious commit blocks). They need no network or client
+tooling and run in CI's `integration` job:
+
+```sh
+go test -tags integration ./internal/e2e/...
+```
 
 The **red-team** tier (`internal/redteam`, Task 76) injects a catalog of
 synthetic supply-chain attacks end-to-end through the full admission pipeline of

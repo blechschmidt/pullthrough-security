@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"path"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // index.yaml is the mutable index document of the classic Helm chart-repository
@@ -15,12 +13,13 @@ import (
 // `digest` of each .tgz. A client runs `helm repo add` to fetch it, then `helm
 // pull`/`helm install` fetches the resolved .tgz.
 //
-// The backend serves index.yaml live (it is mutable), but parses it on a chart
-// .tgz cache miss to recover the published digest and verify the fetched archive
-// against it before the bytes are cached or served. This is the cornerstone of
-// the supply-chain guarantee for the Helm ecosystem, mirroring the way the
-// RubyGems backend recovers a .gem's checksum from its compact-index /info
-// document.
+// The backend serves index.yaml live (it is mutable) with every chart URL
+// rewritten to lead back through the proxy (see rewrite.go), and consults it on
+// a chart cache miss: to find the upstream location of the requested archive,
+// and to recover the published digest the fetched archive is verified against
+// before the bytes are cached or served. This is the cornerstone of the
+// supply-chain guarantee for the Helm ecosystem, mirroring the way the RubyGems
+// backend recovers a .gem's checksum from its compact-index /info document.
 
 // Schematic of the document the parser accepts:
 //
@@ -63,22 +62,6 @@ type ChartVersion struct {
 	Deprecated bool
 }
 
-// rawIndex / rawChartVersion mirror the index.yaml schema for decoding. Only the
-// fields the backend needs are bound; unknown fields are ignored.
-type rawIndex struct {
-	APIVersion string                       `yaml:"apiVersion"`
-	Entries    map[string][]rawChartVersion `yaml:"entries"`
-}
-
-type rawChartVersion struct {
-	Name       string   `yaml:"name"`
-	Version    string   `yaml:"version"`
-	Digest     string   `yaml:"digest"`
-	URLs       []string `yaml:"urls"`
-	AppVersion string   `yaml:"appVersion"`
-	Deprecated bool     `yaml:"deprecated"`
-}
-
 // maxIndexBytes bounds how much of an index.yaml document the backend parses, so
 // a hostile or compromised upstream cannot exhaust memory. Large public
 // repositories (e.g. Bitnami's) publish indexes in the tens of MiB; the cap is
@@ -92,48 +75,55 @@ const maxIndexBytes = 128 << 20 // 128 MiB
 // well-formed YAML, or whose top level is not a mapping with an `entries` map,
 // is an error so the backend fails closed rather than treating garbage as an
 // empty index.
+//
+// It reads the document exactly as the index rewrite does (see scanIndex): keys
+// are matched the way a Helm client matches them, and a document using a YAML
+// construct that could hide a chart URL from the rewrite is an error here too.
 func ParseIndex(data []byte) (*Index, error) {
-	if len(data) > maxIndexBytes {
-		return nil, fmt.Errorf("helm: index.yaml exceeds %d bytes", maxIndexBytes)
+	doc, err := scanIndex(data)
+	if err != nil {
+		return nil, err
 	}
-	var raw rawIndex
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("helm: parsing index.yaml: %w", err)
-	}
-	if raw.Entries == nil {
+	if !doc.hasEntries {
 		return nil, fmt.Errorf("helm: index.yaml has no entries map")
 	}
+	return doc.index(), nil
+}
 
-	idx := &Index{
-		APIVersion: strings.TrimSpace(raw.APIVersion),
-		Entries:    make(map[string][]ChartVersion, len(raw.Entries)),
-	}
-	for name, versions := range raw.Entries {
-		name = strings.TrimSpace(name)
-		out := make([]ChartVersion, 0, len(versions))
-		for _, v := range versions {
-			ver := strings.TrimSpace(v.Version)
-			if ver == "" {
-				// A version-less entry cannot be resolved to a concrete .tgz.
-				continue
-			}
-			cv := ChartVersion{
-				Name:       firstNonEmpty(strings.TrimSpace(v.Name), name),
-				Version:    ver,
-				URLs:       cleanURLs(v.URLs),
-				AppVersion: strings.TrimSpace(v.AppVersion),
-				Deprecated: v.Deprecated,
-			}
-			if hex, ok := normalizeDigest(v.Digest); ok {
-				cv.Digest = hex
-			}
-			out = append(out, cv)
+// chartLocation is one place the index says a chart archive can be downloaded
+// from, together with the digest the same entry declares for it.
+type chartLocation struct {
+	// URL is the location as the index lists it: absolute, or relative to the
+	// repository URL.
+	URL string
+	// Digest is the entry's SHA-256 (bare lowercase hex), empty when the index
+	// publishes none.
+	Digest string
+}
+
+// checksum returns the digest the archive at this location must hash to.
+func (l chartLocation) checksum() (expectedChecksum, bool) {
+	return ChartVersion{Digest: l.Digest}.Checksum()
+}
+
+// locate resolves an index-resolved request back to the index: the locations
+// listed for that chart version whose index-resolved URL ends in file, in the
+// order the index lists them. Nothing the index does not list for that exact
+// chart name and version is ever returned, which is what keeps the backend
+// from fetching arbitrary URLs on a client's behalf.
+func (idx *Index) locate(chart, version, file string) []chartLocation {
+	var out []chartLocation
+	for _, cv := range idx.Entries[chart] {
+		if cv.Version != version {
+			continue
 		}
-		if len(out) > 0 {
-			idx.Entries[name] = out
+		for _, u := range cv.URLs {
+			if archiveFile(u, chart, version) == file {
+				out = append(out, chartLocation{URL: u, Digest: cv.Digest})
+			}
 		}
 	}
-	return idx, nil
+	return out
 }
 
 // FindVersion returns the indexed chart version for an exact (name, version)
@@ -182,17 +172,6 @@ func (cv ChartVersion) Checksum() (expectedChecksum, bool) {
 		return expectedChecksum{}, false
 	}
 	return expectedChecksum{hex: cv.Digest}, true
-}
-
-// cleanURLs trims whitespace and drops empty URL entries.
-func cleanURLs(urls []string) []string {
-	out := make([]string, 0, len(urls))
-	for _, u := range urls {
-		if u = strings.TrimSpace(u); u != "" {
-			out = append(out, u)
-		}
-	}
-	return out
 }
 
 func firstNonEmpty(a, b string) string {

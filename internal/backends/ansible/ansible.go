@@ -26,10 +26,22 @@
 // mismatch aborts the cache write and the client stream without buffering the
 // tarball. A tampered mirror can neither poison the cache nor reach a client.
 //
-// Metadata documents are served with any absolute upstream URL they embed
-// rewritten to the proxy's PublicBaseURL, so a client that follows an embedded
-// link — in particular a version detail's "download_url" — still flows back
-// through the proxy (and its content gates and checksum verification).
+// Metadata documents are served with every link into the registry rewritten
+// onto the proxy's mount (see rewrite.go): the root-relative links Galaxy uses
+// for pagination and cross-references ("links.next", "href", "versions_url",
+// ...) gain the mount's path, and absolute upstream URLs — in particular a
+// version detail's "download_url" — move to the proxy's PublicBaseURL. A client
+// that follows any of them therefore still flows back through the proxy (and
+// its content gates and checksum verification) rather than missing the mount or
+// reaching the upstream directly.
+//
+// Galaxy answers its short "/api/v3/collections/..." aliases with a redirect to
+// the canonical ".../content/<repo>/collections/index/..." path. The shared
+// upstream client normally follows it, and the final document is rewritten as
+// above. When the egress policy forbids following, the redirect is relayed to
+// the client instead, with its Location mapped onto the mount. A redirect that
+// leaves the registry, or one answering an artifact request, is never relayed:
+// that request fails, so a client is never steered past the proxy.
 //
 // OSV coverage: OSV.dev defines no Ansible-Galaxy ecosystem. A collection is
 // addressed by a "namespace.name" FQCN that is not an OSV key, so no coordinate
@@ -101,11 +113,14 @@ type Options struct {
 	// backend appends the "/api/..." repository paths. Required.
 	UpstreamURL string
 	// PublicBaseURL is the externally reachable base URL under which this backend
-	// is served, e.g. "https://proxy.example.com/v1/ansible". It is used to
-	// rewrite any absolute upstream URL embedded in a served metadata document so
-	// links (notably a version detail's "download_url") route back through the
-	// proxy. When empty, rewriting falls back to the root-relative "/v1/<name>"
-	// form.
+	// is served, e.g. "https://proxy.example.com/v1/ansible". Links in served
+	// metadata documents and relayed redirects are rewritten onto it so they
+	// route back through the proxy: an absolute upstream URL (notably a version
+	// detail's "download_url") becomes absolute at this base, and a root-relative
+	// link gains this base's path. When empty — or itself root-relative — every
+	// rewritten link takes the root-relative "/v1/<name>" form, which only
+	// clients that resolve a relative "download_url" (ansible-core 2.19+) can
+	// install from.
 	PublicBaseURL string
 	// Client is the shared upstream request executor. Required. It is an
 	// upstream.Doer so a health-aware multi-mirror pool can be injected to add
@@ -121,13 +136,12 @@ type Options struct {
 // Backend is an Ansible Galaxy pull-through backend implementing
 // backends.Backend.
 type Backend struct {
-	name       string
-	base       *url.URL
-	origin     string // scheme://host of the upstream, used for rewriting
-	publicBase string
-	client     upstream.Doer
-	creds      upstream.Credentials
-	metrics    *Metrics
+	name    string
+	base    *url.URL
+	links   *linkRewriter // maps upstream links and redirects onto the mount
+	client  upstream.Doer
+	creds   upstream.Credentials
+	metrics *Metrics
 }
 
 var _ backends.Backend = (*Backend)(nil)
@@ -159,13 +173,12 @@ func New(opts Options) (*Backend, error) {
 		m = &Metrics{}
 	}
 	return &Backend{
-		name:       opts.Name,
-		base:       base,
-		origin:     base.Scheme + "://" + base.Host,
-		publicBase: publicBase,
-		client:     opts.Client,
-		creds:      opts.Credentials,
-		metrics:    m,
+		name:    opts.Name,
+		base:    base,
+		links:   newLinkRewriter(base, publicBase),
+		client:  opts.Client,
+		creds:   opts.Credentials,
+		metrics: m,
 	}, nil
 }
 
@@ -231,8 +244,11 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 // Fetch implements backends.Backend. A collection artifact is verified against
 // the SHA-256 its sibling version-detail document declares — streaming so a
 // mismatch aborts the cache write and client stream without buffering. Metadata
-// documents are buffered and any absolute upstream URL they embed is rewritten
-// to the proxy's PublicBaseURL before they are served.
+// documents are buffered and every link they carry into the registry is
+// rewritten onto the proxy's mount before they are served; a redirect the
+// shared client did not follow is surfaced with its target mapped onto the
+// mount so the proxy core can relay it, or refused when it may not be relayed
+// (see statusError).
 func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*backends.FetchResult, error) {
 	if resolved == nil {
 		return nil, errors.New("ansible: nil resolved")
@@ -249,11 +265,16 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 		return &backends.FetchResult{Resolved: resolved, Status: http.StatusNotModified, NotModified: true}, nil
 	}
 	if !resp.IsSuccess() {
-		return nil, b.statusError(resp, resolved.UpstreamURL)
+		return nil, b.statusError(resp, resolved.UpstreamURL, true)
 	}
 
 	header := make(http.Header)
 	upstream.PropagateResponseHeaders(header, resp.Header)
+	// The proxy relays a Location only on a redirect, and only once it is mapped
+	// onto the mount (statusError). On a served document these headers would
+	// reach the client naming the upstream's own tree, so they are dropped.
+	header.Del("Location")
+	header.Del("Content-Location")
 	if resp.ETag != "" {
 		header.Set("ETag", resp.ETag)
 	}
@@ -264,8 +285,8 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 	return b.fetchMetadata(resolved, resp, header)
 }
 
-// fetchMetadata buffers a metadata document and rewrites any absolute upstream
-// URL it embeds to the proxy's PublicBaseURL. A body that does not parse as JSON
+// fetchMetadata buffers a metadata document and rewrites every link it carries
+// into the registry onto the proxy's mount. A body that does not parse as JSON
 // is served unchanged (fail-open), so a non-standard document still reaches the
 // client.
 func (b *Backend) fetchMetadata(resolved *backends.Resolved, resp *upstream.Response, header http.Header) (*backends.FetchResult, error) {
@@ -278,7 +299,7 @@ func (b *Backend) fetchMetadata(resolved *backends.Resolved, resp *upstream.Resp
 		return nil, fmt.Errorf("ansible %q: metadata document exceeds %d bytes", b.name, maxMetaBytes)
 	}
 
-	if rewritten, changed := rewriteMetadata(data, b.origin, b.publicBase); changed {
+	if rewritten, changed := b.links.rewriteDocument(data); changed {
 		b.metrics.incMetadataRewritten()
 		data = rewritten
 	}
@@ -318,7 +339,10 @@ func (b *Backend) fetchArtifact(ctx context.Context, resolved *backends.Resolved
 		return &backends.FetchResult{Resolved: resolved, Status: http.StatusNotModified, NotModified: true}, nil
 	}
 	if !resp.IsSuccess() {
-		return nil, b.statusError(resp, resolved.UpstreamURL)
+		// A redirect is never relayed for an artifact: the client would fetch the
+		// tarball from wherever it points, past the checksum verification, the
+		// cache, and the content gates that are bound to this artifact path.
+		return nil, b.statusError(resp, resolved.UpstreamURL, false)
 	}
 
 	b.metrics.incArtifactsServed()
@@ -410,12 +434,52 @@ func (b *Backend) get(ctx context.Context, rawURL, ifNoneMatch string) (*upstrea
 	})
 }
 
-// statusError drains the body and returns a StatusError carrying a diagnostic
-// snippet.
-func (b *Backend) statusError(resp *upstream.Response, url string) error {
-	snippet := readSnippet(resp.Body)
+// errRedirectNotRelayed marks an upstream redirect that the shared client did
+// not follow and that the proxy must not hand on to the client. It is
+// deliberately not a StatusError: relaying the bare 3xx would give the client a
+// redirect with no target, which a tool that follows redirects takes for a
+// successful answer, so the fetch fails as a gateway error instead.
+var errRedirectNotRelayed = errors.New("upstream redirect was not followed and cannot be relayed")
+
+// statusError drains the body of a non-success upstream response and returns
+// the error to surface for it.
+//
+// An ordinary failure becomes a StatusError carrying a diagnostic snippet. A
+// redirect only reaches the backend when the shared client did not follow it
+// (the egress policy can forbid following). With relayRedirect set, such a
+// redirect becomes a StatusError carrying its target mapped onto the mount, so
+// the proxy core relays a redirect the client can follow back through this
+// backend. Otherwise — relaying is off, or the target lies outside the proxied
+// tree — it becomes errRedirectNotRelayed: the client is never steered past the
+// proxy.
+func (b *Backend) statusError(resp *upstream.Response, rawURL string, relayRedirect bool) error {
+	if !isRedirect(resp.Status) {
+		snippet := readSnippet(resp.Body)
+		drainClose(resp.Body)
+		return &backends.StatusError{Status: resp.Status, URL: rawURL, Body: snippet}
+	}
 	drainClose(resp.Body)
-	return &backends.StatusError{Status: resp.Status, URL: url, Body: snippet}
+	if !relayRedirect {
+		return fmt.Errorf("ansible %q: %w (status %d): an artifact is served only from its own verified path",
+			b.name, errRedirectNotRelayed, resp.Status)
+	}
+	location, ok := b.links.location(rawURL, resp.Header.Get("Location"))
+	if !ok {
+		return fmt.Errorf("ansible %q: %w (status %d): its target is outside the registry",
+			b.name, errRedirectNotRelayed, resp.Status)
+	}
+	return &backends.StatusError{Status: resp.Status, URL: rawURL, Location: location}
+}
+
+// isRedirect reports whether status is a redirect whose Location a client
+// follows automatically.
+func isRedirect(status int) bool {
+	switch status {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
 }
 
 // joinPath appends the inbound Galaxy path to the upstream base, preserving any

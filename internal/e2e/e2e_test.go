@@ -290,13 +290,22 @@ func hasGate(doc findings.Document, gate findings.Gate) bool {
 	return false
 }
 
-// writeArtifacts emits the coverage/efficacy matrix (JSON + Markdown) to the task
-// attachments directory when available, falling back to the package directory.
-func writeArtifacts(t *testing.T, m *matrix) {
-	dir := os.Getenv("CLOOP_TASK_ATTACHMENTS")
-	if dir == "" {
-		dir = "."
+// artifactDir is where the suites write their matrices: PT_TEST_REPORT_DIR when
+// set (CI publishes that directory as a job artifact and into the run summary),
+// else the task-runner attachments directory, else the package directory.
+func artifactDir() string {
+	for _, env := range []string{"PT_TEST_REPORT_DIR", "CLOOP_TASK_ATTACHMENTS"} {
+		if dir := os.Getenv(env); dir != "" {
+			return dir
+		}
 	}
+	return "."
+}
+
+// writeArtifacts emits the coverage/efficacy matrix (JSON + Markdown) to the
+// artifact directory (see artifactDir).
+func writeArtifacts(t *testing.T, m *matrix) {
+	dir := artifactDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Logf("could not ensure artifact dir %q: %v", dir, err)
 		return

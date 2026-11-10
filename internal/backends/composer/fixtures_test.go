@@ -53,3 +53,62 @@ const minifiedFixture = `{
     ]
   }
 }`
+
+// inheritedDistFixture reproduces the shape of the live
+// https://repo.packagist.org/p2/ralouphie/getallheaders~dev.json document (as
+// recorded while fixing the dist rewrite), which exercises everything the
+// minified encoding can do to a dist:
+//
+//   - "dev-develop" is the complete first object;
+//   - "dev-master" points at the same commit, so its delta carries no "dist" (nor
+//     "source") at all and inherits dev-develop's;
+//   - "dev-hotfix/composer-install" is a branch whose name contains a "/", with a
+//     dist of its own;
+//
+// plus one synthetic entry, "dev-no-dist", whose dist is removed with "__unset".
+// The top-level "security-advisories" key is what Packagist appends to release
+// documents; it must survive a rewrite.
+const inheritedDistFixture = `{
+  "minified": "composer/2.0",
+  "packages": {
+    "ralouphie/getallheaders": [
+      {
+        "name": "ralouphie/getallheaders",
+        "description": "A polyfill for getallheaders <with> & 'specials'.",
+        "version": "dev-develop",
+        "version_normalized": "dev-develop",
+        "license": ["MIT"],
+        "source": {"url": "https://github.com/ralouphie/getallheaders.git", "type": "git", "reference": "120b605dfeb996808c31b6477290a714d356e822"},
+        "dist": {"url": "https://api.github.com/repos/ralouphie/getallheaders/zipball/120b605dfeb996808c31b6477290a714d356e822", "type": "zip", "shasum": "", "reference": "120b605dfeb996808c31b6477290a714d356e822"},
+        "type": "library",
+        "time": "2019-03-08T08:55:37+00:00",
+        "default-branch": true,
+        "require": {"php": ">=5.6"}
+      },
+      {
+        "version": "dev-master",
+        "version_normalized": "dev-master",
+        "default-branch": "__unset"
+      },
+      {
+        "version": "dev-hotfix/composer-install",
+        "version_normalized": "dev-hotfix/composer-install",
+        "source": {"url": "https://github.com/ralouphie/getallheaders.git", "type": "git", "reference": "aad26b2e26ba2e877e3f65cf3aa739c581b57967"},
+        "dist": {"url": "https://api.github.com/repos/ralouphie/getallheaders/zipball/aad26b2e26ba2e877e3f65cf3aa739c581b57967", "type": "zip", "shasum": "", "reference": "aad26b2e26ba2e877e3f65cf3aa739c581b57967"},
+        "time": "2019-03-08T08:42:22+00:00"
+      },
+      {
+        "version": "dev-no-dist",
+        "version_normalized": "dev-no-dist",
+        "dist": "__unset"
+      }
+    ]
+  },
+  "security-advisories": [{"advisoryId": "PKSA-0000-0000-0000", "affectedVersions": "<1.0"}]
+}`
+
+// packagistRootFixture is https://repo.packagist.org/packages.json exactly as
+// served while this rewrite was written (Composer 2.11 era): lookups that point
+// at Packagist's own hosts, a root-relative providers-url, the install-statistics
+// endpoint, and the advisory/filter-list configuration.
+const packagistRootFixture = `{"packages":[],"notify-batch":"https://packagist.org/downloads/","providers-url":"/p/%package%$%hash%.json","metadata-url":"https://repo.packagist.org/p2/%package%.json","metadata-changes-url":"https://packagist.org/metadata/changes.json","search":"https://packagist.org/search.json?q=%query%&type=%type%","list":"https://packagist.org/packages/list.json","security-advisories":{"metadata":true,"api-url":"https://packagist.org/api/security-advisories/"},"providers-api":"https://packagist.org/providers/%package%.json","warning":"Support for Composer 1 has been shutdown on September 1st 2025. You should upgrade to Composer 2. See https://blog.packagist.com/shutting-down-packagist-org-support-for-composer-1-x/","warning-versions":"<1.999","providers":[],"filter":{"metadata":true,"lists":{"malware":{"enabled":true}},"summary-url":"https://repo.packagist.org/lists/all/summary.json"}}`

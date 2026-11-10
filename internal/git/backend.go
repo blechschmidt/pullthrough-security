@@ -367,6 +367,16 @@ func (b *Backend) uploadPackPassthrough(w http.ResponseWriter, r *http.Request, 
 	if enc := r.Header.Get("Content-Encoding"); enc != "" {
 		header.Set("Content-Encoding", enc)
 	}
+	// Forward the negotiated wire protocol. The ref advertisement was fetched
+	// with the client's "Git-Protocol" header (see infoRefsPassthrough), so a
+	// protocol-v2 client follows up with a v2 command request ("command=ls-refs",
+	// "command=fetch"). Without the same header on this POST the upstream parses
+	// that body as a v0 want/have negotiation and rejects it (GitHub answers 400),
+	// which broke every clone from a modern git client (v2 is the default since
+	// git 2.26).
+	if proto := clientProtocol(r); proto != "" {
+		header.Set("Git-Protocol", proto)
+	}
 
 	resp, err := b.up.client.Do(r.Context(), upstream.Request{
 		URL:    target,

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/blechschmidt/pullthrough-security/internal/backends"
@@ -18,15 +20,117 @@ import (
 func sha256Hex(b []byte) string { return fmt.Sprintf("%x", sha256.Sum256(b)) }
 
 // fakeRepo is an in-memory classic Helm chart repository serving index.yaml,
-// chart .tgz archives, and .prov provenance sidecars.
+// chart .tgz archives, and .prov provenance sidecars. It honors conditional
+// requests the way a static host does, and records what it was asked for.
 type fakeRepo struct {
-	srv   *httptest.Server
+	srv *httptest.Server
+
+	mu    sync.Mutex
 	files map[string][]byte
+	// served counts the requests answered with a body, per path; revalidated
+	// counts those answered 304 Not Modified.
+	served      map[string]int
+	revalidated map[string]int
+	// auth records the Authorization header of the last request, per path.
+	auth map[string]string
+	// noValidators makes the host ignore conditional requests (it sends no ETag
+	// and always answers with the full body).
+	noValidators bool
+}
+
+// handler serves fr.files.
+func (fr *fakeRepo) handler(w http.ResponseWriter, r *http.Request) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	fr.auth[r.URL.Path] = r.Header.Get("Authorization")
+	body, ok := fr.files[r.URL.Path]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !fr.noValidators {
+		etag := `"` + sha256Hex(body)[:16] + `"`
+		w.Header().Set("ETag", etag)
+		if r.Header.Get("If-None-Match") == etag {
+			fr.revalidated[r.URL.Path]++
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+	fr.served[r.URL.Path]++
+	_, _ = w.Write(body)
+}
+
+// put publishes (or replaces) a file.
+func (fr *fakeRepo) put(path string, body []byte) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	fr.files[path] = body
+}
+
+// remove unpublishes a file.
+func (fr *fakeRepo) remove(path string) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	delete(fr.files, path)
+}
+
+// file returns a published file.
+func (fr *fakeRepo) file(path string) []byte {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	return fr.files[path]
+}
+
+// servedPaths returns every path answered with a body, with its request count.
+func (fr *fakeRepo) servedPaths() map[string]int {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	out := make(map[string]int, len(fr.served))
+	for path, n := range fr.served {
+		out[path] = n
+	}
+	return out
+}
+
+// servedCount reports how many requests for path were answered with a body.
+func (fr *fakeRepo) servedCount(path string) int {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	return fr.served[path]
+}
+
+// revalidatedCount reports how many requests for path were answered 304.
+func (fr *fakeRepo) revalidatedCount(path string) int {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	return fr.revalidated[path]
+}
+
+// authSeen returns the Authorization header of the last request for path.
+func (fr *fakeRepo) authSeen(path string) string {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	return fr.auth[path]
+}
+
+// newEmptyRepo starts a fake repository host with no files.
+func newEmptyRepo(t *testing.T) *fakeRepo {
+	t.Helper()
+	fr := &fakeRepo{
+		files:       map[string][]byte{},
+		served:      map[string]int{},
+		revalidated: map[string]int{},
+		auth:        map[string]string{},
+	}
+	fr.srv = httptest.NewServer(http.HandlerFunc(fr.handler))
+	t.Cleanup(fr.srv.Close)
+	return fr
 }
 
 func newFakeRepo(t *testing.T) *fakeRepo {
 	t.Helper()
-	fr := &fakeRepo{files: map[string][]byte{}}
+	fr := newEmptyRepo(t)
 
 	// A good chart whose index digest matches its bytes.
 	good := []byte("fake nginx chart tarball payload")
@@ -77,18 +181,6 @@ entries:
 generated: "2024-01-02T03:04:05Z"
 `, sha256Hex(good), sha256Hex([]byte("the real untampered chart")), sha256Hex(hyph))
 	fr.files["/index.yaml"] = []byte(index)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		body, ok := fr.files[r.URL.Path]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write(body)
-	})
-	fr.srv = httptest.NewServer(mux)
-	t.Cleanup(fr.srv.Close)
 	return fr
 }
 
@@ -275,11 +367,37 @@ func TestFetchIndexServedLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch index: %v", err)
 	}
-	if string(body) != string(fr.files["/index.yaml"]) {
-		t.Error("served index bytes differ")
-	}
 	if m.Stats().IndexServed != 1 {
 		t.Errorf("IndexServed = %v, want 1", m.Stats().IndexServed)
+	}
+
+	// The index is served with its chart URLs rewritten and nothing else touched:
+	// putting the upstream's URLs back must reproduce the upstream document byte
+	// for byte. (With no public base the links are relative references.)
+	restored := string(body)
+	for link, upstreamURL := range map[string]string{
+		`"-/nginx/1.2.3/nginx-1.2.3.tgz"`:                           "nginx-1.2.3.tgz",
+		`"-/evil/9.9.9/evil-9.9.9.tgz"`:                             "evil-9.9.9.tgz",
+		`"-/kube-state-metrics/5.0.1/kube-state-metrics-5.0.1.tgz"`: "https://charts.example.com/kube-state-metrics-5.0.1.tgz",
+		`"-/nodigest/1.0.0/nodigest-1.0.0.tgz"`:                     "nodigest-1.0.0.tgz",
+	} {
+		if strings.Count(restored, link) != 1 {
+			t.Errorf("served index should contain %s exactly once:\n%s", link, body)
+		}
+		restored = strings.Replace(restored, link, upstreamURL, 1)
+	}
+	if restored != string(fr.file("/index.yaml")) {
+		t.Errorf("served index differs from the upstream beyond its chart URLs:\n%s", body)
+	}
+
+	// It is live: a change upstream shows on the next request.
+	fr.put("/index.yaml", []byte("apiVersion: v1\nentries: {}\n"))
+	_, body, err = fetchAll(t, b, resolve(t, b, "/index.yaml"))
+	if err != nil {
+		t.Fatalf("fetch updated index: %v", err)
+	}
+	if string(body) != "apiVersion: v1\nentries: {}\n" {
+		t.Errorf("updated index not served live: %q", body)
 	}
 }
 

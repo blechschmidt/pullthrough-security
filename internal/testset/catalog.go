@@ -9,7 +9,7 @@ var supportedEcosystems = []string{
 	"docker", "helm", "rubygems", "composer", "terraform",
 	"conan", "apt", "yum", "git", "hex", "bazel", "julia", "cpan",
 	"openvsx", "nix", "jsr", "hackage", "homebrew",
-	"ansible", "puppet",
+	"ansible", "puppet", "conda", "cran", "dart", "huggingface",
 }
 
 // catalog is the test set: one minimal real build per ecosystem, each paired
@@ -156,7 +156,7 @@ var catalog = []Fixture{
 		Dep:       Dependency{Name: "psr/log", Version: "3.0.0"},
 		Pulls: []Pull{
 			{Kind: KindIndex, Path: "/v1/composer/p2/psr/log.json", Desc: "package metadata (v2)"},
-			{Kind: KindArtifact, Path: "/v1/composer/dists/psr/log/3.0.0/log-3.0.0.zip", Desc: "dist zip download"},
+			{Kind: KindArtifact, Path: "/v1/composer/dist/psr/log/3.0.0/fe5ea303b0887d5caefd3d431c3e61ad47037001.zip", Desc: "dist zip download"},
 		},
 	},
 	{
@@ -368,6 +368,62 @@ var catalog = []Fixture{
 		Pulls: []Pull{
 			{Kind: KindIndex, Path: "/v1/puppet/v3/releases/puppetlabs-stdlib-9.4.1", Desc: "release metadata (carries file_sha256/file_md5/file_uri)"},
 			{Kind: KindArtifact, Path: "/v1/puppet/v3/files/puppetlabs-stdlib-9.4.1.tar.gz", Desc: "release tarball (file_sha256 verified)"},
+		},
+	},
+	{
+		ID:        "conda",
+		Ecosystem: "conda (conda-forge)",
+		Backend:   "conda",
+		Summary:   "Conda environment installing one real package (tzdata) from the conda-forge channel.",
+		BuildCmd:  "conda env create -f environment.yml   # with <proxy>/v1/conda as the only channel",
+		Dir:       "conda",
+		Files:     []string{"environment.yml"},
+		Dep:       Dependency{Name: "tzdata", Version: "2024a"},
+		Pulls: []Pull{
+			{Kind: KindIndex, Path: "/v1/conda/noarch/repodata.json", Desc: "subdir package index (records each archive's sha256)"},
+			{Kind: KindArtifact, Path: "/v1/conda/noarch/tzdata-2024a-h8827d51_1.conda", Desc: "package archive (repodata sha256 verified)"},
+		},
+	},
+	{
+		ID:        "cran",
+		Ecosystem: "cran (R)",
+		Backend:   "cran",
+		Summary:   "R package (DESCRIPTION) importing one real CRAN package (R6).",
+		BuildCmd:  "Rscript install.R   # options(repos = c(CRAN = \"<proxy>/v1/cran\"))",
+		Dir:       "cran",
+		Files:     []string{"DESCRIPTION", "install.R"},
+		Dep:       Dependency{Name: "R6", Version: "2.6.1"},
+		Pulls: []Pull{
+			{Kind: KindIndex, Path: "/v1/cran/src/contrib/PACKAGES", Desc: "source package index (records each tarball's MD5sum)"},
+			{Kind: KindArtifact, Path: "/v1/cran/src/contrib/R6_2.6.1.tar.gz", Desc: "source tarball (PACKAGES MD5sum verified)"},
+		},
+	},
+	{
+		ID:        "dart",
+		Ecosystem: "dart (pub.dev)",
+		Backend:   "dart",
+		Summary:   "Dart package depending on one real pub.dev package (path).",
+		BuildCmd:  "PUB_HOSTED_URL=<proxy>/v1/dart dart pub get",
+		Dir:       "dart",
+		Files:     []string{"pubspec.yaml", "bin/main.dart"},
+		Dep:       Dependency{Name: "path", Version: "1.9.0"},
+		Pulls: []Pull{
+			{Kind: KindIndex, Path: "/v1/dart/api/packages/path", Desc: "version listing (archive URLs rewritten)"},
+			{Kind: KindArtifact, Path: "/v1/dart/api/archives/path-1.9.0.tar.gz", Desc: "package archive (archive_sha256 verified)"},
+		},
+	},
+	{
+		ID:        "huggingface",
+		Ecosystem: "huggingface (Hub models)",
+		Backend:   "huggingface",
+		Summary:   "Python script downloading one file of a real model repository at a pinned commit.",
+		BuildCmd:  "HF_ENDPOINT=<proxy>/v1/huggingface python download.py",
+		Dir:       "huggingface",
+		Files:     []string{"download.py", "requirements.txt"},
+		Dep:       Dependency{Name: "hf-internal-testing/tiny-random-bert", Version: "f171d7baecaf37b5da5a3616d8833b9969753535"},
+		Pulls: []Pull{
+			{Kind: KindIndex, Path: "/v1/huggingface/api/models/hf-internal-testing/tiny-random-bert", Desc: "repository metadata"},
+			{Kind: KindArtifact, Path: "/v1/huggingface/hf-internal-testing/tiny-random-bert/resolve/f171d7baecaf37b5da5a3616d8833b9969753535/config.json", Desc: "commit-pinned file download"},
 		},
 	},
 	{

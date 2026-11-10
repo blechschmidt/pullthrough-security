@@ -156,10 +156,8 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 	case refManifest:
 		// Forward Accept so the upstream returns the representation the client
 		// negotiated (a multi-arch index or a platform-specific manifest).
-		if req.Header != nil {
-			if accept := req.Header.Get("Accept"); accept != "" {
-				resolved.Metadata[metaAccept] = accept
-			}
+		if accept := acceptHeader(req.Header); accept != "" {
+			resolved.Metadata[metaAccept] = accept
 		}
 		resolved.Metadata[metaKind] = "manifest"
 		if ref.isDigest {
@@ -183,10 +181,8 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 		// digest-verified here; the referrer manifests and blobs it points to are
 		// digest-addressed and are cached and verified like any other immutable
 		// object when they are subsequently fetched.
-		if req.Header != nil {
-			if accept := req.Header.Get("Accept"); accept != "" {
-				resolved.Metadata[metaAccept] = accept
-			}
+		if accept := acceptHeader(req.Header); accept != "" {
+			resolved.Metadata[metaAccept] = accept
 		}
 		resolved.Metadata[metaKind] = "referrers"
 		resolved.Metadata[metaRepo] = ref.name
@@ -201,6 +197,22 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 	}
 
 	return resolved, nil
+}
+
+// acceptHeader returns the client's complete content negotiation as a single
+// Accept value. A client may send the media types it accepts as one
+// comma-separated header or as several Accept header lines; the Docker Engine
+// does the latter (one line per manifest media type). http.Header.Get returns
+// only the first line, which silently narrowed the negotiation to a single
+// media type: a registry that stores an image as an OCI index (ghcr.io) then
+// answered a tag lookup with 404 "manifest unknown" because the one forwarded
+// type did not match. All lines are therefore folded into one list (RFC 9110
+// §5.3: repeated field lines are equivalent to a comma-separated list).
+func acceptHeader(h http.Header) string {
+	if h == nil {
+		return ""
+	}
+	return strings.Join(h.Values("Accept"), ", ")
 }
 
 // Fetch implements backends.Backend. It performs the authenticated upstream

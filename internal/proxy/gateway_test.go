@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -182,6 +183,80 @@ func TestUpstream404Relayed(t *testing.T) {
 	g.routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/npm/missing.tgz", nil))
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 relayed from upstream", rr.Code)
+	}
+}
+
+// failingBackend resolves every request (cacheable or live, per the flag) and
+// fails every fetch with a fixed error.
+type failingBackend struct {
+	cacheable bool
+	err       error
+}
+
+func (failingBackend) Name() string { return "stub" }
+
+func (b failingBackend) Resolve(_ context.Context, req *backends.Request) (*backends.Resolved, error) {
+	return &backends.Resolved{
+		UpstreamURL: "https://upstream.example" + req.Path,
+		CacheKey:    "stub:" + req.Path,
+		Cacheable:   b.cacheable,
+		Metadata:    map[string]string{},
+	}, nil
+}
+
+func (b failingBackend) Fetch(context.Context, *backends.Resolved) (*backends.FetchResult, error) {
+	return nil, b.err
+}
+
+func newStubGateway(t *testing.T, b backends.Backend) *Gateway {
+	t.Helper()
+	registry := backends.NewRegistry()
+	if err := registry.Register(b); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	g, err := New(Dependencies{
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Cache:    cache.NewMemoryCache(),
+		Backends: registry,
+	}, Options{HTTPAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return g
+}
+
+// TestUpstreamRedirectRelayedWithMappedLocation proves an upstream redirect the
+// proxy did not follow reaches the client as a redirect it can follow: the
+// status is relayed together with the Location the backend mapped onto its own
+// mount. A redirect the backend could not map keeps no Location, and a
+// non-redirect status never gains one.
+func TestUpstreamRedirectRelayedWithMappedLocation(t *testing.T) {
+	const mapped = "/v1/stub/api/v3/plugin/x/?limit=100"
+	cases := []struct {
+		name         string
+		cacheable    bool
+		method       string
+		err          *backends.StatusError
+		wantLocation string
+	}{
+		{"live document", false, http.MethodGet, &backends.StatusError{Status: http.StatusFound, Location: mapped}, mapped},
+		{"live document, HEAD", false, http.MethodHead, &backends.StatusError{Status: http.StatusMovedPermanently, Location: mapped}, mapped},
+		{"cacheable artifact", true, http.MethodGet, &backends.StatusError{Status: http.StatusTemporaryRedirect, Location: mapped}, mapped},
+		{"unmapped redirect", false, http.MethodGet, &backends.StatusError{Status: http.StatusFound}, ""},
+		{"not a redirect", false, http.MethodGet, &backends.StatusError{Status: http.StatusNotFound, Location: mapped}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			g := newStubGateway(t, failingBackend{cacheable: c.cacheable, err: c.err})
+			rr := httptest.NewRecorder()
+			g.routes().ServeHTTP(rr, httptest.NewRequest(c.method, "/v1/stub/api/v3/x/", nil))
+			if rr.Code != c.err.Status {
+				t.Errorf("status = %d, want %d relayed from upstream", rr.Code, c.err.Status)
+			}
+			if got := rr.Header().Get("Location"); got != c.wantLocation {
+				t.Errorf("Location = %q, want %q", got, c.wantLocation)
+			}
+		})
 	}
 }
 

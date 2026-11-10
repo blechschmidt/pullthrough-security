@@ -27,6 +27,19 @@ plus an admin dashboard.
 > For a screenshot tour of the admin dashboard, see the
 > [admin UI walkthrough](docs/admin-ui-walkthrough.md).
 > To point tooling at the proxy, start with [docs/clients.md](docs/clients.md).
+>
+> **Every ecosystem is tested with its real package manager.** On each push, CI
+> runs the real `npm`, `pip`, `cargo`, `go`, `dotnet`, `mvn`, Docker Engine,
+> `helm`, `bundler`, `composer`, `terraform`, `conan`, `conda`, `apt-get`, `dnf`,
+> `git`, `mix`, `bazel`, `julia`, `cpanm`, `R`, `dart pub`, `ovsx`, `nix`, `deno`,
+> `cabal`, `brew`, `ansible-galaxy`, `r10k` and `huggingface_hub` clients —
+> configured to use the proxy, with no other network route — against the real
+> proxy binary and registries: a good
+> package installs (and re-installs from the cache), and a package whose source
+> commit the LLM scan flagged malicious is refused. See
+> [docs/ecosystem-tests.md](docs/ecosystem-tests.md); the verified client
+> configuration for each ecosystem is in
+> [docs/ecosystem-tests-reference.md](docs/ecosystem-tests-reference.md).
 
 ## Architecture
 

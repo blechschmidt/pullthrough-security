@@ -12,16 +12,19 @@ import "strings"
 //	GET  /api/v3/plugin/ansible/content/<repo>/collections/index/<ns>/<name>/versions/
 //	GET  /api/v3/plugin/ansible/content/<repo>/collections/index/<ns>/<name>/versions/<version>/
 //	GET  /api/v3/plugin/ansible/content/<repo>/collections/artifacts/<ns>-<name>-<version>.tar.gz
+//	GET  /api/v3/collections/<ns>/<name>/...                      (short alias; Galaxy redirects it to the index path)
 //	GET  /api/v1/roles/...                                        (legacy role metadata)
 //
 // The index/versions/version-detail documents are metadata: they are served
-// live (revalidated per request, never cached) with every absolute upstream URL
-// they embed — notably a version detail's "download_url" — rewritten through the
-// proxy. A collection artifact tarball pins its namespace/name/version in its
-// filename, so it is immutable and content-addressable; on a cache miss the
-// backend fetches the sibling version-detail document, reads the artifact's
-// published SHA-256, and verifies the fetched bytes against it before they are
-// cached or served (see metadata.go / checksum.go).
+// live (revalidated per request, never cached) with every link they carry into
+// the registry — the root-relative pagination and cross-reference links as well
+// as absolute upstream URLs, notably a version detail's "download_url" —
+// rewritten onto the proxy's mount (see rewrite.go). A collection artifact
+// tarball pins its namespace/name/version in its filename, so it is immutable
+// and content-addressable; on a cache miss the backend fetches the sibling
+// version-detail document, reads the artifact's published SHA-256, and verifies
+// the fetched bytes against it before they are cached or served (see
+// metadata.go / checksum.go).
 //
 // This file classifies an inbound path (with the "/v1/<name>" route prefix
 // already stripped, retaining its leading slash) into a resource kind and

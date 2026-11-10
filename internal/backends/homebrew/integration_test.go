@@ -13,11 +13,13 @@ package homebrew
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +109,112 @@ func TestLiveFormulaAndBottle(t *testing.T) {
 	}
 	if st := m.Stats(); st.BottlesVerified < 1 || st.BottleHashMismatch != 0 || st.TokensFetched < 1 {
 		t.Errorf("bottle verification metrics not recorded: %+v", st)
+	}
+}
+
+// TestLiveRegistryNativeFlow replays what the real brew client does once
+// HOMEBREW_ARTIFACT_DOMAIN points at the proxy — fetch the formula's OCI image
+// index, then its bottle blob, both on the registry-native "/v2/..." paths —
+// against live ghcr.io, and confirms the bottle's coordinate is learned from the
+// index, that a backend which never saw the index recovers the same coordinate
+// from the formula JSON API, and that the blob verifies.
+func TestLiveRegistryNativeFlow(t *testing.T) {
+	m := &Metrics{}
+	b := liveBackend(t, m)
+
+	// The formula document tells us which tag and digest brew would request.
+	_, doc, err := liveFetch(t, b, "/api/formula/hello.json")
+	if err != nil {
+		skipIfOffline(t, err)
+		t.Fatalf("formula fetch: %v", err)
+	}
+	var formula struct {
+		Versions struct {
+			Stable string `json:"stable"`
+		} `json:"versions"`
+		Revision int `json:"revision"`
+		Bottle   struct {
+			Stable struct {
+				Rebuild int `json:"rebuild"`
+				Files   map[string]struct {
+					SHA256 string `json:"sha256"`
+				} `json:"files"`
+			} `json:"stable"`
+		} `json:"bottle"`
+	}
+	if err := json.Unmarshal(doc, &formula); err != nil {
+		t.Fatalf("decoding formula document: %v", err)
+	}
+	digest := formula.Bottle.Stable.Files["x86_64_linux"].SHA256
+	if formula.Versions.Stable == "" || digest == "" {
+		t.Fatalf("formula document lacks a stable version or an x86_64_linux bottle")
+	}
+	// brew's GitHubPackages.version_rebuild: "<version>[_<revision>][-<rebuild>]".
+	tag := formula.Versions.Stable
+	if formula.Revision > 0 {
+		tag += "_" + strconv.Itoa(formula.Revision)
+	}
+	if formula.Bottle.Stable.Rebuild > 0 {
+		tag += "-" + strconv.Itoa(formula.Bottle.Stable.Rebuild)
+	}
+	want := backends.Coordinate{Name: "hello", Version: formula.Versions.Stable}
+	blob := "/v2/homebrew/core/hello/blobs/sha256:" + digest
+
+	// 1. The image index, negotiated exactly as brew does.
+	res, err := b.Resolve(context.Background(), &backends.Request{
+		Method: http.MethodGet,
+		Path:   "/v2/homebrew/core/hello/manifests/" + tag,
+		Header: http.Header{"Accept": {"application/vnd.oci.image.index.v1+json"}},
+	})
+	if err != nil {
+		t.Fatalf("Resolve manifest: %v", err)
+	}
+	fr, err := b.Fetch(context.Background(), res)
+	if err != nil {
+		skipIfOffline(t, err)
+		t.Fatalf("manifest fetch: %v", err)
+	}
+	index, _ := io.ReadAll(fr.Content)
+	_ = fr.Content.Close()
+	if fr.MediaType != "application/vnd.oci.image.index.v1+json" {
+		t.Errorf("manifest media type = %q", fr.MediaType)
+	}
+	if !strings.Contains(string(index), digest) {
+		t.Fatalf("image index does not list the bottle digest %s", digest)
+	}
+
+	// 2. The bottle: coordinate learned from the index, content verified.
+	fr2, body, rerr := liveFetch(t, b, blob)
+	if rerr != nil {
+		skipIfOffline(t, rerr)
+		t.Fatalf("bottle fetch: %v", rerr)
+	}
+	if len(body) == 0 {
+		t.Fatal("bottle was empty")
+	}
+	if fr2.Resolved.Coordinate != want {
+		t.Errorf("coordinate = %+v, want %+v", fr2.Resolved.Coordinate, want)
+	}
+	if got := fr2.Resolved.Metadata[MetaVersionSource]; got != versionSourceManifest {
+		t.Errorf("version source = %q, want %q", got, versionSourceManifest)
+	}
+	if st := m.Stats(); st.BottlesVerified < 1 || st.BottleHashMismatch != 0 || st.ManifestsServed < 1 {
+		t.Errorf("metrics = %+v", st)
+	}
+
+	// 3. A backend that never saw the index (a restart, another replica)
+	// recovers the same coordinate from the formula JSON API.
+	fresh := liveBackend(t, &Metrics{})
+	res3, err := fresh.Resolve(context.Background(), &backends.Request{Method: http.MethodGet, Path: blob})
+	if err != nil {
+		t.Fatalf("Resolve bottle on a fresh backend: %v", err)
+	}
+	if res3.Metadata[MetaVersionSource] == versionSourceDigest {
+		t.Skipf("formula API unavailable for recovery; got the digest fallback %+v", res3.Coordinate)
+	}
+	if res3.Coordinate != want || res3.Metadata[MetaVersionSource] != versionSourceFormulaAPI {
+		t.Errorf("recovered coordinate = %+v (%s), want %+v (%s)",
+			res3.Coordinate, res3.Metadata[MetaVersionSource], want, versionSourceFormulaAPI)
 	}
 }
 

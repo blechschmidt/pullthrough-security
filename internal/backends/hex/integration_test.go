@@ -13,11 +13,14 @@ package hex
 
 import (
 	"context"
+	"crypto/sha512"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,6 +115,46 @@ func TestLiveTarballFlow(t *testing.T) {
 	}
 	if st := m.Stats(); st.TarballsVerified < 1 || st.ResourceFetched < 1 {
 		t.Errorf("verification metrics not recorded: %+v", st)
+	}
+}
+
+// TestLiveInstallsTree fetches what Hex's update check and `mix local.hex` read
+// when HEX_MIRROR points at the proxy: the Hex builds list and its signature.
+// repo.hex.pm redirects the /installs/ tree to builds.hex.pm, so this also
+// covers following that redirect.
+func TestLiveInstallsTree(t *testing.T) {
+	m := &Metrics{}
+	b := liveBackend(t, m)
+
+	fr, csv := liveFetch(t, b, "/installs/hex-1.x.csv")
+	if fr.Resolved.Cacheable || fr.Resolved.Coordinate != (backends.Coordinate{}) {
+		t.Errorf("the builds list must be live and coordinate-less: %+v", fr.Resolved)
+	}
+	// Every row is "<hex version>,<sha512 hex>,<elixir version>".
+	rows := strings.Split(strings.TrimSpace(string(csv)), "\n")
+	if len(rows) < 10 {
+		t.Fatalf("builds list has only %d rows", len(rows))
+	}
+	last := strings.Split(rows[len(rows)-1], ",")
+	if len(last) < 3 || len(last[1]) != 128 {
+		t.Fatalf("unexpected builds-list row %q", rows[len(rows)-1])
+	}
+
+	_, sig := liveFetch(t, b, "/installs/hex-1.x.csv.signed")
+	if len(sig) == 0 {
+		t.Error("builds-list signature was empty")
+	}
+
+	// The build that row describes is served too (and, deliberately, not cached).
+	fr, ez := liveFetch(t, b, "/installs/"+last[2]+"/hex-"+last[0]+".ez")
+	if fr.Resolved.Cacheable {
+		t.Error("a Hex build must be passed through live, not cached")
+	}
+	if got := fmt.Sprintf("%x", sha512.Sum512(ez)); got != last[1] {
+		t.Errorf("Hex build does not match the SHA-512 its list records: %s vs %s", got, last[1])
+	}
+	if st := m.Stats(); st.InstallsServed != 3 {
+		t.Errorf("installs-served metric = %v, want 3", st.InstallsServed)
 	}
 }
 

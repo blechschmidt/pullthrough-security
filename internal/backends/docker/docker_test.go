@@ -275,6 +275,38 @@ func TestNonV2PathNotSupported(t *testing.T) {
 	}
 }
 
+// TestAcceptHeaderLinesAreFolded covers how the Docker Engine negotiates: it
+// sends one Accept header LINE per manifest media type rather than a single
+// comma-separated value. Forwarding only the first line narrowed the negotiation
+// to one type, so a registry holding the tag as an OCI index answered 404/406
+// (found pulling ghcr.io images through the proxy with a real dockerd).
+func TestAcceptHeaderLinesAreFolded(t *testing.T) {
+	reg := newFakeRegistry(t)
+	b := testBackend(t, reg)
+
+	// The index media type is only on the third line; the first line alone would
+	// make the fake registry refuse the request.
+	multiLine := http.Header{"Accept": {
+		"application/vnd.docker.distribution.manifest.v2+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json",
+		"application/vnd.oci.image.index.v1+json",
+	}}
+	if _, _, _, err := get(t, b, http.MethodGet, "/v2/library/nginx/manifests/latest", multiLine); err != nil {
+		t.Fatalf("multi-line Accept was not forwarded in full: %v", err)
+	}
+
+	if got, want := acceptHeader(multiLine), "application/vnd.docker.distribution.manifest.v2+json, "+
+		"application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.index.v1+json"; got != want {
+		t.Errorf("acceptHeader = %q, want %q", got, want)
+	}
+	if got := acceptHeader(nil); got != "" {
+		t.Errorf("acceptHeader(nil) = %q, want empty", got)
+	}
+	if got := acceptHeader(http.Header{}); got != "" {
+		t.Errorf("acceptHeader(no Accept) = %q, want empty", got)
+	}
+}
+
 func TestAcceptHeaderForwardedForMultiArch(t *testing.T) {
 	reg := newFakeRegistry(t)
 	b := testBackend(t, reg)

@@ -103,6 +103,8 @@ make config-reference-check   # CI staleness gate
 | `readTimeout` | `30s` | Max time to read a request. |
 | `writeTimeout` | `5m` | Max time to write a response (large artifacts need headroom). |
 | `shutdownTimeout` | `30s` | Grace period for in-flight requests on shutdown. |
+| `registry.enabled` | `true` | Also serve the Docker/OCI Registry v2 API at the host root (`/v2/...`). Container clients put `/v2/` directly after the registry host and cannot address the path-prefixed `/v1/<upstream>/v2/` mount; the alias maps each request onto it, through the same access control and admission gates. No effect without a registry upstream (type `docker`, or `helm` with `oci: "true"`). |
+| `registry.defaultUpstream` | _(empty)_ | Registry upstream that serves **un-prefixed** repositories, i.e. registry-mirror mode (`"registry-mirrors": ["https://proxy.example.com"]`). When empty, only `<proxy>/<upstream>/<repository>` references and containerd `?ns=`-hinted requests are served. See [clients.md](clients.md#docker--oci-images). |
 
 ## `logging`
 
@@ -318,6 +320,7 @@ Package-to-commit association. See
 | `storeDir` | _(empty)_ | Persist resolved package→commit links. |
 | `trustRootsFile` | _(empty)_ | PEM trust anchor for attestation signing certs. With it set, signatures that chain to it are `attested`; otherwise verified signatures are downgraded to `claimed`. |
 | `useSystemTrustRoots` | `false` | When no `trustRootsFile`, trust the system CA pool. |
+| `pins` | `[]` | Operator-asserted package → commit associations for packages no attestation or metadata covers: `{ecosystem, name, version, repository, commit}`. Authoritative for the coordinates they match; the pinned commit's scan verdict gates the package through `policy`. `claimed` confidence — never satisfies `requireAttested`. See [security-model.md](security-model.md#operator-pins). |
 
 ## `policy`
 

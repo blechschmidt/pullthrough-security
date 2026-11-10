@@ -60,6 +60,7 @@ pull-through proxy focused on software supply-chain security.
 | Deploy it (Docker, Helm, Kubernetes) | [../deploy/README.md](../deploy/README.md) |
 | Know which OS/CPU architectures are supported (amd64, arm64) & how they're tested | [platforms.md](platforms.md) |
 | Test & fuzz it (unit, integration, parser fuzzing) | [testing.md](testing.md) |
+| See every ecosystem's real package manager install through the proxy (CI-verified client configurations) | [ecosystem-tests.md](ecosystem-tests.md) · [reference](ecosystem-tests-reference.md) |
 | Measure coverage & gate regressions (per-package, critical floors) | [coverage.md](coverage.md) |
 | Measure test fault-detection & gate test-quality regressions (mutation testing) | [mutation-testing.md](mutation-testing.md) |
 

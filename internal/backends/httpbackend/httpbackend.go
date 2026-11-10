@@ -249,7 +249,10 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 	if b.index != nil && b.index(req) {
 		metadata[metaIndex] = "1"
 		if b.forwardAccept && req.Header != nil {
-			if accept := req.Header.Get("Accept"); accept != "" {
+			// Fold every Accept header line into one list: a client may split its
+			// content negotiation across several lines (RFC 9110 §5.3), and
+			// Header.Get would forward only the first of them.
+			if accept := strings.Join(req.Header.Values("Accept"), ", "); accept != "" {
 				metadata[metaAccept] = accept
 			}
 		}

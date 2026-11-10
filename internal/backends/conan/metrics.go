@@ -9,9 +9,9 @@ import "sync/atomic"
 // concurrent use; the zero value is ready to use.
 type Metrics struct {
 	filesServed       atomic.Uint64 // recipe/package content files served
-	filesVerified     atomic.Uint64 // files whose MD5 verified against conanmanifest.txt
+	filesVerified     atomic.Uint64 // files whose MD5 verified against conanmanifest.txt or X-Checksum-Md5
 	checksumMismatch  atomic.Uint64 // files whose content failed MD5 verification
-	manifestMissing   atomic.Uint64 // files served without a usable manifest entry
+	manifestMissing   atomic.Uint64 // files served unverified: no manifest entry and no X-Checksum-Md5
 	manifestParsed    atomic.Uint64 // conanmanifest.txt documents fetched and parsed for verification
 	conanInfoServed   atomic.Uint64 // conaninfo.txt package descriptors served
 	metadataServed    atomic.Uint64 // discovery docs served (latest/revisions/search/ping/users)

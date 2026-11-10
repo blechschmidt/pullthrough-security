@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,5 +125,42 @@ func TestLiveRecipeFlow(t *testing.T) {
 	}
 	if st := m.Stats(); st.FilesVerified < 1 || st.ManifestParsed < 1 {
 		t.Errorf("verification metrics not recorded: %+v", st)
+	}
+	if got := fr.Resolved.Metadata[MetaChecksumSource]; got != checksumSourceManifest {
+		t.Errorf("conanfile.py checksum source = %q, want %q", got, checksumSourceManifest)
+	}
+
+	// 4. The archives are not in the manifest (it lists their members); ConanCenter
+	// declares their MD5 in X-Checksum-Md5, which is what they are verified against.
+	for name := range listing.Files {
+		if name != "conan_export.tgz" && name != "conan_sources.tgz" {
+			continue
+		}
+		fr, body := liveFetch(t, b, filesPath+"/"+name)
+		if len(body) == 0 {
+			t.Errorf("%s was empty", name)
+		}
+		md := fr.Resolved.Metadata
+		if md[MetaChecksumVerified] != "md5" || md[MetaChecksumSource] != checksumSourceHeader {
+			t.Errorf("%s: verified=%q source=%q, want md5/%s", name, md[MetaChecksumVerified], md[MetaChecksumSource], checksumSourceHeader)
+		}
+	}
+	if st := m.Stats(); st.ManifestMissing != 0 || st.ChecksumMismatch != 0 {
+		t.Errorf("live recipe files left unverified or mismatched: %+v", st)
+	}
+}
+
+// TestLiveCapabilityProbe hits the route a real Conan 2.x client probes first:
+// GET /v1/ping, whose X-Conan-Server-Capabilities header must advertise
+// "revisions" for the client to use the remote at all.
+func TestLiveCapabilityProbe(t *testing.T) {
+	b := liveBackend(t, &Metrics{})
+	fr, _ := liveFetch(t, b, "/v1/ping")
+	caps := fr.Header.Get("X-Conan-Server-Capabilities")
+	if !strings.Contains(caps, "revisions") {
+		t.Errorf("X-Conan-Server-Capabilities = %q, want it to include \"revisions\"", caps)
+	}
+	if fr.Resolved.Cacheable {
+		t.Error("the capability probe must be served live")
 	}
 }

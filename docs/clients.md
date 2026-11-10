@@ -30,6 +30,11 @@ behind auth — see Task 10), never to the upstream.
 > admission verdict and attestation (`ptctl inspect` / `ptctl attest`). The
 > sections below remain the reference for configuring each tool by hand.
 
+> **Verified in CI.** Every ecosystem's real client is run through the proxy on
+> every push ([ecosystem-tests.md](ecosystem-tests.md)); the exact, working
+> client configuration for each one is published in
+> [ecosystem-tests-reference.md](ecosystem-tests-reference.md).
+
 > **Why set `server.publicUrl`?** Several ecosystems return index documents that
 > embed absolute artifact URLs (npm tarballs, PyPI files, cargo's download
 > endpoint, NuGet's service index). The proxy rewrites those URLs so downloads
@@ -136,9 +141,22 @@ go env -w GOPROXY=https://proxy.example.com/v1/goproxy
 go env -w GOPROXY=https://proxy.example.com/v1/goproxy,direct
 ```
 
-If your proxy serves only public modules you can also relax checksum-DB lookups
-for private paths with `GONOSUMCHECK`/`GONOSUMDB`/`GOPRIVATE` as appropriate; the
-public default keeps `sum.golang.org` verification intact.
+With `,direct`, a module the proxy answers `404`/`410` for is fetched straight
+from its VCS host; an admission refusal (`403`) is final either way. Leave
+`,direct` out to keep every fetch on the proxy.
+
+**Checksum database.** The go command verifies every module against
+`sum.golang.org` and, by default, contacts it directly — which fails for a client
+that can reach only the proxy. The proxy therefore serves the database itself
+under `/v1/goproxy/sumdb/<name>/` (the GOPROXY protocol's checksum-database
+proxying); the go command discovers this on its own and routes its lookups
+through the proxy. Every response is signed by the database and verified with
+the key built into the go command, so verification stays fully intact and no
+trust is placed in the proxy. The `sumdb` upstream setting names the databases to
+proxy (default `sum.golang.org`; `off` disables it).
+
+For private modules that are not in the public checksum database, set
+`GONOSUMDB`/`GOPRIVATE` for those paths as usual.
 
 ---
 
@@ -244,31 +262,109 @@ source "https://proxy.example.com/v1/rubygems"
 ## Composer / Packagist (PHP)
 
 A Composer upstream (`type: composer`, e.g. `https://repo.packagist.org`) is
-proxied under `/v1/packagist`. The backend serves the repository root
-(`packages.json`), the Composer **v2 metadata layout**
-(`/p2/<vendor>/<package>.json`, including the `~dev` variant and the legacy
-`/p/...` provider documents), and **dist archive downloads** under
-`/dist/<vendor>/<package>/<reference>.<ext>`. Metadata documents are mutable and
-revalidated; dist archives are cached immutably. The v2 metadata's "minified"
-delta encoding is expanded so the proxy can recover each version's dist
-coordinates. A dist request is resolved by reading the package's v2 metadata,
-fetching the upstream download URL it advertises, and verifying the streamed
-archive against the **SHA-1 `dist.shasum`** the metadata declares; a mismatch is
-refused. The `vendor/package` coordinate and declared licenses feed the admission
-gates (vulnerability scanning maps it to the OSV `Packagist` ecosystem).
+proxied under `/v1/packagist`. The backend speaks the **Composer 2 repository
+protocol**: the repository root (`packages.json`), the **v2 metadata layout**
+(`/p2/<vendor>/<package>.json` and its `~dev` sibling), and **dist archive
+downloads**.
 
-**Composer** — add the proxy as a repository in `composer.json`:
+A Composer client follows whatever URLs the repository hands it: the root names
+the URL templates for every later lookup, and each version in the metadata names
+the URL its archive is downloaded from. The proxy therefore **rewrites both
+documents** on the way out, so a client configured with only the proxy
+repository keeps every metadata and dist request on the proxy and never contacts
+Packagist or GitHub itself.
+
+- **`packages.json`** is served with its package lookups (`metadata-url`,
+  `providers-url`) pointed at this backend's mount. Everything the backend does
+  not front is removed rather than left pointing at the upstream: the
+  install-statistics endpoint (`notify-batch` — clients do not report their
+  installs around the proxy), the discovery APIs (`search`, `list`,
+  `providers-api`, `metadata-changes-url`), upstream-declared `mirrors`, and the
+  POST-only `api-url` of `security-advisories` and `filter`. With Packagist,
+  Composer's security advisories (`composer audit`, blocking of insecure
+  versions) and filter (malware) lists keep working, because Packagist embeds
+  both in the v2 metadata the client fetches through the proxy; the filter-list
+  summary (`/lists/<...>.json`) is proxied as well. An upstream that offers
+  advisories only through its API has them dropped. `composer search` finds
+  nothing in the proxy repository.
+- **v2 metadata** is served with every version's `dist.url` rewritten to the
+  proxy's dist endpoint,
+  `/dist/<vendor>/<package>/<version>/<reference>.<type>` — for example
+  `/v1/packagist/dist/psr/log/3.0.0/fe5ea303b0887d5caefd3d431c3e61ad47037001.zip`.
+  The "minified" delta encoding is honored: a version that inherits its
+  predecessor's `dist` (two versions on one commit) gets a URL of its own.
+  Metadata documents are mutable and revalidated on every request. The legacy
+  `/p/...` provider documents are proxied as-is; only the Composer 2 layout is
+  rewritten.
+- **Dist archives** are cached immutably. A dist URL names the package **and the
+  version**, so the admission gates (policy, dependency firewall, malware feed,
+  release maturity, …) evaluate the `vendor/package@version` coordinate before
+  anything is fetched (vulnerability scanning maps it to the OSV `Packagist`
+  ecosystem). It also names the dist *reference* — the commit id — so a moved
+  branch or a re-pointed tag is a different URL and a different cache entry. On
+  a cache miss the proxy re-reads the package's v2 metadata and fetches **only**
+  the download URL the upstream lists for exactly that version, reference and
+  type (following redirects such as `api.github.com` → `codeload.github.com`);
+  any other request is a `404`. When the metadata declares a **SHA-1
+  `dist.shasum`** the archive is verified against it and a mismatch is refused.
+  Packagist publishes no shasum for the archives GitHub generates on the fly;
+  such an archive is cached exactly as fetched, and every later install is
+  served those same bytes.
+
+Set `server.publicUrl` so the rewritten URLs are absolute. Without it they are
+root-relative (`/v1/<name>/...`). Composer resolves a root-relative URL in
+`packages.json` but not in a `dist.url`, so in that case the proxy also
+advertises its dist endpoint as a preferred dist *mirror*, which Composer does
+resolve; installs stay on the proxy either way (the lock file then records the
+root-relative `dist.url` together with that mirror).
+
+```yaml
+upstreams:
+  packagist:
+    type: composer
+    url: https://repo.packagist.org
+```
+
+**Composer** — make the proxy the project's *only* repository in
+`composer.json`. Adding it is not enough: unless the default repository is
+disabled with `"packagist.org": false`, Composer still resolves and downloads
+from packagist.org directly.
 
 ```json
 {
   "repositories": [
-    { "type": "composer", "url": "https://proxy.example.com/v1/packagist" }
+    { "type": "composer", "url": "https://proxy.example.com/v1/packagist" },
+    { "packagist.org": false }
   ]
 }
 ```
 
-To route *all* Packagist traffic through the proxy, also disable the default
-Packagist repository (`"packagist.org": false`) in the same `repositories` block.
+```bash
+# the same from the command line
+composer config repositories.proxy composer https://proxy.example.com/v1/packagist
+composer config repositories.packagist.org false
+# if the proxy requires auth
+composer config --global --auth http-basic.proxy.example.com pullthrough <token>
+```
+
+A proxy reached over plain `http://` additionally needs
+`"config": { "secure-http": false }`.
+
+Things to know:
+
+- `composer.lock` records the rewritten dist URLs, so installing from a lock
+  file goes through the proxy too (and needs the proxy reachable under the same
+  public URL).
+- A dev version (`dev-main`, `2.x-dev`) is locked to a commit. Once the branch
+  has moved on, the upstream metadata no longer lists that commit, so the proxy
+  can only serve it if it is already cached; run `composer update` to move to
+  the commit the branch is at now.
+- `source` (the package's VCS origin) is not rewritten: an install with
+  `--prefer-source` clones from the VCS host directly, not through this
+  backend. When the proxy refuses a dist, current Composer (verified with 2.11)
+  fails the install, whereas older releases (verified with 2.2) fall back to
+  cloning `source`; where that matters, deny clients direct access to the VCS
+  host.
 
 ---
 
@@ -280,14 +376,8 @@ backend selected by the optional `settings.oci` flag.
 ### Classic chart repositories (`helm repo add`)
 
 A classic Helm upstream (`type: helm`, e.g. `https://charts.bitnami.com/bitnami`)
-is proxied under `/v1/<name>`. The backend serves the repository **index.yaml**
-live (it is mutable), and on a chart `.tgz` cache miss it fetches and parses
-index.yaml to recover the **SHA-256 `digest`** the repository published for that
-chart, verifying the streamed archive against it before the bytes are cached or
-served; a mismatch is refused. Chart **provenance** sidecars
-(`<name>-<version>.tgz.prov`) are served and cached, and the chart `name` +
-`version` coordinate feeds the admission gates (vulnerability scanning of the
-images a chart references, signature verification, risk scoring, policy).
+is proxied under `/v1/<name>`; point `url` at the repository root that serves
+`index.yaml`.
 
 ```bash
 helm repo add bitnami https://proxy.example.com/v1/bitnami
@@ -295,6 +385,49 @@ helm repo update
 helm pull bitnami/nginx --version 15.0.0   # .tgz fetched + SHA-256-verified by the proxy
 helm install web bitnami/nginx
 ```
+
+**Chart downloads always come back through the proxy.** A repository's
+`index.yaml` tells Helm where each chart archive lives, and real repositories
+publish absolute URLs there — often on a different host than the index (a GitHub
+Pages index listing release assets) or as `oci://` references into a registry
+(Bitnami). Served as-is, such an index would send Helm straight to the upstream
+for the archive, past the cache and every gate. So the backend serves
+`index.yaml` live (revalidated against the upstream on every request) with each
+entry's `urls` replaced, and nothing else changed, by
+
+```
+<server.publicUrl>/v1/<name>/-/<chart>/<version>/<file>
+```
+
+When `server.publicUrl` is not set the links are written relative to the
+repository instead (`-/<chart>/<version>/<file>`); Helm resolves those against
+the URL the repository was added under, so they reach the proxy either way.
+
+Such a URL names an index entry rather than a location. On a request the backend
+looks the chart name and version up in the upstream index and fetches the
+location recorded there — on the upstream's host, on another host, or as the
+chart layer of an OCI artifact — so anything the index does not list for that
+chart version is a `404` and the proxy cannot be pointed at an arbitrary URL.
+The fetch goes through the [egress guard](egress-ssrf.md) like any other (with
+an egress allowlist, include the hosts the repository keeps its archives on);
+upstream credentials are sent only to the upstream's own host. The archive is
+verified against the **SHA-256 `digest`** the index publishes for it before the
+bytes are cached or served — a mismatch is refused — and the chart `name` +
+`version` coordinate feeds the admission gates (vulnerability scanning of the
+images a chart references, signature verification, risk scoring, policy). A
+repeat pull is served from the cache. Chart **provenance** is served the same
+way, at the archive URL plus `.prov`. A chart requested by its
+repository-relative path (`/v1/<name>/<name>-<version>.tgz`) keeps working: it
+is fetched from that path under the upstream and verified the same way.
+
+Because the rewrite has to be airtight, an index the backend cannot fully
+account for is refused (`502`, reason in the proxy log) rather than passed
+through: one it cannot parse, or one that uses a YAML alias, merge key or tag to
+declare download locations (no index generator does). The upstream index is
+parsed once per change, not per request — the parsed index and the rewritten
+document are held in memory per upstream (about the size of the index, capped at
+128 MiB) and revalidated with a conditional request — so only the first request
+after a change pays for the parse (roughly a second for a 25 MiB index).
 
 ### OCI-registry-hosted charts (`helm pull oci://`)
 
@@ -421,21 +554,45 @@ the backend is mounted under `/v1/dockerhub/`, where it serves the v2 API
 `/v2/<name>/tags/list`). Blobs and manifests requested by digest are cached
 immutably and digest-verified; manifests by tag are revalidated live.
 
-The Docker CLI always inserts `/v2/` immediately after the registry host, so it
-cannot reach a path-prefixed backend directly (`docker pull host/v1/dockerhub/...`
-does **not** work). Use one of the two supported integrations instead.
+Container clients — the Docker Engine, containerd, podman, skopeo, the Helm OCI
+client — always insert `/v2/` immediately after the registry host, so none of
+them can address the path-prefixed mount (`docker pull host/v1/dockerhub/...`
+does **not** work). The proxy therefore also serves the Registry v2 API at its
+**host root** (`/v2/...`, see `server.registry`), mapping each request onto the
+upstream's `/v1/<name>/v2/...` mount — through the same access control and
+admission gates as any other pull. No reverse proxy is needed in front.
 
-### Option A — Docker Hub via a registry mirror (daemon-wide)
+### Option A — Explicit reference (any registry, no daemon configuration)
 
-The daemon's `registry-mirrors` setting only affects pulls of Docker Hub
-(`docker.io`) images, and Docker appends `/v2/...` to the mirror base. Point it
-at the `dockerhub` upstream's prefix:
+Prefix the repository with the **upstream name**:
+
+```bash
+docker pull proxy.example.com/dockerhub/library/nginx:latest
+docker pull proxy.example.com/ghcr/myorg/myimage:1.2.3     # with a "ghcr" docker upstream
+```
+
+`/v2/dockerhub/library/nginx/...` is served by the `dockerhub` upstream as
+repository `library/nginx`. This works for any number of registry upstreams and
+is fail-closed by construction: when the proxy refuses an image, the pull fails.
+
+### Option B — Docker Hub via a registry mirror (daemon-wide, transparent)
+
+The daemon's `registry-mirrors` setting applies to Docker Hub (`docker.io`)
+images. The Docker Engine **rejects a mirror URL that carries a path**, so the
+mirror is the proxy's host root; name the upstream that should answer
+un-prefixed repositories:
+
+```yaml
+server:
+  registry:
+    defaultUpstream: dockerhub
+```
 
 `/etc/docker/daemon.json`:
 
 ```json
 {
-  "registry-mirrors": ["https://proxy.example.com/v1/dockerhub"]
+  "registry-mirrors": ["https://proxy.example.com"]
 }
 ```
 
@@ -444,33 +601,56 @@ sudo systemctl restart docker
 docker pull nginx:latest        # transparently fetched through the proxy
 ```
 
-Verify the pull went through the proxy with `docker system info | grep -A2 Mirrors`.
+Verify with `docker system info | grep -A2 Mirrors`.
 
-### Option B — Any registry via an ingress `/v2/` rewrite (per host)
+> **Mirrors are fail-open.** When a mirror refuses a pull (for example because
+> the proxy's admission policy blocked the image), the Docker Engine falls back
+> to Docker Hub directly. Mirror mode enforces admission only where direct egress
+> to Docker Hub is blocked; otherwise use explicit references (Option A).
 
-To pull by explicit reference (`docker pull proxy.example.com/library/nginx`) or
-to mirror a non–Docker-Hub registry (GHCR, etc.), expose a hostname whose `/v2/`
-root maps to a single Docker upstream. Rewrite `/v2/` to `/v1/<name>/v2/` at your
-ingress/reverse proxy. With nginx:
+### containerd / CRI-O (Kubernetes nodes)
 
-```nginx
-# docker.example.com → the "dockerhub" upstream
-location /v2/ {
-    proxy_pass https://proxy-backend/v1/dockerhub/v2/;
-}
+containerd names the registry it is mirroring in an `ns` query parameter, which
+the proxy uses to pick the upstream fronting that registry — so one proxy
+endpoint can mirror several registries:
+
+```toml
+# /etc/containerd/certs.d/docker.io/hosts.toml
+server = "https://registry-1.docker.io"
+
+[host."https://proxy.example.com"]
+  capabilities = ["pull", "resolve"]
 ```
 
-Then:
+```toml
+# /etc/containerd/certs.d/ghcr.io/hosts.toml
+server = "https://ghcr.io"
 
-```bash
-docker pull docker.example.com/library/nginx:latest
-docker pull docker.example.com/myorg/myimage:1.2.3
+[host."https://proxy.example.com"]
+  capabilities = ["pull", "resolve"]
 ```
 
-Give each Docker upstream its own hostname (e.g. `ghcr.example.com` →
-`/v1/ghcr/v2/`). Private upstreams authenticate with credentials configured on
-the upstream; clients never send registry credentials to the proxy for the pull
-itself (proxy access control, if enabled, is separate — see
+A request arriving as `/v2/myorg/myimage/manifests/1.2.3?ns=ghcr.io` is served by
+the upstream whose `url` is `https://ghcr.io`; `ns=docker.io` selects the upstream
+for `registry-1.docker.io`.
+
+### Routing rules at `/v2/`
+
+1. A request carrying `?ns=<registry host>` is served by the upstream fronting
+   that registry.
+2. Otherwise, if the repository's first path component is the name of a registry
+   upstream, that upstream serves the rest (`/v2/<upstream>/<repository>/...`).
+3. Otherwise `server.registry.defaultUpstream` serves it; without one the request
+   is refused with a registry error naming the configured upstreams.
+
+Avoid naming a registry upstream after a namespace you also mirror (an upstream
+called `library` would shadow Docker Hub's `library/...` repositories in rule 2).
+Set `server.registry.enabled: false` to serve registries only under
+`/v1/<name>/v2/`.
+
+Private upstreams authenticate with credentials configured on the upstream;
+clients never send registry credentials to the proxy for the pull itself (proxy
+access control, if enabled, is separate — see
 [access-control-and-audit.md](access-control-and-audit.md)).
 
 ---
@@ -509,10 +689,27 @@ upstreams:
     url: https://registry.terraform.io
 ```
 
-Point Terraform/OpenTofu at the proxy host with the backend's mount as the
-registry hostname prefix; the discovery document advertises the module/provider
-endpoints under `/v1/<name>/`. Because the proxy verifies the SHASUMS signature
-itself and re-serves the manifest and `.sig`, the client's own verification
+Serve the public registry's hostname from the proxy with a `host` block in the
+CLI configuration (`~/.terraformrc`, or the file named by `TF_CLI_CONFIG_FILE`;
+OpenTofu reads `~/.tofurc` the same way). It overrides service discovery for
+that hostname, so provider and module addresses in `.tf` files stay exactly as
+they are — `hashicorp/null` resolves through the proxy:
+
+```hcl
+host "registry.terraform.io" {
+  services = {
+    "providers.v1" = "https://proxy.example.com/v1/terraform/v1/providers/"
+    "modules.v1"   = "https://proxy.example.com/v1/terraform/v1/modules/"
+  }
+}
+```
+
+```bash
+terraform init      # versions, package descriptor, zip, SHA256SUMS and .sig via the proxy
+```
+
+Because the proxy verifies the SHASUMS signature itself and re-serves the
+manifest and `.sig`, the client's own checksum and signature verification
 continues to work end-to-end through the proxy.
 
 ---
@@ -522,21 +719,40 @@ continues to work end-to-end through the proxy.
 A Conan upstream (`type: conan`, e.g. `https://center2.conan.io`) is proxied
 under `/v1/<name>`. The backend speaks the **Conan 2.x revisions REST API** (the
 `/v2/...` endpoints that JFrog Artifactory, ConanCenter, and the reference
-`conan_server` expose). Conan 1.x is not supported.
+`conan_server` expose), plus the one legacy route a Conan 2.x client still
+sends: the capability probe `GET /v1/ping`. The client reads the
+`X-Conan-Server-Capabilities` response header of that probe before any `/v2`
+call and will not use a remote that does not advertise `revisions`, so the
+header is relayed from the upstream. The rest of the Conan 1.x API is not
+supported.
 
 Recipe and package files are addressed beneath an immutable recipe revision
 (`rrev`) and package revision (`prev`), each of which is a content hash of the
-files it pins, so those files are cached **content-addressably** and served
-indefinitely. The mutable discovery endpoints (`/latest`, `/revisions`, search,
-`/ping`) are revalidated rather than cached.
+files it pins, so those files (and the per-revision file listings) are cached
+**content-addressably** and served indefinitely. The mutable discovery
+endpoints (`/latest`, `/revisions`, search, the ping) are served live from the
+upstream on every request and never cached.
 
-On a cache miss the proxy fetches the revision's `conanmanifest.txt` and
-**verifies** each fetched file against its declared MD5 before the bytes are
-cached or served — streaming for large archives (`conan_package.tgz`,
-`conan_sources.tgz`), in memory for the small `conaninfo.txt`. A mismatch is
-refused (recorded as `X-Checksum-Verified: md5` on success). The stronger
-per-file digests the upstream advertises via `X-Checksum-Sha256` are passed
-through unchanged so the client's own checks keep working.
+On a cache miss the proxy **verifies** the MD5 of each fetched content file
+before the bytes are cached or served — streaming for the archives, in memory
+for the small `conaninfo.txt` — and refuses a mismatch. The expected digest is
+taken from:
+
+- the revision's `conanmanifest.txt`, for the files it names: `conanfile.py`
+  and `conaninfo.txt`. The manifest lists a revision's files in their unpacked
+  form, so it never names the `.tgz` archives.
+- the `X-Checksum-Md5` response header, for everything else — the
+  `conan_export.tgz`, `conan_sources.tgz`, and `conan_package.tgz` archives.
+  Artifactory-based remotes (ConanCenter included) send it with every file. The
+  reference `conan_server` does not; its archives are served unverified.
+
+The outcome is recorded in the cache entry's metadata, visible through the
+admin cache API: `conan.checksumVerified` is `md5` or `none`, and
+`conan.checksumSource` is `manifest` or `upstream-header`. Both digests are
+published by the same upstream that serves the file, so they catch corruption
+and truncation rather than a compromised upstream. `conanmanifest.txt` itself
+is cached as served, and no `X-Checksum-*` header is added to (or replayed on)
+the proxy's own file responses — Conan does not use them for downloads.
 
 ```yaml
 upstreams:
@@ -545,12 +761,22 @@ upstreams:
     url: https://center2.conan.io
 ```
 
-Register the proxy as a Conan remote:
+Register the proxy as a Conan remote (Conan 2.x) and pull through it:
 
 ```bash
 conan remote add proxy https://proxy.example.com/v1/conancenter
-conan remote login proxy pullthrough -p <your-proxy-token>   # if the proxy requires auth
+conan install --requires=zlib/1.3.1 -r proxy
+conan download zlib/1.3.1 -r proxy --only-recipe
 ```
+
+> **Authentication.** A Conan client can only obtain credentials for a remote
+> through `GET /v2/users/authenticate`, which the proxy forwards to the upstream
+> instead of answering itself. ConanCenter does not implement that endpoint, so
+> `conan remote login` fails against it ("Invalid server response") and Conan
+> cannot present a proxy token. If the proxy enforces authentication, admit
+> anonymous reads for the Conan upstream (`auth.allowAnonymous` with an
+> `auth.anonymousRoles` role scoped to that upstream); the other upstreams keep
+> requiring a token.
 
 ---
 
@@ -633,7 +859,8 @@ A Hex upstream (`type: hex`, e.g. `https://repo.hex.pm`) is proxied under
 `/v1/<name>`, which mix/hex treats as the **repository root**. The backend serves
 the Hex registry-v2 tree: the signed, gzip-compressed protobuf resources
 `/names`, `/versions`, and `/packages/<name>`, plus the release tarballs under
-`/tarballs/<name>-<version>.tar`.
+`/tarballs/<name>-<version>.tar`, and the `/installs/` tree Mix and Hex use to
+install and update themselves (below).
 
 A tarball filename pins its `name-version` coordinate, so tarballs are cached
 **content-addressably** and served indefinitely; the mutable registry resources
@@ -644,10 +871,31 @@ signature verification.
 On a cache miss for a tarball the proxy fetches the sibling `/packages/<name>`
 resource, decodes the signed protobuf, reads the release's **outer_checksum** (a
 SHA-256 over the whole tarball), and **verifies** the fetched bytes against it
-before they are cached or served — streaming, so a mismatch is refused (recorded
-as `X-Checksum-Verified: sha256` on success). The package coordinate is
+before they are cached or served — streaming, so a mismatch is refused. The
+outcome is recorded as `hex.checksumVerified` (`sha256` or `none`) in the cache
+entry's metadata, visible through the admin cache API. The package coordinate is
 associated for nameguard, vulnscan, provenance, policy, and license enforcement;
 Hex coordinates are additionally OSV-scanned (OSV's `Hex` ecosystem).
+
+**Hex and Rebar self-install (`/installs/`).** With `HEX_MIRROR` set, Mix and
+Hex also fetch their own builds from the mirror. Hex's update check (at most
+once a day, on `mix deps.get` and friends) reads `/installs/hex-1.x.csv`;
+`mix local.hex` and `mix local.rebar` read a builds list (`hex-1.x.csv`,
+`rebar3-1.x.csv`; `hex.csv`, `rebar.csv` from Elixir 1.18), its `.signed`
+signature, and then the build the list selects
+(`/installs/<elixir>/hex-<version>.ez`, `/installs/<elixir>/rebar3-<version>`).
+The proxy passes exactly these paths through **live and byte-exact** and refuses
+anything else under `/installs/`. Mix checks each list's signature against its
+built-in public key (through Elixir 1.18; later releases rely on HTTPS) and each
+build against the SHA-512 its list records.
+
+The builds are deliberately **not cached** and not gated. They are not hex.pm
+packages, so there is no package coordinate for the admission gates to evaluate;
+their only integrity record is a row in the mutable list, so a cached copy could
+only go stale against it (and then fail every client's checksum check until
+purged); and the client verifies them itself on every install. `repo.hex.pm`
+redirects `/installs/` to `builds.hex.pm`, so allow that host if you restrict
+the proxy's egress.
 
 ```yaml
 upstreams:
@@ -656,21 +904,31 @@ upstreams:
     url: https://repo.hex.pm
 ```
 
-Point mix/hex at the proxied repository. For the default public repo, set the
-mirror; for an arbitrary repo, register it by name:
+Point mix/hex at the proxied repository by setting it as the mirror of the
+default `hexpm` repository, per shell or persistently:
 
 ```bash
-# Default public repo via the proxy mirror:
+# Per shell / CI job:
 export HEX_MIRROR=https://proxy.example.com/v1/hex
+mix local.hex --force      # Hex itself, through the proxy
 mix deps.get
 
-# Or register the proxied repository under a name:
-mix hex.repo add proxy https://proxy.example.com/v1/hex
+# Or persistently, in Hex's own configuration (Hex's requests only, see below):
+mix hex.config mirror_url https://proxy.example.com/v1/hex
 ```
 
-> The proxy serves the repository tree only (registry resources + tarballs); it
-> does not front the hex.pm JSON API (`api.hex.pm`), which `mix hex.publish`,
-> `mix hex.search`, and auth flows use directly.
+> `mix local.hex` and `mix local.rebar` read only the environment, not Hex's
+> configuration: they use `HEX_BUILDS_URL` when it is set (Elixir 1.15+), then
+> `HEX_MIRROR`, then the default builds host.
+
+> Do not register the proxy as a separately named repository
+> (`mix hex.repo add <name> <url>`) to mirror hex.pm: the registry resources are
+> signed for the repository name `hexpm`, and Hex rejects them under any other
+> name.
+
+> The proxy serves the repository tree only (registry resources, tarballs, and
+> `/installs/`); it does not front the hex.pm JSON API (`api.hex.pm`), which
+> `mix hex.publish`, `mix hex.search`, and auth flows use directly.
 
 ---
 
@@ -680,23 +938,50 @@ A Bazel registry upstream (`type: bazel`, e.g. `https://bcr.bazel.build`) is
 proxied under `/v1/<name>`, which Bazel treats as a **module registry**
 (`--registry=<url>`). The backend serves the Bzlmod tree: the registry-root
 `bazel_registry.json`, each module's `modules/<name>/metadata.json`, and the
-per-version `modules/<name>/<version>/MODULE.bazel`, `source.json`, and
-`patches/` files.
+per-version `modules/<name>/<version>/MODULE.bazel`, `source.json`, and the
+`patches/` and `overlay/` files `source.json` declares (overlay files may be
+nested, e.g. `overlay/src/BUILD.bazel`).
 
 A module version's **source archive** lives at an arbitrary external URL
 (commonly a GitHub release), not under the registry. `source.json` records that
 archive's URL and its **Subresource-Integrity** (`integrity`, e.g.
 `sha256-<base64>`) digest. So the proxy can cache and verify the archive, it
 **rewrites** each `source.json` so its `url` points at a proxy-synthetic
-`modules/<name>/<version>/archive` endpoint, leaving the `integrity` untouched
-(Bazel still verifies end-to-end). A request to that endpoint re-reads
+`modules/<name>/<version>/archive/<file>` endpoint, leaving the `integrity`
+untouched (Bazel still verifies end-to-end). A request to that endpoint re-reads
 `source.json`, fetches the external archive, and **verifies** the fetched bytes
 against the SRI digest before they are cached or served — streaming, so a
-mismatch aborts the cache write and the client stream (recorded as
-`X-Checksum-Verified: <algo>` on success). The module coordinate is associated
-for nameguard, provenance, policy, and license enforcement.
+mismatch aborts the cache write and the client stream. The outcome is recorded
+as `bazel.checksumVerified` (`sha256`/`sha384`/`sha512`, or `none`) in the cache
+entry's metadata, next to the upstream URL that served the archive
+(`bazel.archiveURL`). The module coordinate is associated for nameguard,
+provenance, policy, and license enforcement.
 
-> URL rewriting requires the proxy's public URL. Set `server.publicURL` so the
+`<file>` is the upstream archive's own file name
+(`.../archive/platforms-0.0.10.tar.gz`). Bazel (6, 7, and 8 alike) infers the
+archive format from the suffix of the URL's last path segment, so the endpoint
+has to end in one; an extension-less URL fails with "Expected a file with a
+.zip, … suffix". A declared `archive_type` is kept, and appended to the name
+when the upstream URL has no telling suffix. The name only labels the download:
+every spelling, including the bare `modules/<name>/<version>/archive`, serves
+the same verified bytes from the same cache entry.
+
+What the rewrite does with the other `source.json` fields:
+
+- `mirror_urls` are **removed**. Bazel tries them after `url`, so left in place
+  they would let a client fetch the archive straight from the internet whenever
+  the proxy refused or failed it. The proxy uses them itself instead, as
+  fallbacks when the primary URL is unavailable; whichever location serves the
+  archive, the bytes are verified against the same `integrity`.
+- `integrity`, `strip_prefix`, `patches`, `patch_strip`, `overlay`,
+  `archive_type` (and anything else) are preserved verbatim. Bazel fetches patch
+  and overlay files from the registry, i.e. through the proxy, where they are
+  cached per module version.
+- A `"type": "git_repository"` (or `local_path`) descriptor has no archive and
+  is passed through unchanged. Bazel then clones the `remote` itself — **that
+  fetch does not go through this backend**.
+
+> URL rewriting requires the proxy's public URL. Set `server.publicUrl` so the
 > rewritten `source.json` carries an absolute archive endpoint; without it the
 > descriptor is passed through unchanged and archive fetches are not proxied.
 
@@ -706,7 +991,7 @@ for nameguard, provenance, policy, and license enforcement.
 
 ```yaml
 server:
-  publicURL: https://proxy.example.com
+  publicUrl: https://proxy.example.com
 upstreams:
   bazel:
     type: bazel
@@ -722,7 +1007,13 @@ common --registry=https://proxy.example.com/v1/bazel
 
 ```bash
 bazel mod deps --registry=https://proxy.example.com/v1/bazel
+bazel fetch --registry=https://proxy.example.com/v1/bazel @platforms//os:linux
 ```
+
+> `MODULE.bazel.lock` records the hash of every registry file per registry URL,
+> including the rewritten `source.json`. A lockfile written against the proxy is
+> therefore valid for that proxy URL, not for `bcr.bazel.build` directly (and
+> vice versa); run `bazel mod deps --lockfile_mode=update` after switching.
 
 ---
 
@@ -771,6 +1062,11 @@ julia --project -e 'using Pkg; Pkg.instantiate()'
 > which is how Pkg installs registered packages; it does not front unregistered
 > `]add <git-url>` dependencies, which Pkg clones directly from their source
 > repository (use the `git` backend for those).
+
+> **The Pkg server is fail-open.** When the server refuses a package (for example
+> because the proxy's admission policy blocked it), Pkg silently falls back to
+> cloning the package's Git repository. Admission is therefore enforced only
+> where clients have no direct route to the forges.
 
 ---
 
@@ -1077,36 +1373,108 @@ nix build .#hello \
 Homebrew (`type: homebrew`, `https://formulae.brew.sh`) is proxied under
 `/v1/<name>`. It spans two upstreams, both fronted by this backend:
 
-- **Formula metadata**, from the `formulae.brew.sh` JSON API: the full index
-  (`/api/formula.json`) and the per-formula documents
-  (`/api/formula/<name>.json`). These enumerate each formula's *bottle* — a
-  precompiled binary tarball — with its download URL and SHA-256. They are
-  mutable and revalidated live.
-- **Bottle tarballs**, which Homebrew now distributes as OCI blobs in GitHub
-  Packages (`ghcr.io`). A bottle's download URL is a content-addressed OCI blob
-  reference (`https://ghcr.io/v2/<repo>/blobs/sha256:<digest>`), fetched via the
-  standard Docker Registry v2 bearer-token handshake (anonymous for the public
-  `homebrew/core` tap).
+- **Formula metadata**, from the `formulae.brew.sh` JSON API. These documents
+  enumerate each formula's *bottle* — a precompiled binary tarball — with its
+  download URL and SHA-256. They are mutable and served live.
+- **Bottle tarballs**, which Homebrew distributes as OCI blobs in GitHub
+  Packages (`ghcr.io`): a content-addressed blob
+  (`https://ghcr.io/v2/<repo>/blobs/sha256:<digest>`) next to an OCI image index
+  per formula version (`https://ghcr.io/v2/<repo>/manifests/<version>`), both
+  fetched via the standard Docker Registry v2 bearer-token handshake (anonymous
+  for the public `homebrew/core` tap).
+
+Point Homebrew at the proxy with **both** its API and artifact domain variables:
+
+```bash
+export HOMEBREW_API_DOMAIN="https://proxy.example.com/v1/homebrew/api"
+export HOMEBREW_ARTIFACT_DOMAIN="https://proxy.example.com/v1/homebrew"
+brew install wget
+# or declaratively, via a Brewfile:
+#   brew bundle --file=./Brewfile
+```
+
+What the `brew` client does with them:
+
+- **`HOMEBREW_API_DOMAIN` routes the metadata.** `brew` downloads the
+  **signed** index — `api/formula.jws.json`, plus `cask.jws.json` and the
+  `*_tap_migrations.jws.json` documents — and verifies its JWS signature. The
+  proxy therefore passes these documents through **byte-exact**; it cannot (and
+  does not) rewrite the bottle URLs inside them.
+- **`HOMEBREW_ARTIFACT_DOMAIN` routes the bottles, and is required.** It is the
+  only thing that sends `brew`'s bottle downloads through the proxy: `brew`
+  itself replaces `https://ghcr.io` in every bottle URL with this value and
+  requests the registry-native paths from the proxy:
+
+  ```
+  GET /v1/homebrew/v2/homebrew/core/hello/manifests/2.12.3-1
+  GET /v1/homebrew/v2/homebrew/core/hello/blobs/sha256:<digest>
+  ```
+
+  Without it, `brew` reads its metadata through the proxy and then downloads
+  every bottle **directly from ghcr.io**, bypassing the cache and every gate.
+  (`brew`'s own portable Ruby is fetched the same way, from
+  `/v2/homebrew/portable-ruby/portable-ruby/blobs/sha256:<digest>`.)
 
 On the pull path:
 
-- **Bottle-URL rewriting.** Every bottle download URL in a served formula
-  document is **rewritten** to the proxy's own
-  `/bottle/<name>/<version>/v2/…/blobs/sha256:<digest>` endpoint (under the
-  configured public URL), so a client's bottle download routes back **through
-  the proxy** (and its content gates) rather than directly to ghcr. Only bottle
-  URLs on the configured bottle-registry host are rewritten; others are left
-  untouched (fail-open). The rewrite carries the formula name and version so the
-  admission gates see a concrete coordinate.
-- **Bottle content verification.** On a request for the rewritten bottle
-  endpoint, the proxy reconstructs the exact upstream blob URL, fetches the blob
-  (following the token handshake and any blob-storage redirect), and **verifies**
-  the streamed bytes against the SHA-256 named in the URL — the same digest the
-  formula's bottle manifest records. A mismatch aborts the cache write and the
-  client stream with a digest-mismatch error, so a tampered or corrupt bottle can
-  neither poison the cache nor reach a client. It records
-  `X-Content-Hash-Verified: sha256` on success. Bottles are cached
-  content-addressably under their digest.
+- **Manifests are served live.** `/v2/<repo>/manifests/<reference>` is fetched
+  from the bottle registry with the client's `Accept` header forwarded (`brew`
+  asks for `application/vnd.oci.image.index.v1+json`) and returned unmodified,
+  with the registry's own media type and `Docker-Content-Digest`. `brew` reads
+  the bottle's install receipt from it.
+- **Bottle content verification.** `/v2/<repo>/blobs/sha256:<digest>` is
+  fetched from the bottle registry (following the token handshake and any
+  blob-storage redirect) and the streamed bytes are **verified** against the
+  SHA-256 named in the URL — the digest the signed index records. A mismatch
+  aborts the cache write and the client stream with a digest-mismatch error, so
+  a tampered or corrupt bottle can neither poison the cache nor reach a client.
+  Verified bottles are cached content-addressably under their digest (recorded
+  as `homebrew.digestVerified: sha256` on the cache entry), so the next client
+  is served from the cache.
+- **Only the configured bottle registry is reachable.** The upstream URL is
+  always rebuilt from `bottleRegistryUrl` and strictly validated path
+  components: the repository must be a bottle repository
+  (`<org>/<tap>/<formula>`, lowercase, with a versioned formula's `@<version>`
+  as a fourth segment), a manifest reference an OCI tag or `sha256:` digest, a
+  blob reference a `sha256:` digest. Anything else under `/v2/` (the version
+  probe, tag listings, uploads, two-segment container images) is refused.
+- **Formula coordinate for the admission gates.** The bottle URL names a
+  repository and a digest but no version, so the proxy establishes the
+  `(formula, version)` coordinate the name / policy / provenance / risk gates
+  see:
+  - The **name** is mapped back from the repository the way `brew` maps it
+    forward (`@` is stored as `/`, `+` as `x`): `homebrew/core/openssl/3` is
+    `openssl@3`, `homebrew/core/gtkx3` is `gtk+3`. The `+` spelling cannot be
+    told from the path alone, so it is confirmed from the image index (or the
+    formula JSON); until one of them has been seen such a formula goes by its
+    registry spelling (`gtkx3`). A formula from any other tap is tap-qualified
+    (`<org>/<tap>/<formula>`), so it can never pass for a core formula of the
+    same name.
+  - The **version** is learned from the image index `brew` fetches along with
+    the bottle (each platform entry is annotated with the bottle digest and its
+    version). With serial downloads the index arrives first; with
+    `HOMEBREW_DOWNLOAD_CONCURRENCY` the two requests race, so a bottle request
+    that overtakes its manifest waits briefly for it. The version is the
+    formula's version — `1.92.0` for the bottle tagged `1.92.0_1`, i.e. without
+    `brew`'s `_<revision>` and bottle-rebuild suffixes — the same string the
+    formula JSON publishes as `versions.stable`.
+  - If the index was not seen by this instance (a restart, or another replica
+    served it), the version is recovered from the formula JSON API and
+    remembered. If that fails too (API unreachable, a bottle the formula no
+    longer lists, a third-party tap), the bottle is still gated under its
+    formula name with the stand-in version `sha256:<digest>`, so name-keyed
+    rules keep applying; version-keyed rules cannot match it. Which of the three
+    applied is recorded as `homebrew.versionSource`
+    (`manifest` / `formula-api` / `digest`) on the cache entry, and the last
+    case is counted by `pullthrough_homebrew_bottle_version_fallback_total`.
+    (A sealed instance never performs the API lookup.)
+
+For consumers of the **unsigned** formula JSON (`/api/formula.json`,
+`/api/formula/<name>.json`) — not the `brew` client — every bottle download URL
+on the bottle-registry host is additionally **rewritten** to the proxy's own
+`/bottle/<name>/<version>/v2/…/blobs/sha256:<digest>` endpoint (under the
+configured public URL), which carries the coordinate in its path and serves the
+same verified, cached bottle.
 
 > Homebrew bottles are **not** OSV-scanned by coordinate: OSV.dev defines no
 > Homebrew ecosystem (a bottle is addressed by an opaque OCI digest, and a
@@ -1121,25 +1489,27 @@ upstreams:
     type: homebrew
     url: https://formulae.brew.sh
     settings:
-      # OCI registry Homebrew bottles are fetched from (default https://ghcr.io);
-      # only bottle URLs on this host are rewritten through the proxy.
+      # OCI registry Homebrew bottles and their manifests are fetched from
+      # (default https://ghcr.io). It is the only registry the /v2/ paths reach,
+      # and only bottle URLs on this host are rewritten in the unsigned JSON.
       bottleRegistryUrl: https://ghcr.io
 ```
 
-Point Homebrew at the proxy with its API and artifact domain variables:
+Things to know about the client:
 
-```bash
-export HOMEBREW_API_DOMAIN="https://proxy.example.com/v1/homebrew/api"
-export HOMEBREW_ARTIFACT_DOMAIN="https://proxy.example.com/v1/homebrew"
-brew update
-brew install wget
-# or declaratively, via a Brewfile:
-#   brew bundle --file=./Brewfile
-```
-
-Because bottle download URLs are already rewritten in the served formula
-metadata, `HOMEBREW_ARTIFACT_DOMAIN` is not strictly required, but setting it
-keeps any directly-constructed bottle URL flowing through the proxy as well.
+- If the proxy is unreachable, `brew` silently falls back to
+  `https://formulae.brew.sh` for the **metadata** (the signature is verified
+  either way). Bottles have no such fallback: with `HOMEBREW_ARTIFACT_DOMAIN`
+  set, a bottle the proxy refuses is simply not installed. Set
+  `HOMEBREW_ARTIFACT_DOMAIN_NO_FALLBACK=1` as well to make `brew` fail rather
+  than try a default URL for the few downloads that have one (e.g. its portable
+  Ruby).
+- Do **not** use `HOMEBREW_BOTTLE_DOMAIN` for this: it requests a different,
+  flat-file layout the proxy does not serve, and `brew` falls back from it to
+  `ghcr.io` directly.
+- Only bottles flow through `HOMEBREW_ARTIFACT_DOMAIN`. Anything `brew` builds
+  from source (`--build-from-source`, a formula with no bottle for the
+  platform) and cask downloads are fetched from their own upstream URLs.
 
 ---
 
@@ -1160,10 +1530,39 @@ addressable collection artifact tarballs
   mismatch aborts the cache write and the client stream. It records
   `X-Checksum-Verified: sha256` on success. An artifact whose version detail is
   unavailable is served byte-exact and recorded as unverified.
-- **Metadata URL rewriting.** Any absolute upstream URL a served metadata
-  document embeds — in particular a version detail's `download_url` — is
-  **rewritten** to the proxy's public base URL, so a client's artifact download
-  flows back through the proxy (and its content gates and checksum verification).
+- **Metadata link rewriting.** Galaxy's documents link to the registry itself,
+  and `ansible-galaxy` follows those links, so every one of them is **rewritten**
+  onto the proxy mount — otherwise it would resolve against the proxy's host
+  root (a `404`) or reach Galaxy directly, past the content gates and checksum
+  verification. Each link keeps the shape the client expects:
+  - a **root-relative** link (`links.next`/`first`/`last` pagination, `href`,
+    `versions_url`, `pulp_href`, the v1 `next_link`, …) stays root-relative and
+    gains the mount path: `/api/v3/…?limit=100&offset=100` is served as
+    `/v1/<name>/api/v3/…?limit=100&offset=100`;
+  - an **absolute** upstream URL — in particular a version detail's
+    `download_url` — is served as an absolute URL under `server.publicUrl`.
+
+  Only string values that are links into the registry are touched; a
+  description, a file path, or a link to another site is served as-is.
+- **Set `server.publicUrl`.** Without it the proxy does not know its own
+  address, and `download_url` is served root-relative (`/v1/<name>/api/…`) too.
+  ansible-core 2.19 and later resolve that against the server URL and install
+  normally; ansible-core 2.18 and earlier open `download_url` exactly as served
+  and fail with `unknown url type`.
+- **Redirects.** Galaxy answers the short `/api/v3/collections/…` paths the
+  client requests with a redirect to the canonical
+  `/api/v3/plugin/ansible/content/<repo>/collections/index/…` path, and serves a
+  tarball through a redirect to its object storage. The proxy follows both
+  upstream, so the client sees neither. With `egress.followRedirects: false`
+  the proxy relays a redirect that stays inside the registry instead, with its
+  `Location` mapped onto the mount. A redirect that leaves the registry, or one
+  answering a tarball request, is never relayed — the request fails with `502`
+  — so in that mode metadata is served but a collection cannot be downloaded
+  from a registry that, like Galaxy, serves its tarballs through a redirect.
+- **Roles.** The legacy v1 role API (`/api/v1/roles/…`) is proxied the same
+  way, but Galaxy only indexes roles: a role's archive is hosted on GitHub, and
+  `ansible-galaxy role install` downloads it from there directly rather than
+  through this backend.
 
 > Ansible Galaxy is **not** OSV-scanned by coordinate. OSV.dev defines no
 > Ansible-Galaxy ecosystem; a collection is addressed by a `namespace.name` FQCN
@@ -1193,6 +1592,19 @@ url = https://proxy.example.com/v1/ansible/
 ```bash
 ansible-galaxy collection install community.general
 ```
+
+or name the server on the command line:
+
+```bash
+ansible-galaxy collection install community.general:8.0.0 \
+  -s https://proxy.example.com/v1/ansible/
+```
+
+Both forms take the mount URL with or without its trailing slash. The client
+first requests that URL, finds Galaxy's web page rather than an API root, and
+falls back to `<url>/api`; give it `https://proxy.example.com/v1/ansible/api/`
+to skip that extra round trip. Dependencies are resolved and downloaded through
+the proxy as well.
 
 ---
 
@@ -1391,7 +1803,15 @@ clone any repository by appending its path to the upstream prefix:
 git clone https://proxy.example.com/v1/github/torvalds/linux.git
 ```
 
-The proxy speaks the Git **smart-HTTP** protocol
+To send existing clone URLs, submodules and dependency manifests through the
+proxy without editing them, rewrite the forge's base URL once:
+
+```bash
+git config --global url."https://proxy.example.com/v1/github/".insteadOf "https://github.com/"
+git clone https://github.com/torvalds/linux.git     # fetched through the proxy
+```
+
+The proxy speaks the Git **smart-HTTP** protocol, wire protocol v0/v1 and v2
 (`/info/refs?service=git-upload-pack` and `git-upload-pack`); it is **read-only**
 (fetch/clone only, no push). Configured upstream credentials are injected toward
 the forge, so clients clone public *and* private mirrored repos without holding
@@ -1526,10 +1946,10 @@ fetched/served, OID/size mismatches, gate findings/blocks), labeled by backend.
 | nuget     | `.nupkg` packages                        | service index, registration, version lists |
 | maven     | release & timestamped-snapshot artifacts (`.jar`/`.pom`/`.module`/`.war`) + sidecars | `maven-metadata.xml`, non-timestamped `-SNAPSHOT` artifacts |
 | rubygems  | `.gem` files, `/quick/Marshal.4.8` gemspecs | compact index (`/versions`, `/names`, `/info/<gem>`), Marshal indexes, dependency API |
-| composer  | dist archives (`/dist/<vendor>/<package>/<ref>.<ext>`) | `packages.json`, `/p2/...` v2 metadata, `/p/...` providers |
+| composer  | dist archives (`/dist/<vendor>/<package>/<version>/<ref>.<ext>`) | `packages.json`, `/p2/...` v2 metadata, `/p/...` providers |
 | helm      | chart archives (`<name>-<version>.tgz`) + `.prov` provenance (classic); manifests/blobs by digest (OCI) | `index.yaml` (classic); manifests by tag (OCI) |
 | docker    | blobs & manifests by digest              | manifests by tag, tag/ping endpoints    |
-| conan     | recipe/package files under a pinned revision (`.../revisions/{rrev}/files/...`), MD5-verified via `conanmanifest.txt` | `/latest`, `/revisions`, search, `/ping` |
+| conan     | recipe/package files under a pinned revision (`.../revisions/{rrev}/files/...`), MD5-verified via `conanmanifest.txt` (unpacked files) or the upstream `X-Checksum-Md5` header (archives) | `/latest`, `/revisions`, search, `/ping` |
 | swift     | release metadata, `Package.swift`, source archives (`.../{version}.zip`) under a pinned version, SHA-256-verified via the release metadata `checksum` | release list (`/{scope}/{name}`), `/identifiers` lookup |
 | dart      | package archives (`/api/archives/<pkg>-<ver>.tar.gz`), SHA-256-verified via `archive_sha256` | list-versions (`/api/packages/<pkg>`, archive URLs rewritten), advisories |
 | huggingface | commit-pinned `resolve` blobs (`.../resolve/{sha}/...`), SHA-256-verified via `X-Linked-Etag`, LFS/CDN-followed, pickle weights opcode-scanned | branch/tag `resolve`, `/api/models` + `/api/datasets` metadata |

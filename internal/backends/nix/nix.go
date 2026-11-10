@@ -229,11 +229,22 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 	// Attach the best available coordinate so nameguard, policy, provenance, and
 	// risk can identify the artifact. A binary cache exposes only an opaque store
 	// hash (narinfo) or the NAR's SHA-256 (nar), never a name/semver.
+	//
+	// The hash is used as BOTH name and version. That is the honest reading of a
+	// content address — it names one immutable build and nothing else — and it is
+	// what makes the coordinate "concrete": the admission gates that key on a
+	// name+version pair (the admission policy and its provenance pins, the
+	// dependency firewall, break-glass approvals) skip a coordinate without a
+	// version, so a name-only coordinate left every store path ungated. An
+	// operator pins or denies a store path by its hash, e.g.
+	//   {ecosystem: nix, name: n5glp21rsz314qssw9fbvfswgy3kc68f}
+	// A refused narinfo is what stops a path: without it the client never learns
+	// the NAR's location, references or signature.
 	switch res.kind {
 	case kindNarInfo:
-		resolved.Coordinate = backends.Coordinate{Name: res.storeHash}
+		resolved.Coordinate = backends.Coordinate{Name: res.storeHash, Version: res.storeHash}
 	case kindNar:
-		resolved.Coordinate = backends.Coordinate{Name: res.fileHash}
+		resolved.Coordinate = backends.Coordinate{Name: res.fileHash, Version: res.fileHash}
 		resolved.MediaType = "application/x-nix-nar"
 		if res.verifiable() {
 			resolved.Metadata[metaVerify] = "1"

@@ -1283,13 +1283,13 @@ func bindConanMetrics(c *metrics.Collector, registry *backends.Registry) {
 	}
 
 	bridge("pullthrough_conan_files_verified_total",
-		"Conan content files whose MD5 was verified against the revision's conanmanifest.txt, by backend.",
+		"Conan content files whose MD5 was verified against the revision's conanmanifest.txt (or, for the .tgz archives it does not list, the upstream's X-Checksum-Md5), by backend.",
 		func(s conan.Snapshot) float64 { return s.FilesVerified })
 	bridge("pullthrough_conan_checksum_mismatches_total",
 		"Conan content files whose content failed MD5 verification and were refused, by backend.",
 		func(s conan.Snapshot) float64 { return s.ChecksumMismatch })
 	bridge("pullthrough_conan_manifest_missing_total",
-		"Conan content files served without a usable conanmanifest.txt entry, by backend.",
+		"Conan content files served unverified because the upstream declared no MD5 for them (no conanmanifest.txt entry and no X-Checksum-Md5), by backend.",
 		func(s conan.Snapshot) float64 { return s.ManifestMissing })
 	bridge("pullthrough_conan_files_served_total",
 		"Conan recipe/package content files served, by backend.",
@@ -1456,9 +1456,9 @@ func bindCpanMetrics(c *metrics.Collector, registry *backends.Registry) {
 // bindHexMetrics surfaces the Hex (Elixir) backends' supply-chain telemetry —
 // release tarballs served and verified against the sibling /packages/<name>
 // resource's outer_checksum, checksum mismatches, missing digests, resource
-// fetches, and signed registry documents — as labeled counters keyed by backend,
-// read live at scrape time. With no Hex repositories configured the metrics are
-// simply absent.
+// fetches, signed registry documents, and /installs/ pass-through — as labeled
+// counters keyed by backend, read live at scrape time. With no Hex repositories
+// configured the metrics are simply absent.
 func bindHexMetrics(c *metrics.Collector, registry *backends.Registry) {
 	hexBackends := func() map[string]*hex.Backend {
 		out := make(map[string]*hex.Backend)
@@ -1501,6 +1501,9 @@ func bindHexMetrics(c *metrics.Collector, registry *backends.Registry) {
 	bridge("pullthrough_hex_registry_served_total",
 		"Hex signed registry resources (names/versions/packages) served, by backend.",
 		func(s hex.Snapshot) float64 { return s.RegistryServed })
+	bridge("pullthrough_hex_installs_served_total",
+		"Hex /installs/ files (Hex and Rebar self-install lists, signatures, and builds) passed through live, by backend.",
+		func(s hex.Snapshot) float64 { return s.InstallsServed })
 }
 
 // bindJsrMetrics surfaces the JSR backends' supply-chain telemetry — module
@@ -1942,9 +1945,12 @@ func bindNixMetrics(c *metrics.Collector, registry *backends.Registry) {
 }
 
 // bindHomebrewMetrics surfaces the Homebrew backends' supply-chain telemetry —
-// formula metadata documents served and rewritten, other metadata proxied,
-// bottle OCI blobs served and verified against the SHA-256 content address in
-// their URL, bottle digest mismatches refused, and ghcr bearer tokens obtained —
+// formula metadata documents served and rewritten, other metadata proxied, OCI
+// manifests proxied from the bottle registry, bottle OCI blobs served and
+// verified against the SHA-256 content address in their URL, bottle digest
+// mismatches refused, ghcr bearer tokens obtained, and how the formula version
+// of each registry-native bottle request was established (learned from the
+// manifest, recovered from the formula API, or the digest-derived fallback) —
 // as labeled counters keyed by backend, read live at scrape time. With no
 // Homebrew upstreams configured the metrics are simply absent.
 func bindHomebrewMetrics(c *metrics.Collector, registry *backends.Registry) {
@@ -1992,6 +1998,18 @@ func bindHomebrewMetrics(c *metrics.Collector, registry *backends.Registry) {
 	bridge("pullthrough_homebrew_tokens_fetched_total",
 		"Homebrew bottle-registry (ghcr) bearer tokens obtained via the Docker Registry v2 handshake, by backend.",
 		func(s homebrew.Snapshot) float64 { return s.TokensFetched })
+	bridge("pullthrough_homebrew_manifests_served_total",
+		"Homebrew bottle OCI manifests / image indexes proxied from the bottle registry (the brew client's HOMEBREW_ARTIFACT_DOMAIN path), by backend.",
+		func(s homebrew.Snapshot) float64 { return s.ManifestsServed })
+	bridge("pullthrough_homebrew_bottle_version_manifest_total",
+		"Homebrew registry-native bottle requests whose formula version was learned from the OCI image index, by backend.",
+		func(s homebrew.Snapshot) float64 { return s.VersionFromManifest })
+	bridge("pullthrough_homebrew_bottle_version_formula_api_total",
+		"Homebrew registry-native bottle requests whose formula version was recovered from the formula JSON API, by backend.",
+		func(s homebrew.Snapshot) float64 { return s.VersionFromFormulaAPI })
+	bridge("pullthrough_homebrew_bottle_version_fallback_total",
+		"Homebrew registry-native bottle requests whose formula version was unknown and gated under the digest-derived stand-in, by backend.",
+		func(s homebrew.Snapshot) float64 { return s.VersionFromDigest })
 }
 
 // bindAnsibleMetrics surfaces the Ansible Galaxy backends' supply-chain

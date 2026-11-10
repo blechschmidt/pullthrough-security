@@ -13,10 +13,18 @@
 //	go test -tags fuzz -run=^$ -fuzz=FuzzClassify ./internal/backends/conan/
 package conan
 
-import "testing"
+import (
+	"net/http"
+	"strings"
+	"testing"
+)
 
 func FuzzClassify(f *testing.F) {
 	seeds := []string{
+		"/v1/ping",
+		"/v1/ping/extra",
+		"/v1/users/authenticate",
+		"/v1/conans/zlib/1.2.13/_/_/latest",
 		"/v2/ping",
 		"/v2/users/authenticate",
 		"/v2/conans/search",
@@ -44,6 +52,41 @@ func FuzzClassify(f *testing.F) {
 		_ = res.reference()
 		if res.verifiableFile() && res.filename == "" {
 			t.Fatalf("verifiable file with empty filename: %q", path)
+		}
+		// The legacy v1 prefix serves the capability probe and nothing else.
+		if strings.Split(strings.Trim(path, "/"), "/")[0] == "v1" && res.kind != kindPing {
+			t.Fatalf("v1 route accepted for a non-ping resource: %q -> %s", path, res.kindLabel())
+		}
+		// Only a resource pinned beneath a revision is cacheable, and the gates
+		// need its full coordinate.
+		if res.cacheable() && (res.name == "" || res.version == "" || res.rrev == "") {
+			t.Fatalf("cacheable resource without a full coordinate: %q -> %+v", path, res)
+		}
+	})
+}
+
+func FuzzHeaderMD5(f *testing.F) {
+	for _, s := range []string{
+		"373b2b3b570caa67d7fcce21b9d484c1",
+		"373B2B3B570CAA67D7FCCE21B9D484C1",
+		" 373b2b3b570caa67d7fcce21b9d484c1 ",
+		"373b2b3b570caa67d7fcce21b9d484c",
+		"096169aa6b128bab6763ed9127c7dd34f47b1ffd",
+		"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+		"",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		h := http.Header{}
+		h.Set(checksumMD5Header, value)
+		got, ok := headerMD5(h)
+		if !ok {
+			return
+		}
+		// An accepted header value is always a canonical 32-char lowercase hex MD5.
+		if len(got) != md5HexLen || !isHex(got) || got != strings.ToLower(got) {
+			t.Fatalf("headerMD5(%q) accepted non-canonical digest %q", value, got)
 		}
 	})
 }
