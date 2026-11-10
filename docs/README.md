@@ -46,6 +46,7 @@ pull-through proxy focused on software supply-chain security.
 | Monitor it (metrics, Grafana dashboards, Prometheus alerts) | [observability.md](observability.md) |
 | Benchmark, load-test & profile it (percentiles, throughput, pprof) | [performance.md](performance.md) |
 | Watch a real-time SOC view (cross-gate verdicts, posture, live feed) | [secops.md](secops.md) |
+| Tour the admin dashboard tab by tab (annotated screenshots) | [admin-ui-walkthrough.md](admin-ui-walkthrough.md) |
 | Meet the UI accessibility baseline (WCAG 2.1 AA, keyboard, dark mode) | [accessibility.md](accessibility.md) |
 | Ask cross-cutting questions across subsystems (federated query API) | [query-api.md](query-api.md) |
 | Give AI agents read-only security context (MCP server) | [mcp-server.md](mcp-server.md) |

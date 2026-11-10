@@ -57,6 +57,13 @@ body {
 h1, h2, h3 { margin: 0 0 .5rem; font-weight: 650; letter-spacing: -.01em; }
 h2 { font-size: 1rem; }
 
+/* The dashboard shows/hides elements by toggling the `hidden` attribute from
+   JS (drawer, incident banner, whoami/sign-out pills, conditional panels). The
+   UA `[hidden] { display: none }` rule is low-priority and is overridden by any
+   author `display` declaration (e.g. `.drawer { display: flex }`), which would
+   leave those elements rendered open. Enforce the hide so `hidden` is reliable. */
+[hidden] { display: none !important; }
+
 .visually-hidden, .skip-link:not(:focus) {
   position: absolute !important; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;

@@ -24,6 +24,8 @@ plus an admin dashboard.
 > [architecture](docs/architecture.md), [configuration](docs/configuration.md),
 > [client setup](docs/clients.md), [security model](docs/security-model.md),
 > [threat model](docs/threat-model.md), and the [admin runbook](docs/runbook.md).
+> For a screenshot tour of the admin dashboard, see the
+> [admin UI walkthrough](docs/admin-ui-walkthrough.md).
 > To point tooling at the proxy, start with [docs/clients.md](docs/clients.md).
 
 ## Architecture
