@@ -204,8 +204,23 @@ jobs:
   mutation:
     name: Mutation / test-quality gate
     runs-on: ubuntu-latest
+    # Guard against a hung run; a full seeded run is several minutes but well
+    # under this ceiling (the job is skipped from the fast path's critical gate).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # Mutation testing compiles a fresh test binary for every mutant (hundreds
+      # of distinct builds across the gate packages), which balloons the Go build
+      # cache. The default GitHub-hosted runner ships only ~14 GB of free disk
+      # with a large pre-installed toolcache; reclaim the unused SDKs up front so
+      # the cache growth cannot exhaust the disk and get the runner reclaimed
+      # mid-run (observed as a spurious "runner received a shutdown signal").
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -214,6 +229,10 @@ jobs:
           cache: true
 
       - name: Mutation-score regression gate
+        # Cap each mutant build's internal parallelism to keep peak memory on the
+        # 4-vCPU runner modest while the sequential harness churns through builds.
+        env:
+          GOFLAGS: "-p=2"
         run: make mutation
 
       - name: Publish mutation summary
