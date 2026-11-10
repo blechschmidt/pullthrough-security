@@ -84,6 +84,13 @@ type Options struct {
 	TestTimeout time.Duration
 	// BuildTimeout bounds each mutant's compile (default 3m).
 	BuildTimeout time.Duration
+	// MemLimitBytes caps the resident memory of each mutant's test run. A mutant
+	// that induces runaway allocation (e.g. a flipped loop bound) would otherwise
+	// exhaust host RAM and get the whole CI runner OOM-reclaimed mid-run; bounding
+	// it means such a mutant only kills its own process and is correctly scored as
+	// killed. Legitimate gate-package tests run well under the default. 0 applies
+	// the default; a negative value disables the guard. Enforced on Linux.
+	MemLimitBytes int64
 	// Short passes -test.short to each mutant run.
 	Short bool
 	// Ignore is the set of mutant IDs to treat as known-equivalent/accepted and
@@ -123,6 +130,9 @@ func New(opts Options) *Engine {
 	}
 	if opts.BuildTimeout <= 0 {
 		opts.BuildTimeout = 3 * time.Minute
+	}
+	if opts.MemLimitBytes == 0 {
+		opts.MemLimitBytes = defaultMemLimitBytes
 	}
 	if len(opts.Operators) == 0 {
 		opts.Operators = DefaultOperators()
@@ -235,7 +245,7 @@ func (e *Engine) runPackage(ctx context.Context, rel string, enabled map[string]
 	if !cr.hasTest {
 		return nil, fmt.Errorf("package %s has no test files; cannot mutation-test it", rel)
 	}
-	if outcome := runTestBinary(ctx, binPath, pkgDir, e.opts.TestTimeout, e.opts.Short); outcome != outcomePass {
+	if outcome := runTestBinary(ctx, binPath, pkgDir, e.opts.TestTimeout, e.opts.Short, e.opts.MemLimitBytes); outcome != outcomePass {
 		return nil, fmt.Errorf("baseline tests for %s are not green (status %v); fix the suite before mutation testing", rel, outcome)
 	}
 
@@ -282,7 +292,7 @@ func (e *Engine) evaluate(ctx context.Context, m Mutant, pattern, pkgDir, binPat
 		mr.Elapsed = time.Since(start)
 		return mr
 	}
-	switch runTestBinary(ctx, binPath, pkgDir, e.opts.TestTimeout, e.opts.Short) {
+	switch runTestBinary(ctx, binPath, pkgDir, e.opts.TestTimeout, e.opts.Short, e.opts.MemLimitBytes) {
 	case outcomePass:
 		mr.Status = StatusSurvived
 	case outcomeTimeout:

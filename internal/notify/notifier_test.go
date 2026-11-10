@@ -235,6 +235,15 @@ func TestDeliveryRetriesThenSucceeds(t *testing.T) {
 	n.Emit(context.Background(), VulnerabilityEvent(SeverityHigh, "npm", "b", "x@1", "", "block", "bad"))
 	waitForDeliveries(t, sink, 1, 2*time.Second)
 
+	// The worker records the `sent` metric *after* Sink.Deliver returns (and
+	// Deliver is what unblocks waitForDeliveries), so poll for the metric rather
+	// than reading it immediately — otherwise the assertion races the worker's
+	// post-delivery bookkeeping and flakes on a loaded runner.
+	deadline := time.Now().Add(2 * time.Second)
+	for n.Metrics().PerSink["s"].Sent == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+
 	if got := sink.attempts.Load(); got != 3 {
 		t.Errorf("attempts = %d, want 3 (2 failures + 1 success)", got)
 	}
