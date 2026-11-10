@@ -1,0 +1,93 @@
+# Default policy-as-code bundle for the pull-through proxy admission engine.
+#
+# These are conservative, broadly-applicable supply-chain guardrails. They are
+# loaded at low priority so any operator-authored bundle (default priority 0 or
+# higher) and any tenant-scoped bundle take precedence. Edit a copy in your
+# policy directory rather than this embedded copy.
+#
+# The input document aggregates every gate's signals. Common fields:
+#   input.artifact.{ecosystem,backend,name,version,digest}
+#   input.tenant
+#   input.vuln.{scanned,criticalCount,highCount,criticalUnresolved,hasUnresolvedCritical,maxCvss,...}
+#   input.license.{evaluated,denied,code,driftDetected,...}
+#   input.signature.{checked,verified,attested,slsaProvenance,identityTrusted,...}
+#   input.secret.{scanned,findingCount,maxSeverity,risk,hasFindings,...}
+#   input.nameguard.{scanned,typosquat,dependencyConfusion,homoglyph,maxSeverity,...}
+#   input.provenance.{found,confidence,attested,malicious,riskScore,...}
+name: default
+description: Conservative default supply-chain admission guardrails.
+priority: -1000
+rules:
+  # A known-malicious package (by name heuristics or a malicious source commit)
+  # is always blocked, regardless of other signals. Marked final so nothing
+  # downstream can re-admit it.
+  - id: block-malicious-package
+    description: Block packages flagged malicious by nameguard or provenance scanning.
+    when: >
+      (has(input.nameguard) && input.nameguard.maxSeverity == "critical") ||
+      (has(input.provenance) && input.provenance.malicious)
+    action: deny
+    final: true
+    message: package flagged malicious by name or source-commit analysis
+
+  # A detected high/critical secret in the source is a hard block.
+  - id: block-leaked-secret
+    description: Block when the secret scanner found a high or critical credential leak.
+    when: >
+      has(input.secret) && input.secret.scanned &&
+      (input.secret.maxSeverity == "high" || input.secret.maxSeverity == "critical")
+    action: deny
+    message: high-severity secret/credential detected in source
+
+  # The headline rule: an unresolved critical CVE (not VEX not_affected) with no
+  # verified signature is denied. A valid signature alone is not a fix, but it
+  # raises the bar enough to warn-and-pass for triage rather than hard-block,
+  # which the next rule handles.
+  - id: deny-critical-cve-unsigned
+    description: Deny unresolved critical CVE on an unsigned artifact.
+    when: >
+      has(input.vuln) && input.vuln.hasUnresolvedCritical &&
+      !(has(input.signature) && input.signature.verified)
+    action: deny
+    message: unresolved critical vulnerability without a verified signature
+
+  # An unresolved critical CVE on a signed artifact is warned (let the operator
+  # triage via VEX) rather than hard-blocked.
+  - id: warn-critical-cve-signed
+    description: Warn on an unresolved critical CVE even when the artifact is signed.
+    when: >
+      has(input.vuln) && input.vuln.hasUnresolvedCritical &&
+      has(input.signature) && input.signature.verified
+    action: warn
+    message: unresolved critical vulnerability on a signed artifact (review VEX)
+
+  # Typosquatting / dependency-confusion suspicions are denied at high severity.
+  - id: deny-typosquat
+    description: Deny high-confidence typosquat or dependency-confusion suspicions.
+    when: >
+      has(input.nameguard) && input.nameguard.scanned &&
+      (input.nameguard.maxSeverity == "high" || input.nameguard.maxSeverity == "critical") &&
+      (input.nameguard.typosquat || input.nameguard.dependencyConfusion || input.nameguard.homoglyph)
+    action: deny
+    message: name resembles a known package (typosquat/dependency-confusion)
+
+  # A denied license is blocked.
+  - id: deny-license
+    description: Block artifacts whose license the compliance gate denied.
+    when: has(input.license) && input.license.denied
+    action: deny
+    message: license denied by compliance policy
+
+  # A license flagged for review is surfaced as a warning.
+  - id: warn-license-review
+    description: Warn when the license gate flagged the artifact for manual review.
+    when: has(input.license) && input.license.code == "review"
+    action: warn
+    message: license requires manual review
+
+  # Many high-severity (but not critical) CVEs warrant a warning.
+  - id: warn-many-high-cves
+    description: Warn when an artifact carries several high-severity vulnerabilities.
+    when: has(input.vuln) && input.vuln.highCount >= 5
+    action: warn
+    message: artifact carries five or more high-severity vulnerabilities

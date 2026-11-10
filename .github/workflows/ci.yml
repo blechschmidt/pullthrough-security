@@ -1,0 +1,397 @@
+name: CI
+
+# Build, test, lint, and publish container images.
+# - PRs and branch pushes: run tests/lint and a no-push image build (validates the
+#   Dockerfile without publishing).
+# - Pushes to main and version tags (v*): additionally publish multi-arch images
+#   to GHCR with provenance + SBOM attestations.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly extended fuzzing of the untrusted-input parsers (03:17 UTC).
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: "Per-target fuzz duration (e.g. 5m)"
+        required: false
+        default: "5m"
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24.1"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------- #
+  # Test & static analysis across a CPU-architecture matrix. The amd64 leg runs
+  # on the standard x86-64 hosted runner; the arm64 leg runs on GitHub's native
+  # aarch64 hosted runner (`ubuntu-24.04-arm`) so `go test ./...` (and the FIPS
+  # variant, see the `fips` job) are exercised on both architectures the project
+  # ships binaries and container images for. If native arm64 runners are not
+  # available to a fork, swap the arm64 leg's `runs-on` for `ubuntu-latest` and
+  # run the suite under QEMU emulation (see docs/platforms.md) — the code is
+  # pure-Go (CGO_ENABLED=0) and has no architecture-specific paths.
+  #
+  # Architecture-independent gates (gofmt, go vet, go mod tidy, config-reference
+  # staleness) run once, on the amd64 leg only; the compile-and-run gates
+  # (race-enabled test suite, fuzz seed-corpus regression) run on every leg to
+  # catch arch-specific miscompiles or endianness/word-size assumptions.
+  test:
+    name: Test & static analysis (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Verify go.mod is tidy
+        if: matrix.arch == 'amd64'
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Check formatting
+        if: matrix.arch == 'amd64'
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"; echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        if: matrix.arch == 'amd64'
+        run: go vet ./...
+
+      # The configuration reference is generated from the config struct tags and
+      # defaults; fail if the committed docs no longer match the code (mirrors the
+      # observability-gen staleness convention).
+      - name: Check config reference is up to date
+        if: matrix.arch == 'amd64'
+        run: make config-reference-check
+
+      # The admission-gate reference is generated from the in-code gate catalog
+      # (internal/gatedoc) and the findings rule catalog; fail if the committed
+      # docs no longer match the code so new gates stay documented.
+      - name: Check gate reference is up to date
+        if: matrix.arch == 'amd64'
+        run: make gate-reference-check
+
+      - name: Test (race + coverage)
+        run: go test -race -covermode=atomic -coverprofile=coverage-${{ matrix.arch }}.out ./...
+
+      # Replay every fuzz seed corpus (real + known-malformed samples, plus any
+      # regression inputs found by past fuzzing) as fast, deterministic tests.
+      # This catches re-introduced crashers on every PR without time-boxed
+      # fuzzing. Extended fuzzing runs in the scheduled `fuzz` job below.
+      - name: Fuzz seed corpora (regression)
+        run: go test -tags fuzz ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.arch }}
+          path: coverage-${{ matrix.arch }}.out
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
+  # Supply-chain attack red-team / gate-efficacy suite (Task 76). Injects a
+  # curated catalog of synthetic attacks end-to-end through the full admission
+  # pipeline and fails if any scenario regresses from "blocked" to "admitted" —
+  # i.e. a defense silently stopped working. Emits the coverage matrix as a
+  # Markdown artifact and into the job summary.
+  redteam:
+    name: Red-team gate-efficacy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # The Go test below is the authoritative regression gate (fails the job on
+      # any scenario regression). Run it under the race detector like the main
+      # suite.
+      - name: Run red-team suite (regression gate)
+        run: go test -race ./internal/redteam/...
+
+      # Build the client and emit the human-readable coverage matrix for the run
+      # summary and as a downloadable artifact. `ptctl redteam` exits non-zero on
+      # failure, reinforcing the gate above.
+      - name: Render coverage matrix
+        if: always()
+        run: |
+          go run ./cmd/ptctl redteam --format markdown --output redteam-report.md
+          cat redteam-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redteam-report
+          path: redteam-report.md
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
+  # FIPS 140-3 build variant (Task 120). Compiles the proxy and client with the
+  # Go FIPS 140-3 Cryptographic Module (GOFIPS140) and the `fips` build tag, then
+  # runs the suite with the module activated (GODEBUG=fips140=on) so the FIPS
+  # variant is exercised on every PR and cannot silently break.
+  fips:
+    name: FIPS 140-3 variant build & test (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build FIPS variant
+        run: make build-fips
+
+      - name: Confirm the binary reports the FIPS crypto mode
+        run: |
+          # The built binary's build info must record the GOFIPS140 selector; the
+          # `fips.enabled` + validate step above is covered by the test run below.
+          go version -m bin/pullthrough-fips | grep -E 'GOFIPS140=' \
+            || { echo "built binary is not a FIPS variant (no GOFIPS140 build setting)"; exit 1; }
+
+      - name: Test under the FIPS module (GODEBUG=fips140=on)
+        run: make test-fips
+
+  # ----------------------------------------------------------------------- #
+  # Mutation / test-quality gate (Task 157). Measures the fault-detection
+  # strength of the unit suite for the highest-risk admission-gate packages by
+  # seeding behavior-changing mutants and re-running their tests, then fails if
+  # the mutation score regresses beyond the threshold versus the committed
+  # per-package baseline (mutation/mutation-baseline.json) or a critical package
+  # falls under its floor — mirroring the coverage-regression gate. The run is
+  # seeded (MUT_SEED) and sampled (MUT_MAX_PER_PACKAGE) so it is deterministic.
+  # It is its own job because a full run takes several minutes; it does not block
+  # the fast unit suite. Lower the cap / narrow the packages here if CI time is
+  # tight (see docs/mutation-testing.md).
+  mutation:
+    name: Mutation / test-quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Mutation-score regression gate
+        run: make mutation
+
+      - name: Publish mutation summary
+        if: always()
+        run: |
+          if [ -f mutation/mutation-summary.md ]; then
+            cat mutation/mutation-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: |
+            mutation/mutation-report.json
+            mutation/mutation-summary.md
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
+  # Self-release reproducibility guard (Task 135). Proves the proxy's own release
+  # build is bit-for-bit reproducible (built twice, digests compared) on every PR
+  # so the self-releasing signed-artifact pipeline (.github/workflows/release.yml)
+  # cannot silently regress. Also runs the verify-self verification unit tests.
+  self-release:
+    name: Reproducible self-release guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Prove reproducibility for both shipped Linux architectures. These are
+      # pure-Go cross-compiles from the x86-64 runner (CGO_ENABLED=0), so the
+      # arm64 artifacts are produced and digest-compared here without an arm64
+      # host — the same determinism guarantee the release workflow relies on when
+      # it assembles per-arch binaries and the multi-arch image.
+      - name: Reproducible build (standard, linux/amd64 + linux/arm64)
+        env:
+          GOTOOLCHAIN: local
+        run: scripts/release-repro-check.sh standard "ci-$(git rev-parse --short HEAD)" linux/amd64 linux/arm64
+
+      - name: Reproducible build (FIPS, linux/amd64 + linux/arm64)
+        env:
+          GOTOOLCHAIN: local
+        run: scripts/release-repro-check.sh fips "ci-$(git rev-parse --short HEAD)" linux/amd64 linux/arm64
+
+      - name: verify-self verification tests
+        run: go test ./internal/selfrelease/...
+
+  # ----------------------------------------------------------------------- #
+  # Extended fuzzing of the protocol/manifest parsers. Runs only on the nightly
+  # schedule or manual dispatch (never on PRs, which use the fast seed-corpus
+  # regression above). A discovered crasher is written under testdata/fuzz and
+  # uploaded so it can be committed as a permanent regression seed.
+  fuzz:
+    name: Extended fuzzing
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run fuzz targets
+        run: make fuzz FUZZTIME=${{ github.event.inputs.fuzztime || '5m' }}
+
+      - name: Upload discovered crashers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: "**/testdata/fuzz/**"
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
+  lint-manifests:
+    name: Lint Helm chart & manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.3
+
+      - name: helm lint
+        run: helm lint deploy/helm/pullthrough --values deploy/helm/pullthrough/ci/ct-values.yaml
+
+      - name: helm template (render check)
+        run: helm template pullthrough deploy/helm/pullthrough --values deploy/helm/pullthrough/ci/ct-values.yaml > /dev/null
+
+      - name: Validate raw manifests render with kustomize
+        run: kubectl kustomize deploy/k8s > /dev/null
+
+      - name: Validate observability bundle (dashboards/alerts vs code)
+        run: |
+          pip install --quiet pyyaml
+          python3 deploy/observability/validate.py
+
+      - name: Validate observability manifests render with kustomize
+        run: kubectl kustomize deploy/observability > /dev/null
+
+  # ----------------------------------------------------------------------- #
+  build-image:
+    name: Build & publish image
+    # Skip on the nightly fuzz schedule / manual fuzz dispatch: those events run
+    # only the extended-fuzzing job, not the image publish pipeline.
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: [test, redteam, lint-manifests]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        # Only authenticate when we intend to push (not on PRs from forks).
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Per-platform provenance + SBOM referenced from the multi-arch index.
+          provenance: mode=max
+          sbom: true
+
+      - name: Generate build provenance attestation
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

@@ -1,0 +1,55 @@
+# Proxy configuration for the load-testing harness. Every upstream points at the
+# local stub registry (perf/stubupstream) so the load test is hermetic and
+# reproducible: no public registries are contacted. See perf/README.md.
+#
+# Security gates (policy, vulnscan, nameguard, auth) are intentionally left
+# disabled here so the benchmark isolates the proxy's caching and request-serving
+# hot path. To load-test a gate, enable it and re-run to measure its overhead.
+
+server:
+  httpAddr: ":8080"
+  publicUrl: ""
+  sshAddr: ""
+  readTimeout: 30s
+  writeTimeout: 5m
+  shutdownTimeout: 10s
+
+logging:
+  level: warn
+  format: json
+  addSource: false
+
+cache:
+  backend: filesystem
+  dir: ./.perf-cache
+  maxSizeBytes: 0
+  ttl: 0s
+  sealed: false
+
+outbound:
+  userAgent: pullthrough-loadtest/1
+  dialTimeout: 5s
+  responseHeaderTimeout: 15s
+  idleConnTimeout: 90s
+  maxIdleConns: 256
+  maxIdleConnsPerHost: 128
+
+upstreams:
+  npm:
+    type: npm
+    url: http://127.0.0.1:9000
+  pypi:
+    type: pip
+    url: http://127.0.0.1:9000
+  crates:
+    type: cargo
+    url: http://127.0.0.1:9000
+  goproxy:
+    type: go
+    url: http://127.0.0.1:9000
+  nuget:
+    type: nuget
+    url: http://127.0.0.1:9000
+  dockerhub:
+    type: docker
+    url: http://127.0.0.1:9000

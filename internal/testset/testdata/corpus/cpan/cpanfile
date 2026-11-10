@@ -1,0 +1,11 @@
+# Minimal real Perl build for the pull-through test set.
+#
+# A cpanfile is the standard dependency declaration consumed by cpanm/Carton.
+# Installing it drives the proxy's CPAN backend: cpanm fetches the master package
+# index from modules/02packages.details.txt.gz to resolve the Try::Tiny module to
+# the Try-Tiny distribution, then downloads the distribution tarball from the
+# author tree, which the backend verifies against the CHECKSUMS file's SHA-256.
+#
+#   cpanm --mirror <proxy>/v1/cpan --mirror-only --installdeps .
+
+requires 'Try::Tiny', '== 0.32';

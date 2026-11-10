@@ -1,0 +1,51 @@
+{{ include "pullthrough.fullname" . }} has been deployed.
+
+App version: {{ .Values.image.tag | default .Chart.AppVersion }}
+Release:     {{ .Release.Name }}  (namespace: {{ .Release.Namespace }})
+
+1. Endpoints (in-cluster):
+   http://{{ include "pullthrough.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+     - Proxy:    /v1/<upstream>/...
+     - Health:   /healthz  (liveness)   /readyz (readiness)
+{{- if .Values.config.observability.metrics }}
+     - Metrics:  {{ .Values.config.observability.metricsPath | default "/metrics" }}
+{{- end }}
+{{- if .Values.config.observability.admin }}
+     - Admin UI: {{ .Values.config.observability.adminPathPrefix | default "/admin" }}/
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+2. External URL(s):
+   {{- range .Values.ingress.hosts }}
+   {{- $scheme := "http" }}
+   {{- if $.Values.ingress.tls }}{{ $scheme = "https" }}{{ end }}
+   {{- range .paths }}
+   {{ $scheme }}://{{ .host | default (index $.Values.ingress.hosts 0).host }}{{ .path }}
+   {{- end }}
+   {{- end }}
+{{- else }}
+
+2. Ingress is disabled. Port-forward to test locally:
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "pullthrough.fullname" . }} 8080:{{ .Values.service.port }}
+   curl http://localhost:8080/readyz
+{{- end }}
+
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled — the cache uses an emptyDir and is lost on pod
+restart. Set persistence.enabled=true for a durable cache in production.
+{{- end }}
+
+{{- if and .Values.persistence.enabled (gt (int .Values.replicaCount) 1) (not (has "ReadWriteMany" .Values.persistence.accessModes)) }}
+
+NOTE: replicaCount > 1 with a ReadWriteOnce cache volume means all pods must land
+on the same node (the PVC cannot be mounted across nodes). For multi-node scaling
+use a ReadWriteMany StorageClass, or accept node-pinned replicas.
+{{- end }}
+
+3. Verify rollout:
+   kubectl --namespace {{ .Release.Namespace }} rollout status deploy/{{ include "pullthrough.fullname" . }}
+
+To roll back a bad release:
+   helm rollback {{ .Release.Name }} --namespace {{ .Release.Namespace }}

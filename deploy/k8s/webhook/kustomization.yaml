@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Opt-in overlay for the Kubernetes admission webhook (Task 111). Apply after the
+# base proxy is installed:
+#
+#   kubectl apply -k deploy/k8s            # base proxy
+#   kubectl apply -k deploy/k8s/webhook    # admission webhook
+#
+# The ValidatingWebhookConfiguration is cluster-scoped; everything else lives in
+# the pullthrough namespace.
+namespace: pullthrough
+
+resources:
+  - rbac.yaml
+  - configmap.yaml
+  - secret.example.yaml
+  - deployment.yaml
+  - service.yaml
+  - validatingwebhookconfiguration.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: pullthrough

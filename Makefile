@@ -1,0 +1,394 @@
+# Makefile for the pull-through security proxy.
+
+# Allow Go to be located outside the default PATH (common in CI images).
+export PATH := /usr/local/go/bin:$(PATH)
+
+BINARY      := pullthrough
+CLIENT      := ptctl
+PKG         := github.com/blechschmidt/pullthrough-security
+CMD         := ./cmd/pullthrough
+CLIENT_CMD  := ./cmd/ptctl
+BIN_DIR     := bin
+VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS     := -X main.version=$(VERSION)
+
+# Container image coordinates and chart location.
+IMAGE_REPO  ?= ghcr.io/blechschmidt/pullthrough-security
+IMAGE_TAG   ?= $(VERSION)
+IMAGE       := $(IMAGE_REPO):$(IMAGE_TAG)
+HELM_CHART  := deploy/helm/pullthrough
+
+GO          ?= go
+GOFLAGS     ?=
+
+.DEFAULT_GOAL := build
+
+.PHONY: all
+all: tidy fmt vet test build
+
+.PHONY: tidy
+tidy: ## Sync go.mod/go.sum
+	$(GO) mod tidy
+
+.PHONY: fmt
+fmt: ## Format all Go sources
+	$(GO) fmt ./...
+
+.PHONY: vet
+vet: ## Run go vet static checks
+	$(GO) vet ./...
+
+.PHONY: test
+test: ## Run the test suite
+	$(GO) test $(GOFLAGS) ./...
+
+.PHONY: test-integration
+test-integration: ## Run integration tests (needs MinIO/Git fixtures; see docs)
+	$(GO) test -tags integration $(GOFLAGS) ./...
+
+# --- Coverage guard (Task 117) ----------------------------------------------
+#
+# `covguard` runs the suite with coverage, aggregates per-package + total
+# statement coverage, and fails when total coverage drops beyond a threshold or
+# a critical package falls under its floor — the coverage analogue of
+# `perfguard`. The committed baseline lives at coverage/coverage-baseline.json.
+COVGUARD        := $(BIN_DIR)/$(CLIENT)
+COV_ALLOWED_DROP ?= 1.0
+
+.PHONY: covguard
+covguard: build-client ## Measure coverage and fail on a regression vs coverage/coverage-baseline.json
+	$(COVGUARD) covguard --allowed-drop $(COV_ALLOWED_DROP) --go "$(GO)" \
+		--json-out coverage/coverage-report.json --md-out coverage/coverage-summary.md
+
+.PHONY: covguard-baseline
+covguard-baseline: build-client ## Re-seed the committed coverage baseline from the current suite
+	$(COVGUARD) covguard --update-baseline --go "$(GO)"
+
+.PHONY: coverage-html
+coverage-html: ## Write coverage.out and render an HTML coverage report
+	$(GO) test ./... -coverprofile=coverage.out -covermode=set
+	$(GO) tool cover -html=coverage.out
+
+# --- Mutation-testing / test-quality gate (Task 157) ------------------------
+#
+# `mutguard` measures the *fault-detection* strength of the unit suite for the
+# highest-risk admission-gate packages: it seeds behavior-changing mutants
+# (flipped comparisons/logical operators, swapped boolean constants, negated
+# conditions, …) into their source, recompiles and reruns each package's tests,
+# and reports the mutation score (killed / (killed+survived)). It is the
+# fault-detection analogue of `covguard` — where coverage asks "did a test run
+# this line?", mutation testing asks "would a test *fail* if the line were
+# wrong?". The committed per-package baseline + critical floors live at
+# mutation/mutation-baseline.json; the run is seeded so CI is deterministic.
+MUTGUARD           := $(BIN_DIR)/$(CLIENT)
+MUT_PACKAGES       ?=
+MUT_MAX_PER_PACKAGE ?= 60
+MUT_SEED           ?= 1
+MUT_ALLOWED_DROP   ?= 2.0
+
+.PHONY: mutation
+mutation: build-client ## Run mutation testing and fail on a regression vs mutation/mutation-baseline.json
+	$(MUTGUARD) mutguard --allowed-drop $(MUT_ALLOWED_DROP) --seed $(MUT_SEED) \
+		--max-per-package $(MUT_MAX_PER_PACKAGE) --go "$(GO)" \
+		$(if $(MUT_PACKAGES),--packages "$(MUT_PACKAGES)",) \
+		--json-out mutation/mutation-report.json --md-out mutation/mutation-summary.md
+
+.PHONY: mutation-baseline
+mutation-baseline: build-client ## Re-seed the committed mutation-score baseline from the current suite
+	$(MUTGUARD) mutguard --update-baseline --seed $(MUT_SEED) \
+		--max-per-package $(MUT_MAX_PER_PACKAGE) --go "$(GO)" \
+		$(if $(MUT_PACKAGES),--packages "$(MUT_PACKAGES)",)
+
+.PHONY: redteam
+redteam: ## Run the supply-chain attack red-team / gate-efficacy suite (Task 76)
+	$(GO) test $(GOFLAGS) ./internal/redteam/...
+
+.PHONY: chaos
+chaos: ## Run the chaos / fault-injection resilience suite (Task 98)
+	$(GO) test $(GOFLAGS) ./internal/chaos/...
+
+.PHONY: resilience-matrix
+resilience-matrix: ## Regenerate docs/resilience-matrix.md from the chaos catalog
+	$(GO) run ./internal/chaos/internal/matrixgen > docs/resilience-matrix.md
+
+# --- Fuzzing ----------------------------------------------------------------
+#
+# Native Go fuzz targets (testing.F) harden the proxy's untrusted-input parsers
+# against malicious upstream registries: package-manager index/metadata, OCI
+# manifests, SBOM/VEX/CSAF ingestion, SPDX license expressions, known-malicious
+# feed records, and signed offline bundles. They live in
+# `_test.go` files gated behind the `fuzz` build tag (mirroring the `integration`
+# convention) so the default `make test` stays fast and deterministic.
+#
+# FUZZTIME bounds each target. The default keeps `make fuzz` quick for local use;
+# CI runs a long, scheduled job with a larger value (see docs/testing.md).
+FUZZTIME ?= 20s
+
+# Every fuzz target, as "<package>:<FuzzFunc>". `go test -fuzz` runs one target
+# per package, so each is invoked individually.
+FUZZ_TARGETS := \
+	internal/license:FuzzParseExpression \
+	internal/backends/pkgmgr:FuzzApplyRules \
+	internal/backends/pkgmgr:FuzzRewriteCargoConfig \
+	internal/backends/pkgmgr:FuzzMaybeGunzip \
+	internal/backends/pkgmgr:FuzzPipNameVersion \
+	internal/backends/docker:FuzzParseReference \
+	internal/backends/docker:FuzzParseDigest \
+	internal/backends/maven:FuzzClassify \
+	internal/backends/maven:FuzzParsePOM \
+	internal/backends/maven:FuzzParseMetadata \
+	internal/backends/maven:FuzzParseChecksumValue \
+	internal/backends/rubygems:FuzzClassify \
+	internal/backends/rubygems:FuzzParseInfo \
+	internal/backends/composer:FuzzClassify \
+	internal/backends/composer:FuzzParseMetadata \
+	internal/backends/composer:FuzzParseRoot \
+	internal/backends/helm:FuzzClassify \
+	internal/backends/helm:FuzzParseIndex \
+	internal/backends/terraform:FuzzClassify \
+	internal/backends/terraform:FuzzParseTerraformGet \
+	internal/backends/terraform:FuzzParseProviderPackage \
+	internal/backends/terraform:FuzzParseSHASUMS \
+	internal/backends/conan:FuzzClassify \
+	internal/backends/conan:FuzzParseManifest \
+	internal/backends/swift:FuzzClassify \
+	internal/backends/swift:FuzzParseReleaseMetadata \
+	internal/backends/dart:FuzzClassify \
+	internal/backends/dart:FuzzParseVersionList \
+	internal/backends/dart:FuzzRewriteArchiveURLs \
+	internal/backends/conda:FuzzClassify \
+	internal/backends/conda:FuzzRepodataChecksum \
+	internal/backends/cran:FuzzClassify \
+	internal/backends/cran:FuzzParsePackages \
+	internal/backends/bazel:FuzzClassify \
+	internal/backends/bazel:FuzzParseSource \
+	internal/backends/bazel:FuzzParseIntegrity \
+	internal/vulnscan:FuzzExtract \
+	internal/vulnscan:FuzzParseVEX \
+	internal/vulnscan:FuzzParseGoRequires \
+	internal/vulnscan:FuzzParseNuspec \
+	internal/vulnscan:FuzzOSVRecord \
+	internal/vulnscan:FuzzParseCVSSBaseScore \
+	internal/sigverify:FuzzOCIManifest \
+	internal/buildprov:FuzzParseAttestations \
+	internal/findings:FuzzFindingsSARIF \
+	internal/attestbundle:FuzzVerifyEnvelope \
+	internal/malfeed:FuzzParseOSVStream \
+	internal/malfeed:FuzzImportBundle \
+	internal/spiffe:FuzzParseID \
+	internal/spiffe:FuzzParseTrustBundle \
+	internal/extension:FuzzHostInputRoundTrip \
+	internal/extension:FuzzParseVerdict \
+	internal/installhooks:FuzzParsePackageJSONScripts \
+	internal/installhooks:FuzzParseGemspecMetadata \
+	internal/installhooks:FuzzParseCargoBuildField \
+	internal/installhooks:FuzzParsePyprojectBuildBackend \
+	internal/installhooks:FuzzExtractHooks \
+	internal/actionpin:FuzzParseContent \
+	internal/actionpin:FuzzClassify \
+	internal/actionpin:FuzzParseUsesValue \
+	internal/contentscan:FuzzAssess \
+	internal/contentscan:FuzzWalkArchive \
+	internal/contentscan:FuzzObfuscatedJS \
+	internal/contentscan:FuzzScanExecLine \
+	internal/contentscan:FuzzSynthesizeAddedPatch
+
+.PHONY: fuzz
+fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m)
+	@set -e; for t in $(FUZZ_TARGETS); do \
+		pkg=$${t%%:*}; fn=$${t##*:}; \
+		echo "==> fuzzing $$fn ($$pkg) for $(FUZZTIME)"; \
+		$(GO) test -tags fuzz -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) ./$$pkg/; \
+	done
+
+.PHONY: fuzz-seed
+fuzz-seed: ## Replay all fuzz seed corpora as fast regression tests (no fuzzing)
+	$(GO) test -tags fuzz $(GOFLAGS) ./...
+
+.PHONY: extension-fixtures
+extension-fixtures: ## Rebuild the WASM extension-gate fixtures from their Go sources (needs Go 1.24+)
+	internal/extension/testdata/build.sh
+
+.PHONY: build
+build: ## Build the proxy and client (ptctl) binaries into $(BIN_DIR)
+	mkdir -p $(BIN_DIR)
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY) $(CMD)
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(CLIENT) $(CLIENT_CMD)
+
+.PHONY: build-client
+build-client: ## Build only the client CLI (ptctl) into $(BIN_DIR)
+	mkdir -p $(BIN_DIR)
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(CLIENT) $(CLIENT_CMD)
+
+# --- FIPS 140-3 build variant (Task 120) ------------------------------------
+#
+# The FIPS variant links Go's FIPS 140-3 Cryptographic Module (GOFIPS140) and
+# carries the `fips` build tag so the binary self-reports its crypto build
+# variant. Run the resulting binary with GODEBUG=fips140=on (baked in as the
+# default by GOFIPS140) to activate the module, or GODEBUG=fips140=only to make
+# any non-approved primitive fail. Pair with `fips.enabled: true` in config so
+# startup fails fast if the module is not active. See docs/fips-compliance.md.
+GOFIPS140 ?= latest
+
+.PHONY: build-fips
+build-fips: ## Build the FIPS 140-3 variant (GOFIPS140 + `fips` tag) into $(BIN_DIR)
+	mkdir -p $(BIN_DIR)
+	GOFIPS140=$(GOFIPS140) $(GO) build -tags fips -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY)-fips $(CMD)
+	GOFIPS140=$(GOFIPS140) $(GO) build -tags fips -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(CLIENT)-fips $(CLIENT_CMD)
+
+.PHONY: test-fips
+test-fips: ## Run the suite under the FIPS module (GOFIPS140 build + GODEBUG=fips140=on)
+	GOFIPS140=$(GOFIPS140) GODEBUG=fips140=on $(GO) test -tags fips $(GOFLAGS) ./...
+
+# --- Self-releasing signed artifacts (Task 135) -----------------------------
+#
+# A reproducible, provenance-attested, signed release of the proxy's *own*
+# binaries — closing the "trust the tool that enforces trust" gap. The build
+# itself is delegated to scripts/release-build.sh (shared verbatim with the
+# release CI workflow) so a locally reproduced binary is bit-for-bit identical
+# to the published one. SBOM generation, SLSA provenance attestation, cosign
+# keyless signing, and image signing happen in CI (they need syft/cosign and an
+# OIDC identity); the targets below cover the deterministic build, the
+# reproducibility proof, the checksums manifest, and a local verify-self smoke
+# test. See docs/self-release.md.
+DIST_DIR          ?= dist
+RELEASE_PLATFORMS ?= linux/amd64 linux/arm64
+# Pin to the installed toolchain locally; CI pins the exact Go version via
+# setup-go honoring the go.mod `go` directive.
+export GOTOOLCHAIN ?= local
+
+.PHONY: release
+release: ## Reproducibly build the standard release binaries + checksums into $(DIST_DIR)
+	scripts/release-build.sh standard "$(VERSION)" "$(DIST_DIR)" $(RELEASE_PLATFORMS)
+
+.PHONY: release-fips
+release-fips: ## Reproducibly build the FIPS 140-3 release binaries + checksums into $(DIST_DIR)-fips
+	scripts/release-build.sh fips "$(VERSION)" "$(DIST_DIR)-fips" $(RELEASE_PLATFORMS)
+
+.PHONY: release-repro-check
+release-repro-check: ## Prove the standard release build is reproducible (build twice, compare digests)
+	scripts/release-repro-check.sh standard "$(VERSION)" $(RELEASE_PLATFORMS)
+
+.PHONY: release-repro-check-fips
+release-repro-check-fips: ## Prove the FIPS release build is reproducible (build twice, compare digests)
+	scripts/release-repro-check.sh fips "$(VERSION)" $(RELEASE_PLATFORMS)
+
+.PHONY: release-sbom
+release-sbom: ## Generate a CycloneDX SBOM per released binary into $(DIST_DIR) (needs syft)
+	@command -v syft >/dev/null 2>&1 || { echo "syft not found; install anchore/syft to generate SBOMs"; exit 1; }
+	@for b in $(DIST_DIR)/pullthrough* $(DIST_DIR)/ptctl*; do \
+		case "$$b" in *.sbom.*|*.json|*SHA256SUMS*) continue;; esac; \
+		[ -f "$$b" ] || continue; \
+		echo "==> SBOM for $$b"; \
+		syft "$$b" -o cyclonedx-json="$$b.sbom.cdx.json"; \
+	done
+
+.PHONY: release-verify
+release-verify: build-client ## Smoke-test verify-self against the built release directory
+	$(BIN_DIR)/$(CLIENT) verify-self --release-dir "$(DIST_DIR)" --binary "$$(ls $(DIST_DIR)/ptctl-* 2>/dev/null | head -1)"
+
+.PHONY: run
+run: ## Build and run with configs/config.example.yaml
+	$(GO) run $(CMD) -config configs/config.example.yaml
+
+.PHONY: clean
+clean: ## Remove build artifacts
+	rm -rf $(BIN_DIR)
+
+# --- Containers & deployment ------------------------------------------------
+
+# Platforms the multi-arch container image is built for. Mirrors the release
+# workflow and the published-platform matrix in docs/platforms.md.
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
+
+.PHONY: docker-build
+docker-build: ## Build the container image for the host arch ($(IMAGE))
+	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+
+.PHONY: docker-buildx
+docker-buildx: ## Build the multi-arch image ($(IMAGE_PLATFORMS)) into the local build cache
+	docker buildx build --build-arg VERSION=$(VERSION) \
+		--platform $(IMAGE_PLATFORMS) -t $(IMAGE) .
+
+.PHONY: docker-buildx-push
+docker-buildx-push: ## Build and push the multi-arch image manifest ($(IMAGE_PLATFORMS))
+	docker buildx build --build-arg VERSION=$(VERSION) \
+		--platform $(IMAGE_PLATFORMS) --provenance=mode=max --sbom=true \
+		-t $(IMAGE) --push .
+
+.PHONY: docker-push
+docker-push: ## Push the container image to the registry
+	docker push $(IMAGE)
+
+.PHONY: compose-up
+compose-up: ## Start the local dev stack (proxy + cache volume)
+	docker compose up --build
+
+.PHONY: compose-up-extras
+compose-up-extras: ## Start the dev stack incl. Postgres + MinIO
+	docker compose --profile extras up --build
+
+.PHONY: compose-up-monitoring
+compose-up-monitoring: ## Start the dev stack incl. Prometheus + Grafana
+	docker compose --profile monitoring up --build
+
+.PHONY: compose-up-tracing
+compose-up-tracing: ## Start the dev stack incl. OpenTelemetry Collector + Jaeger
+	docker compose --profile tracing up --build
+
+.PHONY: compose-down
+compose-down: ## Stop the local dev stack
+	docker compose down
+
+.PHONY: observability-gen
+observability-gen: ## Regenerate dashboards/PrometheusRule and re-sync vendored copies
+	python3 deploy/observability/grafana/gen_dashboards.py
+	python3 deploy/observability/gen_prometheusrule.py
+	cp deploy/observability/prometheus/alerts.yaml deploy/helm/pullthrough/files/alerts.yaml
+	cp deploy/observability/grafana/dashboards/*.json deploy/helm/pullthrough/dashboards/
+	$(MAKE) observability-validate
+
+.PHONY: observability-validate
+observability-validate: ## Check dashboards/alerts reference only metrics the code exposes
+	python3 deploy/observability/validate.py
+
+.PHONY: proto-gen
+proto-gen: ## Regenerate the committed gRPC/Connect Go stubs from proto/ (Task 159; dev-only, not run at build time)
+	./scripts/proto-gen.sh
+
+.PHONY: config-reference-gen
+config-reference-gen: ## Regenerate docs/configuration-reference.md from the config structs
+	$(GO) run ./cmd/gen-config-reference -o docs/configuration-reference.md
+
+.PHONY: config-reference-check
+config-reference-check: ## Fail if docs/configuration-reference.md is stale vs the config structs
+	$(GO) run ./cmd/gen-config-reference -check -o docs/configuration-reference.md
+
+.PHONY: gate-reference-gen
+gate-reference-gen: ## Regenerate docs/gates-reference.md from the admission-gate catalog
+	$(GO) run ./cmd/gen-gate-reference -o docs/gates-reference.md
+
+.PHONY: gate-reference-check
+gate-reference-check: ## Fail if docs/gates-reference.md is stale vs the gate catalog
+	$(GO) run ./cmd/gen-gate-reference -check -o docs/gates-reference.md
+
+.PHONY: config-validate
+config-validate: ## Validate a config file: make config-validate CONFIG=path/to/config.yaml
+	$(GO) run $(CMD) verify-config -config $(CONFIG)
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart with the CI values
+	helm lint $(HELM_CHART) --values $(HELM_CHART)/ci/ct-values.yaml
+
+.PHONY: helm-template
+helm-template: ## Render the Helm chart to stdout
+	helm template pullthrough $(HELM_CHART) --values $(HELM_CHART)/ci/ct-values.yaml
+
+.PHONY: k8s-render
+k8s-render: ## Render the raw kustomize manifests to stdout
+	kubectl kustomize deploy/k8s
+
+.PHONY: help
+help: ## Show this help
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'

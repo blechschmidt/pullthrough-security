@@ -1,0 +1,180 @@
+# Local development stack for the pull-through security proxy.
+#
+#   docker compose up --build              # proxy only (filesystem cache volume)
+#   docker compose --profile extras up     # + Postgres + MinIO object store
+#   docker compose --profile monitoring up # + Prometheus + Grafana (dashboards & alerts)
+#   docker compose --profile tracing up    # + OpenTelemetry Collector + Jaeger (distributed tracing)
+#
+# With the monitoring profile, Grafana is on http://localhost:3000 (admin/admin
+# by default) with the four pull-through dashboards pre-provisioned, and
+# Prometheus on http://localhost:9090 with the alerting rules loaded.
+#
+# Secrets come from deploy/docker/.env (copy from .env.example). The proxy's
+# state (cache, audit, provenance) persists in the named volume `pullthrough-data`
+# so restarts keep the cache warm.
+
+name: pullthrough
+
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${PULLTHROUGH_VERSION:-dev-compose}
+    image: ${PULLTHROUGH_IMAGE:-pullthrough-security:dev}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # HTTP proxy + /metrics + /admin
+      # - "2222:2222" # uncomment when server.sshAddr is set for the Git SSH gateway
+    env_file:
+      - deploy/docker/.env
+    volumes:
+      - ./deploy/docker/config.docker.yaml:/etc/pullthrough/config.yaml:ro
+      - pullthrough-data:/var/lib/pullthrough
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Hardening: read-only root FS; the proxy only writes to its data volume.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  # --- Optional backing services (enable with: --profile extras) -----------
+  # The proxy currently uses filesystem storage; these are provided so teams can
+  # develop against Postgres-backed metadata / S3-compatible object storage as
+  # those drivers come online. They are inert unless the profile is selected.
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["extras"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pullthrough}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pullthrough}
+      POSTGRES_DB: ${POSTGRES_DB:-pullthrough}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pullthrough}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["extras"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pullthrough}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-pullthrough123}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # --- Optional monitoring stack (enable with: --profile monitoring) -------
+  # Turnkey Prometheus + Grafana wired to the proxy. Prometheus loads the same
+  # canonical alerting rules that ship to k8s as a PrometheusRule; Grafana
+  # auto-provisions the four versioned dashboards. All config is mounted
+  # read-only from deploy/observability so it stays a single source of truth.
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/prometheus/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # --- Optional distributed-tracing stack (enable with: --profile tracing) -
+  # An OpenTelemetry Collector receiving OTLP/HTTP spans from the proxy and
+  # forwarding them to Jaeger for visualization (Task 41). To turn tracing on in
+  # the proxy, set these in deploy/docker/.env (or the proxy's environment):
+  #
+  #   PTS_TRACING_ENDPOINT=http://otel-collector:4318
+  #   PTS_TRACING_INSECURE=true
+  #
+  # Then: docker compose --profile tracing up --build
+  # The Jaeger UI is on http://localhost:16686 (search for service "pullthrough").
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    profiles: ["tracing"]
+    restart: unless-stopped
+    command: ["--config=/etc/otel/collector.yaml"]
+    depends_on:
+      - jaeger
+    volumes:
+      - ./deploy/observability/otel/collector.yaml:/etc/otel/collector.yaml:ro
+    ports:
+      - "4318:4318"   # OTLP/HTTP (the proxy exports here)
+      - "4317:4317"   # OTLP/gRPC
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "--help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    profiles: ["tracing"]
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI
+    volumes:
+      - jaeger-data:/badger
+
+volumes:
+  pullthrough-data:
+  postgres-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
+  jaeger-data:

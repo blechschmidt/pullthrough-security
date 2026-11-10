@@ -1,0 +1,41 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_name": "Findings",
+  "category_uid": 2,
+  "class_name": "Compliance Finding",
+  "class_uid": 2003,
+  "finding_info": {
+    "desc": "GPL-3.0 is not on the allowlist",
+    "product_uid": "license/denied",
+    "title": "Disallowed license",
+    "uid": "license/denied"
+  },
+  "message": "GPL-3.0 is not on the allowlist",
+  "metadata": {
+    "log_name": "finding",
+    "log_provider": "pullthrough-security",
+    "product": {
+      "name": "pullthrough-security",
+      "vendor_name": "Blechschmidt"
+    },
+    "uid": "license/denied",
+    "version": "1.1.0"
+  },
+  "severity": "Medium",
+  "severity_id": 3,
+  "status": "New",
+  "status_id": 1,
+  "time": 1793793600000,
+  "type_name": "Compliance Finding: Create",
+  "type_uid": 200301,
+  "unmapped": {
+    "artifact": "lodash",
+    "backend": "npmjs",
+    "coordinate": "npm/lodash@1.0.0",
+    "ecosystem": "npm",
+    "gate": "license",
+    "ruleId": "license/denied",
+    "version": "1.0.0"
+  }
+}

@@ -1,0 +1,4 @@
+# Minimal real APT build for the pull-through proxy test set.
+# Point apt at the proxy's Debian/APT backend (/v1/apt) instead of the
+# upstream mirror, then `apt-get update && apt-get install -y curl`.
+deb http://PROXY_HOST/v1/apt bookworm main

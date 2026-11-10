@@ -1,0 +1,17 @@
+{
+  "uuid": "7f881f0bfb6b86c0d18d366723c2d052697f17251c0b1a9234a91600cfafd26c",
+  "logID": "5d25b52a3ecf6964a82b84e35b10a89b39a87ca8266847b8d1c48fb0cdca0092",
+  "logIndex": 5,
+  "body": "eyJwYXlsb2FkVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5pbi10b3RvK2pzb24iLCJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqRWlmUT09Iiwic2lnbmF0dXJlcyI6W3sic2lnIjoiWm05diJ9XX0=",
+  "integratedTime": 1793801159,
+  "signedEntryTimestamp": "MEQCIGL+J0J1atRMsNCt4TLN3UUvJr81K3iTNbU8HHK3v6m2AiBeB7nbTRwphp3zczv8HUfE6+/d4foVan4BeMfd30XGAg==",
+  "inclusionProof": {
+    "logIndex": 5,
+    "rootHash": "70476d639d9fd1c2b9980c7ed42ec1ea46689e0dfcbae78182e1b3feed2acebe",
+    "treeSize": 6,
+    "hashes": [
+      "8a657686dfa474a72e283d8f7df832b8c28d899daffee18005f5f633a08992e1",
+      "5022b9ad1ba95a89e2868134b169198c09bbb60f0832d357f2fef28dfc25c1c4"
+    ]
+  }
+}

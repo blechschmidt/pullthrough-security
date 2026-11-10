@@ -1,0 +1,49 @@
+{{- if .Values.prometheusRule.enabled -}}
+{{- /*
+PrometheusRule (Prometheus Operator CRD) wrapping the canonical alerting rules.
+The rule bodies live in files/alerts.yaml (a verbatim copy of
+deploy/observability/prometheus/alerts.yaml, kept in sync via `make
+observability-gen`) so the same rules deploy to compose, kustomize, and Helm.
+*/ -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "pullthrough.fullname" . }}
+  {{- with .Values.prometheusRule.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.prometheusRule.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+{{- if .Values.prometheusRule.additionalLabels }}
+{{- /* Splice the canonical groups and decorate every alert with operator labels. */}}
+{{- $rules := .Files.Get "files/alerts.yaml" | fromYaml }}
+  groups:
+  {{- range $rules.groups }}
+    - name: {{ .name }}
+      rules:
+      {{- range .rules }}
+        - alert: {{ .alert }}
+          expr: {{ .expr | quote }}
+          {{- with .for }}
+          for: {{ . }}
+          {{- end }}
+          labels:
+            {{- toYaml .labels | nindent 12 }}
+            {{- toYaml $.Values.prometheusRule.additionalLabels | nindent 12 }}
+          annotations:
+            {{- toYaml .annotations | nindent 12 }}
+      {{- end }}
+  {{- end }}
+{{- else }}
+{{- /* Fast path: embed the rules file verbatim (already a valid `groups:` block). */}}
+{{ .Files.Get "files/alerts.yaml" | indent 2 }}
+{{- end }}
+{{- end }}

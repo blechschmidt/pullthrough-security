@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pullthrough-webhook
+  namespace: pullthrough
+  labels:
+    app.kubernetes.io/name: pullthrough-webhook
+    app.kubernetes.io/part-of: pullthrough
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pullthrough-webhook
+  ports:
+    # The API server connects to the webhook on 443; it is terminated by the
+    # webhook container on 8443.
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP

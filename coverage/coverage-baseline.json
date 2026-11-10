@@ -1,0 +1,504 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-04T06:53:42.940139754Z",
+  "tool": "ptctl dev",
+  "mode": "set",
+  "total": {
+    "coveredStatements": 31178,
+    "totalStatements": 50105,
+    "coveragePct": 62.225326813691254
+  },
+  "packages": {
+    "github.com/blechschmidt/pullthrough-security/cmd/gen-config-reference": {
+      "coveredStatements": 0,
+      "totalStatements": 21,
+      "coveragePct": 0
+    },
+    "github.com/blechschmidt/pullthrough-security/cmd/ptctl": {
+      "coveredStatements": 303,
+      "totalStatements": 2237,
+      "coveragePct": 13.54492624050067
+    },
+    "github.com/blechschmidt/pullthrough-security/cmd/pullthrough": {
+      "coveredStatements": 99,
+      "totalStatements": 4852,
+      "coveragePct": 2.040395713107997
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/actionpin": {
+      "coveredStatements": 299,
+      "totalStatements": 366,
+      "coveragePct": 81.69398907103826
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/admin": {
+      "coveredStatements": 1007,
+      "totalStatements": 1814,
+      "coveragePct": 55.512679162072764
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/adminauth": {
+      "coveredStatements": 420,
+      "totalStatements": 574,
+      "coveragePct": 73.17073170731707
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/anomaly": {
+      "coveredStatements": 318,
+      "totalStatements": 388,
+      "coveragePct": 81.95876288659794
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/approvals": {
+      "coveredStatements": 239,
+      "totalStatements": 352,
+      "coveragePct": 67.89772727272727
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/attestbundle": {
+      "coveredStatements": 237,
+      "totalStatements": 377,
+      "coveragePct": 62.864721485411145
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/audit": {
+      "coveredStatements": 501,
+      "totalStatements": 620,
+      "coveragePct": 80.80645161290323
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/auth": {
+      "coveredStatements": 343,
+      "totalStatements": 502,
+      "coveragePct": 68.32669322709162
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends": {
+      "coveredStatements": 4,
+      "totalStatements": 40,
+      "coveragePct": 10
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/apt": {
+      "coveredStatements": 336,
+      "totalStatements": 453,
+      "coveragePct": 74.17218543046357
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/composer": {
+      "coveredStatements": 241,
+      "totalStatements": 290,
+      "coveragePct": 83.10344827586206
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/conan": {
+      "coveredStatements": 283,
+      "totalStatements": 344,
+      "coveragePct": 82.26744186046511
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/conda": {
+      "coveredStatements": 236,
+      "totalStatements": 293,
+      "coveragePct": 80.54607508532423
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/cran": {
+      "coveredStatements": 195,
+      "totalStatements": 235,
+      "coveragePct": 82.97872340425532
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/dart": {
+      "coveredStatements": 241,
+      "totalStatements": 319,
+      "coveragePct": 75.54858934169279
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/docker": {
+      "coveredStatements": 238,
+      "totalStatements": 375,
+      "coveragePct": 63.46666666666667
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/helm": {
+      "coveredStatements": 218,
+      "totalStatements": 261,
+      "coveragePct": 83.5249042145594
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/httpbackend": {
+      "coveredStatements": 97,
+      "totalStatements": 109,
+      "coveragePct": 88.9908256880734
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/huggingface": {
+      "coveredStatements": 251,
+      "totalStatements": 288,
+      "coveragePct": 87.15277777777779
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/maven": {
+      "coveredStatements": 311,
+      "totalStatements": 357,
+      "coveragePct": 87.11484593837535
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/pkgmgr": {
+      "coveredStatements": 179,
+      "totalStatements": 212,
+      "coveragePct": 84.43396226415094
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/rubygems": {
+      "coveredStatements": 186,
+      "totalStatements": 225,
+      "coveragePct": 82.66666666666667
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/swift": {
+      "coveredStatements": 223,
+      "totalStatements": 268,
+      "coveragePct": 83.2089552238806
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/terraform": {
+      "coveredStatements": 390,
+      "totalStatements": 513,
+      "coveragePct": 76.0233918128655
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backends/yum": {
+      "coveredStatements": 310,
+      "totalStatements": 411,
+      "coveragePct": 75.4257907542579
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/backup": {
+      "coveredStatements": 404,
+      "totalStatements": 609,
+      "coveragePct": 66.33825944170772
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/buildprov": {
+      "coveredStatements": 317,
+      "totalStatements": 492,
+      "coveragePct": 64.43089430894308
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/cache": {
+      "coveredStatements": 905,
+      "totalStatements": 1232,
+      "coveragePct": 73.45779220779221
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/cachegc": {
+      "coveredStatements": 273,
+      "totalStatements": 305,
+      "coveragePct": 89.50819672131148
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/chaos": {
+      "coveredStatements": 336,
+      "totalStatements": 455,
+      "coveragePct": 73.84615384615385
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/chaos/internal/matrixgen": {
+      "coveredStatements": 0,
+      "totalStatements": 7,
+      "coveragePct": 0
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/coalesce": {
+      "coveredStatements": 120,
+      "totalStatements": 142,
+      "coveragePct": 84.50704225352112
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/compliance": {
+      "coveredStatements": 297,
+      "totalStatements": 396,
+      "coveragePct": 75
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/config": {
+      "coveredStatements": 923,
+      "totalStatements": 1487,
+      "coveragePct": 62.0712844653665
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/continuity": {
+      "coveredStatements": 271,
+      "totalStatements": 491,
+      "coveragePct": 55.193482688391036
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/coord": {
+      "coveredStatements": 337,
+      "totalStatements": 494,
+      "coveragePct": 68.21862348178138
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/covguard": {
+      "coveredStatements": 215,
+      "totalStatements": 264,
+      "coveragePct": 81.43939393939394
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/depfirewall": {
+      "coveredStatements": 492,
+      "totalStatements": 647,
+      "coveragePct": 76.04327666151468
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/dossier": {
+      "coveredStatements": 556,
+      "totalStatements": 641,
+      "coveragePct": 86.73946957878314
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/egress": {
+      "coveredStatements": 259,
+      "totalStatements": 348,
+      "coveragePct": 74.42528735632183
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/extension": {
+      "coveredStatements": 360,
+      "totalStatements": 412,
+      "coveragePct": 87.37864077669903
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/findings": {
+      "coveredStatements": 364,
+      "totalStatements": 445,
+      "coveragePct": 81.79775280898876
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/git": {
+      "coveredStatements": 230,
+      "totalStatements": 652,
+      "coveragePct": 35.2760736196319
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/gitops": {
+      "coveredStatements": 385,
+      "totalStatements": 661,
+      "coveragePct": 58.24508320726173
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/installhooks": {
+      "coveredStatements": 458,
+      "totalStatements": 554,
+      "coveragePct": 82.67148014440433
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/intercept": {
+      "coveredStatements": 287,
+      "totalStatements": 361,
+      "coveragePct": 79.50138504155125
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/k8swebhook": {
+      "coveredStatements": 275,
+      "totalStatements": 373,
+      "coveragePct": 73.7265415549598
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/license": {
+      "coveredStatements": 470,
+      "totalStatements": 548,
+      "coveragePct": 85.76642335766424
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/loadbench": {
+      "coveredStatements": 293,
+      "totalStatements": 390,
+      "coveragePct": 75.12820512820512
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/lockdown": {
+      "coveredStatements": 206,
+      "totalStatements": 268,
+      "coveragePct": 76.86567164179104
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/logging": {
+      "coveredStatements": 0,
+      "totalStatements": 23,
+      "coveragePct": 0
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/malfeed": {
+      "coveredStatements": 458,
+      "totalStatements": 608,
+      "coveragePct": 75.32894736842105
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/maturity": {
+      "coveredStatements": 299,
+      "totalStatements": 419,
+      "coveragePct": 71.36038186157518
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/mcpserver": {
+      "coveredStatements": 208,
+      "totalStatements": 383,
+      "coveragePct": 54.308093994778076
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/metering": {
+      "coveredStatements": 363,
+      "totalStatements": 415,
+      "coveragePct": 87.46987951807229
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/metrics": {
+      "coveredStatements": 192,
+      "totalStatements": 205,
+      "coveragePct": 93.65853658536587
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/mirror": {
+      "coveredStatements": 239,
+      "totalStatements": 305,
+      "coveragePct": 78.36065573770492
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/mlguard": {
+      "coveredStatements": 281,
+      "totalStatements": 442,
+      "coveragePct": 63.57466063348416
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/nameguard": {
+      "coveredStatements": 298,
+      "totalStatements": 330,
+      "coveragePct": 90.30303030303031
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/notify": {
+      "coveredStatements": 363,
+      "totalStatements": 540,
+      "coveragePct": 67.22222222222223
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/onboard": {
+      "coveredStatements": 45,
+      "totalStatements": 166,
+      "coveragePct": 27.10843373493976
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/policy": {
+      "coveredStatements": 95,
+      "totalStatements": 115,
+      "coveragePct": 82.6086956521739
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/policyengine": {
+      "coveredStatements": 684,
+      "totalStatements": 955,
+      "coveragePct": 71.62303664921465
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/portal": {
+      "coveredStatements": 250,
+      "totalStatements": 309,
+      "coveragePct": 80.90614886731392
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/presets": {
+      "coveredStatements": 201,
+      "totalStatements": 250,
+      "coveragePct": 80.4
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/provenance": {
+      "coveredStatements": 510,
+      "totalStatements": 647,
+      "coveragePct": 78.82534775888718
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/provgraph": {
+      "coveredStatements": 262,
+      "totalStatements": 287,
+      "coveragePct": 91.28919860627178
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/proxy": {
+      "coveredStatements": 1491,
+      "totalStatements": 2595,
+      "coveragePct": 57.45664739884393
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/queryapi": {
+      "coveredStatements": 514,
+      "totalStatements": 678,
+      "coveragePct": 75.81120943952803
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/ratelimit": {
+      "coveredStatements": 264,
+      "totalStatements": 302,
+      "coveragePct": 87.41721854304636
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/rebuildverify": {
+      "coveredStatements": 262,
+      "totalStatements": 370,
+      "coveragePct": 70.8108108108108
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/redteam": {
+      "coveredStatements": 246,
+      "totalStatements": 313,
+      "coveragePct": 78.59424920127796
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/reposcore": {
+      "coveredStatements": 377,
+      "totalStatements": 565,
+      "coveragePct": 66.72566371681415
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/riskscore": {
+      "coveredStatements": 290,
+      "totalStatements": 406,
+      "coveragePct": 71.42857142857143
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/sbomdiff": {
+      "coveredStatements": 405,
+      "totalStatements": 550,
+      "coveragePct": 73.63636363636363
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/scan": {
+      "coveredStatements": 0,
+      "totalStatements": 6,
+      "coveragePct": 0
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/scan/commit": {
+      "coveredStatements": 680,
+      "totalStatements": 1300,
+      "coveragePct": 52.307692307692314
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/scan/watch": {
+      "coveredStatements": 541,
+      "totalStatements": 728,
+      "coveragePct": 74.31318681318682
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/secops": {
+      "coveredStatements": 186,
+      "totalStatements": 240,
+      "coveragePct": 77.5
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/secrets": {
+      "coveredStatements": 43,
+      "totalStatements": 70,
+      "coveragePct": 61.42857142857143
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/secretscan": {
+      "coveredStatements": 275,
+      "totalStatements": 321,
+      "coveragePct": 85.66978193146417
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/sigverify": {
+      "coveredStatements": 504,
+      "totalStatements": 704,
+      "coveragePct": 71.5909090909091
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/simreplay": {
+      "coveredStatements": 334,
+      "totalStatements": 402,
+      "coveragePct": 83.08457711442786
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/snapshot": {
+      "coveredStatements": 415,
+      "totalStatements": 627,
+      "coveragePct": 66.18819776714514
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/spiffe": {
+      "coveredStatements": 326,
+      "totalStatements": 407,
+      "coveragePct": 80.0982800982801
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/testset": {
+      "coveredStatements": 180,
+      "totalStatements": 240,
+      "coveragePct": 75
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/timeline": {
+      "coveredStatements": 309,
+      "totalStatements": 441,
+      "coveragePct": 70.06802721088435
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/tracing": {
+      "coveredStatements": 301,
+      "totalStatements": 412,
+      "coveragePct": 73.05825242718447
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/uiaudit": {
+      "coveredStatements": 153,
+      "totalStatements": 169,
+      "coveragePct": 90.53254437869822
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/upstream": {
+      "coveredStatements": 80,
+      "totalStatements": 97,
+      "coveragePct": 82.4742268041237
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/upstreampool": {
+      "coveredStatements": 307,
+      "totalStatements": 363,
+      "coveragePct": 84.57300275482093
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/vulnscan": {
+      "coveredStatements": 1209,
+      "totalStatements": 1520,
+      "coveragePct": 79.53947368421052
+    },
+    "github.com/blechschmidt/pullthrough-security/perf/stubupstream": {
+      "coveredStatements": 0,
+      "totalStatements": 110,
+      "coveragePct": 0
+    }
+  },
+  "criticalFloors": {
+    "github.com/blechschmidt/pullthrough-security/internal/auth": 62,
+    "github.com/blechschmidt/pullthrough-security/internal/cache": 68,
+    "github.com/blechschmidt/pullthrough-security/internal/findings": 75,
+    "github.com/blechschmidt/pullthrough-security/internal/license": 78,
+    "github.com/blechschmidt/pullthrough-security/internal/nameguard": 82,
+    "github.com/blechschmidt/pullthrough-security/internal/policyengine": 65,
+    "github.com/blechschmidt/pullthrough-security/internal/riskscore": 65,
+    "github.com/blechschmidt/pullthrough-security/internal/sigverify": 65,
+    "github.com/blechschmidt/pullthrough-security/internal/vulnscan": 72
+  }
+}

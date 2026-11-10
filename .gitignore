@@ -1,0 +1,43 @@
+.cloop/env.yaml
+
+# cloop task-runner internal state (not part of the source tree)
+/.cloop/
+/.perf-cache/
+
+# Build artifacts
+/bin/
+# Compiled binaries built at the repo root (see `make build`)
+/pullthrough
+/ptctl
+/stubupstream
+# Runtime files
+/server.pid
+
+# Local configuration and secrets
+/configs/config.yaml
+*.local.yaml
+
+# Cache data
+/cache/
+/var/
+
+# Coverage profiles & generated reports (only coverage/coverage-baseline.json is committed)
+/coverage.out
+*.coverprofile
+/coverage/coverage-report.json
+/coverage/coverage-summary.md
+
+# Mutation-testing generated reports (only mutation/mutation-baseline.json and
+# mutation/equivalent-mutants.txt are committed)
+/mutation/mutation-report.json
+/mutation/mutation-summary.md
+
+# Local docker-compose secrets
+/deploy/docker/.env
+
+# Helm packaging output
+*.tgz
+
+# Editor/OS noise
+.DS_Store
+*.swp

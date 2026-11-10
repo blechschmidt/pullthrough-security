@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "attestation_bundles": [
+    {
+      "publisher": {
+        "kind": "GitHub",
+        "repository": "acme/widgets",
+        "workflow": "release.yml",
+        "environment": "pypi"
+      },
+      "attestations": [
+        {
+          "version": 1,
+          "verification_material": {
+            "certificate": "MIIBdummyCertificateBytesNotParseable",
+            "transparency_entries": [
+              {
+                "logIndex": "7",
+                "logId": { "keyId": "/w==" },
+                "integratedTime": "1700000000",
+                "inclusionPromise": { "signedEntryTimestamp": "c2V0" },
+                "inclusionProof": {
+                  "logIndex": "7",
+                  "rootHash": "AAECAwQ=",
+                  "treeSize": "8",
+                  "hashes": ["AQ==", "Ag=="],
+                  "checkpoint": { "envelope": "checkpoint-note" }
+                },
+                "canonicalizedBody": "Ym9keQ=="
+              }
+            ]
+          },
+          "envelope": {
+            "statement": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEifQ==",
+            "signature": "c2ln"
+          }
+        }
+      ]
+    }
+  ]
+}

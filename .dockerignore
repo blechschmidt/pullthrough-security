@@ -1,0 +1,36 @@
+# Keep the build context small and reproducible: ship only source needed to
+# compile. Everything else is excluded so it cannot leak into the image or bust
+# the build cache.
+
+# VCS and tooling state
+.git
+.gitignore
+.github
+.cloop
+
+# Build artifacts and local caches
+/bin
+/var
+/cache
+*.test
+*.out
+
+# Local config and secrets — NEVER bake these into an image
+/configs/config.yaml
+*.local.yaml
+.cloop/env.yaml
+**/secrets.key
+**/*.pem
+**/*.key
+
+# Deployment manifests (not needed by the Go build)
+/deploy
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# Docs and editor noise
+/docs
+*.md
+.DS_Store
+*.swp

@@ -1,0 +1,17 @@
+# Minimal real Bazel module for the pull-through test set. It is a Bzlmod root
+# module declaring one tiny, ubiquitous, real Bazel Central Registry dependency
+# (platforms, the constraint/platform definitions every toolchain uses). Point
+# Bazel's module resolution at the proxy and resolve it through the mount:
+#
+#   bazel mod deps --registry=https://proxy.example.com/v1/bazel
+#
+# Bazel fetches modules/platforms/0.0.10/MODULE.bazel and source.json through the
+# proxy; the proxy rewrites source.json so the external source archive is fetched
+# and integrity-verified through the synthetic
+# modules/platforms/0.0.10/archive endpoint.
+module(
+    name = "pullthrough_testset",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "platforms", version = "0.0.10")

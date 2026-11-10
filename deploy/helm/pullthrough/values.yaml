@@ -1,0 +1,362 @@
+# Default values for the pullthrough chart.
+# Override with `-f my-values.yaml` or `--set key=value`.
+
+# Number of replicas when autoscaling.enabled is false.
+replicaCount: 2
+
+image:
+  repository: ghcr.io/blechschmidt/pullthrough-security
+  # Defaults to .Chart.appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Secrets for pulling the image from a private registry.
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Workload-identity / IRSA annotations go here in cloud setups.
+
+# Extra annotations/labels applied to the Deployment pods.
+podAnnotations: {}
+podLabels: {}
+
+# Pod- and container-level security context. Defaults are hardened: non-root,
+# read-only root filesystem, all capabilities dropped. The container writes only
+# to the mounted cache volume and an emptyDir /tmp.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+  # Annotations for cloud load balancers when type is LoadBalancer.
+  annotations: {}
+
+# Git-over-SSH gateway. Enable to expose the SSH listener (set config.server.sshAddr
+# to a matching ":2222"). A separate Service is created (LoadBalancer/NodePort) since
+# SSH cannot share the HTTP ingress.
+ssh:
+  enabled: false
+  port: 2222
+  serviceType: LoadBalancer
+  annotations: {}
+
+# Kubernetes ValidatingAdmissionWebhook for in-cluster supply-chain enforcement
+# (Task 111). When enabled, a dedicated webhook workload admits/denies Pod image
+# references using the proxy's dossier verdict. Disabled by default.
+webhook:
+  enabled: false
+  replicaCount: 2
+  image:
+    # Defaults to the chart's main image when empty.
+    repository: ""
+    tag: ""
+  service:
+    port: 443
+  # Serving certificate the API server connects to. The issuing CA must appear as
+  # the webhook's caBundle (set caBundle below, or use cert-manager injection).
+  tls:
+    # Name of a kubernetes.io/tls Secret with tls.crt/tls.key. Required when
+    # enabled unless certManager.enabled is true (then the chart emits a
+    # Certificate that creates it).
+    existingSecret: ""
+  certManager:
+    # When true, the chart renders a cert-manager Certificate (issuerRef below)
+    # that populates the serving Secret, and annotates the
+    # ValidatingWebhookConfiguration for CA injection.
+    enabled: false
+    issuerRef:
+      name: ""
+      kind: ClusterIssuer
+  # Base64 PEM CA bundle for the serving cert. Ignored when certManager.enabled.
+  caBundle: ""
+  # Admission decision policy (maps to the admissionWebhook config stanza).
+  failurePolicy: Ignore        # Ignore (fail-open) | Fail (fail-closed) on webhook outage
+  serverFailurePolicy: open    # open | closed, for an unresolvable verdict
+  blockAction: deny
+  warnAction: admit
+  unknownAction: admit
+  minRiskScoreToDeny: 0
+  enforceLockdown: true
+  defaultEcosystem: docker
+  timeoutSeconds: 10
+  ignoreNamespaces:
+    - kube-system
+    - kube-node-lease
+    - kube-public
+  ignoreImages:
+    - registry.k8s.io/
+  # Verdict source: the proxy's admin dossier API. The admin token is taken from
+  # the main secrets Secret via ${PTS_ADMIN_TOKEN}.
+  dossier:
+    url: ""   # defaults to http://<fullname>:<service.port>/<adminPrefix> when empty
+    caCertFile: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    # Artifacts (Docker layers, large wheels) can be big; raise proxy buffers.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+  hosts:
+    - host: proxy.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: pullthrough-tls
+      hosts:
+        - proxy.example.com
+  # When set, a cert-manager Certificate is requested via this ClusterIssuer and
+  # the ingress is annotated accordingly. Leave empty to manage TLS secrets yourself.
+  certManager:
+    clusterIssuer: ""   # e.g. "letsencrypt-prod"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 80
+
+# PodDisruptionBudget keeps capacity during voluntary disruptions (node drains).
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1   # set one of minAvailable / maxUnavailable
+
+# Persistent cache volume. The proxy stores its content-addressable cache, audit
+# log, and provenance/scan state under /var/lib/pullthrough.
+persistence:
+  enabled: true
+  # Leave storageClass empty to use the cluster default.
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 50Gi
+  mountPath: /var/lib/pullthrough
+  # Bind to a pre-created PVC instead of provisioning one.
+  existingClaim: ""
+  annotations: {}
+
+# Prometheus Operator ServiceMonitor (requires the CRD to be installed).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}        # e.g. release: kube-prometheus-stack
+  path: /metrics
+
+# Prometheus alerting rules as a PrometheusRule CRD (requires the Prometheus
+# Operator). Ships the same 24 alerts as deploy/observability/prometheus/alerts.yaml
+# (cache/S3 backend errors, vuln & quarantine drift, signature-verification
+# failures, quota exhaustion, upstream outages, ...).
+prometheusRule:
+  enabled: false
+  # namespace: monitoring          # default: release namespace
+  labels: {}                        # e.g. release: kube-prometheus-stack (so the operator selects it)
+  annotations: {}
+  # Extra labels stamped onto EVERY alert (e.g. team/routing keys for Alertmanager).
+  # Setting this switches to a per-rule render so the labels can be merged in.
+  additionalLabels: {}
+
+# Grafana dashboards shipped as ConfigMaps for the Grafana sidecar to import
+# (kube-prometheus-stack's grafana.sidecar.dashboards). Ships the four versioned
+# boards from deploy/observability/grafana/dashboards.
+grafanaDashboards:
+  enabled: false
+  # namespace: monitoring          # default: release namespace; set to Grafana's ns if the sidecar is ns-scoped
+  # Label the Grafana dashboard sidecar watches for.
+  sidecarLabel: grafana_dashboard
+  sidecarLabelValue: "1"
+  labels: {}
+  # Optional Grafana folder for the imported dashboards (sidecar folder annotation).
+  folderAnnotation: grafana_folder
+  folder: Pull-through
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Spread replicas across nodes/zones for resilience.
+topologySpreadConstraints: []
+
+# Extra environment variables (e.g. PTS_* overrides) merged into the container.
+extraEnv: []
+#  - name: PTS_LOG_LEVEL
+#    value: info
+
+# Liveness/readiness probe tuning (paths are fixed by the app: /healthz, /readyz).
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+# By default the chart creates a Secret from the literal values below and injects
+# them as env vars; the config references them via ${VAR} expansion. For
+# production, prefer existingSecret (e.g. populated by External Secrets / Vault)
+# and leave `secrets.data` empty.
+secrets:
+  # Name of a pre-existing Secret to mount as env. When set, `secrets.data` is ignored.
+  existingSecret: ""
+  # Key/value pairs placed into a chart-managed Secret. Keys become env var names.
+  data: {}
+    # ANTHROPIC_API_KEY: ""
+    # GITHUB_TOKEN: ""
+    # PTS_AUDIT_HMAC_KEY: ""
+    # PTS_SECRETS_KEY: ""
+    # PTS_ADMIN_TOKEN: ""
+    # DOCKERHUB_USERNAME: ""
+    # DOCKERHUB_TOKEN: ""
+    # Shared S3 cache backend credentials (see config.cache.s3 below).
+    # PTS_CACHE_S3_ACCESS_KEY_ID: ""
+    # PTS_CACHE_S3_SECRET_ACCESS_KEY: ""
+
+# ---------------------------------------------------------------------------
+# Application configuration
+# ---------------------------------------------------------------------------
+# Rendered verbatim into a ConfigMap and mounted at /etc/pullthrough/config.yaml.
+# This is the same schema as configs/config.example.yaml. Secret-bearing fields
+# use ${VAR} placeholders resolved from the Secret above. Override freely.
+config:
+  server:
+    httpAddr: ":8080"
+    publicUrl: "https://proxy.example.com"
+    sshAddr: ""
+    readTimeout: 30s
+    writeTimeout: 5m
+    shutdownTimeout: 30s
+
+  logging:
+    level: info
+    format: json
+    addSource: false
+
+  cache:
+    backend: filesystem
+    dir: /var/lib/pullthrough/cache
+    maxSizeBytes: 0
+    ttl: 168h
+    # --- Shared object-storage cache for HA (multi-replica) deployments -------
+    # Switch backend to "s3" so every replica shares one cache in an
+    # S3-compatible bucket instead of each maintaining its own on a per-pod PVC.
+    # This also lets you drop persistence (set persistence.enabled: false) and
+    # raise replicaCount / the HPA freely. Inject the credentials from the Secret
+    # (see secrets.data below) and reference them with ${VAR} placeholders.
+    #
+    # backend: s3
+    # s3:
+    #   endpoint: https://s3.us-east-1.amazonaws.com   # or http://minio.minio.svc:9000
+    #   region: us-east-1
+    #   bucket: my-org-pullthrough-cache
+    #   prefix: cache/
+    #   usePathStyle: false                            # true for MinIO/Ceph
+    #   accessKeyId: ${PTS_CACHE_S3_ACCESS_KEY_ID}
+    #   secretAccessKey: ${PTS_CACHE_S3_SECRET_ACCESS_KEY}
+    #   # Retention for a shared bucket is best handled by an object-store
+    #   # lifecycle policy; leave maxSizeBytes at 0 above.
+
+  outbound:
+    dialTimeout: 15s
+    responseHeaderTimeout: 30s
+    tls:
+      minVersion: "1.2"
+
+  upstreams:
+    npm:
+      type: npm
+      url: https://registry.npmjs.org
+    pypi:
+      type: pip
+      url: https://pypi.org
+    crates:
+      type: cargo
+      url: https://index.crates.io
+    goproxy:
+      type: go
+      url: https://proxy.golang.org
+    nuget:
+      type: nuget
+      url: https://api.nuget.org
+    dockerhub:
+      type: docker
+      url: https://registry-1.docker.io
+
+  scanning:
+    enabled: false
+    provider: claude
+    model: claude-opus-4-8
+    apiKey: ${ANTHROPIC_API_KEY}
+    failOn: high
+
+  provenance:
+    enabled: false
+    githubToken: ${GITHUB_TOKEN}
+    storeDir: /var/lib/pullthrough/provenance
+    useSystemTrustRoots: false
+
+  policy:
+    enabled: false
+
+  secrets:
+    keyEnv: PTS_SECRETS_KEY
+
+  auth:
+    enabled: false
+    allowAnonymous: true
+    anonymousTeam: public
+
+  audit:
+    enabled: false
+    file: /var/lib/pullthrough/audit/audit.log
+    hmacKey: ${PTS_AUDIT_HMAC_KEY}
+
+  observability:
+    metrics: true
+    metricsPath: /metrics
+    admin: true
+    adminPathPrefix: /admin

@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Pullthrough · Admin</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%232563eb'/%3E%3Cpath d='M4 8l3 3 5-6' stroke='white' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Pullthrough</span>
+      <span class="brand-sub">Supply-chain proxy · Admin</span>
+    </div>
+    <div class="topbar-meta">
+      <span id="health-pill" class="pill" role="status" aria-live="polite">checking…</span>
+      <span id="whoami" class="pill" role="status" hidden title="Signed-in identity"></span>
+      <a class="btn" href="graph.html" title="Supply-chain graph">Graph</a>
+      <button id="refresh" class="btn" type="button" title="Refresh (r)">Refresh</button>
+      <a id="signout" class="btn" hidden title="Sign out">Sign out</a>
+    </div>
+  </header>
+
+  <!-- Emergency lockdown banner (Task 74): prominently surfaces an active
+       incident-response lockdown across every tab. Hidden when none is active. -->
+  <div id="incident-banner" class="incident-banner" role="alert" hidden></div>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab tab-incident" role="tab" aria-selected="false" data-view="lockdown">Incident</button>
+    <button class="tab" role="tab" aria-selected="true" data-view="overview">Overview</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="secops">Security Ops</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="query">Query</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="timeline">Timeline</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="dossier">Dossier</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="metering">Usage</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="cache">Cache</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="scans">Scans</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="provenance">Provenance</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="compliance">Compliance</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="presets">Presets</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="gitops">GitOps</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="riskscore">Risk</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="reposcore">Repo Health</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="sbomdiff">Drift</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="rebuildverify">Reproducible Builds</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="buildprov">Build Provenance</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="extensions">Extensions</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="anomaly">Anomaly</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="egress">Egress</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="maturity">Cooldown</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="continuity">Continuity</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="depfirewall">Firewall</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="snapshots">Snapshots</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="installhooks">Install Hooks</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="approvals">Approvals</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="passkeys">Passkeys</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="policy">Policy</button>
+  </nav>
+
+  <main id="main" tabindex="-1">
+    <!-- Overview -->
+    <section id="view-overview" class="view" aria-label="Overview">
+      <div id="stat-grid" class="stat-grid"></div>
+      <div class="panel">
+        <h2>Backends</h2>
+        <div id="backend-list" class="chips" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- Security Operations (SOC) -->
+    <section id="view-secops" class="view" hidden aria-label="Security operations dashboard">
+      <div class="toolbar">
+        <span id="secops-stream-pill" class="pill" role="status" aria-live="polite" title="Live event stream status">stream: off</span>
+        <button id="secops-stream-toggle" class="btn btn-sm" type="button" aria-pressed="false">Pause live feed</button>
+        <button id="secops-refresh" class="btn btn-sm" type="button">Refresh</button>
+        <span id="secops-meta" class="muted" role="status" aria-live="polite"></span>
+      </div>
+      <div id="secops-cards" class="stat-grid"></div>
+      <div class="secops-outcome" id="secops-outcome" aria-hidden="true"></div>
+
+      <div class="secops-grid">
+        <div class="panel">
+          <h2>By gate <span class="muted">(rolling window)</span></h2>
+          <div id="secops-by-gate" class="bars"></div>
+        </div>
+        <div class="panel">
+          <h2>By tenant / subject</h2>
+          <div id="secops-by-subject" class="bars"></div>
+        </div>
+        <div class="panel">
+          <h2>By severity</h2>
+          <div id="secops-by-severity" class="bars"></div>
+        </div>
+        <div class="panel">
+          <h2>Posture</h2>
+          <div id="secops-posture"></div>
+        </div>
+      </div>
+
+      <h2 style="margin-top:1.1rem">Live verdict feed</h2>
+      <div class="table-wrap">
+        <table id="secops-feed-table">
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Outcome</th>
+              <th scope="col">Gate</th>
+              <th scope="col">Severity</th>
+              <th scope="col">Title</th>
+              <th scope="col">Artifact / subject</th>
+              <th scope="col"><span class="visually-hidden">Drill-down</span></th>
+            </tr>
+          </thead>
+          <tbody id="secops-feed-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Federated query console -->
+    <section id="view-query" class="view" hidden aria-label="Federated query console">
+      <div class="toolbar">
+        <button id="query-run" class="btn btn-sm" type="button">Run query</button>
+        <button id="query-schema" class="btn btn-sm" type="button">Schema</button>
+        <button id="query-example" class="btn btn-sm" type="button">Load example</button>
+        <span id="query-meta" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .5rem">
+        Ask cross-cutting questions over the federated security data model — join
+        risk, signatures, vulnerabilities, downstream blast radius, approvals and
+        recent verdicts per coordinate. Read-only; Ctrl/Cmd+Enter runs.
+      </p>
+      <div class="secops-grid">
+        <div class="panel">
+          <h2>Query <span class="muted">(JSON DSL)</span></h2>
+          <textarea id="query-input" spellcheck="false" rows="16" aria-label="Federated query (JSON DSL)"
+            style="width:100%;font-family:var(--mono,monospace);font-size:.82rem"></textarea>
+        </div>
+        <div class="panel">
+          <h2>Schema <span class="muted">(fields &amp; operators)</span></h2>
+          <div id="query-schema-panel" class="muted">Click “Schema” to load the queryable fields.</div>
+        </div>
+      </div>
+      <h2 style="margin-top:1.1rem">Results</h2>
+      <div class="table-wrap">
+        <table id="query-table">
+          <thead><tr id="query-head"></tr></thead>
+          <tbody id="query-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Forensic incident timeline (Task 77) -->
+    <section id="view-timeline" class="view" hidden aria-label="Forensic incident timeline">
+      <div class="toolbar">
+        <label class="visually-hidden" for="timeline-coordinate">Coordinate</label>
+        <input id="timeline-coordinate" class="input" type="search" placeholder="coordinate (name[@version])" autocomplete="off">
+        <label class="visually-hidden" for="timeline-tenant">Tenant</label>
+        <input id="timeline-tenant" class="input" type="search" placeholder="tenant" autocomplete="off" style="max-width:9rem">
+        <label class="visually-hidden" for="timeline-identity">Identity</label>
+        <input id="timeline-identity" class="input" type="search" placeholder="identity" autocomplete="off" style="max-width:11rem">
+        <label class="visually-hidden" for="timeline-incident">Incident</label>
+        <input id="timeline-incident" class="input" type="search" placeholder="incident ID" autocomplete="off" style="max-width:9rem">
+        <button id="timeline-run" class="btn btn-sm" type="button">Reconstruct</button>
+        <button id="timeline-export" class="btn btn-sm" type="button">Export Markdown</button>
+        <span id="timeline-meta" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .5rem">
+        Reconstruct a unified, chronologically-ordered, deduplicated “what happened” chain for a
+        coordinate, tenant, identity, or incident — every pull, gate verdict, override, approval,
+        anomaly and lockdown action — correlated read-only across the audit log (Merkle), SOC feed,
+        anomaly, approvals, lockdown and findings. Entries link to the Merkle inclusion proof where
+        available. A bare package name matches all versions. Enter runs.
+      </p>
+      <div class="table-wrap">
+        <table id="timeline-table">
+          <thead>
+            <tr>
+              <th scope="col">Time (UTC)</th>
+              <th scope="col">Source</th>
+              <th scope="col">Category</th>
+              <th scope="col">Decision</th>
+              <th scope="col">Actor</th>
+              <th scope="col">Coordinate</th>
+              <th scope="col">Summary</th>
+              <th scope="col">Proof</th>
+            </tr>
+          </thead>
+          <tbody id="timeline-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Per-coordinate security dossier / 360 view (Task 87) -->
+    <section id="view-dossier" class="view" hidden aria-label="Per-coordinate security dossier">
+      <div class="toolbar">
+        <label class="visually-hidden" for="dossier-ecosystem">Ecosystem</label>
+        <input id="dossier-ecosystem" class="input" type="search" placeholder="ecosystem (npm, pypi, …)" autocomplete="off" style="max-width:11rem">
+        <label class="visually-hidden" for="dossier-coordinate">Coordinate</label>
+        <input id="dossier-coordinate" class="input" type="search" placeholder="coordinate (name[@version])" autocomplete="off">
+        <label class="visually-hidden" for="dossier-tenant">Tenant</label>
+        <input id="dossier-tenant" class="input" type="search" placeholder="tenant" autocomplete="off" style="max-width:9rem">
+        <button id="dossier-run" class="btn btn-sm" type="button">Assemble</button>
+        <button id="dossier-export" class="btn btn-sm" type="button">Export Markdown</button>
+        <span id="dossier-meta" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .5rem">
+        The complete security story (“360 view”) for one artifact coordinate, folded into a single
+        triage card: provenance &amp; source commit, unified risk, all admission findings,
+        vulnerabilities &amp; VEX, license, signature/attestation, reproducible-build verdict,
+        SBOM drift, approval/break-glass history and the correlated event timeline — read live
+        across every wired subsystem, with graceful partial results when one is disabled. Enter runs.
+      </p>
+      <div id="dossier-card"></div>
+    </section>
+
+    <!-- Usage / chargeback (Task 84) -->
+    <section id="view-metering" class="view" hidden aria-label="Per-tenant usage metering and chargeback">
+      <div class="toolbar">
+        <label class="visually-hidden" for="metering-tenant">Tenant</label>
+        <input id="metering-tenant" class="input" type="search" placeholder="tenant (blank = all)" autocomplete="off" style="max-width:11rem">
+        <label class="visually-hidden" for="metering-granularity">Granularity</label>
+        <select id="metering-granularity" class="input" style="max-width:8rem">
+          <option value="day" selected>Daily</option>
+          <option value="hour">Hourly</option>
+          <option value="total">Total</option>
+        </select>
+        <button id="metering-run" class="btn btn-sm" type="button">Run</button>
+        <button id="metering-csv" class="btn btn-sm" type="button">Export CSV</button>
+        <button id="metering-md" class="btn btn-sm" type="button">Export Markdown</button>
+        <span id="metering-meta" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .5rem">
+        Per-tenant usage accounting & chargeback (Task 84): bytes served (cache-hit vs upstream),
+        cache-fill storage footprint, request counts, admission-scan invocations and estimated cost,
+        and quarantine/block counts — accumulated live and rolled up hourly/daily. Filter by tenant
+        and time granularity, then export a CSV or Markdown chargeback report.
+      </p>
+      <div class="table-wrap">
+        <table id="metering-totals-table">
+          <thead>
+            <tr>
+              <th scope="col">Tenant</th>
+              <th scope="col" class="num">Requests</th>
+              <th scope="col" class="num">Bytes (cache hit)</th>
+              <th scope="col" class="num">Bytes (upstream)</th>
+              <th scope="col" class="num">Storage</th>
+              <th scope="col" class="num">Scans</th>
+              <th scope="col" class="num">Scan cost</th>
+              <th scope="col" class="num">Blocked</th>
+              <th scope="col" class="num">Quarantined</th>
+            </tr>
+          </thead>
+          <tbody id="metering-totals-body"></tbody>
+        </table>
+      </div>
+      <h3 style="margin:.8rem 0 .3rem;font-size:.9rem">By period</h3>
+      <div class="table-wrap">
+        <table id="metering-rows-table">
+          <thead>
+            <tr>
+              <th scope="col">Tenant</th>
+              <th scope="col">Period start (UTC)</th>
+              <th scope="col" class="num">Requests</th>
+              <th scope="col" class="num">Bytes served</th>
+              <th scope="col" class="num">Scans</th>
+              <th scope="col" class="num">Scan cost</th>
+              <th scope="col" class="num">Blocked</th>
+            </tr>
+          </thead>
+          <tbody id="metering-rows-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Cache -->
+    <section id="view-cache" class="view" hidden aria-label="Cache contents">
+      <div class="toolbar">
+        <label class="visually-hidden" for="cache-search">Filter cache entries</label>
+        <input id="cache-search" class="input" type="search" placeholder="Filter by key or origin…" autocomplete="off">
+        <span id="cache-count" class="muted"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="cache-table">
+          <thead>
+            <tr>
+              <th scope="col">Artifact</th>
+              <th scope="col">Origin</th>
+              <th scope="col" class="num">Size</th>
+              <th scope="col">Type</th>
+              <th scope="col">Modified</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="cache-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Scans -->
+    <section id="view-scans" class="view" hidden aria-label="Scan verdicts">
+      <div class="toolbar">
+        <label class="visually-hidden" for="scan-sha">Look up a commit SHA</label>
+        <input id="scan-sha" class="input" type="search" placeholder="Look up a commit SHA…" autocomplete="off" spellcheck="false">
+        <button id="scan-lookup" class="btn" type="button">Look up</button>
+        <span id="scan-count" class="muted"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="scan-table">
+          <thead>
+            <tr>
+              <th scope="col">Commit</th>
+              <th scope="col" class="num">Risk</th>
+              <th scope="col">Severity</th>
+              <th scope="col" class="num">Findings</th>
+              <th scope="col">Verdict</th>
+              <th scope="col">Scanned</th>
+            </tr>
+          </thead>
+          <tbody id="scan-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Provenance -->
+    <section id="view-provenance" class="view" hidden aria-label="Provenance lookup">
+      <div class="panel">
+        <h2>Resolve artifact provenance</h2>
+        <form id="prov-form" class="form-grid">
+          <label>Ecosystem<input name="ecosystem" class="input" placeholder="npm, pypi, maven, rubygems, composer, oci…"></label>
+          <label>Name<input name="name" class="input" placeholder="left-pad"></label>
+          <label>Version<input name="version" class="input" placeholder="1.3.0"></label>
+          <label>Digest<input name="digest" class="input" placeholder="sha256:…"></label>
+          <button class="btn btn-primary" type="submit">Resolve</button>
+        </form>
+        <div id="prov-result" class="result" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- Compliance -->
+    <section id="view-compliance" class="view" hidden aria-label="Compliance scorecard">
+      <div class="toolbar">
+        <button id="compliance-refresh" class="btn" type="button">Recompute</button>
+        <a id="compliance-html" class="btn" href="api/compliance/report.html" target="_blank" rel="noopener">Open HTML report</a>
+        <button id="compliance-export" class="btn" type="button" title="Download the signed report artifact">Export signed report</button>
+        <span id="compliance-meta" class="muted"></span>
+      </div>
+      <div id="compliance-cards" class="stat-grid"></div>
+      <div class="table-wrap">
+        <table id="compliance-table">
+          <thead>
+            <tr>
+              <th scope="col">Status</th>
+              <th scope="col">Control</th>
+              <th scope="col" class="num">Score</th>
+              <th scope="col">Frameworks</th>
+              <th scope="col">Detail</th>
+            </tr>
+          </thead>
+          <tbody id="compliance-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Curated compliance policy presets (Task 88) -->
+    <section id="view-presets" class="view" hidden aria-label="Curated compliance policy presets">
+      <div class="toolbar">
+        <label class="visually-hidden" for="preset-select">Preset</label>
+        <select id="preset-select" class="input" style="max-width:18rem"></select>
+        <button id="preset-preview" class="btn btn-sm" type="button">Preview diff</button>
+        <button id="preset-apply" class="btn btn-sm" type="button" title="Patch the on-disk config (admin-only, audited)">Apply</button>
+        <span id="preset-meta" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .5rem">
+        Vetted, versioned baseline security configurations (SLSA L3, NIST SSDF, hardened) applied
+        as one self-contained bundle across every admission gate. Preview shows exactly what the
+        preset would change versus the running config and validates the projected configuration;
+        Apply patches the on-disk config (preserving comments &amp; secrets), is recorded in the
+        tamper-evident audit log, and takes effect on the next reload/restart.
+      </p>
+      <div id="preset-summary"></div>
+      <div class="table-wrap">
+        <table id="preset-table">
+          <thead>
+            <tr>
+              <th scope="col">Δ</th>
+              <th scope="col">Setting</th>
+              <th scope="col">Current</th>
+              <th scope="col">Proposed</th>
+              <th scope="col">Standard clause</th>
+            </tr>
+          </thead>
+          <tbody id="preset-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- GitOps policy & config synchronization (Task 93) -->
+    <section id="view-gitops" class="view" hidden aria-label="GitOps policy and config synchronization">
+      <div class="toolbar">
+        <span id="gitops-meta" class="muted"></span>
+        <button id="gitops-refresh" class="btn btn-sm" type="button">Refresh</button>
+        <button id="gitops-sync" class="btn btn-sm" type="button" title="Force an immediate reconcile against the source of truth (admin-only, audited)">Sync now</button>
+        <button id="gitops-rollback" class="btn btn-sm btn-danger" type="button" title="Revert the last apply to the last-known-good config (admin-only, audited)">Rollback</button>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .5rem">
+        Continuously reconcile the proxy's policy/config bundles from a version-controlled source of
+        truth (Git / OCI / local). Each desired-state bundle is signature/digest-verified, validated
+        (configcheck) and previewed (simreplay blast radius), then applied automatically or — in
+        suggest mode — surfaced for dual-control approval. Applies and rollbacks are recorded in the
+        tamper-evident audit log and take effect on the next reload/restart.
+      </p>
+      <div id="gitops-status" class="panel"></div>
+      <div id="gitops-preview" class="panel" hidden>
+        <h2>Pending change</h2>
+        <div class="table-wrap">
+          <table id="gitops-preview-table">
+            <thead>
+              <tr>
+                <th scope="col">Δ</th>
+                <th scope="col">Setting</th>
+                <th scope="col">Current</th>
+                <th scope="col">Proposed</th>
+              </tr>
+            </thead>
+            <tbody id="gitops-preview-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="gitops-history" class="panel" hidden>
+        <h2>Apply history</h2>
+        <div class="table-wrap">
+          <table id="gitops-history-table">
+            <thead>
+              <tr>
+                <th scope="col">Revision</th>
+                <th scope="col">Δ</th>
+                <th scope="col">By</th>
+                <th scope="col">Applied</th>
+              </tr>
+            </thead>
+            <tbody id="gitops-history-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Risk score -->
+    <section id="view-riskscore" class="view" hidden aria-label="Unified risk scoring">
+      <div class="toolbar">
+        <span id="riskscore-meta" class="muted"></span>
+      </div>
+      <div id="riskscore-cards" class="stat-grid"></div>
+      <div class="table-wrap">
+        <table id="riskscore-table">
+          <thead>
+            <tr>
+              <th scope="col">Band</th>
+              <th scope="col" class="num">Score</th>
+              <th scope="col">Artifact</th>
+              <th scope="col">Decision</th>
+              <th scope="col">Top drivers</th>
+              <th scope="col">Scored</th>
+            </tr>
+          </thead>
+          <tbody id="riskscore-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Source-repository health (Task 63) -->
+    <section id="view-reposcore" class="view" hidden aria-label="Source-repository health">
+      <div class="toolbar">
+        <span id="reposcore-meta" class="muted"></span>
+      </div>
+      <div id="reposcore-cards" class="stat-grid"></div>
+      <div class="table-wrap">
+        <table id="reposcore-table">
+          <thead>
+            <tr>
+              <th scope="col">Repository</th>
+              <th scope="col" class="num">Health</th>
+              <th scope="col">Grade</th>
+              <th scope="col">Weak signals</th>
+              <th scope="col">Evaluated</th>
+            </tr>
+          </thead>
+          <tbody id="reposcore-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SBOM diff & dependency drift -->
+    <section id="view-sbomdiff" class="view" hidden aria-label="SBOM diff and dependency drift">
+      <div class="toolbar">
+        <span id="sbomdiff-meta" class="muted"></span>
+      </div>
+      <div id="sbomdiff-cards" class="stat-grid"></div>
+      <div class="panel">
+        <h2>What changed since the version I last approved?</h2>
+        <div class="toolbar">
+          <input id="sbomdiff-eco" class="input" type="text" aria-label="Ecosystem" placeholder="ecosystem (e.g. npm)" />
+          <input id="sbomdiff-pkg" class="input" type="text" aria-label="Package coordinate" placeholder="package coordinate" />
+          <input id="sbomdiff-tenant" class="input" type="text" aria-label="Tenant (optional)" placeholder="tenant (optional)" />
+          <input id="sbomdiff-from" class="input" type="text" aria-label="From version (optional)" placeholder="from version (optional)" />
+          <input id="sbomdiff-to" class="input" type="text" aria-label="To version (optional)" placeholder="to version (optional)" />
+          <button id="sbomdiff-run" class="btn" type="button">Diff</button>
+        </div>
+        <pre id="sbomdiff-report" class="codeblock" aria-live="polite"></pre>
+      </div>
+      <div class="table-wrap">
+        <table id="sbomdiff-table">
+          <thead>
+            <tr>
+              <th scope="col">Ecosystem</th>
+              <th scope="col">Coordinate</th>
+              <th scope="col">From → To</th>
+              <th scope="col" class="num">Drift</th>
+              <th scope="col">Action</th>
+              <th scope="col">+deps / +vulns / +lic / +ns</th>
+            </tr>
+          </thead>
+          <tbody id="sbomdiff-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- WASM extension gates -->
+    <section id="view-extensions" class="view" hidden aria-label="WASM extension gates">
+      <div class="toolbar">
+        <span id="extensions-meta" class="muted"></span>
+        <button id="extensions-reload" class="btn" type="button">Reload modules</button>
+      </div>
+      <div id="extensions-cards" class="stat-grid"></div>
+      <div class="table-wrap">
+        <table id="extensions-table">
+          <thead>
+            <tr>
+              <th scope="col">Module</th>
+              <th scope="col">Status</th>
+              <th scope="col">Fail policy</th>
+              <th scope="col">Limits</th>
+              <th scope="col" class="num">Invocations</th>
+              <th scope="col">Verdicts (a/w/b)</th>
+              <th scope="col">Timeouts / Fuel / Err</th>
+            </tr>
+          </thead>
+          <tbody id="extensions-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Behavioral anomaly detection -->
+    <section id="view-anomaly" class="view" hidden aria-label="Behavioral anomaly detection">
+      <div class="toolbar">
+        <span id="anomaly-meta" class="muted"></span>
+      </div>
+      <div id="anomaly-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Scopes at risk</h2>
+      <div class="table-wrap">
+        <table id="anomaly-scopes-table">
+          <thead>
+            <tr>
+              <th scope="col">Level</th>
+              <th scope="col" class="num">Score</th>
+              <th scope="col">Scope (tenant / identity)</th>
+              <th scope="col">Action</th>
+              <th scope="col">Detectors</th>
+              <th scope="col">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="anomaly-scopes-body"></tbody>
+        </table>
+      </div>
+      <h2 style="margin-top:1.1rem">Recent triggers</h2>
+      <div class="table-wrap">
+        <table id="anomaly-triggers-table">
+          <thead>
+            <tr>
+              <th scope="col">Level</th>
+              <th scope="col" class="num">Score</th>
+              <th scope="col">Scope</th>
+              <th scope="col">Detector</th>
+              <th scope="col">Summary</th>
+              <th scope="col">When</th>
+            </tr>
+          </thead>
+          <tbody id="anomaly-triggers-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Egress / SSRF guard -->
+    <section id="view-egress" class="view" hidden aria-label="SSRF and outbound-egress guard">
+      <div class="toolbar">
+        <button id="egress-refresh" class="btn" type="button">Refresh</button>
+        <span id="egress-meta" class="muted"></span>
+      </div>
+      <div id="egress-cards" class="stat-grid"></div>
+
+      <div class="panel" style="margin-top:1.1rem">
+        <h2>Test a destination</h2>
+        <div class="toolbar">
+          <input id="egress-test-url" type="text" aria-label="Destination URL to evaluate" placeholder="https://registry.npmjs.org/left-pad" style="min-width:24rem" />
+          <button id="egress-test-btn" class="btn" type="button">Evaluate</button>
+        </div>
+        <div id="egress-test-result" class="muted" aria-live="polite"></div>
+      </div>
+
+      <div class="panel" style="margin-top:1.1rem">
+        <h2>Allowlist</h2>
+        <div class="toolbar">
+          <input id="egress-allow-entry" type="text" aria-label="Allowlist entry (host pattern or CIDR)" placeholder="*.npmjs.org or 10.0.0.0/8" style="min-width:18rem" />
+          <button id="egress-allow-add" class="btn" type="button">Add</button>
+        </div>
+        <div id="egress-allowlist" class="chips" aria-live="polite"></div>
+      </div>
+
+      <h2 style="margin-top:1.1rem">Blocked by reason</h2>
+      <div class="table-wrap">
+        <table id="egress-reason-table">
+          <thead>
+            <tr><th scope="col">Reason</th><th scope="col" class="num">Count</th></tr>
+          </thead>
+          <tbody id="egress-reason-body"></tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-top:1.1rem">Recent blocks</h2>
+      <div class="table-wrap">
+        <table id="egress-recent-table">
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">Reason</th>
+              <th scope="col">Tenant</th>
+              <th scope="col">Host</th>
+              <th scope="col">URL</th>
+            </tr>
+          </thead>
+          <tbody id="egress-recent-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Maturity / version cooldown -->
+    <section id="view-maturity" class="view" hidden aria-label="Release-maturity version cooldown">
+      <div class="toolbar">
+        <button id="maturity-refresh" class="btn" type="button">Refresh</button>
+        <span id="maturity-meta" class="muted"></span>
+      </div>
+      <div id="maturity-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Currently cooling</h2>
+      <div class="table-wrap">
+        <table id="maturity-table">
+          <thead>
+            <tr>
+              <th scope="col">Ecosystem</th>
+              <th scope="col">Package</th>
+              <th scope="col">Version</th>
+              <th scope="col">Tenant</th>
+              <th scope="col">Published</th>
+              <th scope="col" class="num">Remaining</th>
+              <th scope="col">Available</th>
+            </tr>
+          </thead>
+          <tbody id="maturity-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Continuity / maintainer-publisher monitoring -->
+    <section id="view-continuity" class="view" hidden aria-label="Maintainer/publisher continuity monitoring">
+      <div class="toolbar">
+        <button id="continuity-refresh" class="btn" type="button">Refresh</button>
+        <span id="continuity-meta" class="muted"></span>
+      </div>
+      <div id="continuity-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Maintainer drift in cooldown</h2>
+      <div class="table-wrap">
+        <table id="continuity-table">
+          <thead>
+            <tr>
+              <th scope="col">Ecosystem</th>
+              <th scope="col">Package</th>
+              <th scope="col">Version</th>
+              <th scope="col">New (untrusted) principals</th>
+              <th scope="col" class="num">Trusted</th>
+              <th scope="col" class="num">Remaining</th>
+              <th scope="col">First seen</th>
+            </tr>
+          </thead>
+          <tbody id="continuity-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Dependency firewall / version-pinning & allowlist enforcement -->
+    <section id="view-depfirewall" class="view" hidden aria-label="Dependency firewall">
+      <div class="toolbar">
+        <button id="depfirewall-refresh" class="btn" type="button">Refresh</button>
+        <label class="muted">Tenant
+          <input id="depfirewall-tenant" type="text" placeholder="(global)" style="margin-left:.3rem" />
+        </label>
+        <button id="depfirewall-load" class="btn" type="button">Load</button>
+        <span id="depfirewall-meta" class="muted"></span>
+      </div>
+      <div id="depfirewall-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Import lockfile</h2>
+      <div class="toolbar">
+        <select id="depfirewall-format" aria-label="Lockfile format">
+          <option value="auto">auto-detect</option>
+          <option value="package-lock.json">package-lock.json (npm)</option>
+          <option value="requirements.txt">requirements.txt (pip)</option>
+          <option value="go.sum">go.sum (go)</option>
+          <option value="Cargo.lock">Cargo.lock (cargo)</option>
+        </select>
+        <label class="muted"><input id="depfirewall-replace" type="checkbox" checked /> replace existing</label>
+        <button id="depfirewall-import" class="btn" type="button">Import</button>
+        <span id="depfirewall-import-meta" class="muted"></span>
+      </div>
+      <textarea id="depfirewall-lockfile" rows="6" style="width:100%;font-family:monospace"
+        aria-label="Lockfile content to import"
+        placeholder="Paste lockfile content here, then Import to pin the tenant's resolved graph."></textarea>
+      <h2 style="margin-top:1.1rem">Rules</h2>
+      <div class="table-wrap">
+        <table id="depfirewall-table">
+          <thead>
+            <tr>
+              <th scope="col">Scope</th>
+              <th scope="col">Ecosystem</th>
+              <th scope="col">Package</th>
+              <th scope="col">Pinned</th>
+              <th scope="col">Ranges</th>
+              <th scope="col">Min</th>
+              <th scope="col">Denied</th>
+              <th scope="col">Source</th>
+            </tr>
+          </thead>
+          <tbody id="depfirewall-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Organization dependency snapshots / freeze / instant rollback -->
+    <section id="view-snapshots" class="view" hidden aria-label="Dependency snapshots, freeze and rollback">
+      <div class="toolbar">
+        <button id="snapshots-refresh" class="btn" type="button">Refresh</button>
+        <button id="snapshots-create" class="btn" type="button">Capture snapshot</button>
+        <input id="snapshots-name" type="text" aria-label="Snapshot name (optional)" placeholder="name (optional)" />
+        <button id="snapshots-rollback" class="btn btn-danger" type="button">Instant rollback</button>
+        <button id="snapshots-unfreeze" class="btn" type="button">Unfreeze</button>
+        <span id="snapshots-meta" class="muted"></span>
+      </div>
+      <div id="snapshots-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Snapshots</h2>
+      <div class="table-wrap">
+        <table id="snapshots-table">
+          <thead>
+            <tr>
+              <th scope="col">ID</th>
+              <th scope="col">Name</th>
+              <th scope="col">Created</th>
+              <th scope="col">Entries</th>
+              <th scope="col">Good</th>
+              <th scope="col">Signed</th>
+              <th scope="col">State</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="snapshots-body"></tbody>
+        </table>
+      </div>
+      <h2 style="margin-top:1.1rem">Diff two snapshots</h2>
+      <div class="toolbar">
+        <input id="snapshots-diff-from" type="text" aria-label="Diff from snapshot id" placeholder="from id" style="width:18rem" />
+        <input id="snapshots-diff-to" type="text" aria-label="Diff to snapshot id" placeholder="to id" style="width:18rem" />
+        <button id="snapshots-diff-run" class="btn" type="button">Diff</button>
+      </div>
+      <pre id="snapshots-diff-out" class="mono" style="white-space:pre-wrap"></pre>
+    </section>
+
+    <!-- Install-script / lifecycle-hook risk analysis -->
+    <section id="view-installhooks" class="view" hidden aria-label="Install-script and lifecycle-hook risk analysis">
+      <div class="toolbar">
+        <button id="installhooks-refresh" class="btn" type="button">Refresh</button>
+        <span id="installhooks-meta" class="muted"></span>
+      </div>
+      <div id="installhooks-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Detection rules</h2>
+      <div class="table-wrap">
+        <table id="installhooks-table">
+          <thead>
+            <tr>
+              <th scope="col">Rule</th>
+              <th scope="col">Title</th>
+              <th scope="col">Severity</th>
+              <th scope="col" class="num">Findings</th>
+            </tr>
+          </thead>
+          <tbody id="installhooks-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Reproducible Builds -->
+    <section id="view-rebuildverify" class="view" hidden aria-label="Reproducible-build verification">
+      <div class="toolbar">
+        <button id="rebuildverify-refresh" class="btn" type="button">Refresh</button>
+        <span id="rebuildverify-meta" class="muted"></span>
+      </div>
+      <div id="rebuildverify-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Recent verifications</h2>
+      <div class="table-wrap">
+        <table id="rebuildverify-table">
+          <thead>
+            <tr>
+              <th scope="col">Ecosystem</th>
+              <th scope="col">Coordinate</th>
+              <th scope="col">Verdict</th>
+              <th scope="col">Commit</th>
+              <th scope="col">Builder</th>
+              <th scope="col">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="rebuildverify-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-buildprov" class="view" hidden aria-label="Inbound build-provenance verification">
+      <div class="toolbar">
+        <button id="buildprov-refresh" class="btn" type="button">Refresh</button>
+        <span id="buildprov-meta" class="muted"></span>
+      </div>
+      <div id="buildprov-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Recent verifications</h2>
+      <div class="table-wrap">
+        <table id="buildprov-table">
+          <thead>
+            <tr>
+              <th scope="col">Ecosystem</th>
+              <th scope="col">Coordinate</th>
+              <th scope="col">Outcome</th>
+              <th scope="col">Proven source</th>
+              <th scope="col">Claimed source</th>
+              <th scope="col">Workflow</th>
+            </tr>
+          </thead>
+          <tbody id="buildprov-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Approvals -->
+    <section id="view-approvals" class="view" hidden aria-label="Quarantine review and break-glass approvals">
+      <div class="toolbar">
+        <button id="approvals-refresh" class="btn" type="button">Refresh</button>
+        <select id="approvals-filter" aria-label="Filter by status">
+          <option value="pending" selected>Pending</option>
+          <option value="approved">Active grants</option>
+          <option value="denied">Denied</option>
+          <option value="expired">Expired</option>
+          <option value="">All</option>
+        </select>
+        <span id="approvals-meta" class="muted"></span>
+      </div>
+      <div id="approvals-cards" class="stat-grid"></div>
+      <h2 style="margin-top:1.1rem">Requests</h2>
+      <div class="table-wrap">
+        <table id="approvals-table">
+          <thead>
+            <tr>
+              <th scope="col">Status</th>
+              <th scope="col">Gate</th>
+              <th scope="col">Tenant</th>
+              <th scope="col">Coordinate</th>
+              <th scope="col">Reason</th>
+              <th scope="col">Approvers</th>
+              <th scope="col">Updated</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="approvals-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Emergency lockdown / global kill-switch (Task 74) -->
+    <section id="view-lockdown" class="view" hidden aria-label="Emergency lockdown / global kill-switch">
+      <div class="toolbar">
+        <span id="lockdown-meta" class="muted"></span>
+        <button id="lockdown-refresh" class="btn btn-sm" type="button">Refresh</button>
+      </div>
+      <div id="lockdown-status" class="panel"></div>
+      <div class="panel">
+        <h2>Engage lockdown</h2>
+        <p class="muted">Tighten the proxy's posture org-wide during an active incident. A reason and incident ID are mandatory and recorded to the audit log; a TTL auto-expires the lockdown.</p>
+        <div class="form-grid">
+          <label>Mode
+            <select id="lockdown-mode">
+              <option value="freeze">freeze — serve only cached, block new fetches</option>
+              <option value="strict">strict — flip every observe gate to enforce</option>
+              <option value="block">block — deny specific coordinate(s)</option>
+            </select>
+          </label>
+          <label>Incident ID <input id="lockdown-incident" type="text" placeholder="INC-1234"></label>
+          <label>TTL <input id="lockdown-ttl" type="text" placeholder="1h (default)"></label>
+          <label class="form-wide">Reason <input id="lockdown-reason" type="text" placeholder="why the proxy is being locked down"></label>
+          <label class="form-wide" id="lockdown-targets-row" hidden>Targets <input id="lockdown-targets" type="text" placeholder="npm:left-pad@1.3.0, pip:evil (comma-separated; omit @version for whole package)"></label>
+        </div>
+        <button id="lockdown-engage" class="btn btn-danger" type="button">Engage lockdown</button>
+      </div>
+      <div class="panel">
+        <h2>Clear lockdown</h2>
+        <div class="form-grid">
+          <label class="form-wide">Reason <input id="lockdown-clear-reason" type="text" placeholder="all-clear reason"></label>
+        </div>
+        <button id="lockdown-clear" class="btn" type="button">Clear active lockdown</button>
+      </div>
+    </section>
+
+    <!-- WebAuthn / passkey step-up (Task 161) -->
+    <section id="view-passkeys" class="view" hidden aria-label="Passkey step-up authentication">
+      <div class="toolbar">
+        <span id="passkeys-meta" class="muted"></span>
+        <button id="passkeys-refresh" class="btn btn-sm" type="button">Refresh</button>
+      </div>
+      <div id="passkeys-status" class="panel"></div>
+      <div class="panel">
+        <h2>Enroll a passkey</h2>
+        <p class="muted">Register a FIDO2 passkey (security key, platform authenticator, or phone) as your step-up second factor. The most sensitive admin actions — break-glass approvals, emergency lockdown, policy-preset apply, and key rotation — require a fresh passkey assertion in addition to your role.</p>
+        <div class="form-grid">
+          <label class="form-wide">Label <input id="passkey-label" type="text" placeholder="e.g. YubiKey 5C, iPhone"></label>
+        </div>
+        <button id="passkey-enroll" class="btn btn-primary" type="button">Enroll passkey</button>
+        <span id="passkey-enroll-msg" class="muted"></span>
+      </div>
+      <div class="panel">
+        <h2>Your passkeys</h2>
+        <div class="table-wrap">
+          <table id="passkeys-table">
+            <thead>
+              <tr>
+                <th scope="col">Label</th>
+                <th scope="col">Attestation</th>
+                <th scope="col">Counter</th>
+                <th scope="col">Enrolled</th>
+                <th scope="col">Last used</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="passkeys-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Test step-up</h2>
+        <p class="muted">Verify your passkey works by performing a step-up assertion. This mints a short-lived token exactly as the protected actions do.</p>
+        <button id="passkey-test" class="btn" type="button">Run a test assertion</button>
+        <span id="passkey-test-msg" class="muted"></span>
+      </div>
+    </section>
+
+    <!-- Policy -->
+    <section id="view-policy" class="view" hidden aria-label="Policy and configuration">
+      <div id="policy-panel" class="panel"></div>
+    </section>
+  </main>
+
+  <!-- Detail drawer -->
+  <div id="drawer" class="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <div class="drawer-head">
+      <h2 id="drawer-title">Details</h2>
+      <button id="drawer-close" class="btn" type="button" aria-label="Close details">✕</button>
+    </div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </div>
+  <div id="overlay" class="overlay" hidden></div>
+
+  <div id="toast" class="toast" role="alert" aria-live="assertive" hidden></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

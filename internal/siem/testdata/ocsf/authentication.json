@@ -1,0 +1,38 @@
+{
+  "activity_id": 1,
+  "activity_name": "Logon",
+  "category_name": "Identity \u0026 Access Management",
+  "category_uid": 3,
+  "class_name": "Authentication",
+  "class_uid": 3002,
+  "message": "invalid token",
+  "metadata": {
+    "log_name": "audit",
+    "log_provider": "pullthrough-security",
+    "product": {
+      "name": "pullthrough-security",
+      "vendor_name": "Blechschmidt"
+    },
+    "uid": "audit:7",
+    "version": "1.1.0"
+  },
+  "severity": "Medium",
+  "severity_id": 3,
+  "src_endpoint": {
+    "ip": "10.0.0.9"
+  },
+  "status": "Failure",
+  "status_detail": "deny",
+  "status_id": 2,
+  "time": 1793780100000,
+  "type_name": "Authentication: Logon",
+  "type_uid": 300201,
+  "unmapped": {
+    "remoteAddr": "10.0.0.9",
+    "seq": "7",
+    "team": "team-a"
+  },
+  "user": {
+    "name": "svc-ci"
+  }
+}

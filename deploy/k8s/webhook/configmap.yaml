@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pullthrough-webhook-config
+  namespace: pullthrough
+  labels:
+    app.kubernetes.io/name: pullthrough-webhook
+    app.kubernetes.io/part-of: pullthrough
+data:
+  # Configuration for the standalone admission-webhook workload
+  # (`pullthrough webhook -config ...`). It reuses the same config schema as the
+  # proxy; only the admissionWebhook stanza and a minimal server/cache are needed.
+  # The verdict source is the proxy's admin dossier API (dossier.url); the webhook
+  # itself holds no cache or upstreams.
+  webhook.yaml: |
+    server:
+      httpAddr: ":8080"      # health/metrics only for this workload
+    cache:
+      backend: memory
+    logging:
+      level: info
+      format: json
+
+    admissionWebhook:
+      enabled: true
+      addr: ":8443"
+      path: /validate
+      # Serving certificate the API server connects to. Mounted from the
+      # pullthrough-webhook-tls Secret (see secret.example.yaml / TLS bootstrap).
+      tlsCertFile: /etc/pullthrough/tls/tls.crt
+      tlsKeyFile: /etc/pullthrough/tls/tls.key
+      # Optional mutual TLS: require and verify the API server's client cert.
+      # clientCaFile: /etc/pullthrough/apiserver-ca/ca.crt
+
+      # Decision policy ------------------------------------------------------
+      # failurePolicy governs behavior when a verdict cannot be computed:
+      #   open   -> admit (recommended until the enforcement path is trusted)
+      #   closed -> deny
+      # Keep this consistent with the ValidatingWebhookConfiguration.failurePolicy.
+      failurePolicy: open
+      # Map each dossier verdict to an admission outcome.
+      blockAction: deny        # block verdict  -> reject the Pod
+      warnAction: admit        # warn verdict   -> admit with an advisory warning
+      unknownAction: admit     # no signal seen -> admit (flip to deny to require vetting)
+      # Optional cluster-side risk ceiling, independent of the verdict (0 = off).
+      minRiskScoreToDeny: 0
+      # Kill-switch integration (Task 74): a targeted lockdown block denies the
+      # image, and any active lockdown flips unknownAction to deny.
+      enforceLockdown: true
+
+      defaultEcosystem: docker
+      stripRegistryHost: true
+      annotateWarnings: true
+      timeout: 5s
+
+      # Namespaces admitted without inspection (belt-and-suspenders alongside the
+      # ValidatingWebhookConfiguration namespaceSelector).
+      ignoreNamespaces:
+        - kube-system
+        - kube-node-lease
+        - kube-public
+      # Infrastructure image prefixes always admitted.
+      ignoreImages:
+        - registry.k8s.io/
+
+      # Verdict source: the proxy's admin dossier API. Switch to https:// and set
+      # caCertFile for TLS, as below. The token is injected from the
+      # pullthrough-webhook-secrets Secret via ${PTS_ADMIN_TOKEN}.
+      dossier:
+        url: http://pullthrough.pullthrough.svc:8080/admin
+        token: ${PTS_ADMIN_TOKEN}
+        # caCertFile: /etc/pullthrough/dossier-ca/ca.crt
+        timeout: 5s
+
+    # The lockdown state store should point at the SAME shared location the proxy
+    # uses (e.g. an RWX volume or object store) so the webhook honors the same
+    # targeted blocks. Left in-memory here; wire a shared storePath in production.
+    lockdown:
+      enabled: true

@@ -1,0 +1,1646 @@
+# Example configuration for the pull-through security proxy.
+# Copy to config.yaml and adjust. Secrets may reference environment variables
+# using ${VAR} syntax (e.g. token: ${NPM_TOKEN}) so they are not stored on disk.
+
+server:
+  httpAddr: ":8080"
+  # publicUrl is the externally reachable base URL of the proxy. Package-manager
+  # backends use it to rewrite index documents (npm packuments, PyPI Simple
+  # pages, cargo config.json, NuGet service index) so clients fetch dependent
+  # artifacts back through the proxy. Recommended in production; when empty,
+  # rewritten links are root-relative ("/v1/<backend>/...").
+  publicUrl: "https://proxy.example.com"
+  # sshAddr enables the Git-over-SSH gateway (Task 6). Empty disables it.
+  sshAddr: ""
+  readTimeout: 30s
+  writeTimeout: 5m
+  shutdownTimeout: 30s
+  # intercept enables the optional TLS-interception (MITM) forward-proxy mode
+  # (Task 100), an alternative to explicit /v1 package sources. When enabled,
+  # clients point HTTP_PROXY/HTTPS_PROXY at listenAddr and trust caCertFile; the
+  # proxy terminates TLS per host, maps the real upstream host to a configured
+  # upstream, and runs the same caching + admission pipeline. See
+  # docs/intercept-mode.md. Disabled by default (explicit /v1 mode is always on).
+  intercept:
+    enabled: false
+    listenAddr: ":3128"            # must differ from httpAddr
+    caCertFile: "/var/lib/pullthrough/ca/intercept-ca.crt"
+    caKeyFile: "/var/lib/pullthrough/ca/intercept-ca.key"
+    generateCa: true               # mint a CA on first start if absent
+    # caOrganization / caCommonName customize a generated CA's subject.
+    # leafTtl / certCacheSize tune minted per-host leaf certs (defaults 90d / 1024).
+    # hosts maps extra upstream hostnames to an upstream name (beyond each
+    # upstream URL's primary host, which is mapped automatically). Supports
+    # "*.suffix" wildcards.
+    hosts: {}
+    passthroughUnmatched: false    # refuse (don't blind-tunnel) unconfigured hosts
+    allowPlainHttp: false          # also intercept absolute-form http:// requests
+
+logging:
+  level: info        # debug | info | warn | error
+  format: json       # json | text
+  addSource: false
+
+cache:
+  backend: filesystem   # memory | filesystem | s3
+  dir: /var/lib/pullthrough/cache
+  maxSizeBytes: 0       # 0 = unbounded; else evicts least-recently-used
+  ttl: 0s               # 0 = no expiry; else max entry age (e.g. 168h)
+  # sealed enables offline ("air-gapped") mode: the proxy serves only content
+  # already in the cache and never reaches upstreams. Pair it with a cache
+  # pre-warmed (`pullthrough prewarm`) or imported (`pullthrough import`) from a
+  # bundle. See docs/air-gapped.md.
+  sealed: false
+  # Shared S3-compatible object-storage cache for horizontally-scaled (HA)
+  # deployments: many replicas share one bucket instead of caching independently.
+  # Set backend: s3 to use. See docs/ha-shared-cache.md.
+  # s3:
+  #   endpoint: https://s3.us-east-1.amazonaws.com  # or http://minio:9000
+  #   region: us-east-1
+  #   bucket: my-org-pullthrough-cache
+  #   prefix: cache/
+  #   usePathStyle: false          # true for MinIO/Ceph
+  #   accessKeyId: ${PTS_CACHE_S3_ACCESS_KEY_ID}
+  #   secretAccessKey: ${PTS_CACHE_S3_SECRET_ACCESS_KEY}
+
+# Shared outbound HTTP client used to fetch from upstreams. Upstreams that share
+# the same effective TLS policy also share a connection pool. All fields are
+# optional; omitted values fall back to safe built-in defaults.
+outbound:
+  userAgent: ""                   # default: pullthrough-security/1
+  dialTimeout: 15s
+  responseHeaderTimeout: 30s
+  idleConnTimeout: 90s
+  tlsHandshakeTimeout: 10s
+  maxIdleConns: 100
+  maxIdleConnsPerHost: 16
+  tls:
+    caCertFile: ""                # extra PEM CA bundle for private registries
+    insecureSkipVerify: false     # UNSAFE: disables upstream cert verification
+    minVersion: "1.2"             # 1.0 | 1.1 | 1.2 | 1.3
+
+# Each upstream is exposed under /v1/<name>/... by the gateway. See
+# docs/clients.md for how to point each package manager at the proxy.
+upstreams:
+  npm:
+    type: npm
+    url: https://registry.npmjs.org
+    # Optional: health-aware failover across equivalent registry mirrors (Task 38).
+    # The url above is the primary (highest-priority) endpoint; mirrors are tried
+    # in order when the primary is flaky or unreachable. Each mirror must serve
+    # content-addressable bytes identical to the primary — the proxy's digest
+    # verification holds regardless of which mirror served the bytes.
+    # mirrors:
+    #   - id: npm-mirror-eu
+    #     url: https://npm-mirror.eu.example.com
+    #   - id: npm-mirror-corp
+    #     url: https://npm.internal.example.com
+    #     # Per-mirror credentials and TLS override the primary's where set.
+    #     credentials:
+    #       token: ${NPM_MIRROR_TOKEN}
+    #     tls:
+    #       caCertFile: /etc/pullthrough/internal-ca.pem
+    # failover:
+    #   failureThreshold: 5      # consecutive failures that trip a mirror's breaker
+    #   successThreshold: 2      # consecutive half-open successes that close it
+    #   openTimeout: 30s         # how long a tripped breaker stays open
+    #   halfOpenMaxProbes: 1     # concurrent trial requests while half-open
+    #   probe:                   # optional lightweight active health probing
+    #     enabled: true
+    #     interval: 15s
+    #     timeout: 5s
+    #     path: /                # for docker use /v2/
+  pypi:
+    type: pip
+    url: https://pypi.org
+    # Optional: artifact host (defaults to https://files.pythonhosted.org) and
+    # the allowlist of artifact hosts the proxy will fetch (defaults to the host
+    # of filesUrl). Hosts outside the allowlist are refused.
+    # settings:
+    #   filesUrl: https://files.pythonhosted.org
+    #   fileHosts: files.pythonhosted.org
+  crates:
+    # cargo's sparse index is served from a dedicated host; downloads come from
+    # crates.io (the default downloadUrl).
+    type: cargo
+    url: https://index.crates.io
+    # settings:
+    #   downloadUrl: https://crates.io
+  goproxy:
+    type: go
+    url: https://proxy.golang.org
+  nuget:
+    type: nuget
+    url: https://api.nuget.org
+  maven:
+    # Maven/Gradle (JVM) pull-through over the standard GAV repository layout.
+    # Point at the "maven2" root of Maven Central (or a Nexus/Artifactory mirror).
+    # Artifacts (.jar/.pom/.module/.war) are cached and verified against their
+    # upstream .sha256/.sha1 checksum sidecars before caching; release and
+    # snapshot (maven-metadata.xml) resolution are both supported. Configure your
+    # build tool's repository as "<proxy>/v1/maven" (see docs/clients.md).
+    type: maven
+    url: https://repo1.maven.org/maven2
+    # credentials:        # for an authenticated private repository
+    #   username: ${MAVEN_USERNAME}
+    #   password: ${MAVEN_TOKEN}
+  rubygems:
+    # RubyGems (Ruby) pull-through. Point at the gem-server root (rubygems.org or
+    # a Gemstash/Artifactory mirror). The compact index (/versions, /names,
+    # /info/<gem>), .gem fetches, and the legacy Marshal indexes are proxied; a
+    # .gem is verified against the SHA-256 the gem's /info document declares before
+    # it is cached. Configure Bundler with "<proxy>/v1/rubygems" (see docs/clients.md).
+    type: rubygems
+    url: https://rubygems.org
+    # credentials:
+    #   token: ${RUBYGEMS_API_KEY}
+  packagist:
+    # Composer/Packagist (PHP) pull-through. Point at the metadata repository
+    # (repo.packagist.org or a Satis/Toran mirror). packages.json, the v2 metadata
+    # layout (/p2/<vendor>/<package>.json), and dist archives are proxied; a dist
+    # archive is verified against the SHA-1 shasum its metadata declares before it
+    # is cached. Add "<proxy>/v1/packagist" as a composer repository (see docs/clients.md).
+    type: composer
+    url: https://repo.packagist.org
+    # credentials:
+    #   username: ${PACKAGIST_USERNAME}
+    #   password: ${PACKAGIST_TOKEN}
+  bitnami:
+    # Helm pull-through, classic chart-repository protocol (helm repo add). Point
+    # at the repository root that serves index.yaml. The index is served live; a
+    # chart .tgz is verified against the SHA-256 digest published for it in
+    # index.yaml before it is cached. `helm repo add charts <proxy>/v1/bitnami`
+    # (see docs/clients.md).
+    type: helm
+    url: https://charts.bitnami.com/bitnami
+  # OCI-registry-hosted Helm charts (helm pull oci://). Set settings.oci: "true"
+  # to reuse the Docker Registry v2 plumbing (token handshake, digest-verified,
+  # content-addressed caching). Point at the OCI registry base.
+  # helm-oci:
+  #   type: helm
+  #   url: https://registry-1.docker.io
+  #   settings:
+  #     oci: "true"
+  debian:
+    # Debian/Ubuntu APT repository pull-through. The Release/InRelease trust
+    # anchor and the Packages indices are served live; a pool .deb is verified
+    # against the SHA-256 the Release -> Packages chain declares before it is
+    # cached. Point sources.list at "deb <proxy>/v1/debian <suite> main"
+    # (see docs/clients.md).
+    type: apt
+    url: https://deb.debian.org/debian
+    # Optional: validate the Release signature against a pinned key. Inline with
+    # settings.gpgKey, or by path:
+    # settings:
+    #   gpgKeyFile: /etc/pullthrough/keys/debian-archive.asc
+  fedora:
+    # RPM/YUM/DNF repository pull-through. Point at the directory that contains
+    # repodata/. repomd.xml + primary.xml are served live; an .rpm is verified
+    # against the checksum the repomd.xml -> primary.xml chain declares before it
+    # is cached. Set a .repo baseurl to "<proxy>/v1/fedora" (see docs/clients.md).
+    type: yum
+    url: https://dl.fedoraproject.org/pub/fedora/linux/releases/40/Everything/x86_64/os
+    # Optional: validate the repomd.xml signature against a pinned key.
+    # settings:
+    #   gpgKeyFile: /etc/pullthrough/keys/fedora.asc
+  dockerhub:
+    # Docker Registry v2 / OCI distribution pull-through. The backend performs
+    # the upstream bearer-token handshake automatically; public images pull
+    # anonymously. Pull e.g. "docker pull <proxy-host>/v1/dockerhub/v2/..."-style
+    # mirroring (or front it at /v2/ via your ingress). Manifests and blobs
+    # referenced by digest are cached and digest-verified; tags are revalidated.
+    type: docker
+    url: https://registry-1.docker.io
+    # Optional: authenticate to raise Docker Hub rate limits or pull private
+    # images. For Docker Hub use a username + access token; for GHCR use a PAT.
+    # credentials:
+    #   username: ${DOCKERHUB_USERNAME}
+    #   password: ${DOCKERHUB_TOKEN}
+  # ghcr:
+  #   type: docker
+  #   url: https://ghcr.io
+  #   credentials:
+  #     username: ${GHCR_USERNAME}
+  #     password: ${GHCR_TOKEN}
+  terraform:
+    # Terraform/OpenTofu registry pull-through (providers + modules). Provider
+    # ZIPs are verified against the signed SHA256SUMS manifest (SHA-256 + GPG
+    # signature from the registry-asserted key) before caching/serving; module
+    # source archives are resolved from X-Terraform-Get and cached. Set
+    # server.publicUrl (above) so rewritten artifact URLs are absolute.
+    type: terraform
+    url: https://registry.terraform.io
+  swiftpm:
+    # Swift Package Manager registry pull-through (SE-0292). Release metadata,
+    # Package.swift manifests, and source archives are proxied; a .zip source
+    # archive is verified against the SHA-256 "checksum" its release metadata
+    # declares before it is cached. `swift package-registry set <proxy>/v1/swiftpm`
+    # (see docs/clients.md).
+    type: swift
+    url: https://swiftpackageregistry.example.com
+  pub:
+    # Dart / Flutter pub repository pull-through (repository-spec v2). The
+    # list-versions document is served with its archive_url fields rewritten
+    # through the proxy; a package .tar.gz is verified against the release's
+    # archive_sha256 before it is cached. Set PUB_HOSTED_URL=<proxy>/v1/pub (see
+    # docs/clients.md). Set server.publicUrl (above) so rewritten archive URLs
+    # are absolute.
+    type: dart
+    url: https://pub.dev
+  huggingface:
+    # Hugging Face Hub pull-through for ML models & datasets (resolve protocol +
+    # /api metadata). Commit-pinned blobs are cached content-addressably; LFS
+    # weight files are served via the Hub's CDN redirect (followed transparently)
+    # and verified against the advertised SHA-256. Pickle weight files pass through
+    # the mlGuard weight-scanning gate (below). Set
+    # HF_ENDPOINT=<proxy>/v1/huggingface (see docs/clients.md); a token is only
+    # needed for gated/private repositories.
+    type: huggingface
+    url: https://huggingface.co
+    # credentials:
+    #   token: ${HF_TOKEN}
+  conda-forge:
+    # Conda channel pull-through (scientific-Python / data-engineering). The
+    # proxy mount is the channel root: per-subdir repodata.json indices and the
+    # .conda/.tar.bz2 packages beneath each subdir (noarch, linux-64, osx-arm64,
+    # ...) are proxied; a package is verified against the SHA-256 its subdir's
+    # repodata.json declares (MD5 fallback) before it is cached. Add the mount as
+    # a channel in ~/.condarc (see docs/clients.md).
+    type: conda
+    url: https://conda.anaconda.org/conda-forge
+  cran:
+    # CRAN (R) repository pull-through. The proxy mount is the repository root:
+    # the per-area PACKAGES indices and the src/contrib (+ bin/windows,
+    # bin/macosx) package tarballs are proxied; a tarball is verified against the
+    # MD5sum its sibling PACKAGES index declares before it is cached. Point R at
+    # the mount with options(repos=...) (see docs/clients.md).
+    type: cran
+    url: https://cloud.r-project.org
+  hex:
+    # Hex (Elixir/Erlang) repository pull-through. The proxy mount is the
+    # repository root: the signed /names, /versions and /packages/<name>
+    # protobuf resources and the /tarballs/<name>-<version>.tar artifacts are
+    # proxied; a tarball is verified against the outer_checksum (SHA-256) its
+    # /packages resource declares before it is cached. Point mix/hex at the
+    # mount with HEX_MIRROR or `mix hex.repo add` (see docs/clients.md).
+    type: hex
+    url: https://repo.hex.pm
+  bazel:
+    # Bazel Central Registry (Bzlmod) pull-through. The proxy mount is the
+    # registry root: the modules/<name>/<version>/MODULE.bazel and source.json
+    # descriptors are proxied, each source.json is rewritten so its external
+    # source-archive URL flows through the proxy, and the fetched archive is
+    # verified against the SRI integrity (sha256/…) source.json declares before
+    # it is cached. Point Bazel at the mount with --registry (see docs/clients.md).
+    type: bazel
+    url: https://bcr.bazel.build
+  jsr:
+    # JSR (JavaScript Registry) pull-through for Deno/Node/Bun. The proxy mount
+    # serves the package meta.json and <version>_meta.json documents (rewriting
+    # any absolute links back through the proxy) and the content-addressable
+    # module files; each module file is verified against the SHA-256 the version
+    # manifest declares before it is cached. Point a client at the mount with
+    # JSR_URL (see docs/clients.md).
+    type: jsr
+    url: https://jsr.io
+  hackage:
+    # Hackage (Haskell) pull-through. The proxy mount serves the 01-index package
+    # index, TUF metadata, .cabal descriptions and the sdist tarballs; a tarball
+    # is verified against the SHA-256 its sibling package.json TUF target metadata
+    # declares, where available, before it is cached. Point cabal at the mount
+    # with a remote-repo entry in ~/.cabal/config (see docs/clients.md).
+    type: hackage
+    url: https://hackage.haskell.org
+  ansible:
+    # Ansible Galaxy pull-through for collections/roles. The proxy mount serves
+    # the Galaxy v3 collection index/versions/version-detail documents (rewriting
+    # each version detail's absolute download_url back through the proxy) and the
+    # content-addressable collection artifact tarballs; a tarball is verified
+    # against the SHA-256 its version-detail document publishes before it is
+    # cached. Point ansible-galaxy at the mount via ansible.cfg (see
+    # docs/clients.md).
+    type: ansible
+    url: https://galaxy.ansible.com
+  puppet:
+    # Puppet Forge pull-through for modules. The proxy mount serves the Forge v3
+    # module/release metadata (rewriting any absolute self-reference back through
+    # the proxy) and the release tarballs; a tarball is verified against the
+    # file_sha256 (or legacy file_md5) its release metadata declares before it is
+    # cached. Point the Puppet module tool / r10k at the mount (see
+    # docs/clients.md).
+    type: puppet
+    url: https://forgeapi.puppet.com
+  github:
+    type: git
+    url: https://github.com
+    credentials:
+      username: git
+      token: ${GITHUB_TOKEN}
+  # Example of an upstream with a per-upstream TLS override (e.g. a private
+  # mirror fronted by an internal CA):
+  # internal-npm:
+  #   type: npm
+  #   url: https://npm.internal.example.com
+  #   tls:
+  #     caCertFile: /etc/pullthrough/internal-ca.pem
+
+scanning:
+  enabled: false
+  provider: claude         # claude | codex | none
+  model: claude-opus-4-8
+  apiKey: ${ANTHROPIC_API_KEY}
+  failOn: high             # info | low | medium | high | critical
+
+  # Deterministic secret & credential detection (Task 29). A fast, offline pass
+  # over each commit's *added* diff lines using high-confidence regex rules plus
+  # a Shannon-entropy heuristic. Findings merge into the LLM verdict and raise
+  # the commit risk score, so a live credential can block the associated package
+  # / Docker pulls via the admission policy below — even when no LLM is
+  # available. Defaults to ENABLED wherever scanning is enabled; it can also run
+  # on its own (enabled: true with provider: none) for LLM-free deployments.
+  secrets:
+    # enabled: true                 # explicit override (default: follows scanning.enabled)
+    # disableBuiltinRules: false    # drop the built-in high-confidence ruleset
+    # revealPrefix: 4               # leading chars kept when redacting a finding (0..8)
+    # maxFindingsPerFile: 100
+    entropy:
+      # enabled: true               # generic high-entropy heuristic (default on)
+      # minLength: 20
+      # maxLength: 100
+      # base64Entropy: 4.5          # bits/char threshold for base64-charset tokens
+      # hexEntropy: 3.5             # bits/char threshold for hex tokens (secret-named keys only)
+      # severity: medium
+    # Pluggable / override rules. A rule whose id matches a built-in replaces it.
+    rules: []
+    #   - id: acme-internal-key
+    #     description: ACME internal signing key
+    #     severity: critical        # info | low | medium | high | critical
+    #     pattern: '\bACME-[0-9A-F]{32}\b'
+    #     group: 0                  # submatch holding the secret (0 = whole match)
+    #     keywords: [acme]          # cheap pre-filter; line must contain one
+    #     minEntropy: 0             # optional Shannon-entropy floor on the match
+    allowlist:
+      # disableBuiltins: false      # built-ins exempt testdata/fixtures + EXAMPLE/placeholder keys
+      paths: []                     # regexes matched against the file path
+      patterns: []                  # regexes matched against the matched secret
+      stopWords: []                 # case-insensitive substrings that exempt a line
+      fingerprints: []              # baseline of accepted finding fingerprints to suppress
+
+  # Continuous webhook/polling-driven incremental Git commit scanning (Task 108).
+  # Watches a set of repositories and runs the pipeline above over new commits as
+  # they land (push webhook + polling fallback), scanning only commits not already
+  # scanned (durable per-repo cursor) and persisting findings keyed by repo+commit.
+  # See docs/commit-watch.md. Requires the git binary and a scanning pipeline.
+  watch:
+    enabled: false
+    # mirrorDir: /var/lib/pullthrough/commit-mirrors   # required: bare mirrors for enumeration
+    # stateDir: /var/lib/pullthrough/commit-cursors    # durable per-repo cursors (recommended)
+    # pollInterval: 5m                 # 0 disables polling (webhook-only)
+    # maxCommitsPerScan: 500           # per repo per cycle; remainder picked up next cycle
+    # backfill: false                  # true = scan history on first sighting
+    # webhookPath: /webhooks/git       # push-webhook receiver (outside the /v1 envelope)
+    # webhookSecret: ${GIT_WEBHOOK_SECRET}  # GitHub-style HMAC (X-Hub-Signature-256); supports enc:v1:
+    # allowUnconfiguredWebhooks: false # scan ad hoc a pushed repo not listed below
+    repos: []
+    #   - name: widgets                # stable id (cursor key, findings key, webhook routing)
+    #     url: https://github.com/acme/widgets.git
+    #     fullName: acme/widgets       # webhook routing (repository.full_name)
+    #     branches: [main]             # empty = default branch only
+    #     username: x-access-token     # optional HTTPS credentials
+    #     token: ${ACME_GIT_TOKEN}
+
+provenance:
+  enabled: false
+  requireAttested: false      # reject artifacts lacking verified provenance
+  githubToken: ${GITHUB_TOKEN} # raises GitHub API limits; reaches private repos
+  # githubApiBase: https://github.example.com/api/v3   # GitHub Enterprise
+  # storeDir: /var/lib/pullthrough/provenance          # persist package->commit links
+  # Trust anchor for attestation signing certificates. With a root configured,
+  # signatures that chain to it are labeled "attested"; otherwise verified
+  # signatures are downgraded to "claimed". Point this at the Sigstore Fulcio
+  # root (https://github.com/sigstore/root-signing) or a corporate CA.
+  # trustRootsFile: /etc/pullthrough/fulcio-root.pem
+  useSystemTrustRoots: false  # when no trustRootsFile is set, trust the system CA pool
+
+# ---------------------------------------------------------------------------
+# Supply-chain provenance & dependency graph (Task 33)
+# ---------------------------------------------------------------------------
+# Ingests every pull (artifact, source commit, SBOM components, CVE findings,
+# signature status) into an in-memory graph of packages/versions/commits/CVEs/
+# signers. Exposed read-only via the admin API (blast-radius, reverse-dependency,
+# and path-to-commit queries), a JSON export, a force-directed visualization at
+# {adminPrefix}/graph.html, and graph-size Prometheus metrics. Read-only and
+# cheap, so it is enabled by default.
+provgraph:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Admission policy (Task 9)
+# ---------------------------------------------------------------------------
+# Gates serving of artifacts on their commit scan verdict (scanning, above) and
+# provenance (provenance, above). Each check's action is allow | warn | block
+# (empty = allow = disabled). `default` applies to every ecosystem; an entry under
+# `ecosystems` fully replaces the default for that ecosystem. A blocked pull
+# returns an actionable 403 to the client and never touches the cache or upstream.
+policy:
+  enabled: false
+  failClosed: false            # if the provenance/scan lookup errors: false=serve+warn, true=block
+  default:
+    blockAtRiskScore: 80       # block when source-commit risk score >= 80 (0 disables)
+    warnAtRiskScore: 50        # warn at >= 50 but below the block threshold (0 disables)
+    blockMalicious: true       # always block commits the scanner flagged malicious
+    onMissingProvenance: warn  # no package->commit link could be established
+    onMissingScan: allow       # provenance exists but the commit was not scanned
+    requireSignature: false    # block artifacts whose provenance signature did not verify
+    requireAttested: false     # block unless fully attested (verified signature -> trusted root)
+    minConfidence: ""          # heuristic | claimed | attested; below it -> onLowConfidence
+    onLowConfidence: warn
+    denylist: []               # block package-name globs, e.g. ["evil-*", "@bad/*"]
+    allowlist: []              # if non-empty, ONLY these globs are admitted
+  # Per-ecosystem overrides (each fully replaces `default` for that ecosystem):
+  # ecosystems:
+  #   docker:
+  #     requireAttested: true        # only serve images with attested provenance
+  #     blockAtRiskScore: 60
+  #   npm:
+  #     denylist: ["event-stream", "@evilscope/*"]
+
+# ---------------------------------------------------------------------------
+# Policy-as-code admission engine (Task 32)
+# ---------------------------------------------------------------------------
+# Layers declarative, operator-authored rules on top of the hard-coded gates
+# above. Rules are written in a small CEL-subset expression language and
+# evaluated against an aggregated admission input document carrying every gate's
+# signals: input.vuln.*, input.license.*, input.signature.*, input.nameguard.*,
+# input.provenance.*, and input.artifact.* / input.tenant. Bundles are loaded
+# from `dir` (hot-reloadable) and layered over an embedded conservative default
+# bundle. Inspect and dry-run via the admin API:
+#   GET  /admin/api/policyengine            (mode, bundles, metrics)
+#   POST /admin/api/policyengine/test       (evaluate a sample input document)
+#   POST /admin/api/policyengine/reload     (reload bundles from dir)
+policyEngine:
+  enabled: false
+  dir: /etc/pullthrough/policies   # directory of *.yaml/*.yml/*.json rule bundles
+  mode: enforce                    # enforce | audit (audit = dry-run: log+count, never block)
+  defaultAction: allow             # allow | warn | deny when no rule matches
+  includeDefaultBundle: true       # layer the embedded conservative default bundle underneath
+  reloadInterval: 0s               # >0 polls `dir` and hot-reloads on change (e.g. 30s)
+# A bundle file (e.g. /etc/pullthrough/policies/org.yaml) looks like:
+#   name: org-rules
+#   priority: 0                    # higher runs first; tenant bundles get a +1000 boost
+#   tenant: ""                     # set to a team id to scope the bundle to one tenant
+#   rules:
+#     - id: deny-critical-unsigned
+#       when: >
+#         input.vuln.hasUnresolvedCritical &&
+#         !(has(input.signature) && input.signature.verified)
+#       action: deny               # allow | warn | deny
+#       final: false               # first matching final rule short-circuits (e.g. a whitelist)
+#       audit: false               # true = evaluate & report this rule but never enforce it
+#       message: critical CVE without a verified signature
+
+# ---------------------------------------------------------------------------
+# Unified supply-chain risk scoring (Task 37)
+# ---------------------------------------------------------------------------
+# Aggregates every gate signal (vuln/OSV severity + VEX, signature/attestation,
+# license posture, typosquat, secrets, provenance completeness, CVE-drift
+# quarantine) into one composite, normalized risk score (0..100) and band
+# (low/medium/high/critical) per artifact. Each score carries an explainable
+# breakdown — per signal: raw value, weight, and marginal points — surfaced at
+# GET /admin/api/riskscore and in the admin "Risk" tab. Per-band counts are
+# exported as Prometheus gauges. Enabled by default in observe-only mode (it
+# scores and records but never blocks until thresholdAction is set).
+riskScore:
+  enabled: true
+  # historySize: 200             # recent assessments retained for the trend view
+  # Admission threshold: warn on or block artifacts whose band is at/above the
+  # trigger band. It composes with (does not replace) policyEngine. Default off.
+  thresholdBand: high            # low | medium | high | critical
+  thresholdAction: off           # off | warn | block
+  # Per-signal weighting model (relative; normalized by the applicable signals).
+  # Omit the block to use the sane defaults shown here.
+  # weights:
+  #   vulnerability: 0.30
+  #   signature:     0.20
+  #   provenance:    0.15
+  #   license:       0.12
+  #   nameguard:     0.10
+  #   secret:        0.08
+  #   quarantine:    0.05
+  # Score cutoffs (inclusive lower bounds) for each band. Default 25/50/75.
+  # bands:
+  #   medium:   25
+  #   high:     50
+  #   critical: 75
+  # Per-tenant overrides (keyed by team id). Each part inherits the global
+  # default when omitted, so a tenant can re-weight, re-band, or just tighten
+  # the admission threshold independently.
+  # tenants:
+  #   payments:
+  #     thresholdBand: medium
+  #     thresholdAction: block
+  #   sandbox:
+  #     thresholdAction: warn
+
+# ---------------------------------------------------------------------------
+# Sandboxed WASM extensibility: custom admission gates (Task 59)
+# ---------------------------------------------------------------------------
+# Load operator-supplied WebAssembly modules and run them as a final admission
+# gate over the same aggregated signal set the policy and risk engines see (plus
+# the composite risk score). Each module returns allow/warn/block + reason +
+# annotations. Modules run in a pure-Go interpreter (wazero, no cgo) with no host
+# filesystem or network access, under strict CPU/memory/time and optional fuel
+# limits. Inert until modules are configured. See docs/extensions.md for the ABI
+# and threat model.
+extensions:
+  enabled: true
+  # Default resource limits applied to any module that leaves a bound unset.
+  # defaults:
+  #   timeoutMs:      250          # per-invocation wall-clock CPU/time budget
+  #   memoryBytes:    67108864     # linear-memory cap (64 MiB), rounded to 64KiB pages
+  #   fuel:           0            # function-call budget; 0 disables fuel metering
+  #   maxOutputBytes: 65536        # cap on the verdict bytes read back
+  # modules:
+  #   - name: org-naming-policy     # stable id (metrics label, audit, admin)
+  #     path: /etc/pullthrough/gates/naming.wasm
+  #     failClosed: false           # true blocks on timeout/fuel/trap/bad-verdict
+  #     # tenants: [payments]       # restrict to these teams; omit for all tenants
+  #     # limits:                   # per-module overrides of the defaults above
+  #     #   timeoutMs: 100
+  #     #   fuel: 5000000
+
+# ---------------------------------------------------------------------------
+# Outbound SLSA/in-toto attestation bundle (Task 46)
+# ---------------------------------------------------------------------------
+# Makes the proxy a supply-chain ATTESTER, not just a verifier: it signs an
+# in-toto/SLSA attestation for every artifact it admits and serves, binding the
+# served content digest to its source commit, the admission verdicts it passed
+# (vuln/license/sigverify/policy/risk/secret/nameguard + VEX), and the proxy
+# identity. The bundle digest is embedded in the audit log; the bundle is served
+# via an OCI referrers-style endpoint (/admin/api/attest/referrers) and an
+# admin/CLI export (`pullthrough attest export <coordinate>`). Downstream CI can
+# then require "admitted and signed by our proxy". See docs/attestbundle.md.
+attest:
+  enabled: true
+  # maxEntries: 2048             # retained bundles for the referrers/export surfaces
+  # attesterId: pullthrough-proxy
+  # instance: ""                 # optional host/pod identity recorded in the predicate
+  # Signing key: by default the audit transparency checkpoint signing key is
+  # reused (so a signed audit log makes the proxy an attester at no extra config).
+  # Set one of these to use a dedicated key instead. PEM (PKCS#8 / EC / PKCS#1);
+  # may be ${ENV_VAR} or enc:v1: for the inline form.
+  # signingKey: ""
+  # signingKeyFile: /etc/pullthrough/attest-key.pem
+
+# ---------------------------------------------------------------------------
+# Policy & risk what-if simulation/replay harness (Task 47)
+# ---------------------------------------------------------------------------
+# Captures a sampled, redacted ring buffer of recent admission inputs and the
+# verdict each produced live, so an operator can replay that traffic through a
+# candidate policy/risk configuration BEFORE rolling it out — previewing
+# admit<->block flips, risk-band shifts, new policy violations, and per-tenant
+# blast radius. Capture is passive and never affects admission. Replay via
+# `pullthrough simulate -capture <file> -candidate <file>` (offline) or
+# POST /admin/api/simreplay/simulate. See docs/simreplay.md.
+simReplay:
+  enabled: true
+  # capacity: 1024     # ring-buffer size (oldest-evicted)
+  # sampleRate: 1      # capture 1-in-N pulls (deterministic); 1 = every pull
+  # redact: true       # strip secret file paths, signer identity, repo URL/commit
+
+# ---------------------------------------------------------------------------
+# Distributed coordination & leader election for HA deployments (Task 56)
+# ---------------------------------------------------------------------------
+# In a multi-replica (horizontally-scaled) deployment, only the lease-holding
+# replica runs each shared-state scheduled job — the CVE-drift re-scan, the
+# backup scheduler, and audit Merkle checkpoint signing — so N replicas no longer
+# duplicate work, race on quarantine state, double-write backups, or emit N×
+# notifications. A lease has a TTL and is renewed by a heartbeat; if the leader
+# crashes, its lease expires and another replica takes over. Every acquisition
+# carries a monotonically increasing fencing token to prevent split-brain.
+# Disabled by default (a single replica needs no coordination). See
+# docs/coordination.md. Leaseholders are visible at GET /admin/api/coordination.
+coordination:
+  enabled: false
+  # mode selects the lease backend:
+  #   memory — in-process only; correct for a SINGLE replica (no real election)
+  #   s3     — shared object store; reuses cache.s3 settings unless overridden
+  #   file   — a shared POSIX volume (NFS/EFS PVC)
+  mode: s3
+  # nodeId uniquely identifies this replica in lease records. Default is
+  # "<hostname>-<pid>"; in Kubernetes set it to the pod name via the downward API.
+  # nodeId: ${POD_NAME}
+  leaseTtl: 30s          # lease validity without a heartbeat before takeover
+  renewInterval: 10s     # leader heartbeat period (must be < leaseTtl)
+  retryInterval: 10s     # follower re-acquisition attempt period
+  # Per-job lease-TTL overrides (job names: backup, cve-drift-rescan,
+  # audit-checkpoint):
+  # jobTtls:
+  #   backup: 5m
+  # s3 backend: any field left unset inherits the cache.s3 connection settings,
+  # so a deployment already on the shared s3 cache needs only `mode: s3`.
+  # s3:
+  #   bucket: my-org-pullthrough-cache   # default: cache.s3.bucket
+  #   prefix: coord/leases/              # default: coord/leases/
+  # file backend: the shared lease directory.
+  # dir: /var/lib/pullthrough/leases
+
+# ---------------------------------------------------------------------------
+# FIPS 140-3 compliant cryptographic mode (Task 120)
+# ---------------------------------------------------------------------------
+# Enforces a FIPS 140-3 approved-only crypto posture for regulated/enterprise
+# deployments. When enabled, the proxy restricts TLS termination to the approved
+# TLS 1.2+ AES-GCM cipher suites, rejects any configured TLS floor below 1.2,
+# and (unless requireModule is false) refuses to start unless the validated Go
+# FIPS 140-3 Cryptographic Module is active — i.e. the binary was built with the
+# FIPS variant (`make build-fips`, which sets GOFIPS140) and started with
+# GODEBUG=fips140=on. The active crypto mode is logged at startup and surfaced at
+# GET /admin/api/policy (the `crypto` object). Signature verification, audit-log
+# hashing, and cache content addressing already use approved primitives
+# (SHA-2 / HMAC-SHA-256 / ECDSA / RSA / EdDSA) and are enforced by the module.
+# Disabled by default. See docs/fips-compliance.md.
+fips:
+  enabled: false
+  # requireModule defaults to true when enabled: startup fails fast if the
+  # validated module is not active, so a deployment cannot silently run the
+  # standard crypto while believing it is compliant. Set to false to apply
+  # approved-algorithm enforcement (TLS hardening, config validation) WITHOUT the
+  # validated module — e.g. for local testing on a non-FIPS toolchain.
+  # requireModule: true
+
+# ---------------------------------------------------------------------------
+# Behavioral anomaly detection on pull traffic (Task 43)
+# ---------------------------------------------------------------------------
+# Watches the pull *stream* per tenant/identity for patterns that signal
+# credential compromise or exfiltration rather than a single bad artifact:
+# distinct-package fan-out spikes, bursts of first-ever-seen namespaces,
+# off-hours bursts, rapid 404 enumeration, and egress byte volume far above the
+# scope's own rolling baseline. Uses lightweight online statistics (rolling
+# windows + EWMA, no ML deps). Graded signals flow to the notify subsystem; with
+# blockLevel set, an identity behaving anomalously is soft-blocked (HTTP 429).
+# On by default in observe-only mode (warn notifications, no soft-blocking).
+# Snapshot at GET /admin/api/anomaly; per-detector Prometheus metrics under
+# pullthrough_anomaly_*.
+anomaly:
+  enabled: true
+  # window: 1m                 # trailing window the rolling detectors aggregate over
+  warnLevel: medium            # min anomaly level that emits a notification (low|medium|high)
+  blockLevel: none             # min level that soft-blocks the identity (none|low|medium|high); none = observe+notify only
+  # Off-hours interval (hours, in the timezone below). start == end disables it;
+  # start > end wraps past midnight (the common overnight case).
+  offHoursStart: 20
+  offHoursEnd: 6
+  # timezone: UTC              # IANA location for the off-hours boundaries (e.g. America/New_York)
+  # alertCooldown: 5m          # min spacing between notifications for one scope at the same level
+  # historySize: 200           # recent triggers retained for the admin trend view
+  # maxScopes: 4096            # cap on tracked tenant/identity scopes (LRU eviction)
+  # Per-detector cutoffs: warn = becomes noteworthy, high = fully anomalous.
+  # Omit the block to use the sane defaults shown here.
+  # thresholds:
+  #   fanoutWarn: 40
+  #   fanoutHigh: 150
+  #   newNamespaceWarn: 6
+  #   newNamespaceHigh: 25
+  #   offHoursWarn: 60
+  #   offHoursHigh: 250
+  #   enumerationWarn: 25
+  #   enumerationHigh: 120
+  #   egressZWarn: 3.5         # std-deviations above the rolling egress baseline
+  #   egressZHigh: 7
+  # Per-tenant overrides (keyed by team id). Each part inherits the global
+  # default when omitted, so a tenant can tighten thresholds or enable blocking
+  # independently.
+  # tenants:
+  #   payments:
+  #     blockLevel: high
+  #     thresholds:
+  #       enumerationWarn: 10
+  #       enumerationHigh: 40
+  #   sandbox:
+  #     warnLevel: high
+
+# ---------------------------------------------------------------------------
+# Quarantine review & break-glass approval workflow (Task 50)
+# ---------------------------------------------------------------------------
+# When an admission gate blocks/quarantines an artifact (vulnscan quarantine,
+# CVE-drift, malfeed, sigverify failure, hard policy block), the pull path
+# consults this workflow first. An operator can grant a time-boxed,
+# tenant+coordinate+gate-scoped exception ("break-glass") — which serves the
+# blocked artifact until it expires and is re-quarantined — or confirm the
+# block, all without editing policy config. Approve/deny via the admin
+# "Approvals" tab (or POST /admin/api/approvals/{approve,deny}); a required
+# justification and the approver identity are recorded in the Merkle-linked
+# audit log, and grant/expiry/deny events are emitted to the notify sinks.
+# Disabled by default: with it off, gates block unconditionally (prior behavior).
+approvals:
+  enabled: false
+  requiredApprovers: 1         # distinct approver identities a grant needs (dual control: set >= 2)
+  grantTtl: 1h                 # how long a break-glass grant stays active before auto-revoke + re-quarantine
+  requestTtl: 72h              # how long an unreviewed pending request lives before auto-expiry
+  sweepInterval: 1m            # background reconciliation cadence for due grants / stale requests
+  # maxRequests: 1000          # cap on retained requests (oldest terminal records trimmed first)
+  # storePath: /var/lib/pullthrough/approvals.json  # persist pending reviews + active grants across restarts
+
+# ---------------------------------------------------------------------------
+# SBOM generation + vulnerability scanning gate (Task 15)
+# ---------------------------------------------------------------------------
+# For each cached package (pip/npm/cargo/go/nuget) and image, the proxy parses
+# metadata/lockfiles into a CycloneDX SBOM, resolves it against a vulnerability
+# database (OSV.dev by default; the scanner is pluggable for Trivy/Grype), and
+# gates serving on the result. SBOMs are exposed at GET /admin/api/sbom?digest=...
+# and findings at /admin/api/vulns. Results are cached by content digest.
+vulnerabilities:
+  enabled: false
+  scanner: osv               # osv (built in); trivy|grype reserved for the pluggable interface
+  # osvBaseUrl: https://api.osv.dev          # override for an internal OSV mirror
+  cacheTtl: 24h              # how long a scan result is fresh before re-scan (0 = never)
+  # cacheMaxEntries: 4096
+  timeout: 30s              # per-artifact scan budget
+  offline: false            # true => never contact the backend; serve only from the cached results
+  action: block             # action when the fail threshold is met: warn | block | quarantine
+  failSeverity: high        # min severity that triggers `action` (none|low|medium|high|critical)
+  failCvss: 0               # min CVSS base score (0..10) that also triggers `action` (0 disables)
+  warnSeverity: medium      # min severity that triggers a warning below the fail threshold
+  failOnError: false        # if a scan can't run and has no cached fallback: false=serve+warn, true=block
+  ignoreIds: []             # accepted-risk allowlist of advisory IDs/aliases, e.g. ["GHSA-xxxx", "CVE-2021-1"]
+  # Continuous re-scan of cached artifacts against newly-disclosed CVEs (Task 18):
+  # periodically re-runs the OSV pipeline over each cached artifact's stored SBOM
+  # (no upstream re-download) and quarantines any that cross the threshold above.
+  rescanInterval: 0s        # period between automatic re-scan sweeps (e.g. 6h); 0s disables periodic (admin on-demand still works)
+  rescanWorkers: 4          # artifacts re-resolved concurrently per sweep (0 = default 4)
+  # VEX-based suppression (Task 27): correlate ingested OpenVEX/CSAF VEX documents
+  # against scan findings so a vendor/operator `not_affected`/`fixed` declaration
+  # drops a finding while an `affected` declaration raises its severity. Revoking a
+  # statement re-quarantines the artifact on the next re-scan sweep.
+  vex:
+    enabled: false
+    dir: ""                 # directory of *.json/*.vex/*.vex.json VEX documents (air-gapped source; malformed files are skipped)
+    # fetchUrl: "https://vex.internal/{ecosystem}/{name}/{version}.json"  # optional per-artifact fetch (ignored when offline)
+
+# ---------------------------------------------------------------------------
+# License-compliance scanning & enforcement (Task 28)
+# ---------------------------------------------------------------------------
+# Reuses the SBOM the vulnerability subsystem generates to read each artifact's
+# SPDX license, parses the expression (AND/OR/WITH/+), and evaluates it against an
+# allow/deny/review policy. A list entry may be an exact SPDX id (case-insensitive),
+# a glob ("GPL-*"), or an "@family" keyword (@permissive, @weak-copyleft,
+# @strong-copyleft, @network-copyleft, @copyleft, @public-domain, @proprietary,
+# @unknown). Deny > review > allow when an id matches several lists. Fully offline
+# (a local SPDX catalog), so it works air-gapped.
+license:
+  enabled: false
+  action: block             # action when a license is denied: warn | block | quarantine
+  reviewAction: warn        # action for review/unknown licenses: warn | block | quarantine
+  driftAction: warn         # action when a package's license changes across versions
+  unknown: review           # disposition for unrecognized/NOASSERTION: allow | review | deny
+  default: allow            # disposition for a recognized license matching no list
+  allow: [MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, "0BSD", Unlicense]
+  deny: ["@strong-copyleft", "@network-copyleft"]   # deny GPL/AGPL families
+  review: [MPL-2.0, "LGPL-*", EPL-2.0]              # weak copyleft → manual review
+  allowExceptions: [Classpath-exception-2.0]         # WITH exceptions that rescue a denied license
+  driftDetection: true      # flag a package whose license changes across versions (supply-chain signal)
+  # Per-tenant overrides (keyed by the authenticated principal's team). Lists are
+  # unioned with the base; set scalars replace the base value.
+  tenants:
+    proprietary:
+      deny: ["@copyleft"]   # proprietary tenants reject all copyleft, not just strong/network
+
+# ---------------------------------------------------------------------------
+# Typosquatting & dependency-confusion detection (Task 19)
+# ---------------------------------------------------------------------------
+# Inspects every resolved package name (before any upstream fetch or cache fill)
+# for: edit-distance / look-alike similarity to popular names, collision with a
+# configured internal/private namespace (the classic dependency-confusion
+# vector), and homoglyph / mixed-script characters. Findings carry a severity and
+# are gated with the same warn/block vocabulary as the other admission gates.
+nameguard:
+  enabled: false
+  action: block             # action when a finding meets failSeverity: warn | block | quarantine
+  failSeverity: high        # min finding severity that triggers `action` (none|low|medium|high|critical)
+  warnSeverity: medium      # min severity that triggers a warning below the fail threshold
+  distanceThreshold: 2      # max Damerau-Levenshtein distance treated as a typosquat (reduced for short names)
+  minNameLength: 4          # names shorter than this skip distance-based checks (limits false positives)
+  detectHomoglyphs: true    # flag non-ASCII look-alike / mixed-script characters in names
+  disableBuiltins: false    # true => use only the lists below, ignoring the built-in popular/allow seeds
+  # Private/internal package names a public-registry copy must not shadow. An
+  # entry ending in "*" or "/", or an npm "@scope" with no package, is a namespace
+  # prefix; otherwise an exact name. THIS IS THE KEY KNOB for dependency confusion.
+  internalNamespaces:
+    npm: []                 # e.g. ["@acme", "acme-internal-utils"]
+    pip: []                 # e.g. ["acme-internal", "acme_*"]
+    go: []                  # e.g. ["github.com/acme/*"]
+    nuget: []
+    cargo: []
+  # Extra popular names to measure typosquats against (merged with the built-ins).
+  popularNames:
+    npm: []                 # e.g. ["our-design-system", "internal-ui-kit"]
+  # Legitimate names that must never be flagged (near-neighbors of a popular name).
+  allowlist:
+    npm: []                 # e.g. ["preact", "vuex"]
+
+# ---------------------------------------------------------------------------
+# Known-malicious package blocking (Task 48)
+# ---------------------------------------------------------------------------
+# Hard-block pulls of concrete coordinates listed as actively malicious in
+# curated datasets — the OpenSSF/OSV "malicious-packages" dataset
+# (github.com/ossf/malicious-packages) and GitHub Advisory malware entries.
+# Distinct from nameguard (typosquatting heuristics) and vulnscan (CVEs): this
+# matches exact (ecosystem, name, version) known-bad coordinates. See
+# docs/malfeed.md. On by default but inert until a feed or offline bundle is
+# configured (empty matcher fails open).
+malfeed:
+  enabled: true
+  # Upstream malware feeds to ingest. Each serves a single OSV record or a JSON
+  # array of OSV records; refreshed periodically with ETag/conditional fetch.
+  sources: []
+    # - url: https://feeds.internal.example/malicious-packages.json
+    #   name: ossf-malicious-packages
+  refreshInterval: 6h       # period between background feed refreshes (0 disables the loop)
+  staleAfter: 24h           # mark loaded data stale this long after the last successful refresh (0 disables)
+  failClosed: false         # when the feed is stale: false => fail-open (still block matches); true => block all pulls
+  timeout: 30s              # per-feed fetch timeout
+  # Air-gapped: import a signed offline bundle at startup (build it on a connected
+  # host with `pullthrough malfeed export`), optionally pinning the signer key.
+  bundlePath: ""            # path to a signed malfeed bundle (JSON)
+  bundlePublicKeyFile: ""   # PEM Ed25519 public key the bundle signature must verify against
+
+# ---------------------------------------------------------------------------
+# Release-maturity / version-cooldown gate (Task 61)
+# ---------------------------------------------------------------------------
+# Quarantine newly-published versions until they age past a cooldown window, a
+# control against fast-moving supply-chain attacks (malicious version yanked
+# within hours). Publish timestamps are derived from the upstream registry
+# metadata, cached, and the pull is held while age < cooldown. Runs after
+# nameguard/malfeed, fails open on an unknown timestamp, and composes with the
+# break-glass approval workflow. On by default but inert until a cooldown is set.
+maturity:
+  enabled: true
+  defaultCooldown: 0s       # global cooldown; 0 admits every version (gate inert)
+  # Per-ecosystem cooldown overrides (0s disables for that ecosystem).
+  ecosystems: {}
+    # npm: 72h
+    # pip: 72h
+    # go: 0s                # immutable, append-only module proxy — safe to exempt
+  # Per-tenant overrides keyed by team id.
+  tenants: {}
+    # release-eng:
+    #   defaultCooldown: 24h
+    #   ecosystems: { npm: 12h }
+    #   allowlist: [ "@my-org/" ]
+  # Trusted coordinates/scopes that bypass the cooldown. Forms: "name",
+  # "eco:name", "@scope/" (npm scope prefix), "prefix*" (name glob).
+  allowlist: []
+    # - "@my-org/"
+    # - "go:golang.org/x/*"
+  failClosedOnUnknown: false  # block (true) or admit (false) when publish time is unknown
+  timeout: 10s              # per-lookup upstream metadata timeout
+  cacheTTL: 6h              # how long a resolved (immutable) publish timestamp is cached
+  negativeCacheTTL: 15m    # how long an unknown/failed resolution is cached before retry
+  cacheSize: 4096          # bound on the resolved-timestamp cache
+  userAgent: ""            # User-Agent for metadata lookups ("" = built-in default)
+  # Per-ecosystem registry base-URL overrides for private mirrors.
+  baseURLs: {}
+    # npm: https://npm.internal.example
+
+# ---------------------------------------------------------------------------
+# Dependency firewall: version-pinning & allowlist enforcement (Task 65)
+# ---------------------------------------------------------------------------
+# Enforces explicit, auditable version policy on the pull path. Each rule is
+# keyed by (ecosystem, name) and combines any of: pinned exact versions, allowed
+# semver ranges, a minimum-version floor, and an explicit denylist. The denylist
+# is checked first and always blocks; the positive constraints are ANDed. For a
+# coordinate with no matching rule, defaultAction decides ("allow" enforces only
+# explicit rules; "block" is deny-by-default — only governed coordinates pass).
+# Tenant rules override global rules for the same coordinate. Rules can also be
+# imported wholesale from a lockfile via the admin UI/API so CI can only fetch
+# the exact versions a lockfile resolved. Runs early (after nameguard, before the
+# heavier scanning gates) and composes with the break-glass approval workflow.
+depfirewall:
+  enabled: false              # off by default; enforces only what you configure
+  defaultAction: allow        # "allow" (rules-only) or "block" (deny-by-default)
+  # Global (all-tenant) rules.
+  rules: []
+    # - ecosystem: npm
+    #   name: left-pad
+    #   pinned: [ "1.3.0" ]               # exact-version allowlist
+    # - ecosystem: pip
+    #   name: requests
+    #   ranges: [ ">=2.20.0 <3.0.0" ]     # allowed semver range(s)
+    # - ecosystem: go
+    #   name: golang.org/x/crypto
+    #   minVersion: v0.17.0               # block known-bad earlier ranges
+    # - ecosystem: npm
+    #   name: event-stream
+    #   ranges: [ "*" ]
+    #   denied: [ "3.3.6" ]               # always-blocked versions
+    #   note: "compromised release"
+  # Per-tenant overrides keyed by team id. A strict tenant pins its whole graph
+  # by importing a lockfile (admin UI) and setting defaultAction: block.
+  tenants: {}
+    # ci-prod:
+    #   defaultAction: block
+    #   rules: []
+
+# ---------------------------------------------------------------------------
+# Organization dependency snapshot, freeze & instant rollback (Task 70)
+# ---------------------------------------------------------------------------
+# Captures the resolved dependency state actually served into signed,
+# content-addressed point-in-time snapshots. Freeze the org to a snapshot (a
+# pull-path gate then refuses pulls outside the frozen set or with a mismatched
+# digest), diff two snapshots, and — when a shipped version is later found
+# malicious — roll the whole org back to the last-known-good snapshot in one
+# action. Manifests are signed with the audit/attestation key and recorded to the
+# Merkle audit log. Admin "Snapshots" tab + `ptctl snapshot ...`. See
+# docs/snapshots.md.
+snapshot:
+  enabled: false              # off by default
+  dir: ""                     # persistence dir; empty = <cache.dir>/snapshots (empty cache.dir = in-memory)
+  maxLiveEntries: 50000       # bound on distinct coordinates tracked in the live set
+  maxSnapshots: 200           # retained manifests (good/frozen snapshots are never pruned)
+  scheduleInterval: 0s        # >0 takes an automatic snapshot on this cadence (coord-guarded for HA)
+  freezeEnforce: false        # true lets the freeze gate block/quarantine; false = observe-only
+
+# ---------------------------------------------------------------------------
+# Emergency lockdown / global kill-switch incident-response mode (Task 74)
+# ---------------------------------------------------------------------------
+# A single org-wide lever consulted as the FIRST check on the pull path. The
+# active posture is engaged at RUNTIME (admin API / `ptctl lockdown ...`), never
+# from this file — config only enables the control and sets durability + TTL
+# bounds. Modes: freeze (serve only already-cached artifacts, block all new
+# upstream fetches), strict (flip every observe-mode gate to enforce + harden the
+# risk/maturity/firewall thresholds), and block (deny a specific (eco,name[,version])
+# coordinate everywhere, ahead of the malfeed feed refresh). Every transition
+# requires an operator reason + incident ID, is recorded to the Merkle audit log,
+# raises an EventLockdown notification, and auto-expires at its TTL. State is
+# coord-guarded (Task 56) and break-glass (Task 50) still composes on top.
+lockdown:
+  enabled: false              # off by default; true exposes the kill-switch + admin "Incident" tab
+  storePath: ""               # durable state file; empty = <cache.dir>/lockdown.json (empty cache.dir = in-memory)
+  defaultTtl: 1h              # TTL applied when an engagement omits one (a lockdown always auto-expires)
+  maxTtl: 0s                  # cap on an operator-supplied TTL; 0 = no cap
+
+# ---------------------------------------------------------------------------
+# Kubernetes ValidatingAdmissionWebhook — in-cluster enforcement (Task 111)
+# ---------------------------------------------------------------------------
+# An HTTPS admission endpoint that reuses the per-coordinate security dossier /
+# risk verdict (Task 87/37) to admit or reject Pod image references at deploy
+# time, extending supply-chain enforcement from the pull path to the cluster
+# runtime. Off by default. See docs/admission-webhook.md. Run it in-process (enable
+# here in the normal server) or standalone (`pullthrough webhook -config ...`,
+# which requires admissionWebhook.dossier.url).
+admissionWebhook:
+  enabled: false              # off by default
+  addr: ":8443"               # HTTPS listen address
+  path: /validate             # ValidatingWebhookConfiguration target path
+  tlsCertFile: ""             # serving cert the API server connects to (required when enabled)
+  tlsKeyFile: ""
+  clientCaFile: ""            # optional mTLS: require+verify the API server client cert
+  failurePolicy: open         # open|closed — when a verdict cannot be computed (source error/timeout)
+  blockAction: deny           # block verdict  -> deny|warn|admit
+  warnAction: admit           # warn verdict   -> admit|deny|warn
+  unknownAction: admit        # no recorded signal -> admit|deny (deny requires every image be vetted)
+  minRiskScoreToDeny: 0       # deny at/above this dossier risk score (0 = off)
+  enforceLockdown: true       # kill-switch (Task 74): targeted block denies; any lockdown flips unknown->deny
+  defaultEcosystem: docker    # ecosystem label for image coordinates
+  stripRegistryHost: true     # drop the registry host when matching the recorded coordinate
+  annotateWarnings: true      # attach advisory warnings to the AdmissionResponse
+  timeout: 5s                 # per-image verdict budget
+  tenant: ""                  # scope tenant-bearing dossier sources; empty = aggregate
+  ignoreNamespaces: []        # namespaces admitted without inspection (e.g. [kube-system])
+  ignoreImages: []            # image prefixes always admitted (e.g. [registry.k8s.io/])
+  dossier:                    # remote verdict source (split deployment); empty url = in-process
+    url: ""                   # proxy admin dossier base, e.g. http://pullthrough.pullthrough.svc:8080/admin
+    token: ""                 # admin bearer / read-capability token (use ${PTS_ADMIN_TOKEN})
+    caCertFile: ""            # pin the proxy serving CA for https
+    insecureSkipVerify: false
+    timeout: 5s
+
+# ---------------------------------------------------------------------------
+# GitOps policy & config synchronization with signed bundle reconciliation (Task 93)
+# ---------------------------------------------------------------------------
+# Continuously reconciles the proxy's policy/config bundles from a version-
+# controlled source of truth (a Git repository, an OCI artifact pulled to a local
+# path, or — air-gap friendly — a local pre-fetched bundle). On a coord-guarded
+# interval (only the HA leader reconciles) it fetches the desired-state bundle,
+# verifies its signature/digest (the audit/attestbundle key conventions), runs it
+# through configcheck validation + the simreplay blast-radius what-if, and then
+# either applies it (mode "apply") or surfaces it for dual-control approval (mode
+# "suggest"). Applies/rollbacks are recorded to the Merkle audit log. A bundle is a
+# small declarative document:
+#   apiVersion: pullthrough.gitops/v1
+#   revision: <optional; git overrides with the commit SHA>
+#   settings:
+#     - path: policyEngine.mode
+#       value: enforce
+#     - path: license.deny
+#       value: [GPL-3.0-only, AGPL-3.0-only]
+gitops:
+  enabled: false              # off by default; true turns on reconciliation + admin "GitOps" tab
+  mode: suggest               # suggest (dual-control via approvals) | apply (auto)
+  interval: 5m                # reconcile cadence (coord-guarded; 0 = 5m)
+  storePath: ""               # durable state file; empty = <cache.dir>/gitops.json
+  failClosed: true            # refuse to apply when a configured signature/digest fails to verify
+  source:
+    type: local               # local (pre-fetched bundle, air-gap) | git (remote repo)
+    path: /etc/pullthrough/desired/bundle.yaml   # local: bundle file; git: bundle path within the repo
+    git:
+      url: ""                 # e.g. https://github.com/acme/policy.git (required for type: git)
+      ref: main               # branch/tag/commit (defaults to remote HEAD)
+      workDir: ""             # local clone dir; empty = <cache.dir>/gitops-repo
+  verify:
+    publicKey: ""             # inline PEM trusted public key (detached-signature check)
+    publicKeyFile: ""         # ...or a path to one (set only one of these)
+    expectedDigest: ""        # optional pinned SHA-256 of the bundle document (air-gap integrity)
+
+# ---------------------------------------------------------------------------
+# Install-script / lifecycle-hook risk analysis (Task 62)
+# ---------------------------------------------------------------------------
+# Statically extracts a package's automatically-run install hooks (npm
+# pre/post-install scripts, Python setup.py / pyproject build hooks, RubyGems
+# native extensions + post-install message, Cargo build.rs) and scores them
+# against deterministic high-risk patterns (network egress during install,
+# base64-decoded eval, shell/process spawning, writes outside the package dir,
+# environment-variable exfiltration, obfuscated one-liners, native-build steps).
+# Nothing is executed. Findings feed the policy/risk engines and the SARIF
+# findings layer; a finding at/above failSeverity warns or blocks (and evicts).
+installHooks:
+  enabled: true
+  failSeverity: high        # block/warn at or above this severity (info|low|medium|high|critical)
+  warnSeverity: medium      # advisory warning below failSeverity ("" disables warnings)
+  action: block             # action at failSeverity: block (refuse+evict) | warn
+  maxFindingsPerHook: 50    # cap findings recorded per hook
+  # Built-in rule ids to disable: download-execute, eval-base64, env-exfiltration,
+  # network-egress, shell-spawn, fs-write-outside, obfuscation, native-extension.
+  disabledRules: []
+    # - native-extension     # e.g. a tenant that legitimately ships many native deps
+  # Add or override detection rules (a matching id replaces a built-in).
+  rules: []
+    # - id: my-custom
+    #   title: "Reaches an internal metadata endpoint"
+    #   severity: high
+    #   pattern: "169\\.254\\.169\\.254"
+  # Per-tenant threshold overrides keyed by team id.
+  tenants: {}
+    # release-eng:
+    #   failSeverity: critical
+    #   action: warn
+
+# ---------------------------------------------------------------------------
+# ML model weight-scanning gate (Task 110)
+# ---------------------------------------------------------------------------
+# For a Hugging Face model/dataset pull, statically disassemble a pickle-based
+# weight file's opcode stream (.bin/.pkl/.pt/.pth/.ckpt, unwrapping the PyTorch
+# ZIP container) and flag imports of code-execution / network / filesystem
+# primitives invoked via __reduce__ — the malicious-model attack vector — without
+# ever unpickling anything. The safe, tensor-only safetensors format is recognized
+# and preferred. Findings feed the policy/risk engines and the SARIF layer; a
+# finding at/above failSeverity warns or blocks (and quarantines). See
+# docs/clients.md (Hugging Face).
+mlGuard:
+  enabled: true
+  failSeverity: high        # block/warn at or above this severity (info|low|medium|high|critical)
+  warnSeverity: medium      # advisory warning below failSeverity ("" disables warnings)
+  action: block             # action at failSeverity: block (refuse+quarantine) | warn
+  preferSafetensors: true   # flag a served pickle weight with an advisory header
+  maxScanBytes: 268435456   # bytes buffered per weight file for disassembly (256 MiB)
+  maxZipEntries: 64         # pickle entries scanned inside a PyTorch ZIP container
+  # Per-tenant threshold overrides keyed by team id.
+  tenants: {}
+    # ml-research:
+    #   action: warn
+
+# ---------------------------------------------------------------------------
+# Package-payload static content analysis (Task 138)
+# ---------------------------------------------------------------------------
+# Unpack a cached source artifact (npm tarball, pip sdist/wheel, gem/composer/
+# cargo/nuget archive) and apply deterministic, no-execution heuristics to its
+# files: high-entropy/packed blobs, unexpectedly embedded native binaries,
+# obfuscated or minified-plus-eval JavaScript, dynamic code-execution sinks, and
+# in-source credentials/secrets (reusing the Task 29 detectors). Findings flow
+# into the dossier/risk/SARIF/notification pipeline. On by default but observe-
+# only (annotate) until the action is raised. See docs/findings.md#suspicious-content.
+contentScan:
+  enabled: true
+  action: annotate          # annotate (record+serve) | downgrade (lower severity) | block (refuse+evict)
+  failSeverity: high         # minimum finding severity that triggers the block action
+  ecosystems: []             # [] = built-in set: npm, pip, cargo, rubygems, composer, nuget
+  # Per-heuristic toggles (each default on; set false to quiet a noisy dimension).
+  # detectEntropy: true
+  # detectBinary: true
+  # detectJavaScript: true
+  # detectDynamicExec: true
+  # detectSecrets: true
+  entropyThreshold: 7.2      # byte-level Shannon entropy (bits/byte) to flag a blob
+  minEntropyBlobBytes: 1024  # smallest file considered for the entropy heuristic
+  # Scan budget (0 => built-in default for each). Bounds a hostile/huge artifact.
+  maxArchiveBytes: 134217728   # 128 MiB decompressed read overall
+  maxFileBytes: 8388608        # 8 MiB read per archive entry
+  maxFiles: 20000              # entry-count guard (tar/zip bomb)
+  maxScanBytesPerFile: 1048576 # 1 MiB of text scanned per file by the line rules
+  maxFindings: 500             # overall finding cap per artifact
+  maxFindingsPerFile: 25       # finding cap per file
+  timeout: 20s                 # wall-clock budget for the whole scan
+
+# ---------------------------------------------------------------------------
+# SBOM diff & dependency-drift report (Task 64)
+# ---------------------------------------------------------------------------
+# Persist a bounded per-coordinate history of resolved SBOMs and, on each new
+# version, diff the dependency set / licenses / namespaces / vulnerabilities
+# against the prior version. The derived 0..100 "drift risk" feeds an optional
+# admission signal so a quiet package that suddenly grows a large or suspicious
+# new dependency footprint can be flagged or quarantined. See docs/sbom-diff.md.
+sbomDiff:
+  enabled: true
+  historySize: 16            # version snapshots retained per coordinate
+  maxCoordinates: 4096       # distinct coordinate histories retained (LRU-evicted)
+  action: warn               # action at blockThreshold: warn | block | quarantine
+  warnThreshold: 25          # drift score that annotates the response (X-Sbom-Drift-*)
+  significantThreshold: 40   # drift score reported (EventSbomDrift) + exposed as a policy signal
+  blockThreshold: 60         # drift score at which `action` is applied
+  # Override individual drift-score weights; a zero/omitted field keeps the
+  # built-in default. Vulnerabilities and policy-denied licenses dominate.
+  weights: {}
+    # perAddedDep: 3
+    # perNewNamespace: 8
+    # newLicenseDeny: 30
+    # vulnCritical: 50
+
+# ---------------------------------------------------------------------------
+# Signature & attestation verification (Task 23)
+# ---------------------------------------------------------------------------
+# Cryptographically verify cosign signatures and SLSA provenance attestations
+# for OCI images (keyless via Fulcio/Rekor or keyed via configured public keys)
+# and Sigstore publish attestations for npm packages, before content is served.
+# See docs/sigverify.md.
+sigverify:
+  enabled: false
+  ecosystems: [docker]      # which ecosystems to verify: docker, npm (pip best-effort)
+  action: block             # action when a finding meets failSeverity: warn (advisory) | block | quarantine
+  failSeverity: high        # min finding severity that triggers `action` (none|low|medium|high|critical)
+  warnSeverity: medium      # min severity that triggers a warning below the fail threshold
+  requireSignature: true    # treat an unsigned artifact as a (high-severity) finding
+  requireAttestation: false # additionally require a verified SLSA provenance attestation
+  requireRekorProof: false  # keyless signatures must carry a verified Rekor inclusion proof (SET)
+  failOnError: false        # fail-open (warn) when verification material can't be fetched; true blocks
+  # Keyless trust: a Fulcio root and the allowed OIDC signer identities. An empty
+  # identities list trusts any identity that chains to the root (tighten this!).
+  trustRootsFile: ""        # PEM bundle of Fulcio root CA certs (e.g. the public-good Fulcio root)
+  useSystemTrustRoots: false
+  rekorKeyFiles: []         # PEM public keys of trusted Rekor transparency logs
+  identities:
+    # - issuer: https://token.actions.githubusercontent.com
+    #   subjectPattern: ^https://github\.com/acme/.*
+  # Keyed trust: operator-managed public keys for keyed cosign signatures.
+  keys:
+    # - name: release-signing-key
+    #   file: /etc/pullthrough/cosign.pub
+  npmRegistryUrl: ""        # default https://registry.npmjs.org
+  # Air-gapped: load all trust material from a portable bundle instead of the
+  # files above (see `internal/sigverify` TrustBundle; consistent with the mirror).
+  offline: false
+  trustBundleFile: ""       # path to a sigverify trust bundle (JSON)
+  trustBundleDigest: ""     # optional sha256:<hex> the bundle is verified against on load
+  cacheTtl: 0s              # how long a verification result is reused (0 = never expire)
+
+# ---------------------------------------------------------------------------
+# Notifications & alerting (Task 21)
+# ---------------------------------------------------------------------------
+# Dispatch structured security alerts (policy blocks, vulnerability findings,
+# malicious commit-scan verdicts, provenance failures, quarantine actions, and
+# CVE-drift regressions) to webhook/Slack sinks. Delivery is asynchronous and
+# bounded, so notifications never block a pull. See docs/notifications.md.
+notifications:
+  enabled: false
+  minSeverity: info         # global floor; events below it are never delivered (none|low|medium|high|critical)
+  workers: 2                # async delivery workers
+  queueSize: 256            # full queue => drop (counted), never block the request path
+  maxRetries: 3             # additional attempts after the first on a 5xx/429/network failure
+  retryBaseDelay: 500ms     # exponential backoff base
+  retryMaxDelay: 30s        # backoff cap
+  timeout: 10s              # per-attempt timeout
+  redactFields: []          # extra field-key substrings to scrub (credentials are scrubbed by default)
+  sinks:
+    # - name: secops-slack
+    #   kind: slack
+    #   url: ${SLACK_WEBHOOK_URL}        # secret; ${ENV} / enc:v1: supported
+    #   channel: "#supply-chain-alerts"
+    #   username: pullthrough
+    #   iconEmoji: ":shield:"
+    # - name: siem
+    #   kind: webhook
+    #   url: https://siem.internal.example.com/ingest/pullthrough
+    #   headers:
+    #     Authorization: Bearer ${SIEM_TOKEN}
+  # Per-event-type / severity routing. Empty => every event to every sink at minSeverity.
+  routes: []
+    # - sinks: [secops-slack]
+    #   eventTypes: [policy_block, provenance_failure, quarantine, rescan_regression]
+    #   minSeverity: high
+    # - sinks: [siem]              # all event types, global floor
+
+# ---------------------------------------------------------------------------
+# Per-tenant & global rate limiting, quotas, and concurrency caps (Task 24)
+# ---------------------------------------------------------------------------
+# Enforced as a middleware in the reverse-proxy core, inside the access-control
+# envelope, so the tenant is resolved from the authenticated principal's team
+# (auth.teams.<name>.rateLimit overrides rateLimit.default below). Every request
+# must satisfy both the global policy and its tenant policy. Throttled requests
+# get 429 Too Many Requests with a Retry-After hint. A zero dimension is
+# unlimited. RPS/burst and concurrency are enforced per replica; the monthly byte
+# quota is coordinated across replicas via the shared object store when
+# `shared: true` and the cache backend is "s3". Limits are viewable/updatable at
+# runtime via the admin API (GET/PUT <adminPathPrefix>/api/ratelimit).
+rateLimit:
+  enabled: false
+  shared: false                  # coordinate byte quotas across replicas (s3 cache)
+  global:                        # process-wide ceiling applied to every request
+    rps: 0
+    burst: 0
+    maxConcurrent: 0
+    byteQuota: 0
+    window: 0s
+  default:                       # policy for tenants without an explicit override
+    rps: 100
+    burst: 200
+    maxConcurrent: 16
+    byteQuota: 0
+    window: 0s                   # byte-quota window; 0 => 30 days when byteQuota > 0
+
+# ---------------------------------------------------------------------------
+# Pull-path request coalescing & negative caching (Task 36)
+# ---------------------------------------------------------------------------
+# Collapses N concurrent cache-miss requests for the same (tenant-scoped)
+# artifact into a single upstream fetch (all callers share the result), and
+# remembers terminal upstream failures (404/410/auth) for a short TTL so a
+# thundering herd never repeatedly hammers a missing artifact. Transient 5xx /
+# throttle / network errors use a jittered backoff window instead. The coalesce
+# key is always partitioned by tenant, so a private artifact (or a negative
+# result) is never shared across tenants. Inspect live via the admin API:
+#   GET    /admin/api/coalesce            (dedup ratio, in-flight, negative cache)
+#   DELETE /admin/api/coalesce/negative   (flush the negative cache)
+# A pure performance/resilience layer; enabled by default.
+coalesce:
+  enabled: true
+  negativeTtl: 30s               # how long a 404/410/auth is remembered
+  maxNegativeEntries: 4096       # LRU bound on the negative cache (0 => default)
+  maxInflight: 0                 # cap on distinct in-flight fetches; 0 => unbounded
+  backoff5xxBase: 1s             # jittered backoff window for transient failures
+  backoff5xxMax: 5s
+
+# ---------------------------------------------------------------------------
+# Cache lifecycle: garbage collection, eviction, retention (Task 39)
+# ---------------------------------------------------------------------------
+# A background sweep keeps the content-addressable cache (local or S3-backed)
+# bounded. When the cache crosses the high watermark it evicts down to the low
+# watermark using the configured policy; entries past their TTL are removed
+# regardless of utilization. Pinned, quarantined-for-evidence, referenced, and
+# in-flight entries are never evicted (unless allowEvictPinned). The admin API
+# (GET/POST {adminPrefix}/api/cachegc[/run]) inspects utilization and runs an
+# on-demand or dry-run sweep.
+cacheGc:
+  enabled: true
+  interval: 1h                   # period between automatic sweeps (0 => on-demand only)
+  capacityBytes: 0               # capacity for watermark math (0 => use cache.maxSizeBytes)
+  highWatermarkPct: 0.9          # evict when utilization rises above this fraction
+  lowWatermarkPct: 0.7           # evict down to this fraction
+  policy: lru                    # eviction order: lru | lfu | fifo
+  defaultTtl: 0s                 # max entry age before TTL eviction (0 => use cache.ttl)
+  # tenantTtls:                  # per-tenant TTL overrides (0 disables TTL for a tenant)
+  #   teamA: 24h
+  minIdle: 1m                    # protect entries accessed within this window (active streams)
+  maxDeletesPerRun: 0            # cap evictions per sweep (0 => unlimited)
+  allowEvictPinned: false        # permit evicting metadata-pinned entries
+  dryRun: false                  # report-only periodic sweeps (deletes nothing)
+
+# ---------------------------------------------------------------------------
+# Secrets at rest (Task 10)
+# ---------------------------------------------------------------------------
+# Master key used to decrypt any config value carrying the "enc:v1:" prefix
+# (upstream credentials, API tokens, the audit HMAC key, ...). Values without
+# the prefix are read as-is, so plaintext + ${ENV} + encrypted may be mixed.
+# Resolution order: keyEnv -> keyFile -> passphrase+salt. When none is set,
+# encryption is disabled and any "enc:v1:" value is a hard error.
+secrets:
+  keyEnv: PTS_SECRETS_KEY      # env var holding a 32-byte key (hex or base64)
+  # keyFile: /etc/pullthrough/secrets.key
+  # passphrase: ${PTS_SECRETS_PASSPHRASE}   # dev only; scrypt-stretched
+  # salt: "a-stable-non-secret-salt"
+
+# ---------------------------------------------------------------------------
+# Client access control: authentication, RBAC, multi-tenancy, quotas (Task 10)
+# ---------------------------------------------------------------------------
+auth:
+  enabled: false               # when false, all requests are served anonymously
+  allowAnonymous: false        # permit unauthenticated requests (bound below)
+  anonymousTeam: public
+  anonymousRoles: []           # e.g. ["public-reader"] to grant anonymous pulls
+  cacheNamespacing: false      # true => partition cached content per team
+
+  # RBAC roles. A request to pull upstream U of ecosystem E is allowed when a
+  # role the caller holds lists E in ecosystems (or "*") AND U in upstreams (or
+  # "*"). An empty list matches nothing (least privilege); use ["*"] for all.
+  roles:
+    - name: npm-reader
+      ecosystems: ["npm"]
+      upstreams: ["*"]
+    - name: all-reader
+      ecosystems: ["*"]
+      upstreams: ["*"]
+
+  # Static API tokens. Provide exactly one of `token` (plaintext, ${ENV}, or
+  # an "enc:v1:" encrypted value) or `tokenHash` ("sha256:<hex>"), so the
+  # plaintext need not be stored. Print a hash with: pullthrough does not ship
+  # a subcommand for it yet — use `printf %s "$TOK" | sha256sum`.
+  tokens:
+    - name: ci-platform
+      team: platform
+      roles: ["all-reader"]
+      token: ${PTS_CI_TOKEN}
+    # - name: data-team
+    #   team: data
+    #   roles: ["npm-reader"]
+    #   tokenHash: "sha256:<64-hex-digest>"
+
+  # Per-team quotas. Window 0 means counters never reset (a hard cap); a zero
+  # limit means unlimited on that dimension.
+  defaultQuota:
+    maxRequests: 0
+    maxBytes: 0
+    window: 0s
+  teams:
+    platform:
+      quota:
+        maxRequests: 100000
+        maxBytes: 0
+        window: 1h
+      # Per-tenant rate-limit override (Task 24). Zero dimensions fall through to
+      # rateLimit.default below.
+      rateLimit:
+        rps: 200
+        burst: 400
+        maxConcurrent: 32
+    data:
+      quota:
+        maxRequests: 5000
+        maxBytes: 53687091200    # 50 GiB
+        window: 24h
+      rateLimit:
+        rps: 50
+        burst: 100
+        maxConcurrent: 8
+        byteQuota: 107374182400   # 100 GiB / month
+        window: 720h
+
+  # OIDC / JWT bearer authentication. Tokens are verified against the issuer's
+  # asymmetric keys (RS*/ES*); alg=none and HMAC are rejected.
+  oidc:
+    enabled: false
+    issuer: https://login.example.com/
+    audience: pullthrough
+    jwksUrl: https://login.example.com/.well-known/jwks.json
+    # jwks: '{"keys":[...]}'    # inline JWKS for air-gapped / pinned setups
+    subjectClaim: sub
+    teamClaim: team
+    rolesClaim: roles
+    # roleMap: {"idp-group-a": "npm-reader"}
+    jwksCacheTtl: 15m
+    leeway: 60s
+
+# ---------------------------------------------------------------------------
+# Tamper-evident audit log (Task 10 + Merkle transparency, Task 31)
+# ---------------------------------------------------------------------------
+# Every pull, cache hit/miss, and authorization/quota/policy/signature/license/
+# secret decision is recorded in a keyed hash chain: editing, removing, or
+# reordering any record is detectable with the HMAC key. On top of the chain a
+# Merkle transparency log periodically seals a (optionally signed) checkpoint —
+# a signed tree head over the records so far — which makes a retroactive edit or
+# deletion detectable even WITHOUT the HMAC key, and yields inclusion/consistency
+# proofs. Verify offline with:  pullthrough verify-audit -log <file> -key <hmac>
+#   [-checkpoints <file>.checkpoints] [-pubkey <pem>]
+audit:
+  enabled: false
+  file: /var/lib/pullthrough/audit/audit.log   # empty => in-memory (dev only)
+  hmacKey: ${PTS_AUDIT_HMAC_KEY}               # or set hmacKeyEnv below
+  # hmacKeyEnv: PTS_AUDIT_HMAC_KEY
+  transparency:
+    # disabled: false                # transparency is on by default when audit is enabled
+    # origin: pullthrough-audit      # log identity bound into each checkpoint
+    # checkpointFile: /var/lib/pullthrough/audit/audit.log.checkpoints  # defaults to <file>.checkpoints
+    sealEvery: 1000                  # seal a checkpoint every N records (negative => disable size-triggered sealing)
+    sealInterval: 5m                 # also seal on this wall-clock interval (0 => off); a final seal runs at shutdown
+    # Optional: sign checkpoints with the same kind of key material as the
+    # signature-verification gate. The public key (sigverify-parseable PEM)
+    # verifies them via `verify-audit -pubkey`.
+    # signingKeyFile: /etc/pullthrough/audit-signing-key.pem
+    # signingKey: ${PTS_AUDIT_SIGNING_KEY}
+
+# ---------------------------------------------------------------------------
+# Disaster-recovery backup & restore (Task 44)
+# ---------------------------------------------------------------------------
+# Consistent, manifest-described, optionally-encrypted snapshots of the cache
+# (local or S3) and ALL sidecar metadata stores (audit/Merkle log, provenance
+# links, commit-scan verdicts, VEX statements, policy bundles). Take one on
+# demand with `pullthrough backup -out snapshot.tar` and rehydrate with
+# `pullthrough restore -in snapshot.tar`; both support `-` for stdin/stdout
+# (air-gapped streaming). The settings below drive the scheduled loop, the
+# admin-triggered backup, and the backup-age/last-success metrics used for RPO
+# alerting. See docs/backup-restore.md for the full runbook.
+backup:
+  dir: /var/lib/pullthrough/backups   # destination for scheduled/admin backups
+  # interval: 6h                      # >0 enables the scheduled loop (omit/0 => on-demand only)
+  # retain: 14                        # keep the newest N snapshots in dir, prune older (0 => keep all)
+  # includeCache: true                # set false for metadata-only scheduled snapshots
+  # alertAfter: 26h                   # documented RPO window for the backup-age alert
+  # encrypt: false                    # wrap each snapshot in streaming AES-256-GCM
+  # passphrase: ${PTS_BACKUP_PASSPHRASE}   # scrypt-stretched; or use keyFile below
+  # keyFile: /etc/pullthrough/backup.key   # 32-byte raw key (hex/base64) for KMS/HSM workflows
+
+# ---------------------------------------------------------------------------
+# Observability: metrics, health, and the admin API/dashboard (Task 11)
+# ---------------------------------------------------------------------------
+# Health/readiness probes are always served at /healthz and /readyz. The
+# Prometheus endpoint and the admin surface are mounted on the main HTTP
+# listener and toggled here. The admin dashboard is a browser UI for inspecting
+# cache contents, scan verdicts, provenance links, and the effective policy; its
+# JSON API lives under <adminPathPrefix>/api/.
+observability:
+  metrics: true              # expose Prometheus metrics
+  metricsPath: /metrics      # scrape path
+  admin: true                # expose the admin REST API + web dashboard
+  adminPathPrefix: /admin     # the dashboard is served at <prefix>/
+  # The dashboard includes a unified "Security Ops" tab (real-time SOC view):
+  # rolling-window block/warn/admit tallies, per-gate/per-tenant breakdowns, the
+  # quarantine/approval backlog, active anomalies, the risk-band distribution,
+  # and a live (server-sent-events) feed of notable verdicts with drill-down into
+  # each owning subsystem tab. It needs no configuration of its own (it taps the
+  # existing metrics/findings/event bus) and degrades gracefully when individual
+  # subsystems are disabled. Endpoints: GET {prefix}/api/secops/summary and
+  # {prefix}/api/secops/stream (read capability). See docs/secops.md.
+  # adminToken guards the admin API with a bearer token (the dashboard shell
+  # stays open so a browser can load it and prompt). Empty => unauthenticated,
+  # intended for trusted networks only. Supports ${ENV_VAR} expansion.
+  # adminToken: ${PTS_ADMIN_TOKEN}
+
+  # Tenant self-service read-only security portal (Task 71). A non-admin surface,
+  # distinct from the admin dashboard, hard-scoped to the caller's OWN tenant: it
+  # lets developers/teams see their pulls' verdicts (with the explainable risk
+  # reason), why a coordinate was blocked and what to do (link to break-glass),
+  # their quarantined items, attestation/SARIF downloads for their artifacts, and
+  # onboarding config snippets. It reuses adminAuth to identify the tenant and
+  # requires the dedicated "tenant-viewer" role (which carries NO admin-API
+  # permission). Requires adminAuth.enabled. UI served at <portalPathPrefix>/,
+  # API under /api<portalPathPrefix>/. See docs/self-service-portal.md.
+  portal: false
+  portalPathPrefix: /portal
+
+# --- Admin SSO & RBAC (Task 51) --------------------------------------------
+# Enterprise OIDC/OAuth2 single sign-on and fine-grained role-based access
+# control for the admin API/UI. Disabled by default, so existing deployments
+# keep their legacy observability.adminToken behavior. When enabled, every admin
+# endpoint requires an authenticated identity whose mapped role grants the
+# capability that endpoint needs:
+#   - viewer    : read everything, mutate nothing
+#   - operator  : viewer + operational mutations (release quarantine, run a
+#                 re-scan/backup/GC, drain a mirror, purge negative cache, ...)
+#   - approver  : viewer + grant/deny break-glass approvals
+#   - admin     : everything, including mutating policy and runtime config
+#   - tenant-viewer : read-only access to the self-service portal ONLY, hard-
+#                 scoped to the caller's own tenant (no admin-API permission)
+# Every authenticated admin mutation is attributed to the caller's subject in
+# the tamper-evident audit log.
+adminAuth:
+  enabled: false
+
+  # Map IdP group/claim values to canonical roles. A group already named like a
+  # canonical role (e.g. "operator") needs no binding.
+  roleBindings:
+    pullthrough-admins: admin
+    pullthrough-approvers: approver
+    platform-sre: operator
+    engineering: viewer
+    # Grant developers read-only, tenant-scoped access to the self-service portal.
+    pullthrough-developers: tenant-viewer
+  # Role granted to an authenticated caller that matches no binding (empty =>
+  # such callers are denied).
+  # defaultRole: viewer
+
+  # SSO via OIDC/OAuth2 authorization-code + PKCE (UI) and bearer/JWT (API).
+  oidc:
+    enabled: false
+    issuer: https://login.example.com/realms/corp
+    clientId: pullthrough-admin
+    # Confidential clients authenticate at the token endpoint; omit for a public
+    # (PKCE-only) client. Supports ${ENV_VAR} and enc:v1: values.
+    clientSecret: ${PTS_ADMIN_OIDC_CLIENT_SECRET}
+    # This proxy's externally reachable callback URL.
+    redirectUrl: https://proxy.example.com/admin/auth/callback
+    scopes: ["openid", "profile", "email", "groups"]
+    # Audience expected on admin *API* bearer JWTs (defaults to clientId).
+    # audience: pullthrough-admin
+    # Endpoints are discovered from <issuer>/.well-known/openid-configuration.
+    # Pin them (and a key source) to skip discovery in restricted networks:
+    # authorizationEndpoint: https://login.example.com/.../auth
+    # tokenEndpoint: https://login.example.com/.../token
+    # jwksUrl: https://login.example.com/.../certs
+    # For fully air-gapped key pinning, inline the JWK Set instead of jwksUrl:
+    # jwks: '{"keys":[ ... ]}'
+    subjectClaim: sub          # claim used as the identity subject
+    groupsClaim: groups        # claim carrying group/role membership
+    tenantClaim: team          # claim carrying the tenant/team (scopes the portal)
+    jwksCacheTtl: 15m          # JWKS cache lifetime (rotation handled on expiry)
+    leeway: 60s                # clock-skew tolerance for exp/nbf
+
+  # sessionKey signs the admin session/login cookies (HMAC-SHA256, >=16 bytes).
+  # Required when oidc is enabled. Supports ${ENV_VAR} and enc:v1: values.
+  sessionKey: ${PTS_ADMIN_SESSION_KEY}
+  sessionTtl: 8h
+  # cookieName: pts_admin_session
+  # insecureCookies: false     # set true only for plain-HTTP local testing
+
+  # allowLegacyToken keeps honoring observability.adminToken (as the admin role)
+  # alongside SSO/RBAC, so enabling adminAuth does not lock out existing
+  # automation. Defaults to true.
+  # allowLegacyToken: true
+
+  # Static bearer tokens mapped to roles — the documented offline/air-gapped
+  # mode for when no IdP is reachable. Each token needs >=16 bytes of entropy;
+  # set exactly one of token or tokenHash.
+  staticTokens:
+    - name: break-glass-admin
+      roles: ["admin"]
+      token: ${PTS_ADMIN_BREAKGLASS_TOKEN}
+    - name: ci-readonly
+      roles: ["viewer"]
+      tokenHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    # A tenant-scoped self-service portal token (air-gapped mode). The tenant
+    # binds every portal response to that team; roles is ["tenant-viewer"].
+    - name: acme-portal
+      tenant: acme
+      roles: ["tenant-viewer"]
+      token: ${PTS_ACME_PORTAL_TOKEN}
+
+# --- Distributed tracing (Task 41) -----------------------------------------
+# OpenTelemetry distributed tracing. Disabled by default; active only when
+# enabled AND an OTLP endpoint is set, so leaving this block out (or omitting
+# the endpoint) is the safe opt-out. The proxy ships a vendored-thin OTLP/HTTP
+# exporter, so no extra dependency is needed.
+#
+# Spans cover the full latency breakdown of a pull: ingress -> auth -> rate
+# limit -> cache lookup -> upstream fetch -> each admission gate (sigverify,
+# vulnscan, license, policyengine, riskscore, nameguard) -> response, plus
+# background workers (CVE re-scan, commit scanning). W3C traceparent context is
+# propagated in from clients and trace ids are correlated into the audit log.
+#
+# Quick local stack: `docker compose --profile tracing up` (collector + Jaeger),
+# then set endpoint to http://otel-collector:4318 with insecure: true.
+tracing:
+  enabled: false
+  # OTLP collector address. A base URL has /v1/traces appended; a scheme-less
+  # value gets http:// when insecure, else https://. Supports ${ENV_VAR}.
+  endpoint: ""               # e.g. http://otel-collector:4318
+  insecure: false            # http:// (not https://) for a scheme-less endpoint
+  serviceName: pullthrough   # OTLP service.name resource attribute
+  # serviceVersion: ""       # defaults to the proxy build version
+  # environment: production  # deployment.environment resource attribute
+  samplerRatio: 1.0          # head-sampling probability for new traces (0..1);
+                             # a remote parent's decision is always honored
+  # Extra resource attributes attached to every span.
+  # resourceAttributes:
+  #   cluster: prod-eu
+  #   region: eu-west-1
+  # Headers sent on every OTLP export request (e.g. an ingest token).
+  # headers:
+  #   authorization: ${OTLP_INGEST_TOKEN}
+  # timeout: 10s             # per-export request timeout
+  # batchTimeout: 5s         # max delay before a non-full batch is flushed
+  # maxQueueSize: 2048       # spans buffered before new ones are dropped
+  # maxBatchSize: 512        # spans per export request
+
+# ---------------------------------------------------------------------------
+# Predictive cache pre-warming (Task 134)
+# ---------------------------------------------------------------------------
+# Optional. Learns historical pull patterns and proactively fetches + admission-
+# gates likely near-future pulls (new patch/minor releases of frequently-pulled
+# coordinates, and transitive dependencies of recently-pulled top-level packages)
+# during off-peak windows, so cache hits and gate verdicts are ready before the
+# first client request. Leader-election aware (only one node pre-warms in HA),
+# rate/concurrency bounded, respects the SSRF egress allowlist and the emergency
+# kill-switch, and never serves an artifact that fails an admission gate.
+# Disabled by default.
+prewarm:
+  enabled: false
+  # interval: 1h                 # prediction + pre-warm cycle cadence
+  # offPeakStart: "01:00"        # daily window (OffPeakTimezone) pre-warming may run in;
+  # offPeakEnd: "05:00"          # both empty => any time; a window may wrap midnight
+  # offPeakTimezone: UTC
+  # maxConcurrency: 2            # parallel pre-warm fetches
+  # maxPerCycle: 50              # cap targets fetched per cycle
+  # ratePerMinute: 0             # fetch-rate cap across a cycle (0 = unlimited)
+  # minPulls: 3                  # min observed pulls before forecasting a coordinate's releases
+  # recencyWindow: 168h          # only consider coordinates pulled within this window (7d)
+  # patchLookahead: 2            # how many next patch versions to predict per coordinate
+  # predictMinor: false          # also predict the next minor release's .0 version
+  # transitiveDeps: false        # expand recently-pulled top-level packages to their direct deps
+  #                              # (requires the provenance/dependency graph, provgraph)
+  # historySize: 4096            # distinct coordinates tracked in the learned history
+  # historyPath: ""              # optional: persist learned history across restarts

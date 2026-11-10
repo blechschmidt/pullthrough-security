@@ -1,0 +1,23 @@
+apiVersion: v2
+name: pullthrough
+description: |
+  Enterprise pull-through caching proxy with supply-chain security: package
+  managers (pip/npm/cargo/go/nuget), Docker/OCI, and Git, with LLM commit
+  scanning, package->commit provenance, admission policy, and a tamper-evident
+  audit log.
+type: application
+# Chart version — bump on chart changes (SemVer).
+version: 0.1.0
+# Default application version the chart deploys; overridable via image.tag.
+appVersion: "0.1.0"
+keywords:
+  - proxy
+  - cache
+  - supply-chain-security
+  - registry
+  - artifact
+home: https://github.com/blechschmidt/pullthrough-security
+sources:
+  - https://github.com/blechschmidt/pullthrough-security
+maintainers:
+  - name: pullthrough-security maintainers

@@ -1,0 +1,8 @@
+# Minimal real YUM/DNF build for the pull-through proxy test set.
+# Point dnf/yum at the proxy's RPM/YUM backend (/v1/yum), then
+# `dnf install -y zlib`.
+[pullthrough-baseos]
+name=Pull-through BaseOS
+baseurl=http://PROXY_HOST/v1/yum/baseos/
+enabled=1
+gpgcheck=1

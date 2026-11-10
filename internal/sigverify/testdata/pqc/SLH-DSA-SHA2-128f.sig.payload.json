@@ -1,0 +1,1 @@
+{"critical":{"identity":{"docker-reference":"registry/acme/widgets"},"image":{"docker-manifest-digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111"},"type":"cosign container image signature"}}

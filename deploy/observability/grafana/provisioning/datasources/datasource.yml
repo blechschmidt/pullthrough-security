@@ -1,0 +1,16 @@
+# Grafana datasource provisioning for the compose monitoring stack.
+# The dashboards reference the datasource by the `${DS_PROMETHEUS}` /
+# `datasource` template variable, so any Prometheus datasource works; this
+# provisions one named "Prometheus" pointing at the compose Prometheus service.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s

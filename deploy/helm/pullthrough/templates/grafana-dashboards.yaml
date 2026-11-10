@@ -1,0 +1,34 @@
+{{- if .Values.grafanaDashboards.enabled -}}
+{{- /*
+Ships the versioned Grafana dashboards as ConfigMaps carrying the Grafana
+sidecar discovery label (default: grafana_dashboard=1), so the kube-prometheus
+-stack / Grafana sidecar imports them automatically. One ConfigMap per
+dashboard keeps each under the 1 MiB object limit. The JSON lives in the chart's
+dashboards/ dir (synced from deploy/observability via `make observability-gen`).
+*/ -}}
+{{- $top := . -}}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+{{- $name := base $path | trimSuffix ".json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pullthrough.fullname" $top }}-dashboard-{{ $name }}
+  {{- with $top.Values.grafanaDashboards.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "pullthrough.labels" $top | nindent 4 }}
+    {{ $top.Values.grafanaDashboards.sidecarLabel }}: {{ $top.Values.grafanaDashboards.sidecarLabelValue | quote }}
+    {{- with $top.Values.grafanaDashboards.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if $top.Values.grafanaDashboards.folderAnnotation }}
+  annotations:
+    {{ $top.Values.grafanaDashboards.folderAnnotation }}: {{ $top.Values.grafanaDashboards.folder | quote }}
+  {{- end }}
+data:
+  {{ base $path }}: |-
+    {{- $top.Files.Get $path | nindent 4 }}
+{{- end }}
+{{- end }}

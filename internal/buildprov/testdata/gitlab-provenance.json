@@ -1,0 +1,25 @@
+{
+  "attestations": [
+    {
+      "bundle": {
+        "dsseEnvelope": {
+          "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYnVpbGREZWZpbml0aW9uIjp7ImJ1aWxkVHlwZSI6Imh0dHBzOi8vZ2l0bGFiLmNvbS9naXRsYWItb3JnL2dpdGxhYi1ydW5uZXIvc2xzYS92MSIsImV4dGVybmFsUGFyYW1ldGVycyI6eyJzb3VyY2UiOnsicmVmIjoicmVmcy9oZWFkcy9tYWluIiwicmVwb3NpdG9yeSI6Imh0dHBzOi8vZ2l0bGFiLmNvbS9hY21lLWdyb3VwL3dpZGdldHMifX0sInJlc29sdmVkRGVwZW5kZW5jaWVzIjpbeyJkaWdlc3QiOnsiZ2l0Q29tbWl0IjoiYWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYwMSJ9LCJ1cmkiOiJnaXQraHR0cHM6Ly9naXRsYWIuY29tL2FjbWUtZ3JvdXAvd2lkZ2V0c0ByZWZzL2hlYWRzL21haW4ifV19LCJydW5EZXRhaWxzIjp7ImJ1aWxkZXIiOnsiaWQiOiJodHRwczovL2dpdGxhYi5jb20vYWNtZS1ncm91cC93aWRnZXRzLy0vcGlwZWxpbmVzIn19fSwicHJlZGljYXRlVHlwZSI6Imh0dHBzOi8vc2xzYS5kZXYvcHJvdmVuYW5jZS92MSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiIxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExIn0sIm5hbWUiOiJwa2c6Z2VuZXJpYy93aWRnZXRzQDIuMS4wIn1dfQ==",
+          "payloadType": "application/vnd.in-toto+json",
+          "signatures": [
+            {
+              "sig": "MEUCIQCurffHlWTUirs04kzfgI6+nhLfquiXfimVRT1w1xFxqQIgEeRafXlR6GAd6lguGjpQLPhz2j/1cfwUigyfFSkEZPk="
+            }
+          ]
+        },
+        "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+        "verificationMaterial": {
+          "certificate": {
+            "rawBytes": "MIIB6TCCAY6gAwIBAgIBAjAKBggqhkjOPQQDAjAeMRwwGgYDVQQDExNmaXh0dXJlLWZ1bGNpby1yb290MCAXDTI0MDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAZMRcwFQYDVQQDEw5maXh0dXJlLXNpZ25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABCmwHXgh4DjCDZJLnfkzxJRrxkG378/k01y0NBiqnVlwIDjcVQoW/CHGfzrc1mp/tkbksd3EKBYMn/3A3wVV/Vqjgb8wgbwwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMDMB8GA1UdIwQYMBaAFAGsJqQ6hNm+/Ky5HVYfOGa+1bbqMFAGA1UdEQRJMEeGRWh0dHBzOi8vZ2l0bGFiLmNvbS9hY21lLWdyb3VwL3dpZGdldHMvLy5naXRsYWItY2kueW1sQHJlZnMvaGVhZHMvbWFpbjAiBgorBgEEAYO/MAEIBBQTEmh0dHBzOi8vZ2l0bGFiLmNvbTAKBggqhkjOPQQDAgNJADBGAiEAwYelD6XW6HfLGKiLb9HllkrtWPTfBFDbt5lNeWkSANQCIQDYJK6x61NMXyeakJ/31lSP/gL4DML/cX4yCHd42esOOw=="
+          },
+          "tlogEntries": []
+        }
+      },
+      "predicateType": "https://slsa.dev/provenance/v1"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+# OpenTelemetry Collector configuration for the pull-through proxy (Task 41).
+#
+# The proxy exports OTLP/HTTP spans to this collector (receivers.otlp.http on
+# :4318). The collector batches them and forwards to Jaeger over OTLP. Swap the
+# `otlp/jaeger` exporter for a Tempo endpoint (`otlp/tempo`) to use Grafana Tempo
+# instead — the receiver and pipeline are unchanged.
+#
+# Used by the `tracing` profile in the repo-root docker-compose.yml.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bound memory under bursty span load and batch before export.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  # Forward to Jaeger's native OTLP receiver (Jaeger 1.35+).
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Uncomment to mirror traces to Grafana Tempo instead of / in addition to
+  # Jaeger.
+  # otlp/tempo:
+  #   endpoint: tempo:4317
+  #   tls:
+  #     insecure: true
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]
+  telemetry:
+    logs:
+      level: info

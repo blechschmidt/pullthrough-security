@@ -1,0 +1,6 @@
+# Minimal real Conan (C/C++) build for the pull-through proxy test set.
+[requires]
+zlib/1.3
+
+[generators]
+CMakeToolchain

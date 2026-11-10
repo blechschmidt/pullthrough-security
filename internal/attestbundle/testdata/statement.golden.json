@@ -1,0 +1,99 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [
+    {
+      "name": "left-pad@1.3.0",
+      "digest": {
+        "sha256": "abcdef00112233445566778899aabbccddeeff00112233445566778899aabbcc"
+      }
+    }
+  ],
+  "predicateType": "https://pullthrough.dev/attestations/served/v1",
+  "predicate": {
+    "attester": {
+      "id": "pullthrough-proxy",
+      "name": "pullthrough-security",
+      "version": "test",
+      "instance": "proxy-1"
+    },
+    "artifact": {
+      "ecosystem": "npm",
+      "backend": "npm-proxy",
+      "name": "left-pad",
+      "version": "1.3.0",
+      "coordinate": "left-pad@1.3.0",
+      "digest": "sha256:abcdef00112233445566778899aabbccddeeff00112233445566778899aabbcc",
+      "tenant": "acme"
+    },
+    "source": {
+      "repositoryUrl": "https://github.com/acme/left-pad",
+      "commitSha": "0123456789abcdef0123456789abcdef01234567",
+      "confidence": "attested",
+      "signatureVerified": true,
+      "chainTrusted": true
+    },
+    "admission": {
+      "verdict": "admitted",
+      "gates": [
+        {
+          "gate": "vulnscan",
+          "decision": "pass",
+          "summary": "2 findings, max medium"
+        },
+        {
+          "gate": "license",
+          "decision": "pass",
+          "summary": "ok"
+        },
+        {
+          "gate": "sigverify",
+          "decision": "pass",
+          "summary": "signature and attestation verified"
+        },
+        {
+          "gate": "riskscore",
+          "decision": "pass",
+          "summary": "low risk"
+        },
+        {
+          "gate": "policyengine",
+          "decision": "pass",
+          "summary": "all rules passed"
+        }
+      ],
+      "vuln": {
+        "scanner": "osv",
+        "maxSeverity": "medium",
+        "total": 2,
+        "criticalCount": 0,
+        "highCount": 0,
+        "vexSuppressed": 1
+      },
+      "license": {
+        "action": "allow",
+        "code": "ok",
+        "allowed": true
+      },
+      "signature": {
+        "verified": true,
+        "attested": true,
+        "keyless": true,
+        "chainTrusted": true,
+        "slsaProvenance": true,
+        "identity": "https://github.com/acme/left-pad/.github/workflows/release.yml@refs/tags/v1.3.0",
+        "issuer": "https://token.actions.githubusercontent.com"
+      },
+      "risk": {
+        "score": 12,
+        "band": "low"
+      },
+      "policy": {
+        "action": "allow"
+      },
+      "vex": {
+        "suppressed": 1
+      }
+    },
+    "servedAt": "2026-06-20T12:00:00Z"
+  }
+}

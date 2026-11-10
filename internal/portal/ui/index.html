@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Security Self-Service Portal</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header>
+    <h1>Security Self-Service</h1>
+    <span class="tag" id="tenant-tag" hidden></span>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <a class="who" id="login-link" href="#" hidden>Sign in</a>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Sections" hidden>
+    <button class="tab" role="tab" aria-selected="true" data-view="overview">Overview</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="verdicts">Pull verdicts</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="lookup">Why blocked?</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="quarantine">Quarantine</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="onboarding">Onboarding</button>
+  </nav>
+
+  <main id="main">
+    <!-- Gate: shown until we know the caller can view the portal. -->
+    <div id="gate" class="notice">
+      <div class="big" id="gate-title">Loading…</div>
+      <div id="gate-msg" class="muted"></div>
+      <div style="margin-top:14px"><a class="btn" id="gate-login" href="#" hidden>Sign in</a></div>
+    </div>
+
+    <!-- Overview -->
+    <section id="view-overview" class="view" hidden aria-label="Overview">
+      <div id="ov-cards" class="stat-grid"></div>
+      <div class="panel">
+        <h2>What you can see here</h2>
+        <p class="muted">This portal is scoped to <b id="ov-tenant"></b>. You can review your team's recent
+        pull verdicts and their explainable risk reasons, look up why a specific package was flagged and what
+        to do about it, see items waiting on a break-glass approval, and copy onboarding config snippets. You
+        cannot see other tenants' data or any administrative controls.</p>
+      </div>
+    </section>
+
+    <!-- Verdicts -->
+    <section id="view-verdicts" class="view" hidden aria-label="Pull verdicts">
+      <div class="toolbar"><span id="verdicts-meta" class="muted"></span></div>
+      <div class="panel">
+        <table>
+          <thead><tr><th scope="col">Decision</th><th scope="col">Artifact</th><th scope="col" class="num">Score</th><th scope="col">Band</th><th scope="col">Why</th><th scope="col">Scored</th></tr></thead>
+          <tbody id="verdicts-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Coordinate lookup -->
+    <section id="view-lookup" class="view" hidden aria-label="Why was this blocked">
+      <div class="toolbar">
+        <label class="visually-hidden" for="lookup-input">Package coordinate to explain</label>
+        <div class="grow"><input type="text" id="lookup-input" placeholder="Enter a package coordinate, e.g. lodash@4.17.21 or npm:left-pad" /></div>
+        <button class="btn" id="lookup-go">Explain</button>
+      </div>
+      <div id="lookup-result"></div>
+    </section>
+
+    <!-- Quarantine -->
+    <section id="view-quarantine" class="view" hidden aria-label="Quarantine">
+      <div class="toolbar"><span id="quarantine-meta" class="muted"></span></div>
+      <div class="panel">
+        <table>
+          <thead><tr><th scope="col">Status</th><th scope="col">Artifact</th><th scope="col">Gate</th><th scope="col">Reason</th><th scope="col">What to do</th></tr></thead>
+          <tbody id="quarantine-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Onboarding -->
+    <section id="view-onboarding" class="view" hidden aria-label="Onboarding">
+      <div class="toolbar"><span id="onboarding-meta" class="muted"></span></div>
+      <div id="onboarding-list"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

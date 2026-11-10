@@ -1,0 +1,50 @@
+{
+  "activity_id": 2,
+  "activity_name": "Read",
+  "actor": {
+    "user": {
+      "name": "svc-ci"
+    }
+  },
+  "api": {
+    "operation": "GET",
+    "service": {
+      "name": "npmjs"
+    }
+  },
+  "category_name": "Application Activity",
+  "category_uid": 6,
+  "class_name": "API Activity",
+  "class_uid": 6003,
+  "metadata": {
+    "log_name": "audit",
+    "log_provider": "pullthrough-security",
+    "product": {
+      "name": "pullthrough-security",
+      "vendor_name": "Blechschmidt"
+    },
+    "uid": "audit:101",
+    "version": "1.1.0"
+  },
+  "resources": [
+    {
+      "name": "lodash@1.0.0",
+      "type": "npm"
+    }
+  ],
+  "severity": "Informational",
+  "severity_id": 1,
+  "status": "Success",
+  "status_detail": "allow",
+  "status_id": 1,
+  "time": 1793786400000,
+  "type_name": "API Activity: Read",
+  "type_uid": 600302,
+  "unmapped": {
+    "backend": "npmjs",
+    "ecosystem": "npm",
+    "method": "GET",
+    "resource": "lodash@1.0.0",
+    "seq": "101"
+  }
+}

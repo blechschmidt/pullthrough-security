@@ -1,0 +1,47 @@
+# The ValidatingAdmissionWebhook itself needs no RBAC: the API server calls it
+# over the network and no in-cluster API access is required to render a verdict.
+# The ServiceAccount below carries no permissions by default.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pullthrough-webhook
+  namespace: pullthrough
+  labels:
+    app.kubernetes.io/name: pullthrough-webhook
+    app.kubernetes.io/part-of: pullthrough
+automountServiceAccountToken: false
+---
+# OPTIONAL lightweight controller role. Enable only if you run the companion
+# controller mode that reconciles already-admitted workloads (re-evaluating
+# running Pods against freshly-ingested verdicts / lockdowns). The validating
+# webhook does not use these permissions. Read-only on Pods and Namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pullthrough-webhook-controller
+  labels:
+    app.kubernetes.io/name: pullthrough-webhook
+    app.kubernetes.io/part-of: pullthrough
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pullthrough-webhook-controller
+  labels:
+    app.kubernetes.io/name: pullthrough-webhook
+    app.kubernetes.io/part-of: pullthrough
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pullthrough-webhook-controller
+subjects:
+  - kind: ServiceAccount
+    name: pullthrough-webhook
+    namespace: pullthrough

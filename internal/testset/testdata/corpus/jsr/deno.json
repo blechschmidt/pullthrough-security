@@ -1,0 +1,8 @@
+{
+  "name": "@example/jsr-consumer",
+  "version": "0.1.0",
+  "exports": "./main.ts",
+  "imports": {
+    "@luca/flag": "jsr:@luca/flag@1.0.1"
+  }
+}

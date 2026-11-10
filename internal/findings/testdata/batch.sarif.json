@@ -1,0 +1,773 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "pullthrough-security",
+          "informationUri": "https://github.com/blechschmidt/pullthrough-security",
+          "version": "test",
+          "rules": [
+            {
+              "id": "vulnscan/vulnerable-dependency",
+              "name": "VulnerableDependency",
+              "shortDescription": {
+                "text": "A known vulnerability (CVE/advisory) affects this artifact."
+              },
+              "fullDescription": {
+                "text": "The vulnerability-scanning gate generated an SBOM for the artifact and matched one or more of its components against a vulnerability database (OSV by default). Each result names the advisory, the affected component, and the fixed versions when known."
+              },
+              "help": {
+                "text": "Upgrade the affected component to a fixed version, or apply a VEX statement if the artifact is not affected."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#vulnerable-dependency",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "externalReference": "https://osv.dev/",
+                "gate": "vulnscan",
+                "tags": [
+                  "security",
+                  "vulnerability",
+                  "supply-chain"
+                ]
+              }
+            },
+            {
+              "id": "vex/suppressed-vulnerability",
+              "name": "SuppressedVulnerability",
+              "shortDescription": {
+                "text": "A vulnerability adjudicated not-affected/fixed by a VEX statement."
+              },
+              "fullDescription": {
+                "text": "A known vulnerability matched the artifact but a VEX (Vulnerability Exploitability eXchange) statement adjudicated it away (not_affected or fixed). It is reported for transparency and flagged as a SARIF suppression so CI does not fail on it."
+              },
+              "help": {
+                "text": "No action required; review the VEX justification if the suppression is unexpected."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#suppressed-vulnerability",
+              "defaultConfiguration": {
+                "level": "note"
+              },
+              "properties": {
+                "externalReference": "https://openvex.dev/",
+                "gate": "vex",
+                "tags": [
+                  "security",
+                  "vulnerability",
+                  "vex"
+                ]
+              }
+            },
+            {
+              "id": "license/non-compliant",
+              "name": "NonCompliantLicense",
+              "shortDescription": {
+                "text": "A component license violates the configured compliance policy."
+              },
+              "fullDescription": {
+                "text": "The license-compliance gate evaluated the artifact's SPDX licenses against the allow/deny/review policy and found a denied (or review-required) license."
+              },
+              "help": {
+                "text": "Remove or replace the offending dependency, or add the license to the allow list / review queue if it is acceptable for this tenant."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#non-compliant-license",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "externalReference": "https://spdx.org/licenses/",
+                "gate": "license",
+                "tags": [
+                  "license",
+                  "compliance",
+                  "supply-chain"
+                ]
+              }
+            },
+            {
+              "id": "license/drift",
+              "name": "LicenseDrift",
+              "shortDescription": {
+                "text": "A component's license changed from a previously observed value."
+              },
+              "fullDescription": {
+                "text": "The license gate detected that a component's declared license differs from the value recorded on a prior pull — a supply-chain signal worth review even when the new license is itself allowed."
+              },
+              "help": {
+                "text": "Confirm the license change is legitimate and update the recorded baseline."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#license-drift",
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "externalReference": "https://spdx.org/licenses/",
+                "gate": "license",
+                "tags": [
+                  "license",
+                  "compliance",
+                  "drift"
+                ]
+              }
+            },
+            {
+              "id": "secretscan/exposed-credential",
+              "name": "ExposedCredential",
+              "shortDescription": {
+                "text": "A credential or secret was detected in the artifact's contents."
+              },
+              "fullDescription": {
+                "text": "The deterministic secret-detection pass matched a high-entropy or pattern-based credential (API key, token, private key) in the artifact's files. The matched value is redacted; the location points at the file."
+              },
+              "help": {
+                "text": "Revoke and rotate the exposed credential immediately, then remove it from the source."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#exposed-credential",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "gate": "secretscan",
+                "tags": [
+                  "security",
+                  "secret",
+                  "credential"
+                ]
+              }
+            },
+            {
+              "id": "sigverify/unverified-signature",
+              "name": "UnverifiedSignature",
+              "shortDescription": {
+                "text": "The artifact's authenticity could not be cryptographically verified."
+              },
+              "fullDescription": {
+                "text": "The signature/attestation gate could not establish a trusted cosign signature or SLSA provenance attestation for the artifact (missing, untrusted identity, broken chain, or a verification error)."
+              },
+              "help": {
+                "text": "Require the publisher to sign the artifact (keyless or keyed cosign) and configure the trusted identity/issuer."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#unverified-signature",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "externalReference": "https://docs.sigstore.dev/",
+                "gate": "sigverify",
+                "tags": [
+                  "security",
+                  "signature",
+                  "attestation",
+                  "slsa"
+                ]
+              }
+            },
+            {
+              "id": "nameguard/typosquat",
+              "name": "Typosquat",
+              "shortDescription": {
+                "text": "The package name closely resembles a popular package (typosquatting)."
+              },
+              "fullDescription": {
+                "text": "The nameguard gate found the requested package name to be a near-miss of a well-known package, the hallmark of a typosquatting attack."
+              },
+              "help": {
+                "text": "Confirm the intended package name; the look-alike may be malicious."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#typosquat",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "gate": "nameguard",
+                "tags": [
+                  "security",
+                  "typosquat",
+                  "supply-chain"
+                ]
+              }
+            },
+            {
+              "id": "nameguard/dependency-confusion",
+              "name": "DependencyConfusion",
+              "shortDescription": {
+                "text": "The package name shadows an internal/private package namespace."
+              },
+              "fullDescription": {
+                "text": "The nameguard gate found the requested public package name to collide with a configured internal namespace — the dependency-confusion attack pattern."
+              },
+              "help": {
+                "text": "Scope the internal package or pin its source so the public look-alike cannot be substituted."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#dependency-confusion",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "gate": "nameguard",
+                "tags": [
+                  "security",
+                  "dependency-confusion",
+                  "supply-chain"
+                ]
+              }
+            },
+            {
+              "id": "riskscore/threshold-exceeded",
+              "name": "RiskThresholdExceeded",
+              "shortDescription": {
+                "text": "The artifact's composite supply-chain risk score met the admission threshold."
+              },
+              "fullDescription": {
+                "text": "The unified risk-scoring engine folded every gate signal into a composite 0-100 score whose band met or exceeded the configured admission threshold. The message names the top risk drivers."
+              },
+              "help": {
+                "text": "Address the top contributing signals named in the message to lower the composite score below the threshold."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#risk-threshold-exceeded",
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "gate": "riskscore",
+                "tags": [
+                  "security",
+                  "risk",
+                  "supply-chain"
+                ]
+              }
+            },
+            {
+              "id": "policyengine/policy-violation",
+              "name": "PolicyViolation",
+              "shortDescription": {
+                "text": "The artifact violated an operator-authored admission policy rule."
+              },
+              "fullDescription": {
+                "text": "The policy-as-code engine evaluated the operator's declarative rules over the aggregated gate signals and a rule fired with a non-allow effect."
+              },
+              "help": {
+                "text": "Review the named policy rule and the signals that triggered it."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#policy-violation",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "gate": "policyengine",
+                "tags": [
+                  "policy",
+                  "admission",
+                  "supply-chain"
+                ]
+              }
+            },
+            {
+              "id": "provenance/unverified",
+              "name": "UnverifiedProvenance",
+              "shortDescription": {
+                "text": "The artifact has no verified build-provenance association to a source commit."
+              },
+              "fullDescription": {
+                "text": "The provenance gate could not establish (or could not fully trust) a build-provenance link from the artifact to its source commit."
+              },
+              "help": {
+                "text": "Publish signed build provenance (e.g. GitHub build provenance attestations) so the artifact can be traced to a trusted commit."
+              },
+              "helpUri": "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md#unverified-provenance",
+              "defaultConfiguration": {
+                "level": "warning"
+              },
+              "properties": {
+                "gate": "provenance",
+                "tags": [
+                  "provenance",
+                  "slsa",
+                  "supply-chain"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "vulnscan/vulnerable-dependency",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "CVE-2024-0001 affects left-pad@1.3.0 (CVSS 9.8, critical). Fixed in 1.3.1."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad@1.3.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "1b6e9b9187d670d7a889e1200087fb0b"
+          },
+          "properties": {
+            "advisory": "CVE-2024-0001",
+            "advisoryUrl": "https://osv.dev/vulnerability/CVE-2024-0001",
+            "component": "left-pad@1.3.0",
+            "cvss": 9.8,
+            "ecosystem": "npm",
+            "fixedVersions": "1.3.1",
+            "gate": "vulnscan",
+            "identifier": "CVE-2024-0001",
+            "scanner": "osv",
+            "severity": "critical",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "vex/suppressed-vulnerability",
+          "ruleIndex": 1,
+          "level": "note",
+          "message": {
+            "text": "CVE-2023-9999 affects transitive-dep@0.1.0 (CVSS 7.5, high). Suppressed by VEX (not_affected)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "transitive-dep@0.1.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "transitive-dep@0.1.0",
+                  "fullyQualifiedName": "transitive-dep@0.1.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "b28c70380ec6fd7928c35634db4d8ccd"
+          },
+          "suppressions": [
+            {
+              "kind": "external",
+              "justification": "vulnerable_code_not_in_execute_path"
+            }
+          ],
+          "properties": {
+            "advisory": "CVE-2023-9999",
+            "advisoryUrl": "https://osv.dev/vulnerability/CVE-2023-9999",
+            "component": "transitive-dep@0.1.0",
+            "cvss": 7.5,
+            "ecosystem": "npm",
+            "gate": "vex",
+            "identifier": "CVE-2023-9999",
+            "scanner": "osv",
+            "severity": "info",
+            "tenant": "acme",
+            "vexJustification": "vulnerable_code_not_in_execute_path",
+            "vexStatus": "not_affected"
+          }
+        },
+        {
+          "ruleId": "license/non-compliant",
+          "ruleIndex": 2,
+          "level": "error",
+          "message": {
+            "text": "Component left-pad declares license \"GPL-3.0-only\" which the compliance policy marks \"denied\" (category copyleft)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad",
+                  "fullyQualifiedName": "left-pad",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "08a277f185da8aa22f1371a3a6d35432"
+          },
+          "properties": {
+            "category": "copyleft",
+            "component": "left-pad",
+            "ecosystem": "npm",
+            "gate": "license",
+            "identifier": "GPL-3.0-only",
+            "license": "GPL-3.0-only",
+            "outcome": "denied",
+            "severity": "high",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "license/drift",
+          "ruleIndex": 3,
+          "level": "warning",
+          "message": {
+            "text": "Component left-pad license \"MIT\" changed from a previously observed value."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad",
+                  "fullyQualifiedName": "left-pad",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "87127b1a44b5dea547ea6839113c1131"
+          },
+          "properties": {
+            "component": "left-pad",
+            "ecosystem": "npm",
+            "gate": "license",
+            "identifier": "left-pad",
+            "license": "MIT",
+            "severity": "medium",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "secretscan/exposed-credential",
+          "ruleIndex": 4,
+          "level": "error",
+          "message": {
+            "text": "Secret-detection rule \"aws-access-key\" matched in dist/config.js (value redacted)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "dist/config.js"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "782b046eb1fee9f80472ed1662172b80"
+          },
+          "properties": {
+            "ecosystem": "npm",
+            "file": "dist/config.js",
+            "gate": "secretscan",
+            "identifier": "aws-access-key",
+            "rule": "aws-access-key",
+            "severity": "high",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "sigverify/unverified-signature",
+          "ruleIndex": 5,
+          "level": "error",
+          "message": {
+            "text": "Signature/attestation verification did not establish trust: no publish attestation found."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad@1.3.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "104d556ff0240d7e76ab958eeff6b0b1"
+          },
+          "properties": {
+            "ecosystem": "npm",
+            "error": "no publish attestation found",
+            "gate": "sigverify",
+            "hasAttestation": false,
+            "hasSignature": false,
+            "identifier": "npm",
+            "severity": "high",
+            "slsaProvenance": false,
+            "source": "npm",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "nameguard/typosquat",
+          "ruleIndex": 6,
+          "level": "error",
+          "message": {
+            "text": "Package \"left-pad\" closely resembles \"leftpad\" (edit distance 1), a typosquatting risk."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad@1.3.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "26c0f95afe17d862e931a95b87bacd95"
+          },
+          "properties": {
+            "distance": 1,
+            "ecosystem": "npm",
+            "gate": "nameguard",
+            "identifier": "left-pad",
+            "kind": "typosquat",
+            "name": "left-pad",
+            "severity": "high",
+            "similar": "leftpad",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "riskscore/threshold-exceeded",
+          "ruleIndex": 8,
+          "level": "error",
+          "message": {
+            "text": "risk 82/100 (high) — top drivers: vulnerability +40.0, secret +20.0"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad@1.3.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "0e6b326bb82b27aaa14c0e89747db78a"
+          },
+          "properties": {
+            "action": "block",
+            "band": "high",
+            "ecosystem": "npm",
+            "gate": "riskscore",
+            "identifier": "high",
+            "score": 82,
+            "severity": "high",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "policyengine/policy-violation",
+          "ruleIndex": 9,
+          "level": "error",
+          "message": {
+            "text": "Policy rule \"deny-critical-unsigned\" evaluated \"deny\": critical CVE on unsigned artifact"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad@1.3.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "58b50db2a04d8191afa75d83690d85da"
+          },
+          "properties": {
+            "action": "deny",
+            "ecosystem": "npm",
+            "gate": "policyengine",
+            "identifier": "deny-critical-unsigned",
+            "reason": "critical CVE on unsigned artifact",
+            "rule": "deny-critical-unsigned",
+            "severity": "high",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "provenance/unverified",
+          "ruleIndex": 10,
+          "level": "note",
+          "message": {
+            "text": "Build provenance to commit 0123456789ab is \"claimed\" (chain trusted: false); it is not a fully-attested, trusted association."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "left-pad@1.3.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "left-pad@1.3.0",
+                  "fullyQualifiedName": "left-pad@1.3.0",
+                  "kind": "package"
+                },
+                {
+                  "name": "0123456789abcdef0123456789abcdef01234567",
+                  "fullyQualifiedName": "https://github.com/example/left-pad@0123456789abcdef0123456789abcdef01234567",
+                  "kind": "module"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "79c261ee7ce9cc9951cfc5465e5c2a9e"
+          },
+          "properties": {
+            "chainTrusted": false,
+            "commit": "0123456789abcdef0123456789abcdef01234567",
+            "confidence": "claimed",
+            "ecosystem": "npm",
+            "gate": "provenance",
+            "identifier": "0123456789abcdef0123456789abcdef01234567",
+            "severity": "low",
+            "tenant": "acme"
+          }
+        },
+        {
+          "ruleId": "nameguard/dependency-confusion",
+          "ruleIndex": 7,
+          "level": "error",
+          "message": {
+            "text": "Public package \"requests\" shadows internal namespace \"internal-requests\" (dependency-confusion risk)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "requests@2.31.0"
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "requests@2.31.0",
+                  "fullyQualifiedName": "requests@2.31.0",
+                  "kind": "package"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primary": "050780aab1352f4ade2879cbccfc5b59"
+          },
+          "properties": {
+            "distance": 0,
+            "ecosystem": "pip",
+            "gate": "nameguard",
+            "identifier": "requests",
+            "kind": "dependency-confusion",
+            "name": "requests",
+            "severity": "critical",
+            "similar": "internal-requests",
+            "tenant": "acme"
+          }
+        }
+      ]
+    }
+  ]
+}

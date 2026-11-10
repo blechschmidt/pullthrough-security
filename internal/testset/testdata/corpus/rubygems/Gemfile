@@ -1,0 +1,4 @@
+# Minimal real RubyGems build for the pull-through proxy test set.
+source "https://rubygems.org"
+
+gem "rake", "13.1.0"

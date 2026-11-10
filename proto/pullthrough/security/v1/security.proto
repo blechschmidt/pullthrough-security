@@ -1,0 +1,330 @@
+// SecurityQueryService is a read-only, Connect-compatible (gRPC / gRPC-Web /
+// HTTP-JSON) projection of the pull-through proxy's supply-chain security data
+// model. It exposes the same facts already served by the Task 67 GraphQL
+// federated query API and the Task 79 MCP server — coordinate dossier lookup,
+// findings/corpus queries, risk verdicts, provenance-graph edges, and the
+// compliance scorecard — reusing the identical read-access layer rather than
+// duplicating any query logic.
+//
+// Every RPC is read-only and hard-scoped to the caller's tenant: a
+// tenant-bound OIDC identity (Task 51) cannot widen its scope via the request's
+// tenant field, while a global (org-wide) identity may target a tenant with it.
+// The service is mounted on the admin server mux and inherits its OIDC/RBAC
+// enforcement (the read capability).
+//
+// The Go stubs generated from this file are committed under
+// internal/grpcapi/gen; regenerate with `make proto-gen` (no network codegen at
+// build time).
+syntax = "proto3";
+
+package pullthrough.security.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/blechschmidt/pullthrough-security/internal/grpcapi/gen/securityv1;securityv1";
+
+// SecurityQueryService is the read-only security-data-model API surface.
+service SecurityQueryService {
+  // GetDossier returns the unified per-coordinate security "360 view" (Task 87):
+  // the synthesized triage headline plus the provenance, risk, findings, and
+  // vulnerability sections folded from every wired subsystem.
+  rpc GetDossier(GetDossierRequest) returns (Dossier);
+
+  // GetRiskVerdict returns the authoritative, explainable supply-chain risk
+  // verdict for a coordinate (Task 37): a 0-100 score, a band, the recommended
+  // admission action, and the contributing signals.
+  rpc GetRiskVerdict(CoordinateRequest) returns (RiskVerdict);
+
+  // GetFindings returns the aggregated admission-gate findings for a coordinate
+  // (Task 42): vulnerabilities, license issues, exposed secrets, unverified
+  // signatures, typosquatting, and the rest, worst-first and bounded.
+  rpc GetFindings(CoordinateRequest) returns (FindingsResponse);
+
+  // GetProvenance returns the supply-chain provenance-graph edges for a
+  // coordinate (Task 33): the path to the source commit, the reverse-dependency
+  // blast radius, and whether a signed attestation bundle was issued.
+  rpc GetProvenance(CoordinateRequest) returns (ProvenanceResponse);
+
+  // GetComplianceScorecard returns the latest continuous-compliance scorecard
+  // (Task 35): the overall posture score/grade, the SLSA build-level summary,
+  // and the evaluated control checklist.
+  rpc GetComplianceScorecard(ComplianceScorecardRequest) returns (ComplianceScorecard);
+
+  // QueryCorpus runs an ad-hoc read-only query over the federated security data
+  // model (Task 67) using the same projection DSL as the admin query API, and
+  // returns the full page in one response.
+  rpc QueryCorpus(QueryRequest) returns (QueryResponse);
+
+  // StreamQueryCorpus runs the same federated query but streams the matched rows
+  // one message at a time, followed by a terminal summary row. It lets a client
+  // begin processing a large result set without buffering the whole page, and
+  // exercises the Connect server-streaming protocol.
+  rpc StreamQueryCorpus(QueryRequest) returns (stream QueryRowOrSummary);
+}
+
+// Coordinate identifies a package coordinate. name is required; ecosystem and
+// version narrow the match. tenant is honored only for a global (non-tenant-
+// bound) identity; a tenant-bound identity is always scoped to its own tenant.
+message CoordinateRequest {
+  string tenant = 1;
+  string ecosystem = 2;
+  string name = 3;
+  string version = 4;
+}
+
+message GetDossierRequest {
+  string tenant = 1;
+  string ecosystem = 2;
+  // coordinate is the package coordinate (name or name@version). Either
+  // coordinate or name must be set.
+  string coordinate = 3;
+  string name = 4;
+  string version = 5;
+}
+
+// Dossier is the per-coordinate "360 view".
+message Dossier {
+  string tenant = 1;
+  string ecosystem = 2;
+  string name = 3;
+  string version = 4;
+  string coordinate = 5;
+  string digest = 6;
+  string generated_at = 7; // RFC3339
+
+  Headline headline = 8;
+  ProvenanceResponse provenance = 9;
+  RiskVerdict risk = 10;
+  FindingsResponse findings = 11;
+  VulnerabilitySummary vulnerabilities = 12;
+
+  // sources records each subsystem fan-out outcome (ok|empty|disabled|error).
+  repeated SourceStatus sources = 13;
+  // partial is true when at least one source was unavailable.
+  bool partial = 14;
+  // found reports whether the coordinate was present in the query model.
+  bool found = 15;
+}
+
+message Headline {
+  string verdict = 1; // block|warn|admit|unknown
+  bool blocking = 2;
+  int32 risk_score = 3;
+  string risk_band = 4;
+  repeated string reasons = 5;
+  string summary = 6;
+}
+
+message SourceStatus {
+  string source = 1;
+  string status = 2; // ok|empty|disabled|timeout|error
+  string detail = 3;
+}
+
+// RiskVerdict is the explainable supply-chain risk verdict.
+message RiskVerdict {
+  string coordinate = 1;
+  string ecosystem = 2;
+  string name = 3;
+  string version = 4;
+  string tenant = 5;
+  bool found = 6;
+  bool has_assessment = 7;
+  int32 score = 8;
+  string band = 9;              // low|medium|high|critical
+  string verdict = 10;          // allow|warn|block
+  bool block = 11;
+  bool warn = 12;
+  string summary = 13;
+  repeated RiskContribution contributions = 14;
+}
+
+message RiskContribution {
+  string signal = 1;
+  double points = 2;
+  string detail = 3;
+}
+
+// FindingsResponse is the aggregated admission-gate findings for a coordinate.
+message FindingsResponse {
+  string coordinate = 1;
+  string tenant = 2;
+  bool found = 3;
+  int32 total = 4;
+  int32 blocking = 5;
+  string worst_severity = 6;
+  repeated string gates = 7;
+  repeated Finding findings = 8;
+}
+
+message Finding {
+  string rule_id = 1;
+  string gate = 2;
+  string severity = 3;
+  string level = 4;
+  string identifier = 5;
+  string title = 6;
+  bool suppressed = 7;
+}
+
+// VulnerabilitySummary is the per-severity vulnerability rollup carried on the
+// dossier.
+message VulnerabilitySummary {
+  bool has_report = 1;
+  int32 total = 2;
+  int32 critical = 3;
+  int32 high = 4;
+  int32 medium = 5;
+  int32 low = 6;
+  double max_cvss = 7;
+  string max_severity = 8;
+  repeated string cves = 9;
+  bool quarantined = 10;
+  int32 vex_suppressed = 11;
+}
+
+// ProvenanceResponse carries the provenance-graph edges for a coordinate.
+message ProvenanceResponse {
+  string coordinate = 1;
+  string tenant = 2;
+  bool found = 3;
+  int32 direct_dependents = 4;
+  int32 downstream_paths = 5;
+
+  SourceCommit source_commit = 6;
+  ReverseDependencies reverse_dependencies = 7;
+  Attestation attestation = 8;
+}
+
+message SourceCommit {
+  bool found = 1;
+  string commit_id = 2;
+  string commit_sha = 3;
+  repeated string nodes = 4;
+}
+
+message ReverseDependencies {
+  bool found = 1;
+  int32 total = 2;
+  int32 direct = 3;
+  repeated Dependent dependents = 4;
+}
+
+message Dependent {
+  string ecosystem = 1;
+  string name = 2;
+  string version = 3;
+  bool direct = 4;
+  int32 distance = 5;
+}
+
+message Attestation {
+  bool present = 1;
+  string digest = 2;
+  string predicate_type = 3;
+  string subject_digest = 4;
+  string key_id = 5;
+  string created_at = 6; // RFC3339
+}
+
+message ComplianceScorecardRequest {
+  // refresh recomputes the scorecard from the live posture before responding
+  // instead of returning the last cached result.
+  bool refresh = 1;
+}
+
+// ComplianceScorecard is the continuous-compliance report.
+message ComplianceScorecard {
+  bool enabled = 1;
+  string generated_at = 2; // RFC3339
+  string version = 3;
+  double score = 4; // 0..1
+  string grade = 5; // A..F
+  string status = 6; // pass|warn|fail
+  StatusCounts summary = 7;
+  SLSASummary slsa = 8;
+  repeated Control controls = 9;
+}
+
+message StatusCounts {
+  int32 pass = 1;
+  int32 warn = 2;
+  int32 fail = 3;
+  int32 na = 4;
+}
+
+message SLSASummary {
+  int32 build_level = 1;
+  string track = 2;
+  string rationale = 3;
+  bool estimated = 4;
+}
+
+message Control {
+  string id = 1;
+  string title = 2;
+  string category = 3;
+  repeated string frameworks = 4;
+  string status = 5; // pass|warn|fail|na
+  double score = 6;
+  double weight = 7;
+  bool required = 8;
+  string detail = 9;
+  double observed = 10;
+  double threshold = 11;
+}
+
+// QueryRequest is a federated-query projection request. select/order_by/limit/
+// offset mirror the admin query DSL. where is the predicate tree encoded as a
+// JSON object string (the same shape the GraphQL/HTTP query API accepts), kept
+// as a string so the proto need not model the recursive boolean tree.
+message QueryRequest {
+  string tenant = 1;
+  repeated string select = 2;
+  string where_json = 3;
+  repeated Order order_by = 4;
+  int32 limit = 5;
+  int32 offset = 6;
+}
+
+message Order {
+  string field = 1;
+  bool desc = 2;
+}
+
+// QueryResponse is the full projected page plus cost/pagination bookkeeping.
+message QueryResponse {
+  repeated google.protobuf.Struct rows = 1;
+  repeated string fields = 2;
+  int32 total = 3;
+  int32 returned = 4;
+  int32 offset = 5;
+  int32 limit = 6;
+  bool truncated = 7;
+  int32 scanned = 8;
+  int32 cost = 9;
+  string generated_at = 10; // RFC3339
+}
+
+// QueryRowOrSummary is one element of a StreamQueryCorpus response: either a
+// projected row or, as the final message, the page summary.
+message QueryRowOrSummary {
+  oneof kind {
+    google.protobuf.Struct row = 1;
+    QuerySummary summary = 2;
+  }
+}
+
+// QuerySummary is the terminal message of a streaming query: the same
+// bookkeeping QueryResponse carries, minus the rows.
+message QuerySummary {
+  repeated string fields = 1;
+  int32 total = 2;
+  int32 returned = 3;
+  int32 offset = 4;
+  int32 limit = 5;
+  bool truncated = 6;
+  int32 scanned = 7;
+  int32 cost = 8;
+  string generated_at = 9; // RFC3339
+}

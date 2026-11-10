@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pullthrough-config
+  namespace: pullthrough
+  labels:
+    app.kubernetes.io/name: pullthrough
+data:
+  config.yaml: |
+    server:
+      httpAddr: ":8080"
+      publicUrl: "https://proxy.example.com"
+      readTimeout: 30s
+      writeTimeout: 5m
+      shutdownTimeout: 30s
+    logging:
+      level: info
+      format: json
+    cache:
+      backend: filesystem
+      dir: /var/lib/pullthrough/cache
+      maxSizeBytes: 0
+      ttl: 168h
+    outbound:
+      dialTimeout: 15s
+      responseHeaderTimeout: 30s
+      tls:
+        minVersion: "1.2"
+    upstreams:
+      npm:
+        type: npm
+        url: https://registry.npmjs.org
+      pypi:
+        type: pip
+        url: https://pypi.org
+      crates:
+        type: cargo
+        url: https://index.crates.io
+      goproxy:
+        type: go
+        url: https://proxy.golang.org
+      nuget:
+        type: nuget
+        url: https://api.nuget.org
+      dockerhub:
+        type: docker
+        url: https://registry-1.docker.io
+    scanning:
+      enabled: false
+      provider: claude
+      model: claude-opus-4-8
+      apiKey: ${ANTHROPIC_API_KEY}
+      failOn: high
+    provenance:
+      enabled: false
+      githubToken: ${GITHUB_TOKEN}
+      storeDir: /var/lib/pullthrough/provenance
+    policy:
+      enabled: false
+    secrets:
+      keyEnv: PTS_SECRETS_KEY
+    auth:
+      enabled: false
+      allowAnonymous: true
+      anonymousTeam: public
+    audit:
+      enabled: false
+      file: /var/lib/pullthrough/audit/audit.log
+      hmacKey: ${PTS_AUDIT_HMAC_KEY}
+    observability:
+      metrics: true
+      metricsPath: /metrics
+      admin: true
+      adminPathPrefix: /admin

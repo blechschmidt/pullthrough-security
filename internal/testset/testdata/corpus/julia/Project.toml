@@ -1,0 +1,22 @@
+# Minimal real Julia build for the pull-through proxy test set.
+#
+# Declares one real dependency (Example.jl, the canonical tiny Julia package)
+# resolved through the proxy's Julia Pkg Server Protocol backend. Point the Julia
+# client at the proxied server and instantiate:
+#
+#   JULIA_PKG_SERVER=http://PROXY_HOST/v1/julia \
+#     julia --project -e 'using Pkg; Pkg.instantiate()'
+#
+# Pkg fetches the /registries listing and the General registry tarball, resolves
+# Example to a version, then downloads /package/<uuid>/<git-tree-sha1>, which the
+# backend verifies by recomputing the git-tree-sha1 over the tarball contents.
+
+name = "PullthroughTestsetJulia"
+uuid = "a1b2c3d4-5e6f-4a0b-8c1d-2e3f4a5b6c7d"
+
+[deps]
+Example = "7876af07-990d-54b4-ab0e-23690620f79a"
+
+[compat]
+Example = "0.5"
+julia = "1.6"

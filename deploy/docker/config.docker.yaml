@@ -1,0 +1,112 @@
+# Pull-through security proxy — local development configuration.
+#
+# Used by docker-compose.yml. Tuned for a laptop: filesystem cache on a named
+# volume, anonymous access, observability on. Secrets are pulled from the
+# environment via ${VAR} expansion so nothing sensitive is committed — set them
+# in a local .env file (see deploy/docker/.env.example).
+
+server:
+  httpAddr: ":8080"
+  # Through the compose port mapping the proxy is reachable on localhost:8080.
+  publicUrl: "http://localhost:8080"
+  sshAddr: ""
+  readTimeout: 30s
+  writeTimeout: 5m
+  shutdownTimeout: 30s
+
+logging:
+  level: debug
+  format: text       # human-friendly for local `docker compose logs`
+  addSource: false
+
+cache:
+  backend: filesystem
+  dir: /var/lib/pullthrough/cache
+  maxSizeBytes: 5368709120   # 5 GiB cap for a dev box
+  ttl: 168h                  # evict entries older than a week
+
+  # Shared S3-compatible cache for horizontally-scaled (HA) deployments. Multiple
+  # replicas pointed at the same bucket/prefix share one cache. To try it locally
+  # with the bundled MinIO, run `docker compose --profile extras up`, create the
+  # bucket once (`mc mb local/pts-cache`), then switch backend to "s3":
+  #
+  # backend: s3
+  # s3:
+  #   endpoint: http://minio:9000     # compose service DNS name
+  #   region: us-east-1
+  #   bucket: pts-cache
+  #   prefix: cache/
+  #   usePathStyle: true              # required for MinIO
+  #   accessKeyId: ${PTS_CACHE_S3_ACCESS_KEY_ID}
+  #   secretAccessKey: ${PTS_CACHE_S3_SECRET_ACCESS_KEY}
+  #   # For a shared bucket, leave maxSizeBytes at 0 and manage retention via the
+  #   # object store's lifecycle policies rather than per-replica LRU eviction.
+
+outbound:
+  dialTimeout: 15s
+  responseHeaderTimeout: 30s
+  tls:
+    minVersion: "1.2"
+
+upstreams:
+  npm:
+    type: npm
+    url: https://registry.npmjs.org
+  pypi:
+    type: pip
+    url: https://pypi.org
+  crates:
+    type: cargo
+    url: https://index.crates.io
+  goproxy:
+    type: go
+    url: https://proxy.golang.org
+  nuget:
+    type: nuget
+    url: https://api.nuget.org
+  dockerhub:
+    type: docker
+    url: https://registry-1.docker.io
+
+# Scanning/provenance/policy/auth are opt-in; left disabled for a frictionless
+# local run. Flip `enabled` and supply the matching env vars to exercise them.
+scanning:
+  enabled: false
+  provider: claude
+  model: claude-opus-4-8
+  apiKey: ${ANTHROPIC_API_KEY}
+  failOn: high
+
+provenance:
+  enabled: false
+  githubToken: ${GITHUB_TOKEN}
+  storeDir: /var/lib/pullthrough/provenance
+
+policy:
+  enabled: false
+
+auth:
+  enabled: false
+  allowAnonymous: true
+  anonymousTeam: public
+
+audit:
+  enabled: false
+  file: /var/lib/pullthrough/audit/audit.log
+  hmacKey: ${PTS_AUDIT_HMAC_KEY}
+
+observability:
+  metrics: true
+  metricsPath: /metrics
+  admin: true
+  adminPathPrefix: /admin
+
+# Distributed tracing (Task 41). Off here by default; the `tracing` compose
+# profile turns it on via environment (PTS_TRACING_ENDPOINT auto-enables and
+# PTS_TRACING_INSECURE), which override these values. See deploy/docker/.env.example.
+tracing:
+  enabled: false
+  endpoint: ${PTS_TRACING_ENDPOINT}
+  insecure: true
+  serviceName: pullthrough
+  samplerRatio: 1.0

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pullthrough · Supply-chain graph</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%232563eb'/%3E%3Cpath d='M4 8l3 3 5-6' stroke='white' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <style>
+    /* Page-local styling for the canvas visualization (self-contained). */
+    .graph-wrap { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 16px; }
+    .graph-side { display: flex; flex-direction: column; gap: 14px; }
+    .graph-canvas-wrap { position: relative; border: 1px solid var(--border, #2a3142); border-radius: 10px; overflow: hidden; background: #0b0f1a; min-height: 70vh; }
+    #graph-canvas { display: block; width: 100%; height: 100%; }
+    .legend { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+    .legend-row { display: flex; align-items: center; gap: 8px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
+    .impact-form { display: flex; flex-direction: column; gap: 8px; }
+    .impact-form input { width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--border, #2a3142); background: #0e1422; color: inherit; }
+    .impact-result { font-size: 13px; line-height: 1.5; max-height: 30vh; overflow: auto; }
+    .impact-result ul { margin: 6px 0 0; padding-left: 18px; }
+    .node-tip { position: absolute; pointer-events: none; background: #11182a; border: 1px solid var(--border, #2a3142); border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 320px; display: none; z-index: 5; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+    .node-tip b { color: #fff; }
+    .muted { color: var(--muted, #8a94a7); }
+    .card h2 { margin: 0 0 8px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Pullthrough</span>
+      <span class="brand-sub">Supply-chain graph</span>
+    </div>
+    <div class="topbar-meta">
+      <span id="graph-stats" class="pill" role="status">loading…</span>
+      <a class="btn" href="index.html">← Dashboard</a>
+      <button id="reset-view" class="btn" type="button" title="Re-run layout">Re-layout</button>
+    </div>
+  </header>
+
+  <main class="graph-wrap">
+    <aside class="graph-side">
+      <section class="card">
+        <h2>Impact analysis</h2>
+        <form id="impact-form" class="impact-form">
+          <label class="muted" for="impact-id">CVE id or commit SHA</label>
+          <input id="impact-id" type="text" placeholder="CVE-2024-1234 or a commit SHA" autocomplete="off">
+          <button class="btn" type="submit">Show blast radius</button>
+          <button id="impact-clear" class="btn" type="button">Clear highlight</button>
+        </form>
+        <div id="impact-result" class="impact-result muted">
+          Enter a CVE or commit to highlight every cached artifact it affects (directly or transitively).
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Legend</h2>
+        <div class="legend" id="legend"></div>
+      </section>
+
+      <section class="card">
+        <h2>Edges</h2>
+        <div class="legend muted" id="edge-legend"></div>
+      </section>
+    </aside>
+
+    <div class="graph-canvas-wrap">
+      <canvas id="graph-canvas" role="img"
+        aria-label="Interactive force-directed supply-chain dependency graph. This visual is a convenience overlay; the same relationships are queryable as text via the Impact analysis panel and the dashboard Query tab.">
+        Your browser does not render the dependency graph. Use the Impact analysis panel to
+        query which cached artifacts a CVE or commit affects, or the dashboard's Query tab.
+      </canvas>
+      <div id="node-tip" class="node-tip"></div>
+    </div>
+  </main>
+
+  <script src="graph.js"></script>
+</body>
+</html>

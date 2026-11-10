@@ -1,0 +1,7 @@
+# Minimal real Puppetfile: one published module from the Puppet Forge.
+# Install it through the proxy by pointing the Forge base URL at the proxy:
+#   forge '<proxy>/v1/puppet'
+# then: r10k puppetfile install
+forge '<proxy>/v1/puppet'
+
+mod 'puppetlabs-stdlib', '9.4.1'

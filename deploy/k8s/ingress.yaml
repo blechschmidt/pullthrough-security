@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pullthrough
+  namespace: pullthrough
+  labels:
+    app.kubernetes.io/name: pullthrough
+  annotations:
+    # Issue/renew the TLS cert via cert-manager (requires the named ClusterIssuer).
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Artifacts can be large; disable body-size limits and raise read timeout.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+spec:
+  ingressClassName: nginx
+  tls:
+    - secretName: pullthrough-tls
+      hosts:
+        - proxy.example.com
+  rules:
+    - host: proxy.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pullthrough
+                port:
+                  number: 8080

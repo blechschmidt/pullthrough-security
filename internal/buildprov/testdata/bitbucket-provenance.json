@@ -1,0 +1,24 @@
+{
+  "attestation_bundles": [
+    {
+      "attestations": [
+        {
+          "envelope": {
+            "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYnVpbGREZWZpbml0aW9uIjp7ImJ1aWxkVHlwZSI6Imh0dHBzOi8vYml0YnVja2V0Lm9yZy9wcm9kdWN0L3BpcGVsaW5lcy9zbHNhL3YxIiwiZXh0ZXJuYWxQYXJhbWV0ZXJzIjp7InNvdXJjZSI6eyJyZWYiOiJyZWZzL2hlYWRzL21haW4iLCJyZXBvc2l0b3J5IjoiaHR0cHM6Ly9iaXRidWNrZXQub3JnL2FjbWUvd2lkZ2V0cyJ9fSwicmVzb2x2ZWREZXBlbmRlbmNpZXMiOlt7ImRpZ2VzdCI6eyJnaXRDb21taXQiOiJmZWRjYmE5ODc2NTQzMjEwZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4In0sInVyaSI6ImdpdCtodHRwczovL2JpdGJ1Y2tldC5vcmcvYWNtZS93aWRnZXRzQHJlZnMvaGVhZHMvbWFpbiJ9XX0sInJ1bkRldGFpbHMiOnsiYnVpbGRlciI6eyJpZCI6Imh0dHBzOi8vYml0YnVja2V0Lm9yZy9hY21lL3dpZGdldHMvcGlwZWxpbmVzIn19fSwicHJlZGljYXRlVHlwZSI6Imh0dHBzOi8vc2xzYS5kZXYvcHJvdmVuYW5jZS92MSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyIn0sIm5hbWUiOiJwa2c6Z2VuZXJpYy93aWRnZXRzQDIuMS4wIn1dfQ==",
+            "payloadType": "application/vnd.in-toto+json",
+            "signatures": [
+              {
+                "sig": "MEQCIBtnMei/DEYprPTgqmFFUegoVQSXn+qbtvl/S1V2sEu7AiAAyHudQ7oUglSm2EbOsbqfVhC2YFZNjGDFa0g92UxZMw=="
+              }
+            ]
+          },
+          "verification_material": {
+            "certificate": {
+              "rawBytes": "MIICCTCCAa+gAwIBAgIBAjAKBggqhkjOPQQDAjAeMRwwGgYDVQQDExNmaXh0dXJlLWZ1bGNpby1yb290MCAXDTI0MDEwMTAwMDAwMFoYDzIwOTkwMTAxMDAwMDAwWjAZMRcwFQYDVQQDEw5maXh0dXJlLXNpZ25lcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABE2dSzyPcYbRl+26oI+s347HKfgEOAD6JqL+oSXxBOClGmVF74ga1pgybAKedWUhK3ALQKKElEP+pEzfZ/NEbB6jgeAwgd0wDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMDMB8GA1UdIwQYMBaAFE2y0PpZrJ417oevK8HbHWVR1gXDMDcGA1UdEQQwMC6GLGh0dHBzOi8vYml0YnVja2V0Lm9yZy9hY21lL3dpZGdldHMvcGlwZWxpbmVzMFwGCisGAQQBg78wAQgEThNMaHR0cHM6Ly9hcGkuYml0YnVja2V0Lm9yZy8yLjAvd29ya3NwYWNlcy9hY21lL3BpcGVsaW5lcy1jb25maWcvaWRlbnRpdHkvb2lkYzAKBggqhkjOPQQDAgNIADBFAiEAmJs/5ADl7afcwkDHdxKnMdDNwxRmPT2/7iT9aRBFhMgCIChUc5BRixFyJiqY/lhi+9HV6uf+iIQiQC7GsbawkCGz"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

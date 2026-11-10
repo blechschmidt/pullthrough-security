@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-04T05:51:48.882534536Z",
+  "tool": "ptctl dev",
+  "machine": "reference-container (regenerate on your CI hardware)",
+  "scenarios": {
+    "admission-pipeline": {
+      "workload": "mixed",
+      "concurrency": 40,
+      "requests": 1500,
+      "throughputRps": 27797.90036898933,
+      "p50Nanos": 1091763,
+      "p95Nanos": 3759246,
+      "p99Nanos": 5029569,
+      "samples": 1500
+    },
+    "cache-read": {
+      "workload": "cache-hit",
+      "concurrency": 40,
+      "requests": 1500,
+      "throughputRps": 20356.412556302108,
+      "p50Nanos": 1671616,
+      "p95Nanos": 4569597,
+      "p99Nanos": 5908010,
+      "samples": 1500
+    },
+    "conn-reuse": {
+      "workload": "conn-reuse",
+      "concurrency": 40,
+      "requests": 1500,
+      "throughputRps": 18944.512358112773,
+      "p50Nanos": 1352004,
+      "p95Nanos": 6204413,
+      "p99Nanos": 10510772,
+      "samples": 1500,
+      "connReuseRatio": 0.9733333333333334
+    },
+    "pull": {
+      "workload": "cache-miss",
+      "concurrency": 40,
+      "requests": 1500,
+      "throughputRps": 19191.67357726846,
+      "p50Nanos": 1330722,
+      "p95Nanos": 6145588,
+      "p99Nanos": 10305818,
+      "samples": 1500
+    }
+  }
+}

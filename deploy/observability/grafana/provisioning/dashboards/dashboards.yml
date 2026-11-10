@@ -1,0 +1,17 @@
+# Grafana dashboard provider for the compose monitoring stack. Loads every
+# dashboard JSON mounted at /var/lib/grafana/dashboards (the canonical
+# deploy/observability/grafana/dashboards directory). foldersFromFilesStructure
+# keeps them under a "Pull-through" folder.
+apiVersion: 1
+
+providers:
+  - name: pullthrough
+    orgId: 1
+    folder: Pull-through
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

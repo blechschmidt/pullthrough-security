@@ -1,0 +1,294 @@
+name: Release
+
+# Self-releasing, provenance-attested, signed release of the pullthrough-security
+# binaries and container image (Task 135) — "trust the tool that enforces trust".
+#
+# On a version tag (v*) this workflow:
+#   1. reproducibly builds the standard and FIPS binaries (identical across two
+#      independent runs — verified before publishing);
+#   2. generates a CycloneDX SBOM per binary;
+#   3. publishes a single SHA256SUMS manifest covering the binaries and SBOMs;
+#   4. signs SHA256SUMS with cosign keyless (Fulcio/OIDC) → SHA256SUMS.{sig,pem};
+#   5. generates SLSA (L3) provenance for every binary via the canonical SLSA
+#      generic generator (keyless), attached as *.intoto.jsonl;
+#   6. builds, pushes, and cosign-signs the multi-arch container image and
+#      attaches image provenance + SBOM attestations;
+#   7. uploads everything to the GitHub Release so operators can run
+#      `ptctl verify-self`.
+#
+# The FIPS variant travels the same signed-release path as the standard variant.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp (e.g. v1.2.3); defaults to the tag"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  # The release build pins to the repo's Go toolchain; CI installs it below.
+  RELEASE_PLATFORMS: "linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # --------------------------------------------------------------------------- #
+  # Reproducible build of both variants. Each variant is built twice and the
+  # per-file digests compared before anything is published; a non-reproducible
+  # build fails the release.
+  build:
+    name: Reproducible build (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [standard, fips]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      hashes-standard: ${{ steps.hashes.outputs.standard }}
+      hashes-fips: ${{ steps.hashes.outputs.fips }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve version
+        id: version
+        run: |
+          v="${{ github.event.inputs.version }}"
+          if [ -z "$v" ]; then v="${GITHUB_REF_NAME}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Releasing version: $v"
+
+      - name: Verify the build is reproducible
+        env:
+          GOTOOLCHAIN: local
+        run: scripts/release-repro-check.sh ${{ matrix.variant }} "${{ steps.version.outputs.version }}" ${{ env.RELEASE_PLATFORMS }}
+
+      - name: Build release binaries
+        id: build
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          outdir="dist"
+          [ "${{ matrix.variant }}" = "fips" ] && outdir="dist-fips"
+          echo "outdir=$outdir" >> "$GITHUB_OUTPUT"
+          scripts/release-build.sh ${{ matrix.variant }} "${{ steps.version.outputs.version }}" "$outdir" ${{ env.RELEASE_PLATFORMS }}
+
+      - name: Generate SBOMs (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          # One SBOM per binary; the directory scan emits <file>.sbom.cdx.json.
+          path: ${{ steps.build.outputs.outdir }}
+          format: cyclonedx-json
+          output-file: ${{ steps.build.outputs.outdir }}/source.sbom.cdx.json
+
+      - name: Per-binary SBOMs
+        run: |
+          command -v syft >/dev/null 2>&1 || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          outdir="${{ steps.build.outputs.outdir }}"
+          for b in "$outdir"/pullthrough-* "$outdir"/ptctl-*; do
+            case "$b" in *.json|*SHA256SUMS*) continue;; esac
+            [ -f "$b" ] || continue
+            syft "$b" -o cyclonedx-json="$b.sbom.cdx.json"
+          done
+
+      - name: Regenerate checksums to cover SBOMs
+        run: scripts/release-checksums.sh "${{ steps.build.outputs.outdir }}"
+
+      - name: Compute SLSA subject hashes
+        id: hashes
+        run: |
+          outdir="${{ steps.build.outputs.outdir }}"
+          # Subjects = the binaries only (not SBOMs/manifest).
+          ( cd "$outdir" && sha256sum pullthrough-* ptctl-* | grep -v '\.json$' > /tmp/subjects.sha256 )
+          b64="$(base64 -w0 /tmp/subjects.sha256)"
+          echo "${{ matrix.variant }}=$b64" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.variant }}
+          path: ${{ steps.build.outputs.outdir }}/
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------- #
+  # SLSA L3 provenance for the binaries, via the canonical generic generator.
+  # Produces a keyless-signed *.intoto.jsonl whose builder.id is the generator
+  # reusable workflow — the identity ptctl verify-self expects (see
+  # internal/selfrelease). One instantiation per variant.
+  provenance-standard:
+    name: SLSA provenance (standard)
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes-standard }}
+      provenance-name: pullthrough.intoto.jsonl
+      upload-assets: false
+
+  provenance-fips:
+    name: SLSA provenance (fips)
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes-fips }}
+      provenance-name: pullthrough-fips.intoto.jsonl
+      upload-assets: false
+
+  # --------------------------------------------------------------------------- #
+  # Sign SHA256SUMS (keyless cosign), gather provenance, and publish the Release.
+  publish:
+    name: Sign & publish (${{ matrix.variant }})
+    needs: [build, provenance-standard, provenance-fips]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # keyless cosign OIDC
+    strategy:
+      matrix:
+        variant: [standard, fips]
+    steps:
+      - name: Download release directory
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ matrix.variant }}
+          path: dist
+
+      - name: Download provenance
+        uses: actions/download-artifact@v4
+        with:
+          # The generic generator uploads the provenance as an artifact named
+          # after provenance-name.
+          pattern: "*.intoto.jsonl*"
+          path: prov
+          merge-multiple: true
+
+      - name: Stage provenance alongside the artifacts
+        run: |
+          # Place the matching provenance file into dist so it ships together and
+          # verify-self can discover it.
+          name="pullthrough.intoto.jsonl"
+          [ "${{ matrix.variant }}" = "fips" ] && name="pullthrough-fips.intoto.jsonl"
+          find prov -name "$name" -exec cp {} "dist/$name" \; || true
+          ls -l dist
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign SHA256SUMS (keyless)
+        working-directory: dist
+        run: |
+          cosign sign-blob --yes \
+            --output-signature SHA256SUMS.sig \
+            --output-certificate SHA256SUMS.pem \
+            SHA256SUMS
+
+      - name: Verify the signature we just produced
+        working-directory: dist
+        env:
+          ID: "https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}"
+        run: |
+          cosign verify-blob \
+            --certificate SHA256SUMS.pem \
+            --signature SHA256SUMS.sig \
+            --certificate-identity "$ID" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+
+      - name: Publish to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+          fail_on_unmatched_files: true
+
+  # --------------------------------------------------------------------------- #
+  # Multi-arch container image: build, push, cosign-sign, and attach SLSA
+  # provenance + SBOM attestations.
+  image:
+    name: Build, sign & attest image
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # buildx assembles a multi-arch image index (OCI manifest list) with one
+      # manifest per platform. `provenance: mode=max` attaches a per-platform
+      # SLSA provenance attestation (and `sbom: true` a per-platform SBOM)
+      # referenced from the index, so each architecture carries its own
+      # provenance — not a single provenance over the index alone.
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.build.outputs.version }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the image (keyless)
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${DIGEST}
+
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

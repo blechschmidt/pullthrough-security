@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-04T18:46:56.894676827Z",
+  "tool": "ptctl dev",
+  "seed": 1,
+  "maxPerPackage": 60,
+  "operators": [
+    "AOR",
+    "BOOL",
+    "COND",
+    "INCDEC",
+    "LCR",
+    "NEG",
+    "ROR"
+  ],
+  "total": {
+    "killed": 270,
+    "survived": 182,
+    "invalid": 28,
+    "scored": 452,
+    "scorePct": 59.73451327433629
+  },
+  "packages": {
+    "github.com/blechschmidt/pullthrough-security/internal/contentscan": {
+      "killed": 27,
+      "survived": 28,
+      "invalid": 5,
+      "scored": 55,
+      "scorePct": 49.09090909090909
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/depfirewall": {
+      "killed": 26,
+      "survived": 31,
+      "invalid": 3,
+      "scored": 57,
+      "scorePct": 45.614035087719294
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/installhooks": {
+      "killed": 34,
+      "survived": 24,
+      "invalid": 2,
+      "scored": 58,
+      "scorePct": 58.620689655172406
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/license": {
+      "killed": 49,
+      "survived": 7,
+      "invalid": 4,
+      "scored": 56,
+      "scorePct": 87.5
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/policyengine": {
+      "killed": 38,
+      "survived": 21,
+      "invalid": 1,
+      "scored": 59,
+      "scorePct": 64.40677966101694
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/riskscore": {
+      "killed": 29,
+      "survived": 24,
+      "invalid": 7,
+      "scored": 53,
+      "scorePct": 54.71698113207547
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/sigverify": {
+      "killed": 38,
+      "survived": 18,
+      "invalid": 4,
+      "scored": 56,
+      "scorePct": 67.85714285714286
+    },
+    "github.com/blechschmidt/pullthrough-security/internal/vulnscan": {
+      "killed": 29,
+      "survived": 29,
+      "invalid": 2,
+      "scored": 58,
+      "scorePct": 50
+    }
+  },
+  "criticalFloors": {
+    "github.com/blechschmidt/pullthrough-security/internal/contentscan": 40,
+    "github.com/blechschmidt/pullthrough-security/internal/depfirewall": 35,
+    "github.com/blechschmidt/pullthrough-security/internal/installhooks": 48,
+    "github.com/blechschmidt/pullthrough-security/internal/license": 75,
+    "github.com/blechschmidt/pullthrough-security/internal/policyengine": 54,
+    "github.com/blechschmidt/pullthrough-security/internal/riskscore": 45,
+    "github.com/blechschmidt/pullthrough-security/internal/sigverify": 58,
+    "github.com/blechschmidt/pullthrough-security/internal/vulnscan": 40
+  }
+}

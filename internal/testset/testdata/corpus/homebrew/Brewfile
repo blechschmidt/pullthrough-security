@@ -1,0 +1,12 @@
+# Minimal real Homebrew build: a Brewfile installing one real formula (wget)
+# through the proxy. Point Homebrew at the proxy and run `brew bundle`:
+#
+#   export HOMEBREW_API_DOMAIN="$PROXY/v1/homebrew/api"
+#   export HOMEBREW_ARTIFACT_DOMAIN="$PROXY/v1/homebrew"
+#   brew bundle --file=./Brewfile
+#
+# `brew` reads wget's formula metadata from the proxied formulae.brew.sh JSON
+# API (bottle download URLs rewritten through the proxy) and fetches the
+# precompiled bottle tarball — an OCI blob from GitHub Packages (ghcr.io) —
+# which the proxy verifies against the SHA-256 recorded in the bottle manifest.
+brew "wget"

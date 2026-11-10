@@ -1,0 +1,7 @@
+---
+# Minimal real Ansible requirements file: one published collection from Galaxy.
+# Install it through the proxy with:
+#   ansible-galaxy collection install -r requirements.yml -s <proxy>/v1/ansible
+collections:
+  - name: community.general
+    version: "8.0.0"

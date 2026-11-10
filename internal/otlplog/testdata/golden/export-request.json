@@ -1,0 +1,92 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "pullthrough"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "1.2.3"
+            }
+          },
+          {
+            "key": "tenant",
+            "value": {
+              "stringValue": "team-a"
+            }
+          }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {
+            "name": "github.com/blechschmidt/pullthrough-security/internal/otlplog"
+          },
+          "logRecords": [
+            {
+              "timeUnixNano": "1700000000000000000",
+              "observedTimeUnixNano": "1700000000500000000",
+              "severityNumber": 17,
+              "severityText": "ERROR",
+              "body": {
+                "stringValue": "upstream fetch failed"
+              },
+              "attributes": [
+                {
+                  "key": "backend",
+                  "value": {
+                    "stringValue": "npm"
+                  }
+                },
+                {
+                  "key": "status",
+                  "value": {
+                    "intValue": "502"
+                  }
+                },
+                {
+                  "key": "retryable",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "latency_ms",
+                  "value": {
+                    "doubleValue": 12.5
+                  }
+                }
+              ],
+              "traceId": "abababababababababababababababab",
+              "spanId": "1111111111111111",
+              "flags": 1
+            },
+            {
+              "timeUnixNano": "1700000001000000000",
+              "observedTimeUnixNano": "1700000001000000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": {
+                "stringValue": "cache hit"
+              },
+              "attributes": [
+                {
+                  "key": "coordinate",
+                  "value": {
+                    "stringValue": "npm:left-pad@1.3.0"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

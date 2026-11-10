@@ -1,0 +1,40 @@
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_name": "Findings",
+  "category_uid": 2,
+  "class_name": "Detection Finding",
+  "class_uid": 2004,
+  "finding_info": {
+    "desc": "postinstall script downloads a remote payload",
+    "product_uid": "installhooks/remote-exec",
+    "title": "Suspicious lifecycle hook",
+    "uid": "installhooks/remote-exec"
+  },
+  "message": "postinstall script downloads a remote payload",
+  "metadata": {
+    "log_name": "finding",
+    "log_provider": "pullthrough-security",
+    "product": {
+      "name": "pullthrough-security",
+      "vendor_name": "Blechschmidt"
+    },
+    "uid": "installhooks/remote-exec",
+    "version": "1.1.0"
+  },
+  "severity": "High",
+  "severity_id": 4,
+  "status": "New",
+  "status_id": 1,
+  "time": 1793793600000,
+  "type_name": "Detection Finding: Create",
+  "type_uid": 200401,
+  "unmapped": {
+    "artifact": "evil",
+    "coordinate": "npm/evil@2.0.0",
+    "ecosystem": "npm",
+    "gate": "installhooks",
+    "ruleId": "installhooks/remote-exec",
+    "version": "2.0.0"
+  }
+}

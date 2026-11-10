@@ -1,0 +1,13 @@
+{
+  "name": "pullthrough-testset-npm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal real npm build for the pull-through proxy test set.",
+  "main": "index.js",
+  "scripts": {
+    "build": "node index.js"
+  },
+  "dependencies": {
+    "is-number": "7.0.0"
+  }
+}

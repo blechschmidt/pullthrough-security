@@ -1,0 +1,8 @@
+{
+  "name": "example/pullthrough-testset-composer",
+  "description": "Minimal real Composer build for the pull-through proxy test set.",
+  "type": "project",
+  "require": {
+    "psr/log": "3.0.0"
+  }
+}

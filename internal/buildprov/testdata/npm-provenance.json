@@ -1,0 +1,25 @@
+{
+  "attestations": [
+    {
+      "bundle": {
+        "dsseEnvelope": {
+          "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYnVpbGREZWZpbml0aW9uIjp7ImJ1aWxkVHlwZSI6Imh0dHBzOi8vZ2l0aHViLmNvbS9ucG0vY2xpL2doYS92MiIsImV4dGVybmFsUGFyYW1ldGVycyI6eyJ3b3JrZmxvdyI6eyJwYXRoIjoiLmdpdGh1Yi93b3JrZmxvd3MvcHVibGlzaC55bWwiLCJyZWYiOiJyZWZzL2hlYWRzL21haW4iLCJyZXBvc2l0b3J5IjoiaHR0cHM6Ly9naXRodWIuY29tL2FjbWUvd2lkZ2V0cyJ9fSwicmVzb2x2ZWREZXBlbmRlbmNpZXMiOlt7ImRpZ2VzdCI6eyJnaXRDb21taXQiOiIwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3In0sInVyaSI6ImdpdCtodHRwczovL2dpdGh1Yi5jb20vYWNtZS93aWRnZXRzQHJlZnMvaGVhZHMvbWFpbiJ9XX0sInJ1bkRldGFpbHMiOnsiYnVpbGRlciI6eyJpZCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hY3Rpb25zL3J1bm5lci9naXRodWItaG9zdGVkIn0sIm1ldGFkYXRhIjp7Imludm9jYXRpb25JZCI6Imh0dHBzOi8vZ2l0aHViLmNvbS9hY21lL3dpZGdldHMvYWN0aW9ucy9ydW5zLzEvYXR0ZW1wdHMvMSJ9fX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL3Nsc2EuZGV2L3Byb3ZlbmFuY2UvdjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhNTEyIjoiZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZmRlYWRiZWVmZGVhZGJlZWZkZWFkYmVlZiJ9LCJuYW1lIjoicGtnOm5wbS8lNDBhY21lL3dpZGdldHNAMS4wLjAifV19",
+          "payloadType": "application/vnd.in-toto+json",
+          "signatures": [
+            {
+              "sig": "MEQCIDmwbQdCFnyISaoIXkBi3k2Ker3EVMAPM1jF8wuSzcmhAiA8OkBFnvMKenvEjbEuIlHbGEaqVYMSTmBav2RtosB0gA=="
+            }
+          ]
+        },
+        "mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.3",
+        "verificationMaterial": {
+          "certificate": {
+            "rawBytes": "MIICFDCCAbqgAwIBAgIBAjAKBggqhkjOPQQDAjAgMR4wHAYDVQQDExVzaWdzdG9yZS1maXh0dXJlLXJvb3QwIBcNMjQwMTAxMDAwMDAwWhgPMjA5OTAxMDEwMDAwMDBaMCIxIDAeBgNVBAMTF3NpZ3N0b3JlLWZpeHR1cmUtc2lnbmVyMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjK/3VqqY0S6wIJ6Iez1gDfSg9cASBIobyqtu0/FZ734Jt1Bd4RY3BeQPXx8fWKCUXDi7actICrj/cCwqgfK+2qOB4DCB3TAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwMwHwYDVR0jBBgwFoAUGchrAeC2K8768MWlY36Tq+9TyW0wWAYDVR0RBFEwT4ZNaHR0cHM6Ly9naXRodWIuY29tL2FjbWUvd2lkZ2V0cy8uZ2l0aHViL3dvcmtmbG93cy9wdWJsaXNoLnltbEByZWZzL2hlYWRzL21haW4wOwYKKwYBBAGDvzABCAQtEytodHRwczovL3Rva2VuLmFjdGlvbnMuZ2l0aHVidXNlcmNvbnRlbnQuY29tMAoGCCqGSM49BAMCA0gAMEUCIQCs3awmkL6x0qJwuJLAcJ8s5urNOVYBnsWYYUy3EZPFLwIgUyOP0ZItcLLHO0uJ1l5OnHX3My7psnsFosHn+r7LTLc="
+          },
+          "tlogEntries": []
+        }
+      },
+      "predicateType": "https://slsa.dev/provenance/v1"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# Values used by `helm lint`/chart-testing in CI: a minimal, self-contained
+# config that exercises optional templates (secrets, ssh) without external deps.
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: pullthrough.ci.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: pullthrough-ci-tls
+      hosts:
+        - pullthrough.ci.example.com
+
+ssh:
+  enabled: true
+
+serviceMonitor:
+  enabled: true
+
+prometheusRule:
+  enabled: true
+  additionalLabels:
+    team: platform
+
+grafanaDashboards:
+  enabled: true
+
+secrets:
+  data:
+    PTS_AUDIT_HMAC_KEY: "ci-test-key"
+    GITHUB_TOKEN: "ci-test-token"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6

@@ -1,0 +1,25 @@
+# Equivalent / accepted surviving mutants (Task 157)
+#
+# One mutant ID per line. Listed mutants are EXCLUDED from the mutation score
+# (removed from the denominator) because they are known to be:
+#   - equivalent    — the mutation does not change observable behavior, so no
+#                     test could ever kill it (e.g. a `<` -> `<=` on a bound that
+#                     is provably never hit, a redundant guard); or
+#   - accepted      — a surviving mutant in code deliberately left untested
+#                     (deprecated path, defensive-only branch) that the team has
+#                     reviewed and chosen not to cover.
+#
+# Get a mutant's ID from `make mutation` (the "Surviving mutants" section prints
+# `id <...>`) or from mutation/mutation-report.json. IDs are a stable hash of the
+# package, file, line/column, operator and the specific change, so an entry goes
+# stale when the surrounding code moves — re-triage after large refactors.
+#
+# A trailing "# note" after an ID is allowed and encouraged — record *why* it is
+# equivalent/accepted so the exclusion can be audited. Blank lines and lines
+# starting with '#' are ignored.
+#
+# Keep this list small and justified: every entry is a mutant the suite does not
+# catch. Prefer adding a test over adding an entry.
+#
+# Example:
+#   a1b2c3d4e5f6  # equivalent: cooldown bound unreachable (release age >= 0 always)

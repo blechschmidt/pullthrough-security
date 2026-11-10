@@ -1,0 +1,213 @@
+{{- if .Values.webhook.enabled -}}
+{{- $fullName := include "pullthrough.webhookName" . -}}
+{{- $tlsSecret := include "pullthrough.webhookTLSSecretName" . -}}
+{{- $dossierURL := .Values.webhook.dossier.url | default (printf "http://%s:%d/admin" (include "pullthrough.fullname" .) (int .Values.service.port)) -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullName }}-config
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+data:
+  webhook.yaml: |
+    server:
+      httpAddr: ":8080"
+    cache:
+      backend: memory
+    logging:
+      level: {{ .Values.config.logging.level | default "info" }}
+      format: {{ .Values.config.logging.format | default "json" }}
+    lockdown:
+      enabled: true
+    admissionWebhook:
+      enabled: true
+      addr: ":8443"
+      path: /validate
+      tlsCertFile: /etc/pullthrough/tls/tls.crt
+      tlsKeyFile: /etc/pullthrough/tls/tls.key
+      failurePolicy: {{ .Values.webhook.serverFailurePolicy }}
+      blockAction: {{ .Values.webhook.blockAction }}
+      warnAction: {{ .Values.webhook.warnAction }}
+      unknownAction: {{ .Values.webhook.unknownAction }}
+      minRiskScoreToDeny: {{ .Values.webhook.minRiskScoreToDeny }}
+      enforceLockdown: {{ .Values.webhook.enforceLockdown }}
+      defaultEcosystem: {{ .Values.webhook.defaultEcosystem }}
+      stripRegistryHost: true
+      annotateWarnings: true
+      timeout: 5s
+      ignoreNamespaces:
+        {{- toYaml .Values.webhook.ignoreNamespaces | nindent 8 }}
+      ignoreImages:
+        {{- toYaml .Values.webhook.ignoreImages | nindent 8 }}
+      dossier:
+        url: {{ $dossierURL | quote }}
+        token: ${PTS_ADMIN_TOKEN}
+        {{- with .Values.webhook.dossier.caCertFile }}
+        caCertFile: {{ . | quote }}
+        {{- end }}
+        timeout: 5s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "pullthrough.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: webhook
+  template:
+    metadata:
+      annotations:
+        # Roll pods when the webhook decision policy changes.
+        checksum/config: {{ printf "%s|%s|%s|%s|%v|%d|%s" .Values.webhook.serverFailurePolicy .Values.webhook.blockAction .Values.webhook.warnAction .Values.webhook.unknownAction .Values.webhook.enforceLockdown (int .Values.webhook.minRiskScoreToDeny) $dossierURL | sha256sum }}
+      labels:
+        {{- include "pullthrough.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: webhook
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ $fullName }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: webhook
+          image: {{ include "pullthrough.webhookImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["webhook", "-config", "/etc/pullthrough/webhook.yaml"]
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          envFrom:
+            {{- if or .Values.secrets.existingSecret .Values.secrets.data }}
+            - secretRef:
+                name: {{ include "pullthrough.secretName" . }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pullthrough
+              readOnly: true
+            - name: tls
+              mountPath: /etc/pullthrough/tls
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullName }}-config
+        - name: tls
+          secret:
+            secretName: {{ $tlsSecret }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pullthrough.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook
+  ports:
+    - name: https
+      port: {{ .Values.webhook.service.port }}
+      targetPort: https
+      protocol: TCP
+{{- if .Values.webhook.certManager.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $tlsSecret }}
+  dnsNames:
+    - {{ $fullName }}.{{ .Release.Namespace }}.svc
+    - {{ $fullName }}.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ .Values.webhook.certManager.issuerRef.name }}
+    kind: {{ .Values.webhook.certManager.issuerRef.kind }}
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "pullthrough.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ $fullName }}
+  {{- end }}
+webhooks:
+  - name: pods.pullthrough.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+    matchPolicy: Equivalent
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            {{- toYaml .Values.webhook.ignoreNamespaces | nindent 12 }}
+        - key: pullthrough.io/admission
+          operator: NotIn
+          values: ["ignore", "disabled"]
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: Namespaced
+    clientConfig:
+      service:
+        name: {{ $fullName }}
+        namespace: {{ .Release.Namespace }}
+        path: /validate
+        port: {{ .Values.webhook.service.port }}
+      {{- if and (not .Values.webhook.certManager.enabled) .Values.webhook.caBundle }}
+      caBundle: {{ .Values.webhook.caBundle }}
+      {{- end }}
+{{- end }}

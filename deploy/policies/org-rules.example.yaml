@@ -1,0 +1,45 @@
+# Example operator policy-as-code bundle for the policy-as-code admission engine
+# (Task 32). Drop a copy (without the `.example` suffix) into the directory named
+# by `policyEngine.dir` in your config. Bundles hot-reload when
+# `policyEngine.reloadInterval` is set, or on POST /admin/api/policyengine/reload.
+#
+# The input document aggregates every gate's signals; see configs/config.example.yaml
+# and the embedded default bundle for the full field reference. Rules are
+# evaluated highest-priority first; the first matching `final` rule short-circuits,
+# otherwise the most restrictive matched action (deny > warn > allow) wins.
+name: org-rules
+description: Organization-wide supply-chain admission rules.
+priority: 0
+rules:
+  # Hard requirement: production Docker images must carry verified SLSA provenance.
+  - id: require-slsa-for-images
+    description: Block container images lacking a verified SLSA provenance attestation.
+    when: >
+      input.artifact.ecosystem == "docker" &&
+      !(has(input.signature) && input.signature.slsaProvenance && input.signature.attested)
+    action: deny
+    message: container images must ship verified SLSA provenance
+
+  # Block any artifact whose source commit scored high risk, even if signed.
+  - id: deny-high-risk-source
+    description: Block artifacts whose associated source commit scored high risk.
+    when: has(input.provenance) && input.provenance.riskScore >= 80
+    action: deny
+    message: source commit scored high supply-chain risk
+
+  # Whitelist a vetted internal namespace past the stricter rules below it.
+  - id: allow-vetted-internal
+    description: Always admit packages from the vetted internal namespace.
+    when: startsWith(input.artifact.name, "@acme-internal/")
+    action: allow
+    final: true
+    message: vetted internal namespace
+
+  # Staged (dry-run) rule: evaluate and report, but do not yet enforce. Flip
+  # `audit` to false once the metrics show it would not cause false positives.
+  - id: staged-deny-medium-cves
+    description: (Audit-only) would warn on a buildup of medium-severity CVEs.
+    when: has(input.vuln) && input.vuln.mediumCount >= 10
+    action: warn
+    audit: true
+    message: ten or more medium-severity vulnerabilities

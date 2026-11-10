@@ -1,0 +1,27 @@
+# Prometheus configuration for the local/compose monitoring stack
+# (docker compose --profile monitoring up). For Kubernetes, scraping is handled
+# by the Prometheus Operator ServiceMonitor (Helm: serviceMonitor.enabled=true)
+# and the alerting rules ship as a PrometheusRule — this file is the
+# non-Kubernetes reference.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: pullthrough
+
+# Load the alerting rules (same canonical file the Helm/k8s PrometheusRule wraps).
+rule_files:
+  - /etc/prometheus/alerts.yaml
+
+scrape_configs:
+  - job_name: pullthrough
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["proxy:8080"]
+        labels:
+          service: pullthrough
+
+  # Prometheus self-monitoring (so the up{} based alert has a reference target).
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

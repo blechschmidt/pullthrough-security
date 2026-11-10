@@ -1,0 +1,407 @@
+# Prometheus alerting rules for the pull-through security proxy.
+#
+# Canonical source of truth. This same file is:
+#   * loaded directly by a vanilla Prometheus via `rule_files:` (see prometheus.yml),
+#   * vendored into the Helm chart (deploy/helm/pullthrough/files/alerts.yaml) and
+#     wrapped in a PrometheusRule CRD by templates/prometheusrule.yaml,
+#   * wrapped in a PrometheusRule for the kustomize path (deploy/observability/prometheusrule.yaml).
+#
+# Top level is `groups:` so the body can be spliced verbatim under a
+# PrometheusRule `spec:`. Thresholds are deliberately conservative defaults —
+# tune `expr`/`for` to your traffic. Every alert carries a `runbook` annotation
+# pointing at the relevant section of docs/observability.md.
+#
+# Metric reference & alert catalog: docs/observability.md.
+groups:
+  - name: pullthrough-availability
+    rules:
+      - alert: PullthroughTargetDown
+        expr: up{job=~".*pullthrough.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "Pull-through proxy target is down"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 5 minutes. The proxy is not serving /metrics and is likely unavailable."
+          runbook: "docs/observability.md#availability-alerts"
+
+      - alert: PullthroughHighRequestErrorRate
+        expr: |
+          sum(rate(pullthrough_requests_total{code=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(pullthrough_requests_total[5m])), 0.001)
+            > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: availability
+        annotations:
+          summary: "Over 5% of proxy responses are 5xx"
+          description: "{{ $value | humanizePercentage }} of responses in the last 5m were 5xx. Check upstream health, cache backend, and logs."
+          runbook: "docs/observability.md#availability-alerts"
+
+      - alert: PullthroughUpstreamErrorsElevated
+        expr: |
+          sum by (backend) (rate(pullthrough_upstream_errors_total[5m]))
+            /
+          clamp_min(sum by (backend) (rate(pullthrough_upstream_request_duration_seconds_count[5m])), 0.001)
+            > 0.25
+        for: 10m
+        labels:
+          severity: warning
+          component: availability
+        annotations:
+          summary: "Upstream {{ $labels.backend }} failing >25% of fetches"
+          description: "{{ $value | humanizePercentage }} of upstream fetches for backend {{ $labels.backend }} failed over 5m. The upstream registry may be degraded or unreachable."
+          runbook: "docs/observability.md#availability-alerts"
+
+      - alert: PullthroughUpstreamOutage
+        expr: |
+          sum by (backend) (rate(pullthrough_upstream_errors_total[5m]))
+            /
+          clamp_min(sum by (backend) (rate(pullthrough_upstream_request_duration_seconds_count[5m])), 0.001)
+            > 0.75
+        for: 5m
+        labels:
+          severity: critical
+          component: availability
+        annotations:
+          summary: "Upstream {{ $labels.backend }} outage"
+          description: "More than 75% of upstream fetches for backend {{ $labels.backend }} are failing. Treat as an upstream outage; cache-only serving continues for warm content."
+          runbook: "docs/observability.md#availability-alerts"
+
+      - alert: PullthroughUpstreamLatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, backend) (rate(pullthrough_upstream_request_duration_seconds_bucket[5m]))
+          ) > 5
+        for: 15m
+        labels:
+          severity: warning
+          component: availability
+        annotations:
+          summary: "p95 upstream latency >5s for {{ $labels.backend }}"
+          description: "p95 upstream fetch latency for backend {{ $labels.backend }} is {{ $value | humanizeDuration }} over 5m."
+          runbook: "docs/observability.md#availability-alerts"
+
+  - name: pullthrough-cache
+    rules:
+      - alert: PullthroughCacheBackendErrorsElevated
+        expr: sum(rate(pullthrough_cache_errors_total[5m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Cache backend returning errors"
+          description: "Cache store operations are failing at {{ $value | humanize }}/s (non-miss errors). For the S3/object-storage backend this usually means I/O, auth, or connectivity problems with the bucket."
+          runbook: "docs/observability.md#cache-alerts"
+
+      - alert: PullthroughCacheBackendErrorsCritical
+        expr: sum(rate(pullthrough_cache_errors_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: critical
+          component: cache
+        annotations:
+          summary: "Cache backend failing heavily"
+          description: "Cache store operations are failing at {{ $value | humanize }}/s. Durable caching is degraded; in HA/S3 mode replicas may be unable to read or write shared content."
+          runbook: "docs/observability.md#cache-alerts"
+
+      - alert: PullthroughCacheHitRatioLow
+        expr: |
+          avg(pullthrough_cache_hit_ratio) < 0.5
+          and
+          sum(rate(pullthrough_cache_hits_total[10m]) + rate(pullthrough_cache_misses_total[10m])) > 1
+        for: 30m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Cache hit ratio below 50%"
+          description: "Cache hit ratio is {{ $value | humanizePercentage }} over a sustained period with meaningful read volume. Upstream load and latency will be elevated; check TTL/eviction settings and cache sizing."
+          runbook: "docs/observability.md#cache-alerts"
+
+  - name: pullthrough-supply-chain
+    rules:
+      - alert: PullthroughVulnScanBackendErrors
+        expr: sum(rate(pullthrough_vuln_scan_errors_total[10m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: vulnscan
+        annotations:
+          summary: "Vulnerability scanner backend failing"
+          description: "Vulnerability scans are failing to reach the database backend ({{ $value | humanize }}/s). New artifacts may not be properly gated; check OSV/scanner connectivity."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughVulnOfflineFallbacks
+        expr: sum(rate(pullthrough_vuln_offline_fallbacks_total[10m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: vulnscan
+        annotations:
+          summary: "Serving stale vulnerability scan results"
+          description: "The vulnerability gate is falling back to stale cached scan results because the backend is unreachable. Verdicts may not reflect newly published CVEs."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughBlockedArtifactsRising
+        expr: sum(increase(pullthrough_vuln_blocked_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: vulnscan
+        annotations:
+          summary: "Artifacts being blocked by the vulnerability gate"
+          description: "{{ $value | humanize }} artifact pull(s) were blocked by the vulnerability gate in the last 15m. Expected if policy is enforcing; investigate a sudden spike."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughNewlyVulnerableArtifacts
+        expr: sum(increase(pullthrough_newly_vulnerable_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: rescan
+        annotations:
+          summary: "Cached artifacts became newly vulnerable (CVE drift)"
+          description: "{{ $value | humanize }} previously-cached artifact(s) crossed the vulnerability threshold on re-scan and were quarantined in the last hour. New CVEs affect content already pulled by clients."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughQuarantineGrowing
+        expr: sum(increase(pullthrough_vuln_quarantined_total[30m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: rescan
+        annotations:
+          summary: "Quarantine count rising"
+          description: "{{ $value | humanize }} artifact(s) were quarantined (blocked and evicted) in the last 30m. Currently {{ with query \"sum(pullthrough_quarantined_artifacts)\" }}{{ . | first | value | humanize }}{{ end }} held in quarantine."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughRescanStalled
+        expr: |
+          (time() - max(pullthrough_last_rescan_timestamp)) > 90000
+          and max(pullthrough_last_rescan_timestamp) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: rescan
+        annotations:
+          summary: "CVE re-scan sweep has not completed recently"
+          description: "The last continuous re-scan sweep finished over 25h ago. Cached artifacts are not being revalidated against new CVEs; check the rescan scheduler. (Tune the threshold to your rescan interval.)"
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughSignatureVerificationFailures
+        expr: sum(increase(pullthrough_sigverify_blocked_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: sigverify
+        annotations:
+          summary: "Signature verification blocking artifacts"
+          description: "{{ $value | humanize }} artifact(s) were blocked by the signature/attestation gate in the last 15m (untrusted, missing, or tampered signatures). Investigate immediately — this can indicate a supply-chain tampering attempt."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughSignatureVerificationErrors
+        expr: sum(rate(pullthrough_sigverify_errors_total[10m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: sigverify
+        annotations:
+          summary: "Signature verification backend errors"
+          description: "Signature/attestation verification is failing to fetch or parse signature material ({{ $value | humanize }}/s). Check Sigstore/Rekor/Fulcio reachability or the offline trust bundle."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughDependencyConfusionAttempts
+        expr: sum(increase(pullthrough_nameguard_dependency_confusion_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: nameguard
+        annotations:
+          summary: "Dependency-confusion attempt detected"
+          description: "{{ $value | humanize }} public package(s) shadowing a configured internal namespace were detected in the last 15m. A likely dependency-confusion attack against your registry namespace."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+      - alert: PullthroughTyposquatAttempts
+        expr: sum(increase(pullthrough_nameguard_typosquat_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: nameguard
+        annotations:
+          summary: "Typosquat / homoglyph package pulls flagged"
+          description: "{{ $value | humanize }} typosquat finding(s) in the last 15m (names similar to popular packages). Review the name guard's flagged-pull log."
+          runbook: "docs/observability.md#supply-chain-alerts"
+
+  - name: pullthrough-rate-limit
+    rules:
+      - alert: PullthroughRateLimitThrottlingHigh
+        expr: |
+          sum(rate(pullthrough_ratelimit_throttled_total[5m]))
+            /
+          clamp_min(sum(rate(pullthrough_ratelimit_allowed_total[5m]) + rate(pullthrough_ratelimit_throttled_total[5m])), 0.001)
+            > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: ratelimit
+        annotations:
+          summary: "Over 20% of requests are being rate-limited"
+          description: "{{ $value | humanizePercentage }} of requests are being throttled. Tenants may be hitting limits; review per-tenant policy or investigate abuse."
+          runbook: "docs/observability.md#rate-limit-alerts"
+
+      - alert: PullthroughByteQuotaExhausted
+        expr: sum(increase(pullthrough_ratelimit_throttled_by_reason_total{reason="bytes"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: ratelimit
+        annotations:
+          summary: "Tenant byte quota exhausted"
+          description: "Requests were rejected because a byte quota was exhausted in the last 15m ({{ $value | humanize }} rejections). A tenant has hit its bandwidth allowance."
+          runbook: "docs/observability.md#rate-limit-alerts"
+
+      - alert: PullthroughConcurrencySaturation
+        expr: sum(rate(pullthrough_ratelimit_throttled_by_reason_total{reason="concurrency"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: ratelimit
+        annotations:
+          summary: "Concurrency limit saturated"
+          description: "Requests are being rejected by the concurrency cap ({{ $value | humanize }}/s). In-flight pulls are at the configured ceiling; consider raising MaxConcurrent or scaling out."
+          runbook: "docs/observability.md#rate-limit-alerts"
+
+  - name: pullthrough-notify
+    rules:
+      - alert: PullthroughNotificationDeliveryFailures
+        expr: sum by (sink) (rate(pullthrough_notifications_failed_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: notify
+        annotations:
+          summary: "Notification sink {{ $labels.sink }} failing"
+          description: "Notifications to sink {{ $labels.sink }} are failing delivery after retries ({{ $value | humanize }}/s). Operators may be missing alerts; check the webhook/Slack endpoint."
+          runbook: "docs/observability.md#notify-alerts"
+
+      - alert: PullthroughNotificationsDropped
+        expr: sum by (sink) (rate(pullthrough_notifications_dropped_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: notify
+        annotations:
+          summary: "Notifications dropped (queue full) for {{ $labels.sink }}"
+          description: "The async delivery queue for sink {{ $labels.sink }} is full and dropping notifications. The sink is too slow or down."
+          runbook: "docs/observability.md#notify-alerts"
+
+      - alert: PullthroughScanQueueBacklog
+        expr: pullthrough_scan_queue_depth > 100
+        for: 15m
+        labels:
+          severity: warning
+          component: scan
+        annotations:
+          summary: "Commit scan queue backing up"
+          description: "{{ $value | humanize }} commits are waiting in the LLM scan queue. The scanner is not keeping up; check the LLM API backend and rate limits."
+          runbook: "docs/observability.md#notify-alerts"
+
+  - name: pullthrough-compliance
+    rules:
+      - alert: PullthroughComplianceControlFailing
+        expr: pullthrough_compliance_control_pass == 0
+        for: 15m
+        labels:
+          severity: warning
+          component: compliance
+        annotations:
+          summary: "Compliance control {{ $labels.control }} is failing"
+          description: "The continuous-compliance control '{{ $labels.control }}' has not been passing for 15m. The proxy's audit posture has regressed; open the admin compliance scorecard for the failing control's detail."
+          runbook: "docs/observability.md#compliance-alerts"
+
+      - alert: PullthroughComplianceScoreRegressed
+        expr: pullthrough_compliance_score < 0.8
+        for: 30m
+        labels:
+          severity: warning
+          component: compliance
+        annotations:
+          summary: "Overall compliance score below target"
+          description: "The overall compliance posture score is {{ $value | humanizePercentage }} (below the 80% target) for 30m. Multiple controls are degraded; review the compliance scorecard."
+          runbook: "docs/observability.md#compliance-alerts"
+
+      - alert: PullthroughComplianceSLSARegressed
+        expr: pullthrough_compliance_slsa_build_level < 2
+        for: 1h
+        labels:
+          severity: warning
+          component: compliance
+        annotations:
+          summary: "Estimated SLSA build level regressed below L2"
+          description: "The estimated SLSA build level is L{{ $value }} (below L2) for 1h. Provenance and/or signature verification coverage has dropped; verify the supply-chain gates are enforcing."
+          runbook: "docs/observability.md#compliance-alerts"
+
+      - alert: PullthroughComplianceScorecardStale
+        expr: time() - pullthrough_compliance_last_computed_timestamp > 1800
+        for: 10m
+        labels:
+          severity: info
+          component: compliance
+        annotations:
+          summary: "Compliance scorecard not recomputing"
+          description: "The compliance scorecard has not been recomputed in over 30m. The background computation loop may have stalled; check the proxy logs."
+          runbook: "docs/observability.md#compliance-alerts"
+
+  # Disaster-recovery backup health (Task 44). These alerts guard the
+  # recovery-point objective (RPO): the deployment's stateful data (cache +
+  # metadata stores) must be captured into a recent, successful snapshot.
+  - name: pullthrough-backup
+    rules:
+      # RPO breach: no successful backup within the objective window. The default
+      # threshold is 26h, suiting a daily backup schedule with slack; tune to your
+      # backup.interval and RPO. A backup_age of -1 (never succeeded) also fires.
+      - alert: PullthroughBackupTooOld
+        expr: pullthrough_backup_age_seconds > 93600 or pullthrough_backup_age_seconds < 0
+        for: 15m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "No recent successful backup (RPO breach)"
+          description: "The last successful backup of {{ $labels.instance }} is older than the recovery-point objective (or none has ever succeeded). Restoring from the most recent snapshot would lose more data than allowed. See the backup runbook."
+          runbook: "docs/backup-restore.md#alerting"
+
+      # A scheduled backup attempt failed since the last success. Even if the age
+      # is still within RPO, repeated failures will eventually breach it.
+      - alert: PullthroughBackupFailing
+        expr: increase(pullthrough_backup_failure_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup attempts are failing"
+          description: "At least one backup attempt failed on {{ $labels.instance }} in the last hour. Check the destination's capacity/permissions and the proxy logs; an unaddressed failure streak will breach the RPO."
+          runbook: "docs/backup-restore.md#alerting"
+
+  # Configuration drift (Task 85). The proxy fingerprints the effective config it
+  # loaded at startup; this fires when the on-disk file diverges from the running
+  # process (a pending hot-reload, an out-of-band edit, or a file that no longer
+  # loads), so operators notice config that is committed but not yet applied.
+  - name: pullthrough-config
+    rules:
+      - alert: PullthroughConfigDrift
+        expr: pullthrough_config_drift > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: config
+        annotations:
+          summary: "On-disk config has drifted from the running process"
+          description: "The configuration on disk for {{ $labels.instance }} no longer matches what the process loaded at startup (or no longer loads). Reload the proxy to apply it, or revert the on-disk change. Inspect via the admin /api/config/drift endpoint or `ptctl config drift`."
+          runbook: "docs/configuration.md#validation-preflight--drift-detection"

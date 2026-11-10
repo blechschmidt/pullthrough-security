@@ -1,0 +1,51 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pullthrough-supply-chain
+  labels:
+    app.kubernetes.io/name: pullthrough-webhook
+    app.kubernetes.io/part-of: pullthrough
+  # With cert-manager, uncomment to auto-inject the caBundle from the serving
+  # Certificate's issuing CA (requires the cert-manager CA injector):
+  # annotations:
+  #   cert-manager.io/inject-ca-from: pullthrough/pullthrough-webhook-tls
+webhooks:
+  - name: pods.pullthrough.io
+    admissionReviewVersions: ["v1"]
+    # The webhook renders a verdict only; it never mutates or has other effects.
+    sideEffects: None
+    # failurePolicy governs what happens when the API server CANNOT REACH the
+    # webhook (timeout, no endpoints). Keep it consistent with the server-side
+    # admissionWebhook.failurePolicy (which governs an unresolvable verdict):
+    #   Ignore -> admit on webhook outage (recommended while rolling out)
+    #   Fail   -> deny on webhook outage (strict enforcement)
+    failurePolicy: Ignore
+    timeoutSeconds: 10
+    matchPolicy: Equivalent
+    # Only inspect namespaces opted into enforcement. Flip the strategy by
+    # labeling namespaces and changing the operator (e.g. NotIn a
+    # "pullthrough.io/admission: ignore" label). The control-plane namespaces are
+    # excluded here so a webhook outage can never wedge the cluster itself.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system", "kube-node-lease", "kube-public"]
+        - key: pullthrough.io/admission
+          operator: NotIn
+          values: ["ignore", "disabled"]
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+        scope: Namespaced
+    clientConfig:
+      service:
+        name: pullthrough-webhook
+        namespace: pullthrough
+        path: /validate
+        port: 443
+      # REPLACE with the base64 PEM of the CA that issued the serving cert, or let
+      # cert-manager inject it via the annotation above.
+      caBundle: REPLACE_WITH_BASE64_CA_BUNDLE
