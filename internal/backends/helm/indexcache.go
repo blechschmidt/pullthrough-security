@@ -181,10 +181,12 @@ func (b *Backend) refreshIndex(ctx context.Context, prev *indexSnapshot) (*index
 // accepted is recorded as such instead — it is never served as-is, because an
 // index the backend cannot account for may carry chart URLs it did not rewrite.
 func (b *Backend) buildIndex(snap *indexSnapshot, body []byte) {
-	doc, err := scanIndex(body)
+	// source is the document the scan positions refer to: the upstream's bytes,
+	// or their canonical JSON form (see scanIndexSource).
+	doc, source, err := scanIndexSource(body)
 	var rewritten []byte
 	if err == nil {
-		rewritten, err = doc.rewrite(body, b.links)
+		rewritten, err = doc.rewrite(source, b.links)
 	}
 	if err != nil {
 		b.metrics.incIndexErrors()

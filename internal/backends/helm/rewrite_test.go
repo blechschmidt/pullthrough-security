@@ -1,6 +1,7 @@
 package helm
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"sort"
@@ -864,5 +865,164 @@ func TestRewriteSyntheticIndex(t *testing.T) {
 	}
 	if kept := strings.Count(string(out), "    - https://github.example.org/org/charts/tree/main/"); kept != 7*13 {
 		t.Errorf("%d `sources` URLs survive, want %d", kept, 7*13)
+	}
+}
+
+// TestRewriteRefusesEveryMergeKeySpelling covers a soundness hole found by an
+// independent review against the real Helm client: Helm's YAML parser treats
+// "<<" as a merge key whenever the scalar is implicit, and a scalar tagged with
+// the non-specific tag "!" is implicit even when it is quoted. The parser used
+// here reports such a key as an ordinary quoted string, so judging a merge by
+// its tag let `! "<<": {urls: [...]}` through — and Helm then read a chart URL
+// the rewrite had never seen. Every spelling of "<<" as a key is refused, at
+// every level the walk visits.
+func TestRewriteRefusesEveryMergeKeySpelling(t *testing.T) {
+	const entry = "entries:\n  c:\n  - name: c\n    version: 1.0.0\n"
+	const evil = `{urls: ["https://evil.example/c-1.0.0.tgz"]}`
+	cases := map[string]string{
+		"non-specific tag, double-quoted (entry)":  entry + "    ! \"<<\": " + evil + "\n",
+		"non-specific tag, single-quoted (entry)":  entry + "    ! '<<': " + evil + "\n",
+		"verbatim non-specific tag (entry)":        entry + "    !<!> \"<<\": " + evil + "\n",
+		"plain double-quoted (entry)":              entry + "    \"<<\": " + evil + "\n",
+		"plain single-quoted (entry)":              entry + "    '<<': " + evil + "\n",
+		"block-scalar key (entry)":                 entry + "    ? ! |-\n      <<\n    : " + evil + "\n",
+		"padded with spaces (entry)":               entry + "    \" << \": " + evil + "\n",
+		"non-specific tag, quoted (entries level)": "entries:\n  ! \"<<\": {c: [{version: 1.0.0, urls: [\"https://evil.example/c-1.0.0.tgz\"]}]}\n",
+		"sequence-valued merge (entries level)":    "entries:\n  ! \"<<\": [{c: [{version: 1.0.0, urls: [\"https://evil.example/c-1.0.0.tgz\"]}]}]\n",
+		"non-specific tag, quoted (top level)":     "! \"<<\": {entries: {c: [{version: 1.0.0, urls: [\"https://evil.example/c-1.0.0.tgz\"]}]}}\n",
+		"plain quoted (top level)":                 "\"<<\": {entries: {c: [{version: 1.0.0, urls: [\"https://evil.example/c-1.0.0.tgz\"]}]}}\n",
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			out, err := rewriteDoc(doc, testLinks)
+			if err == nil {
+				t.Fatalf("the document was accepted; served bytes:\n%s", out)
+			}
+			if !strings.Contains(err.Error(), "merge keys") {
+				// Refused for another reason is still refused, but the merge key is
+				// what this test is about: make an accidental refusal visible.
+				t.Logf("refused, though not as a merge key: %v", err)
+			}
+		})
+	}
+
+	// "<<" as a VALUE, or inside a longer key, is not a merge key and must not be
+	// refused: only an exact "<<" key merges.
+	for name, doc := range map[string]string{
+		"<< as a value":          entry + "    description: \"<<\"\n    urls: [c-1.0.0.tgz]\n",
+		"<< inside a longer key": entry + "    \"<<x\": 1\n    urls: [c-1.0.0.tgz]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := mustRewrite(t, doc, testLinks)
+			if strings.Contains(out, "c-1.0.0.tgz]") && !strings.Contains(out, testLinks.base) {
+				t.Errorf("the chart URL was not rewritten:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestJSONIndexWithJSONOnlySpellings covers a regression found by the same
+// review: an index.yaml may be JSON, Helm reads a JSON index with a JSON parser,
+// and JSON permits spellings YAML does not. Such an index was refused outright
+// (the YAML scanner cannot parse it), making a repository every Helm client can
+// use unusable through the proxy. It is now re-encoded as canonical JSON and
+// handled like any other index: the chart URL is rewritten, nothing else of
+// substance changes, and the served document is JSON a Helm client loads.
+func TestJSONIndexWithJSONOnlySpellings(t *testing.T) {
+	const upstreamURL = "https://charts.example.com/c-1.0.0.tgz"
+	mk := func(extra string) string {
+		return `{"apiVersion":"v1","entries":{"c":[{"name":"c","version":"1.0.0",` + extra +
+			`"urls":["https:\/\/charts.example.com\/c-1.0.0.tgz"]}]}}`
+	}
+	cases := map[string]string{
+		// PHP's json_encode escapes the solidus by default.
+		"escaped solidus": mk(`"home":"https:\/\/example.com",`),
+		// Python's json.dumps ASCII-escapes characters outside the BMP as a
+		// surrogate pair.
+		"surrogate pair":       mk(`"description":"rocket \ud83d\ude80",`),
+		"lone surrogate":       mk(`"description":"broken \ud83d",`),
+		"raw DEL in a string":  mk("\"description\":\"del \x7f here\","),
+		"leading tab and BOM":  "\xef\xbb\xbf\t" + mk(``),
+		"invalid UTF-8 string": mk("\"description\":\"bad \xff byte\","),
+	}
+	for name, doc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// The YAML scanner alone cannot take these documents (that is the
+			// regression); if it ever can, the canonical path is simply not used.
+			scanned, source, err := scanIndexSource([]byte(doc))
+			if err != nil {
+				t.Fatalf("a JSON index Helm loads was refused: %v", err)
+			}
+			out, err := scanned.rewrite(source, testLinks)
+			if err != nil {
+				t.Fatalf("rewrite: %v", err)
+			}
+
+			// The served document is valid JSON …
+			var served struct {
+				Entries map[string][]struct {
+					Name    string   `json:"name"`
+					Version string   `json:"version"`
+					URLs    []string `json:"urls"`
+				} `json:"entries"`
+			}
+			if err := json.Unmarshal(out, &served); err != nil {
+				t.Fatalf("the served index is not valid JSON: %v\n%s", err, out)
+			}
+			// … whose only chart URL now leads back through the proxy.
+			versions := served.Entries["c"]
+			if len(versions) != 1 || len(versions[0].URLs) != 1 {
+				t.Fatalf("served entries = %+v", served.Entries)
+			}
+			got := versions[0].URLs[0]
+			if !strings.HasPrefix(got, testLinks.base) {
+				t.Errorf("chart URL = %q, want it under %q", got, testLinks.base)
+			}
+			if strings.Contains(string(out), "charts.example.com") {
+				t.Errorf("the upstream chart host survived the rewrite:\n%s", out)
+			}
+			// The lookup table resolves the rewritten link back to the upstream URL.
+			idx := scanned.index()
+			cv := idx.Entries["c"]
+			if len(cv) != 1 || len(cv[0].URLs) != 1 || cv[0].URLs[0] != upstreamURL {
+				t.Errorf("index entry = %+v, want the upstream URL %q", cv, upstreamURL)
+			}
+		})
+	}
+}
+
+func TestCanonicalJSONIndex(t *testing.T) {
+	// Not JSON objects: left to the YAML scanner.
+	for name, doc := range map[string]string{
+		"a YAML index":        "apiVersion: v1\nentries: {}\n",
+		"empty":               "",
+		"a JSON array":        `[{"entries":{}}]`,
+		"malformed JSON":      `{"entries":{`,
+		"trailing content":    `{"entries":{}} {"entries":{}}`,
+		"a JSON string":       `"entries"`,
+		"flow YAML, not JSON": "{entries: {}}",
+	} {
+		if out, ok := canonicalJSONIndex([]byte(doc)); ok {
+			t.Errorf("%s: canonicalJSONIndex accepted it as %q", name, out)
+		}
+	}
+
+	out, ok := canonicalJSONIndex([]byte("\t{\"n\":12345678901234567890,\"u\":\"a\\/b\",\"d\":\"x\x7fy\",\"h\":\"<&>\"}"))
+	if !ok {
+		t.Fatal("a valid JSON object was not accepted")
+	}
+	got := string(out)
+	for _, want := range []string{
+		`"n":12345678901234567890`, // numbers are carried through as written
+		`"u":"a/b"`,                // the escaped solidus is spelled plainly
+		`"d":"x\u007fy"`,           // DEL is escaped (YAML forbids it raw)
+		`"h":"<&>"`,                // no HTML escaping: the document is not HTML
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("canonical form %q lacks %q", got, want)
+		}
+	}
+	if strings.ContainsRune(got, 0x7f) {
+		t.Errorf("a raw DEL survived: %q", got)
 	}
 }

@@ -439,7 +439,8 @@ git -C repo log --oneline -1
 #!/bin/sh
 # go — use the proxy as GOPROXY.
 set -eu
-echo "ECOTEST_CLIENT_VERSION=$(go env GOVERSION)"
+version=$(go env GOVERSION)
+echo "ECOTEST_CLIENT_VERSION=${version#go}"
 
 # GOPROXY (or `go env -w GOPROXY=...`) replaces proxy.golang.org. Without a
 # ",direct" suffix every module comes from the proxy (with it, a module the proxy

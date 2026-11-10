@@ -80,7 +80,7 @@ const maxIndexBytes = 128 << 20 // 128 MiB
 // are matched the way a Helm client matches them, and a document using a YAML
 // construct that could hide a chart URL from the rewrite is an error here too.
 func ParseIndex(data []byte) (*Index, error) {
-	doc, err := scanIndex(data)
+	doc, _, err := scanIndexSource(data)
 	if err != nil {
 		return nil, err
 	}

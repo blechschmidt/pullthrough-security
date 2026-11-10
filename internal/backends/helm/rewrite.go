@@ -2,6 +2,7 @@ package helm
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,6 +95,65 @@ const (
 	yamlNullTag  = "!!null"
 	yamlMergeTag = "!!merge"
 )
+
+// scanIndexSource scans an upstream index and returns, with the scanned
+// document, the bytes its positions refer to — the bytes to rewrite and serve.
+//
+// Those are the upstream's own bytes whenever the scanner accepts them. The one
+// exception is a JSON index that is valid JSON but not valid YAML. A Helm client
+// reads a JSON index with a JSON parser, and JSON allows spellings YAML does not:
+// an escaped solidus ("https:\/\/…", PHP's default), a surrogate pair for a
+// character outside the BMP ("\ud83d\ude80", Python's default), a raw DEL.
+// Helm loads such an index; the YAML scanner cannot. Rather than refuse a
+// repository every Helm client can use, the document is re-encoded as canonical
+// JSON — the same value, in a spelling both parsers read identically — and that
+// is what gets scanned, rewritten and served.
+func scanIndexSource(data []byte) (*indexDocument, []byte, error) {
+	doc, err := scanIndex(data)
+	if err == nil {
+		return doc, data, nil
+	}
+	canonical, ok := canonicalJSONIndex(data)
+	if !ok {
+		return nil, nil, err
+	}
+	doc, cerr := scanIndex(canonical)
+	if cerr != nil {
+		// Still not acceptable in canonical form: report the original complaint,
+		// which describes the document the upstream actually published.
+		return nil, nil, err
+	}
+	return doc, canonical, nil
+}
+
+// canonicalJSONIndex re-encodes a JSON document so that a YAML parser reads it
+// exactly as a JSON parser does. It reports ok=false when data is not a single
+// JSON object (a YAML index, or malformed JSON).
+func canonicalJSONIndex(data []byte) ([]byte, bool) {
+	trimmed := bytes.TrimLeft(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")), " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.UseNumber() // carry numbers through as written
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil {
+		return nil, false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, false // trailing content: not a single JSON document
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(doc); err != nil {
+		return nil, false
+	}
+	// encoding/json writes DEL (0x7f) raw, which YAML forbids unescaped. It can
+	// only occur inside a string, so escaping every occurrence is exact.
+	out := bytes.ReplaceAll(buf.Bytes(), []byte{0x7f}, []byte("\\u007f"))
+	return out, true
+}
 
 // scanIndex parses an index.yaml document and walks the part of it that
 // determines where charts are downloaded from, refusing any construct that
@@ -245,13 +305,23 @@ func scanEntry(chart string, m *yaml.Node) (indexEntry, error) {
 // a scalar, without an explicit tag, that is not a merge key. Every other form
 // can introduce a field (an entry's `urls`, or a whole entry) under a name the
 // walk would not recognize.
+//
+// A merge key is recognized by its TEXT, not by how this parser tagged it. The
+// two parsers disagree about what makes "<<" a merge: Helm's (yaml.v2) merges
+// whenever the scalar is implicit, and a scalar carrying the non-specific tag
+// "!" is implicit even when quoted — so `! "<<": {urls: [...]}` merges for a
+// Helm client. yaml.v3, which reads the document here, drops that tag and
+// reports an ordinary quoted string key. Judging by the tag alone let such a key
+// through, and with it a chart URL the rewrite never saw (verified against helm
+// v3.16). Refusing every key that spells "<<" costs nothing: an index where it
+// is NOT a merge is rejected by Helm anyway (unknown field "<<").
 func checkKey(k *yaml.Node) error {
 	switch {
 	case k.Kind != yaml.ScalarNode:
 		return fmt.Errorf("helm: index.yaml line %d: a mapping key is %s, not a plain string", k.Line, describeNode(k))
 	case k.Style&yaml.TaggedStyle != 0:
 		return fmt.Errorf("helm: index.yaml line %d: mapping key %q carries an explicit tag (%s)", k.Line, k.Value, k.Tag)
-	case k.Tag == yamlMergeTag:
+	case k.Tag == yamlMergeTag, strings.TrimSpace(k.Value) == "<<":
 		return fmt.Errorf("helm: index.yaml line %d: merge keys (<<) are not supported", k.Line)
 	}
 	return nil
