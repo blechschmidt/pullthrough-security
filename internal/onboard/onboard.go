@@ -178,23 +178,25 @@ func pipSnippet(ctx Context, b Backend) Snippet {
 
 func cargoSnippet(ctx Context, b Backend) Snippet {
 	sparse := "sparse+" + ctx.mount(b) + "/"
-	body := "[registries.crates-io]\nprotocol = \"sparse\"\n\n" +
-		"[source.crates-io]\nreplace-with = \"proxy\"\n\n" +
+	body := "[source.crates-io]\nreplace-with = \"proxy\"\n\n" +
 		"[source.proxy]\nregistry = \"" + sparse + "\"\n"
-	notes := append(ctx.authNote(),
-		"~/.cargo/config.toml. The trailing slash on the sparse+ URL is required.")
-	if ctx.Token != "" {
-		body += "\n[registries.proxy]\ntoken = \"" + ctx.Token + "\"\n"
-		notes = append(notes, "cargo sends the token as an Authorization header to the registry.")
-	} else {
-		notes = append(notes, "If the proxy requires auth, add a [registries.proxy] token = \"...\" entry or set CARGO_REGISTRIES_PROXY_TOKEN.")
-	}
+	// The snippet deliberately carries no token: cargo sends a registry token for
+	// crate downloads only when the registry's config.json declares
+	// "auth-required", which the proxy's does not — so a token in this file reads
+	// the index and is then refused the download (verified with the real cargo;
+	// see docs/clients/cargo.md). Printing one would only leak it into a file
+	// that cannot use it.
 	return Snippet{
 		Title: fmt.Sprintf("cargo — %s (config.toml)", b.Name),
 		File:  "cargo-config.toml",
 		Lang:  "toml",
 		Body:  body,
-		Notes: notes,
+		Notes: []string{
+			"$CARGO_HOME/config.toml (~/.cargo/config.toml unless CARGO_HOME is set, as it is in the official Rust image). The trailing slash on the sparse+ URL is required.",
+			"Without a file: cargo --config 'source.crates-io.replace-with=\"proxy\"' --config 'source.proxy.registry=\"" + sparse + "\"' <command>. CARGO_SOURCE_* environment variables do not work.",
+			"cargo cannot present a proxy token for crate downloads. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
+				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
+		},
 	}
 }
 
@@ -224,20 +226,21 @@ func nugetSnippet(ctx Context, b Backend) Snippet {
 	sb.WriteString("  <packageSources>\n    <clear />\n")
 	fmt.Fprintf(&sb, "    <add key=\"proxy\" value=\"%s\" />\n", index)
 	sb.WriteString("  </packageSources>\n")
-	if ctx.Token != "" {
-		sb.WriteString("  <packageSourceCredentials>\n    <proxy>\n")
-		sb.WriteString("      <add key=\"Username\" value=\"pullthrough\" />\n")
-		fmt.Fprintf(&sb, "      <add key=\"ClearTextPassword\" value=\"%s\" />\n", ctx.Token)
-		sb.WriteString("    </proxy>\n  </packageSourceCredentials>\n")
-	}
 	sb.WriteString("</configuration>\n")
+	// No <packageSourceCredentials>: NuGet sends a source's credentials only in
+	// answer to a Basic challenge, and the proxy challenges with Bearer, so
+	// credentials in this file are never sent (verified with the real dotnet; see
+	// docs/clients/nuget.md).
 	return Snippet{
 		Title: fmt.Sprintf("NuGet — %s (NuGet.config)", b.Name),
 		File:  "NuGet.config",
 		Lang:  "xml",
 		Body:  sb.String(),
-		Notes: append(ctx.authNote(),
-			"Or: dotnet nuget add source "+index+" --name proxy."),
+		Notes: []string{
+			"<clear /> removes nuget.org and every inherited source. The source must be HTTPS.",
+			"NuGet cannot present a proxy token. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
+				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
+		},
 	}
 }
 
@@ -249,9 +252,14 @@ func mavenSnippet(ctx Context, b Backend) Snippet {
 	fmt.Fprintf(&sb, "      <url>%s</url>\n", mount)
 	sb.WriteString("      <mirrorOf>*</mirrorOf>\n    </mirror>\n  </mirrors>\n")
 	if ctx.Token != "" {
+		// The token goes into a request header: Maven presents a <username> and
+		// <password> only in answer to a Basic challenge, which the proxy does not
+		// send (verified with the real mvn; see docs/clients/maven.md).
 		sb.WriteString("  <servers>\n    <server>\n      <id>pullthrough</id>\n")
-		sb.WriteString("      <username>pullthrough</username>\n")
-		fmt.Fprintf(&sb, "      <password>%s</password>\n", ctx.Token)
+		sb.WriteString("      <configuration>\n        <httpHeaders>\n          <property>\n")
+		sb.WriteString("            <name>Authorization</name>\n")
+		fmt.Fprintf(&sb, "            <value>Bearer %s</value>\n", xmlText(ctx.Token))
+		sb.WriteString("          </property>\n        </httpHeaders>\n      </configuration>\n")
 		sb.WriteString("    </server>\n  </servers>\n")
 	}
 	sb.WriteString("</settings>\n")
@@ -261,8 +269,14 @@ func mavenSnippet(ctx Context, b Backend) Snippet {
 		Lang:  "xml",
 		Body:  sb.String(),
 		Notes: append(ctx.authNote(),
-			"~/.m2/settings.xml. Gradle: repositories { maven { url = uri(\""+mount+"\") } }."),
+			"~/.m2/settings.xml. The token is sent as an Authorization header configured on the mirror's <server>.",
+			"Gradle: an init script that replaces every repository with maven { url = uri(\""+mount+"\") } (docs/clients/maven.md)."),
 	}
+}
+
+// xmlText escapes a value for use as XML character data.
+func xmlText(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
 }
 
 func dockerSnippet(ctx Context, b Backend) Snippet {
@@ -334,7 +348,9 @@ func composerSnippet(ctx Context, b Backend) Snippet {
 		"    { \"packagist.org\": false }\n  ]\n}\n"
 	notes := append(ctx.authNote(),
 		"Add to composer.json. The \"packagist.org\": false entry keeps Composer from fetching around the proxy.",
-		"Or, for every project at once: composer config --global repos.packagist composer "+mount)
+		"Or, for every project at once: composer config --global repositories.packagist.org false && "+
+			"composer config --global repositories.pullthrough composer "+mount+
+			" (redefining \"packagist\" alone does not switch packagist.org off).")
 	if ctx.Token != "" {
 		notes = append(notes, "Auth: composer config --global --auth http-basic."+ctx.Host+" pullthrough "+ctx.Token)
 	}
@@ -396,19 +412,24 @@ func conanSnippet(ctx Context, b Backend) Snippet {
 }
 
 func condaSnippet(ctx Context, b Backend) Snippet {
-	mount := ctx.mount(b)
+	// A channel alias turns a channel NAME into an address under the proxy, so an
+	// upstream named after its channel ("conda-forge") keeps `-c conda-forge` and
+	// environment files working unchanged. default_channels is emptied: it
+	// otherwise still points at repo.anaconda.com.
+	alias := WithUserinfo(ctx.ProxyBase+"/v1", ctx.Token)
 	var sb strings.Builder
-	sb.WriteString("# Add the proxied channel to ~/.condarc (or pass -c <url>).\n")
-	fmt.Fprintf(&sb, "conda config --add channels %s\n", mount)
-	fmt.Fprintf(&sb, "conda config --set custom_channels.%s %s\n", b.Name, mount)
-	fmt.Fprintf(&sb, "# e.g. install a package through the proxy:\n# conda install -c %s numpy\n", mount)
+	sb.WriteString("# ~/.condarc (read by conda, mamba and micromamba)\n")
+	fmt.Fprintf(&sb, "channel_alias: %s\n", alias)
+	fmt.Fprintf(&sb, "channels:\n  - %s\n", b.Name)
+	sb.WriteString("default_channels: []\n")
 	return Snippet{
 		Title: fmt.Sprintf("Conda — %s", b.Name),
-		File:  "conda-channel.sh",
-		Lang:  "bash",
+		File:  "condarc",
+		Lang:  "yaml",
 		Body:  sb.String(),
 		Notes: append(ctx.authNote(),
-			"The proxy serves the channel's per-subdir repodata.json indices and .conda/.tar.bz2 packages under "+mount+". Packages are verified against the SHA-256 their subdir's repodata.json declares."),
+			"The alias maps the channel name \""+b.Name+"\" to "+ctx.mount(b)+"; every other channel name needs an upstream of that name on the proxy.",
+			"Packages are verified against the SHA-256 their subdir's repodata.json declares."),
 	}
 }
 
@@ -431,18 +452,25 @@ func cranSnippet(ctx Context, b Backend) Snippet {
 func hexSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
 	var sb strings.Builder
-	sb.WriteString("# Register the proxied repository with mix/hex, then fetch through it.\n")
-	fmt.Fprintf(&sb, "mix hex.repo add %s %s\n", b.Name, mount)
-	sb.WriteString("# Or point the default repo at the proxy for a project:\n")
-	fmt.Fprintf(&sb, "#   export HEX_MIRROR=%s   # (or set :hex_mirror in config)\n", mount)
-	fmt.Fprintf(&sb, "# e.g. fetch deps through the proxy:\n# HEX_MIRROR=%s mix deps.get\n", mount)
+	sb.WriteString("# The proxy as the mirror of the default hexpm repository.\n")
+	fmt.Fprintf(&sb, "export HEX_MIRROR=%s\n", mount)
+	sb.WriteString("mix local.hex --force   # Hex itself, through the proxy\n")
+	sb.WriteString("mix deps.get\n")
+	// Deliberately no `mix hex.repo add`: the registry is signed for the
+	// repository name "hexpm" and Hex rejects it under any other name. And no
+	// token: neither Mix (which downloads Hex) nor Hex (towards a mirror) sends
+	// one (verified with the real mix; see docs/clients/hex.md).
 	return Snippet{
 		Title: fmt.Sprintf("Hex (Elixir) — %s", b.Name),
-		File:  "hex-repo.sh",
+		File:  "hex-mirror.sh",
 		Lang:  "bash",
 		Body:  sb.String(),
-		Notes: append(ctx.authNote(),
-			"The proxy serves the signed /names, /versions and /packages registry resources and the /tarballs/<name>-<version>.tar artifacts under "+mount+". Tarballs are verified against the outer_checksum their /packages resource declares."),
+		Notes: []string{
+			"Do not add the proxy with `mix hex.repo add`: the registry is signed for the repository name hexpm.",
+			"mix cannot present a proxy token. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
+				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
+			"Tarballs are verified against the outer_checksum their signed /packages resource declares.",
+		},
 	}
 }
 
@@ -482,17 +510,19 @@ func jsrSnippet(ctx Context, b Backend) Snippet {
 func hackageSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
 	var sb strings.Builder
-	sb.WriteString("# Add the proxied repository to ~/.cabal/config (legacy remote-repo form).\n")
-	fmt.Fprintf(&sb, "repository %s\n  url: %s\n", b.Name, mount)
-	sb.WriteString("# Then refresh the index and build through the proxy:\n")
-	sb.WriteString("cabal update\ncabal build\n")
+	// The stanza keeps the name hackage.haskell.org and changes its URL; with
+	// `secure: True` cabal keeps verifying Hackage's signed (TUF) metadata, which
+	// the proxy serves byte for byte.
+	sb.WriteString("# ~/.config/cabal/config (older installations: ~/.cabal/config)\n")
+	fmt.Fprintf(&sb, "repository hackage.haskell.org\n  url: %s/\n  secure: True\n", mount)
 	return Snippet{
 		Title: fmt.Sprintf("Hackage (Haskell) — %s", b.Name),
 		File:  "cabal-config",
 		Lang:  "ini",
 		Body:  sb.String(),
 		Notes: append(ctx.authNote(),
-			"The proxy serves the 01-index package index, TUF metadata, .cabal descriptions and the /package/<name>-<version>/<name>-<version>.tar.gz sdists under "+mount+". Sdists are verified against the SHA-256 the sibling package.json TUF target metadata declares, where available."),
+			"Then: cabal update. Sdists are verified against the SHA-256 their signed package.json declares, where available.",
+			"cabal has no credential setting the proxy can use; it downloads with curl, which takes credentials for the proxy's host from ~/.netrc once ~/.curlrc contains the line `netrc` (docs/clients/hackage.md)."),
 	}
 }
 

@@ -91,10 +91,14 @@ func TestSnippetsMountAndToken(t *testing.T) {
 	}{
 		{"npm", []string{"registry=https://proxy.example.com/v1/x/", "_authToken=secret-tok"}, true},
 		{"pip", []string{"index-url = https://secret-tok@proxy.example.com/v1/x/simple/"}, true},
-		{"cargo", []string{"sparse+https://proxy.example.com/v1/x/", `token = "secret-tok"`}, true},
+		// cargo cannot present a proxy token for crate downloads (docs/clients/cargo.md).
+		{"cargo", []string{"sparse+https://proxy.example.com/v1/x/", "auth.anonymousRoles"}, false},
 		{"go", []string{"GOPROXY=https://proxy.example.com/v1/x,direct", "password secret-tok"}, true},
-		{"nuget", []string{"/v1/x/v3/index.json", "ClearTextPassword", "secret-tok"}, true},
-		{"maven", []string{"<url>https://proxy.example.com/v1/x</url>", "<password>secret-tok</password>"}, true},
+		// NuGet sends source credentials only in answer to a Basic challenge, which
+		// the proxy does not send (docs/clients/nuget.md).
+		{"nuget", []string{"/v1/x/v3/index.json", "<clear />", "auth.anonymousRoles"}, false},
+		// Maven sends the token as a header configured on the mirror's <server>.
+		{"maven", []string{"<url>https://proxy.example.com/v1/x</url>", "<value>Bearer secret-tok</value>"}, true},
 		{"docker", []string{"docker login proxy.example.com", "secret-tok",
 			// Explicit reference: the upstream is the repository's first component.
 			"docker pull proxy.example.com/x/library/alpine:latest",
@@ -122,6 +126,10 @@ func TestSnippetsMountAndToken(t *testing.T) {
 				if !strings.Contains(blob, want) {
 					t.Errorf("%s snippet missing %q\n--- body ---\n%s", c.typ, want, blob)
 				}
+			}
+			// A client that cannot send a token must not be handed one in a file.
+			if got := strings.Contains(blob, "secret-tok"); got != c.mustHaveTk {
+				t.Errorf("%s snippet carries the token: %v, want %v\n--- body ---\n%s", c.typ, got, c.mustHaveTk, blob)
 			}
 		})
 	}

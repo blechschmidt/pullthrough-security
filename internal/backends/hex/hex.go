@@ -34,9 +34,10 @@
 // pins the repository public key still performs its own end-to-end signature
 // verification.
 //
-// Client configuration points mix/hex at "<publicBase>/v1/<name>" (see
-// docs/clients.md): `mix hex.repo add <name> <publicBase>/v1/<name>` and set
-// `HEX_MIRROR`/`:hex_mirror` for the default repo.
+// Client configuration points mix/hex at "<publicBase>/v1/<name>" as the mirror
+// of the default hexpm repository — `HEX_MIRROR` — and never as a separately
+// named repository (`mix hex.repo add`): the registry resources are signed for
+// the repository name hexpm (see docs/clients/hex.md).
 package hex
 
 import (
