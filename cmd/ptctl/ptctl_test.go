@@ -93,7 +93,7 @@ func TestSnippetsMountAndToken(t *testing.T) {
 		{"pip", []string{"index-url = https://secret-tok@proxy.example.com/v1/x/simple/"}, true},
 		// cargo cannot present a proxy token for crate downloads (docs/clients/cargo.md).
 		{"cargo", []string{"sparse+https://proxy.example.com/v1/x/", "auth.anonymousRoles"}, false},
-		{"go", []string{"GOPROXY=https://proxy.example.com/v1/x,direct", "password secret-tok"}, true},
+		{"go", []string{"go env -w GOPROXY=https://proxy.example.com/v1/x\n", "password secret-tok"}, true},
 		// NuGet sends source credentials only in answer to a Basic challenge, which
 		// the proxy does not send (docs/clients/nuget.md).
 		{"nuget", []string{"/v1/x/v3/index.json", "<clear />", "auth.anonymousRoles"}, false},

@@ -17,7 +17,7 @@ func TestForKnownTypesEmbedMountAndToken(t *testing.T) {
 	}{
 		{"npm", []string{"registry=https://proxy.example.com/v1/x/", "_authToken=secret-tok"}},
 		{"pip", []string{"index-url = https://secret-tok@proxy.example.com/v1/x/simple/"}},
-		{"go", []string{"GOPROXY=https://proxy.example.com/v1/x,direct", "password secret-tok"}},
+		{"go", []string{"go env -w GOPROXY=https://proxy.example.com/v1/x\n", "password secret-tok"}},
 		{"docker", []string{"docker login proxy.example.com", "secret-tok"}},
 	}
 	for _, tc := range cases {
@@ -232,7 +232,8 @@ func TestComposerSnippetSwitchesPackagistOff(t *testing.T) {
 func TestCondaSnippetUsesAChannelAlias(t *testing.T) {
 	snip := For(ctx("tok"), Backend{Name: "conda-forge", Type: "conda"})[0]
 	for _, want := range []string{
-		"channel_alias: https://tok@proxy.example.com/v1\n",
+		// The token as a password: conda sends nothing for a user name alone.
+		"channel_alias: https://pullthrough:tok@proxy.example.com/v1\n",
 		"channels:\n  - conda-forge\n",
 		"default_channels: []",
 	} {

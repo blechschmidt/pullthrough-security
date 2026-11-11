@@ -110,6 +110,18 @@ func For(ctx Context, b Backend) []Snippet {
 		return []Snippet{jsrSnippet(ctx, b)}
 	case "hackage":
 		return []Snippet{hackageSnippet(ctx, b)}
+	case "julia":
+		return []Snippet{juliaSnippet(ctx, b)}
+	case "cpan":
+		return []Snippet{cpanSnippet(ctx, b)}
+	case "openvsx":
+		return []Snippet{openvsxSnippet(ctx, b)}
+	case "nix":
+		return []Snippet{nixSnippet(ctx, b)}
+	case "homebrew":
+		return []Snippet{homebrewSnippet(ctx, b)}
+	case "huggingface":
+		return []Snippet{huggingfaceSnippet(ctx, b)}
 	case "ansible":
 		return []Snippet{ansibleSnippet(ctx, b)}
 	case "puppet":
@@ -202,7 +214,7 @@ func cargoSnippet(ctx Context, b Backend) Snippet {
 
 func goSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
-	body := "go env -w GOPROXY=" + mount + ",direct\n"
+	body := "# No \",direct\" after the address: with it, go fetches from the version-control host what the proxy answers 404 or 410 for.\ngo env -w GOPROXY=" + mount + "\n"
 	notes := append(ctx.authNote(),
 		"The GOPROXY protocol is path-relative, so no URL rewriting is needed.")
 	if ctx.Token != "" {
@@ -416,7 +428,9 @@ func condaSnippet(ctx Context, b Backend) Snippet {
 	// upstream named after its channel ("conda-forge") keeps `-c conda-forge` and
 	// environment files working unchanged. default_channels is emptied: it
 	// otherwise still points at repo.anaconda.com.
-	alias := WithUserinfo(ctx.ProxyBase+"/v1", ctx.Token)
+	// The token is the password of a user name: conda sends no credentials for
+	// a URL that has a user name alone (verified with the real client).
+	alias := withLogin(ctx.ProxyBase+"/v1", ctx.Token)
 	var sb strings.Builder
 	sb.WriteString("# ~/.condarc (read by conda, mamba and micromamba)\n")
 	fmt.Fprintf(&sb, "channel_alias: %s\n", alias)
@@ -454,7 +468,8 @@ func hexSnippet(ctx Context, b Backend) Snippet {
 	var sb strings.Builder
 	sb.WriteString("# The proxy as the mirror of the default hexpm repository.\n")
 	fmt.Fprintf(&sb, "export HEX_MIRROR=%s\n", mount)
-	sb.WriteString("mix local.hex --force   # Hex itself, through the proxy\n")
+	sb.WriteString("# Hex itself comes through the proxy as well:\n")
+	sb.WriteString("mix local.hex --force\n")
 	sb.WriteString("mix deps.get\n")
 	// Deliberately no `mix hex.repo add`: the registry is signed for the
 	// repository name "hexpm" and Hex rejects it under any other name. And no
@@ -520,9 +535,12 @@ func hackageSnippet(ctx Context, b Backend) Snippet {
 		File:  "cabal-config",
 		Lang:  "ini",
 		Body:  sb.String(),
-		Notes: append(ctx.authNote(),
+		// No authNote: the stanza carries no credential and has no placeholder
+		// for one — cabal has no setting for it.
+		Notes: []string{
 			"Then: cabal update. Sdists are verified against the SHA-256 their signed package.json declares, where available.",
-			"cabal has no credential setting the proxy can use; it downloads with curl, which takes credentials for the proxy's host from ~/.netrc once ~/.curlrc contains the line `netrc` (docs/clients/hackage.md)."),
+			"The stanza carries no token: cabal has no credential setting the proxy can use. Where the proxy requires one, cabal's curl takes it from ~/.netrc ('machine " + ctx.Host + " login pullthrough password <your proxy token>') once ~/.curlrc contains the line `netrc` (docs/clients/hackage.md).",
+		},
 	}
 }
 
@@ -640,10 +658,23 @@ func registryHost(raw, fallback string) string {
 }
 
 func gitSnippet(ctx Context, b Backend) Snippet {
-	mount := WithUserinfo(ctx.mount(b), ctx.Token)
-	body := "git clone " + mount + "/<owner>/<repo>.git\n"
-	notes := append(ctx.authNote(),
-		"Read-only (fetch/clone). Set an existing checkout with: git remote set-url origin "+ctx.mount(b)+"/<owner>/<repo>.git.")
+	mount := ctx.mount(b)
+	body := ""
+	notes := ctx.authNote()
+	if ctx.Token != "" {
+		// The token goes into the user's global Git configuration, scoped to the
+		// proxy, and is sent with every request to it. Clone URLs, .git/config
+		// and .gitmodules then carry no credential — and Git never has to be
+		// challenged: a token in the URL is one Git only sends in answer to a
+		// Basic challenge, which the proxy does not send (verified with the real
+		// client; docs/clients/git.md).
+		body += "# Present your token with every request to the proxy (kept in your global Git configuration):\n" +
+			"git config --global http." + ctx.ProxyBase + "/.extraHeader \"Authorization: Bearer " + ctx.Token + "\"\n\n"
+		notes = append(notes, "The token is stored in ~/.gitconfig, not in clone URLs. Remove it with: git config --global --unset http."+ctx.ProxyBase+"/.extraHeader.")
+	}
+	body += "git clone " + mount + "/<owner>/<repo>.git\n"
+	notes = append(notes,
+		"Read-only (fetch/clone). Set an existing checkout with: git remote set-url origin "+mount+"/<owner>/<repo>.git.")
 	// Rewriting the forge's base URL sends existing clone URLs, submodules and
 	// dependency manifests through the proxy without editing them.
 	if u, err := url.Parse(strings.TrimSpace(b.URL)); err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http") {

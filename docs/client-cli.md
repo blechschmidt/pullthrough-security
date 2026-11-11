@@ -51,9 +51,21 @@ registry credential. The same token is used for the public gateway (the
 Generates per–package-manager configuration for the proxy's enabled backends:
 `.npmrc`, `pip.conf`, Cargo `config.toml`, `GOPROXY`, `NuGet.config`, Maven
 `settings.xml`, `docker login`, `helm repo add`, Bundler/Composer, APT
-`sources.list`, YUM `.repo`, Terraform, and Git — whatever the proxy actually
-runs. When a `--token` is supplied, the credential form of each snippet is
-emitted inline (treat the output as a secret).
+`sources.list`, YUM `.repo`, Terraform, Git and the rest — whatever the proxy
+actually runs. When a `--token` is supplied, a snippet carries it where the
+generator has the client's credential form (treat the output as a secret).
+
+The snippets are a starting point; the reference is the
+[client guide](clients.md), whose configurations are executed with the real
+clients. Where the two differ, the guide is right. Known differences:
+
+- With a token, the snippets for Composer, apt, dnf, R, Bazel, Deno (JSR),
+  r10k and dart print the configuration without credentials; each of those
+  pages says how the client presents a token.
+- `docker login` and `helm registry login` are printed although the Docker
+  Engine and Helm's OCI client cannot log in to a proxy that requires a token
+  ([why](clients.md#clients-that-cannot-present-a-token)).
+- A `generic` upstream has no client of its own: only its address is printed.
 
 ```bash
 # Auto-discover backends from the proxy and print annotated snippets:
