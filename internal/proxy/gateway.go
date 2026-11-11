@@ -1556,11 +1556,25 @@ func (g *Gateway) streamFull(w http.ResponseWriter, r *http.Request, entry *cach
 
 // writeFetchError maps a fetch/load failure onto an appropriate client status:
 // an upstream StatusError is relayed with its status (and, for a redirect, the
-// mount-mapped Location the backend supplied); context cancellation is silent;
-// everything else is a 502 Bad Gateway.
+// mount-mapped Location the backend supplied); the cancellation of this
+// request is silent; the cancellation of a fetch this request merely shared is
+// a retryable 503; everything else is a 502 Bad Gateway.
 func (g *Gateway) writeFetchError(w http.ResponseWriter, r *http.Request, name string, resolved *backends.Resolved, err error) {
-	if errors.Is(err, context.Canceled) || errors.Is(r.Context().Err(), context.Canceled) {
-		return // client went away; nothing to report
+	if errors.Is(r.Context().Err(), context.Canceled) {
+		return // this request's client went away; there is no one to answer
+	}
+	if errors.Is(err, context.Canceled) {
+		// The fetch was cancelled, but not by this request: its client is still
+		// here. Concurrent requests for one artifact share a single upstream
+		// fetch, which runs on behalf of the request that started it; when that
+		// request's client hangs up, the fetch ends for everyone who was waiting
+		// on it. Returning without a word — right for a client that left — would
+		// have the server answer this one with an empty "200 OK": an empty
+		// artifact under a success status. Say what happened instead. The
+		// request is safe to repeat, and the repeat starts a fetch of its own.
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "the upstream fetch this request was waiting for was interrupted; retry", http.StatusServiceUnavailable)
+		return
 	}
 	if errors.Is(err, coalesce.ErrOverloaded) {
 		// Too many distinct upstream fetches are already in flight; shed load with
