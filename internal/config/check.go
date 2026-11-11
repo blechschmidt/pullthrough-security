@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/blechschmidt/pullthrough-security/internal/clientip"
 	"github.com/blechschmidt/pullthrough-security/internal/secrets"
 	"gopkg.in/yaml.v3"
 )
@@ -163,6 +164,7 @@ func (c *Config) checkConsistency(r *Report) {
 	}
 
 	c.checkLLMPackageScan(r)
+	c.checkTrustedProxies(r)
 
 	// Tracing enabled without an exporter endpoint is the documented inert state,
 	// but worth flagging so an operator who meant to export spans notices.
@@ -530,4 +532,22 @@ func collectStrictIssues(data []byte, r *Report) {
 		return
 	}
 	// A non-TypeError here is a YAML syntax error; decodeLenient reports it.
+}
+
+// checkTrustedProxies flags a server.trustedProxies entry that trusts every
+// address. Such an entry makes X-Forwarded-For authoritative from any peer, so
+// any client can attribute its downloads — in the download log and the audit
+// log — to an address of its choosing. It is loadable (a lab behind a NAT may
+// want it), hence a warning rather than an error.
+func (c *Config) checkTrustedProxies(r *Report) {
+	for i, entry := range c.Server.TrustedProxies {
+		prefix, err := clientip.ParsePrefix(entry)
+		if err != nil {
+			continue // reported as an error by Validate
+		}
+		if prefix.Bits() == 0 {
+			r.warnf(fmt.Sprintf("server.trustedProxies[%d]", i),
+				"%q trusts every peer: any client can then forge its address with an X-Forwarded-For header, and the download log and audit log will record the forged one; list only your load balancers or ingress controllers", entry)
+		}
+	}
 }

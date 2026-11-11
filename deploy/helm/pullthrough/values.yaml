@@ -355,6 +355,21 @@ config:
     file: /var/lib/pullthrough/audit/audit.log
     hmacKey: ${PTS_AUDIT_HMAC_KEY}
 
+  # Download log (docs/download-log.md): which package was downloaded from which
+  # client address — the admin dashboard's Downloads tab. It is on by default and
+  # kept in memory, per replica. Behind an ingress controller or a load balancer,
+  # list that controller under server.trustedProxies, or every download is
+  # attributed to its address:
+  #   server:
+  #     trustedProxies: ["10.42.3.17", "10.42.5.9"]   # the ingress controller's pods
+  # Name the controller itself — its pod addresses, or the dedicated subnet its
+  # nodes are on — and NOT the cluster's pod network as a whole: every peer in a
+  # trusted range is believed, so a workload pod that reaches the proxy directly
+  # from such a range chooses the address its downloads are logged under.
+  # To keep the log across restarts give every replica a file of its OWN
+  # (downloadLog.path) in a directory the proxy can write to; several replicas
+  # must not share one file.
+
   observability:
     metrics: true
     metricsPath: /metrics

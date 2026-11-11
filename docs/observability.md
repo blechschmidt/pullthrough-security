@@ -207,6 +207,16 @@ gauges include a `__global__` series for the global policy.
 `dropped_total{sink}`, `retries_total{sink}`, `queue_depth` (gauge).
 Commit scan: `pullthrough_scan_queue_depth`, `pullthrough_scan_pending` (gauges).
 
+### Download log (Task 176)
+
+`pullthrough_downloadlog_` + `entries_total{outcome}` (served\|not_modified\|blocked\|not_found\|error),
+`retained_entries` and `capacity_entries` (gauges), `evicted_total` (dropped
+because the log was full), `expired_total` (dropped by the retention),
+`persisted_total`, `persist_errors_total`, `persist_lost_total`. A climbing
+`evicted_total` with a flat `expired_total` means `downloadLog.maxEntries` is too
+small to cover `downloadLog.retention`; a non-zero `persist_errors_total` means
+`downloadLog.path` cannot be written. See [download-log.md](download-log.md).
+
 ### Supply-chain graph (Task 33)
 
 `pullthrough_provgraph_nodes`, `pullthrough_provgraph_edges` (gauges),

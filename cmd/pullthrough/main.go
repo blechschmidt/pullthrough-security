@@ -63,6 +63,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/contentscan"
 	"github.com/blechschmidt/pullthrough-security/internal/continuity"
 	"github.com/blechschmidt/pullthrough-security/internal/depfirewall"
+	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
 	"github.com/blechschmidt/pullthrough-security/internal/egress"
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
 	"github.com/blechschmidt/pullthrough-security/internal/git"
@@ -309,7 +310,28 @@ func run() error {
 		return err
 	}
 
-	sshServer, err := buildGitSSHServer(cfg, gitRT, logger)
+	// Download log (Task 176): the bounded, queryable record of which package was
+	// downloaded from which client address, shown in the admin UI's Downloads
+	// tab. It is fed by the HTTP gateway and by the Git-over-SSH endpoint, so it
+	// is built before either; it is closed on shutdown, which writes the entries
+	// not yet persisted to its file.
+	downloadLog, err := buildDownloadLog(cfg, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := downloadLog.Close(); cerr != nil {
+			logger.Error("closing the download log", "error", cerr)
+		}
+	}()
+	// The client address every record attributes a request to: the TCP peer, or
+	// what a trusted reverse proxy forwarded (server.trustedProxies).
+	clientIPResolver, err := buildClientIPResolver(cfg, logger)
+	if err != nil {
+		return err
+	}
+
+	sshServer, err := buildGitSSHServer(cfg, gitRT, downloadLog, logger)
 	if err != nil {
 		return err
 	}
@@ -855,7 +877,7 @@ func run() error {
 		return err
 	}
 
-	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, logger)
+	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, logger)
 
 	// Only the coordination leader emits expiry notifications (the scan still runs
 	// on every replica so each node's gauge is populated); then start the loop.
@@ -951,6 +973,7 @@ func run() error {
 		WebhookHandler:  webhookHandler,
 		PullObserver:    newPrewarmPullObserver(prewarmSvc),
 		CacheFed:        cacheFed,
+		DownloadLog:     downloadLog,
 	}, proxy.Options{
 		HTTPAddr:         cfg.Server.HTTPAddr,
 		ReadTimeout:      cfg.Server.ReadTimeout,
@@ -968,6 +991,7 @@ func run() error {
 		WebhookPath:      watchWebhookPath(cfg),
 		FIPSEnabled:      fipsMode.Enabled,
 		RegistryRoot:     buildRegistryRoot(cfg, logger),
+		ClientIP:         clientIPResolver,
 	})
 	if err != nil {
 		return err
@@ -4584,7 +4608,7 @@ func buildGitMirror(cfg *config.Config, logger *slog.Logger) *git.Mirror {
 // It requires both server.sshAddr and an active mirror; otherwise it returns a
 // nil server (SSH disabled). The return type is the proxy.SSHServer interface so
 // a disabled endpoint is a true nil interface, not a typed-nil pointer.
-func buildGitSSHServer(cfg *config.Config, gitRT *gitRuntime, logger *slog.Logger) (proxy.SSHServer, error) {
+func buildGitSSHServer(cfg *config.Config, gitRT *gitRuntime, downloads *downloadlog.Log, logger *slog.Logger) (proxy.SSHServer, error) {
 	if cfg.Server.SSHAddr == "" {
 		return nil, nil
 	}
@@ -4601,6 +4625,7 @@ func buildGitSSHServer(cfg *config.Config, gitRT *gitRuntime, logger *slog.Logge
 		NoClientAuth:       cfg.Git.SSH.NoClientAuth,
 		Mirror:             gitRT.mirror,
 		Resolve:            gitRT.resolve,
+		OnFetch:            sshFetchRecorder(downloads, ecosystemMap(cfg)),
 		Logger:             logger,
 	})
 	if err != nil {

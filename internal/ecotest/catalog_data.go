@@ -46,6 +46,9 @@ var catalog = []Ecosystem{
 		Good:     Package{Name: "cfg-if", Version: "1.0.0", CoordinateVersion: "1.0.0"},
 		Bad:      &Package{Name: "itoa", Version: "1.0.11", CoordinateVersion: "1.0.11"},
 		Artifact: `^cargo:crates\.io/api/v1/crates/cfg-if/1\.0\.0/download$`,
+		// The download log is asserted with the real cargo: which crate went to
+		// which client address, and which was refused.
+		DownloadLog: true,
 	},
 	{
 		ID:       "go",
@@ -56,6 +59,10 @@ var catalog = []Ecosystem{
 		// Not rsc.io/sampler or golang.org/x/text: rsc.io/quote depends on both.
 		Bad:      &Package{Name: "github.com/pkg/errors", Version: "v0.9.1", CoordinateVersion: "v0.9.1"},
 		Artifact: `^go:rsc\.io/quote/@v/v1\.5\.2\.zip$`,
+		// The download log is asserted with the real go command. Its refused
+		// module is refused at the version's .info — the first request that names
+		// it — which the log records although it is a metadata request.
+		DownloadLog: true,
 	},
 	{
 		ID:     "nuget",

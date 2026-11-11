@@ -120,6 +120,14 @@ type Ecosystem struct {
 	Requests []string
 	// Timeout bounds one client run (default 10 minutes).
 	Timeout time.Duration
+	// DownloadLog additionally asserts the proxy's download log (Task 176): the
+	// good package must be logged as served to the address of each client
+	// machine that installed it, and the bad package as refused for the machine
+	// that tried — read through the admin API, as the console's Downloads tab
+	// reads it. Every client step reaches the proxy from a source address of its
+	// own, so "which address" is something the proxy observed. It needs a bad
+	// package (the refused attempt is half of the assertion).
+	DownloadLog bool
 	// Notes documents anything a reader needs to know about the choices above.
 	Notes string
 }
@@ -258,6 +266,10 @@ func Validate() error {
 			if sameName && !versionExact {
 				add("%s: the bad package's pin (%s) would also match the good package", e.ID, e.Bad.pinName())
 			}
+		}
+
+		if e.DownloadLog && e.Bad == nil {
+			add("%s: DownloadLog needs a bad package (the refused attempt is half of what it asserts)", e.ID)
 		}
 
 		if _, err := e.Script(); err != nil {

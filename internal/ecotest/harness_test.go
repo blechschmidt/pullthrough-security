@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -427,9 +428,9 @@ type run struct {
 	proxyExited chan error // receives the proxy's exit status exactly once
 	llm         *MockLLM
 
-	toolDir  string       // host directory mounted at containerToolDir
-	bridge   net.Listener // unix socket relaying container connections to the proxy
-	listenTo string       // the proxy's loopback host:port
+	toolDir  string         // host directory mounted at containerToolDir
+	bridges  []net.Listener // per-step unix sockets relaying container connections to the proxy
+	listenTo string         // the proxy's loopback host:port
 
 	benign, malicious string // fixture commit hashes
 
@@ -604,13 +605,25 @@ func (r *run) setup() error {
 // startBridge prepares what a network-less client container needs to reach the
 // proxy: a directory (mounted read-only at containerToolDir) holding
 //
-//   - p.sock   a unix socket; every connection to it is relayed to the proxy
 //   - helper   this test binary, which runs in the container as the forwarder
 //   - run.sh   the wrapper that starts the forwarder and then the client script
+//
+// and, added per client step by openBridge, the unix socket that step's
+// forwarder relays to.
 //
 // The directory lives directly under the system temp dir because a unix socket
 // path is limited to ~100 bytes.
 func (r *run) startBridge() error {
+	// Every client step reaches the proxy from a loopback address of its own
+	// (see openBridge). That needs a system on which all of 127.0.0.0/8 is
+	// local; say so here rather than as a refused connection in a client log.
+	if probe, err := net.Listen("tcp", net.JoinHostPort(clientAddr(1), "0")); err != nil {
+		return fmt.Errorf("cannot bind %s: the harness gives every client step its own loopback source address, "+
+			"which needs a system where all of 127.0.0.0/8 is local (Linux): %w", clientAddr(1), err)
+	} else {
+		_ = probe.Close()
+	}
+
 	dir, err := os.MkdirTemp("", "ecot-")
 	if err != nil {
 		return err
@@ -619,34 +632,6 @@ func (r *run) startBridge() error {
 		return err
 	}
 	r.toolDir = dir
-
-	sock := filepath.Join(dir, "p.sock")
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		return err
-	}
-	// The container user differs per image; connecting needs write permission.
-	if err := os.Chmod(sock, 0o666); err != nil {
-		_ = ln.Close()
-		return err
-	}
-	r.bridge = ln
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return // listener closed on teardown
-			}
-			go func() {
-				up, err := net.Dial("tcp", r.listenTo)
-				if err != nil {
-					_ = conn.Close()
-					return
-				}
-				relay(conn, up)
-			}()
-		}
-	}()
 
 	if err := copyFile(r.s.helper, filepath.Join(dir, "helper"), 0o755); err != nil {
 		return fmt.Errorf("installing the forwarder: %w", err)
@@ -666,11 +651,67 @@ func (r *run) startBridge() error {
 	return os.WriteFile(filepath.Join(dir, "run.sh"), []byte(wrapper), 0o755)
 }
 
-// forwarderEnv is the environment that turns the helper into the forwarder.
-func (r *run) forwarderEnv() []string {
+// clientAddr is the loopback address the n-th client step (1-based) reaches the
+// proxy from.
+func clientAddr(n int) string {
+	return fmt.Sprintf("127.77.%d.%d", (n/250)%250, n%250+1)
+}
+
+// stepBridge is one client step's way to the proxy.
+type stepBridge struct {
+	// sock is the name of the step's unix socket inside the tool directory.
+	sock string
+	// addr is the source address the proxy sees for the step.
+	addr string
+}
+
+// openBridge creates the unix socket for one client step. Every connection the
+// step's forwarder makes to it is relayed to the proxy from a loopback address
+// that belongs to this step alone — the step is a client machine with an
+// address of its own. That is what lets the suite assert what the proxy's
+// download log says about "which address pulled this package": the address is
+// one the proxy observed on the connection, different for every step.
+func (r *run) openBridge() (*stepBridge, error) {
+	n := len(r.bridges) + 1
+	b := &stepBridge{sock: fmt.Sprintf("p%d.sock", n), addr: clientAddr(n)}
+	sock := filepath.Join(r.toolDir, b.sock)
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		return nil, err
+	}
+	// The container user differs per image; connecting needs write permission.
+	if err := os.Chmod(sock, 0o666); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	r.bridges = append(r.bridges, ln)
+
+	dialer := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(b.addr)}, Timeout: 10 * time.Second}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return // listener closed on teardown
+			}
+			go func() {
+				up, err := dialer.Dial("tcp", r.listenTo)
+				if err != nil {
+					_ = conn.Close()
+					return
+				}
+				relay(conn, up)
+			}()
+		}
+	}()
+	return b, nil
+}
+
+// forwarderEnv is the environment that turns the helper into the forwarder of
+// one client step.
+func (r *run) forwarderEnv(b *stepBridge) []string {
 	return []string{
 		envForwardListen + "=" + r.listenTo,
-		envForwardUnix + "=" + containerToolDir + "/p.sock",
+		envForwardUnix + "=" + containerToolDir + "/" + b.sock,
 		envForwardReady + "=" + containerReadyFile,
 	}
 }
@@ -787,6 +828,9 @@ func (r *run) scenario() {
 		}
 	}
 
+	// second is the second good install (step 4), kept for the download-log check.
+	var second *clientResult
+
 	// 2. The artifact is in the proxy's cache.
 	var artifact *cacheEntry
 	if e.applies(CheckCached) {
@@ -813,7 +857,8 @@ func (r *run) scenario() {
 			r.fail(CheckCacheHit, "reading metrics: %v", err)
 			return
 		}
-		if _, err := r.clientStep("good-2", e.Good, true); err != nil {
+		second, err = r.clientStep("good-2", e.Good, true)
+		if err != nil {
 			r.fail(CheckCacheHit, "second install failed: %v", err)
 			return
 		}
@@ -838,15 +883,25 @@ func (r *run) scenario() {
 			return
 		}
 		r.pass(CheckCacheHit, "second install served from cache (%.0f cache hits; %s not re-fetched)", hits, artifact.Key)
-	} else if _, err := r.clientStep("good-2", e.Good, true); err != nil {
+	} else if second, err = r.clientStep("good-2", e.Good, true); err != nil {
 		// Nothing cacheable to assert on, but a repeat pull must still work.
 		r.fail(CheckInstall, "second install failed: %v", err)
 		return
 	}
 
 	// 5. The bad package is refused and the real client fails.
+	var refused *clientResult
 	if e.applies(CheckBlock) {
-		r.assertBlocked()
+		if refused = r.assertBlocked(); refused == nil {
+			return
+		}
+	}
+
+	// 6. The download log attributes all of it to the right client addresses.
+	if e.applies(CheckDownloadLog) {
+		if err := r.assertDownloadLog(first, second, refused); err != nil {
+			r.fail(CheckDownloadLog, "%v", err)
+		}
 	}
 }
 
@@ -904,7 +959,10 @@ func (r *run) assertScanAdmitted() error {
 // malicious, and the real client failed. A client that fails for any other
 // reason (a flaky upstream, a typo in the package name) does not count, and is
 // retried.
-func (r *run) assertBlocked() {
+//
+// It returns the client step whose refusal was attributed to the policy, or nil
+// when the check failed.
+func (r *run) assertBlocked() *clientResult {
 	bad := *r.e.Bad
 	var lastDetail string
 	for attempt := 1; attempt <= r.s.attempts; attempt++ {
@@ -918,7 +976,7 @@ func (r *run) assertBlocked() {
 		if res.exitCode == 0 {
 			r.fail(CheckBlock, "the client INSTALLED %s although its source commit %s is flagged malicious (see %s)",
 				packageLabel(bad), shortSHA(r.malicious), res.logPath)
-			return
+			return nil
 		}
 
 		// The audit record is written as part of handling the refused request,
@@ -949,14 +1007,204 @@ func (r *run) assertBlocked() {
 		}
 		if hit.Commit != r.malicious {
 			r.fail(CheckBlock, "the block cites commit %s, want the malicious fixture commit %s", hit.Commit, r.malicious)
-			return
+			return nil
 		}
 		r.pass(CheckBlock, "proxy refused %s (403 %s, source commit %s flagged by the LLM) and %s failed with exit %d",
 			hit.Artifact, hit.Code, shortSHA(hit.Commit), r.e.Client, res.exitCode)
-		return
+		return res
 	}
 	r.fail(CheckBlock, "%s", lastDetail)
 	r.dumpProxyLog(40)
+	return nil
+}
+
+// downloadEntry is one entry of the proxy's download log, as the admin API
+// returns it.
+type downloadEntry struct {
+	ID        uint64 `json:"id"`
+	ClientIP  string `json:"clientIp"`
+	Ecosystem string `json:"ecosystem"`
+	Upstream  string `json:"upstream"`
+	Package   string `json:"package"`
+	Version   string `json:"version"`
+	Kind      string `json:"kind"`
+	Outcome   string `json:"outcome"`
+	Gate      string `json:"gate"`
+	Code      string `json:"code"`
+	Cache     string `json:"cache"`
+	Status    int    `json:"status"`
+	Bytes     int64  `json:"bytes"`
+	UserAgent string `json:"userAgent"`
+	Path      string `json:"path"`
+}
+
+// downloads queries the proxy's download log through the admin API — the
+// endpoint the console's Downloads tab reads.
+func (r *run) downloads(query url.Values) ([]downloadEntry, error) {
+	query.Set("limit", "1000")
+	var resp struct {
+		Enabled bool            `json:"enabled"`
+		Total   int             `json:"total"`
+		Entries []downloadEntry `json:"entries"`
+	}
+	if err := r.getJSON("/admin/api/downloads?"+query.Encode(), &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Enabled {
+		return nil, errors.New("the download log is not enabled in the proxy (it is on by default)")
+	}
+	return resp.Entries, nil
+}
+
+// assertDownloadLog checks what the proxy's download log says about the run
+// (Task 176): which package went to which client address.
+//
+// first and second are the two successful installs of the good package, refused
+// the client step whose pull of the bad package the policy refused. Each of
+// them reached the proxy from its own address, so the assertion is exact:
+//
+//   - the good package is logged as served to the first machine's address and to
+//     the second's — the second from the cache;
+//   - the bad package is logged as blocked, by the admission policy, for the
+//     third machine's address, and as served to nobody;
+//   - filtering by one machine's address lists that machine's entries only.
+//
+// The entry is written when the proxy has finished answering, a moment after the
+// client received the last byte; a short wait bridges that.
+func (r *run) assertDownloadLog(first, second, refused *clientResult) error {
+	e := r.e
+	bad := *e.Bad
+	if first == nil || second == nil || refused == nil {
+		return errors.New("an earlier step did not produce the client runs the download log is checked against")
+	}
+	if !r.s.openNetwork && (first.addr == second.addr || first.addr == refused.addr || second.addr == refused.addr) {
+		return fmt.Errorf("the client steps did not get distinct addresses: %s, %s, %s", first.addr, second.addr, refused.addr)
+	}
+
+	coordinate := func(p Package) url.Values {
+		v := url.Values{"ecosystem": {e.Upstream.Type}, "package": {p.pinName()}}
+		if p.CoordinateVersion != "" {
+			v.Set("version", p.CoordinateVersion)
+		}
+		return v
+	}
+	// find returns the entry for p from addr, waiting briefly for it.
+	find := func(p Package, addr, outcome string) (*downloadEntry, []downloadEntry, error) {
+		var entries []downloadEntry
+		for wait := 0; wait < 20; wait++ {
+			if wait > 0 {
+				time.Sleep(250 * time.Millisecond)
+			}
+			query := coordinate(p)
+			query.Set("outcome", outcome)
+			var err error
+			if entries, err = r.downloads(query); err != nil {
+				return nil, nil, err
+			}
+			for i := range entries {
+				if entries[i].ClientIP == addr {
+					return &entries[i], entries, nil
+				}
+			}
+		}
+		return nil, entries, nil
+	}
+	summarize := func(entries []downloadEntry) string {
+		if len(entries) == 0 {
+			return "(none)"
+		}
+		parts := make([]string, 0, len(entries))
+		for _, d := range entries {
+			parts = append(parts, fmt.Sprintf("%s %s@%s %s", d.ClientIP, d.Package, d.Version, d.Outcome))
+		}
+		return strings.Join(parts, "; ")
+	}
+
+	// The good package, served to both machines.
+	one, all, err := find(e.Good, first.addr, "served")
+	if err != nil {
+		return fmt.Errorf("reading the download log: %w", err)
+	}
+	if one == nil {
+		return fmt.Errorf("the log has no served entry for %s from the first client's address %s; served entries for it: %s",
+			packageLabel(e.Good), first.addr, summarize(all))
+	}
+	two, all, err := find(e.Good, second.addr, "served")
+	if err != nil {
+		return fmt.Errorf("reading the download log: %w", err)
+	}
+	if two == nil {
+		return fmt.Errorf("the log has no served entry for %s from the second client's address %s; served entries for it: %s",
+			packageLabel(e.Good), second.addr, summarize(all))
+	}
+	for _, d := range []*downloadEntry{one, two} {
+		if d.Ecosystem != e.Upstream.Type || d.Upstream != e.Upstream.Name || d.Bytes <= 0 || d.Status != http.StatusOK || d.Kind != "package" {
+			return fmt.Errorf("the entry for %s from %s is %+v; want a served package of ecosystem %s with a size", packageLabel(e.Good), d.ClientIP, *d, e.Upstream.Type)
+		}
+	}
+	if e.applies(CheckCacheHit) && two.Cache != "HIT" {
+		return fmt.Errorf("the second client's entry for %s reports cache %q, want HIT", packageLabel(e.Good), two.Cache)
+	}
+
+	// The bad package: refused for the third machine, served to nobody.
+	block, all, err := find(bad, refused.addr, "blocked")
+	if err != nil {
+		return fmt.Errorf("reading the download log: %w", err)
+	}
+	if block == nil {
+		return fmt.Errorf("the log has no blocked entry for %s from %s; blocked entries for it: %s", packageLabel(bad), refused.addr, summarize(all))
+	}
+	if block.Gate != "policy" || block.Code != "malicious" || block.Bytes != 0 {
+		return fmt.Errorf("the refused pull of %s is logged as %+v; want it blocked by the policy gate with code malicious and no bytes sent", packageLabel(bad), *block)
+	}
+	servedBad := coordinate(bad)
+	servedBad.Set("outcome", "served")
+	leaked, err := r.downloads(servedBad)
+	if err != nil {
+		return fmt.Errorf("reading the download log: %w", err)
+	}
+	if len(leaked) > 0 {
+		return fmt.Errorf("the log shows the refused %s as served: %s", packageLabel(bad), summarize(leaked))
+	}
+
+	// Filtering by an address lists that machine's entries and nobody else's.
+	if !r.s.openNetwork {
+		for _, tc := range []struct {
+			who  string
+			step *clientResult
+			pkg  Package
+		}{{"first", first, e.Good}, {"second", second, e.Good}, {"refused", refused, bad}} {
+			entries, err := r.downloads(url.Values{"ip": {tc.step.addr}})
+			if err != nil {
+				return fmt.Errorf("reading the download log: %w", err)
+			}
+			found := false
+			for _, d := range entries {
+				if d.ClientIP != tc.step.addr {
+					return fmt.Errorf("filtering by %s returned an entry of %s", tc.step.addr, d.ClientIP)
+				}
+				if strings.EqualFold(d.Package, tc.pkg.pinName()) {
+					found = true
+				}
+			}
+			if !found {
+				return fmt.Errorf("filtering by the %s client's address %s does not list %s: %s", tc.who, tc.step.addr, packageLabel(tc.pkg), summarize(entries))
+			}
+		}
+		// And the machine that was refused got nothing of the bad package.
+		got, err := r.downloads(url.Values{"ip": {refused.addr}, "outcome": {"served"}, "package": {bad.pinName()}})
+		if err != nil {
+			return fmt.Errorf("reading the download log: %w", err)
+		}
+		if len(got) > 0 {
+			return fmt.Errorf("the refused client %s has served entries for %s: %s", refused.addr, packageLabel(bad), summarize(got))
+		}
+	}
+
+	r.pass(CheckDownloadLog, "%s served to %s (%s) and %s (%s); %s blocked by %s (%s) for %s",
+		packageLabel(e.Good), one.ClientIP, one.Cache, two.ClientIP, two.Cache,
+		packageLabel(bad), block.Gate, block.Code, block.ClientIP)
+	return nil
 }
 
 // clientStep runs the client for a package that must install, retrying on
@@ -993,6 +1241,8 @@ type clientResult struct {
 	output   string
 	logPath  string
 	version  string
+	// addr is the source address the proxy saw this client step come from.
+	addr string
 }
 
 var clientVersionRE = regexp.MustCompile(`(?m)^ECOTEST_CLIENT_VERSION=(.*)$`)
@@ -1057,18 +1307,29 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 	logPath := filepath.Join(r.root, "logs", "client-"+step+".log")
 	env := r.clientEnv(pkg)
 
+	// This step is a client machine of its own: its traffic reaches the proxy
+	// from an address no other step uses.
+	bridge, err := r.openBridge()
+	if err != nil {
+		return nil, fmt.Errorf("client step %s: opening the bridge to the proxy: %w", step, err)
+	}
+
 	var out []byte
 	var runErr error
 	started := time.Now()
 	switch r.e.runner() {
 	case RunnerDind:
-		out, runErr = r.runInDind(ctx, name, scratch, env)
+		out, runErr = r.runInDind(ctx, name, scratch, env, bridge)
 	default:
-		out, runErr = r.runInContainer(ctx, name, scratch, env)
+		out, runErr = r.runInContainer(ctx, name, scratch, env, bridge)
 	}
 	_ = os.WriteFile(logPath, out, 0o644)
 
-	res := &clientResult{output: string(out), logPath: logPath}
+	res := &clientResult{output: string(out), logPath: logPath, addr: bridge.addr}
+	if r.s.openNetwork && r.e.runner() != RunnerDind {
+		// On the host network the client talks to the proxy directly.
+		res.addr = "127.0.0.1"
+	}
 	if m := clientVersionRE.FindStringSubmatch(res.output); m != nil {
 		res.version = strings.TrimSpace(m[1])
 	}
@@ -1088,7 +1349,7 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 				step, res.exitCode, logPath, tail(res.output, 15))
 		}
 	}
-	r.t.Logf("[%s] client step %s: exit %d in %s (log: %s)", r.e.ID, step, res.exitCode,
+	r.t.Logf("[%s] client step %s (from %s): exit %d in %s (log: %s)", r.e.ID, step, res.addr, res.exitCode,
 		time.Since(started).Round(time.Millisecond), logPath)
 	return res, nil
 }
@@ -1096,14 +1357,14 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 // runInContainer runs the client script in a throwaway container of the
 // ecosystem's image. The container has no network; the wrapper starts the
 // forwarder that makes the proxy — and only the proxy — reachable.
-func (r *run) runInContainer(ctx context.Context, name, scratch string, env []string) ([]byte, error) {
+func (r *run) runInContainer(ctx context.Context, name, scratch string, env []string, bridge *stepBridge) ([]byte, error) {
 	args := []string{"run", "--rm", "--name", name, "-v", scratch + ":/work", "-w", "/work"}
 	script := "/work/client.sh"
 	if r.s.openNetwork {
 		args = append(args, "--network", "host")
 	} else {
 		args = append(args, "--network", "none", "-v", r.toolDir+":"+containerToolDir+":ro")
-		env = append(env, r.forwarderEnv()...)
+		env = append(env, r.forwarderEnv(bridge)...)
 		script = containerToolDir + "/run.sh"
 	}
 	if r.e.User != "" {
@@ -1132,7 +1393,7 @@ func (r *run) runInContainer(ctx context.Context, name, scratch string, env []st
 // client it has no network: the daemon reaches the proxy through the forwarder,
 // and — as in a deployment without direct egress — cannot fall back to Docker
 // Hub when the proxy refuses an image.
-func (r *run) runInDind(ctx context.Context, name, scratch string, env []string) ([]byte, error) {
+func (r *run) runInDind(ctx context.Context, name, scratch string, env []string, bridge *stepBridge) ([]byte, error) {
 	r.containers = append(r.containers, name)
 	args := []string{"run", "-d", "--privileged", "--name", name, "--network", "none",
 		"-v", scratch + ":/work", "-v", r.toolDir + ":" + containerToolDir + ":ro",
@@ -1146,7 +1407,7 @@ func (r *run) runInDind(ctx context.Context, name, scratch string, env []string)
 	defer func() { _ = exec.Command("docker", "rm", "-f", "-v", name).Run() }()
 
 	fwd := []string{"exec", "-d"}
-	for _, kv := range r.forwarderEnv() {
+	for _, kv := range r.forwarderEnv(bridge) {
 		fwd = append(fwd, "-e", kv)
 	}
 	fwd = append(fwd, name, containerToolDir+"/helper")
@@ -1481,8 +1742,8 @@ func (r *run) teardown() {
 	if r.llm != nil {
 		_ = r.llm.Close()
 	}
-	if r.bridge != nil {
-		_ = r.bridge.Close()
+	for _, ln := range r.bridges {
+		_ = ln.Close()
 	}
 	if r.toolDir != "" {
 		_ = os.RemoveAll(r.toolDir)

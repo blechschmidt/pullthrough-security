@@ -154,6 +154,7 @@ bazel fetch --repo="@$PKG_NAME"
 - **Upstream:** `cargo` (type `cargo`) → https://index.crates.io
 - **Installs:** `cfg-if@1.0.0` — pinned as `{ecosystem: cargo, name: cfg-if, version: 1.0.0}`
 - **Refused:** `itoa@1.0.11` — pinned as `{ecosystem: cargo, name: itoa, version: 1.0.11}`
+- **Download log:** asserted — each client run reaches the proxy from its own address; the log must show the installed package for each of them and the refused one as blocked ([download-log.md](download-log.md))
 
 ```sh
 #!/bin/sh
@@ -434,6 +435,7 @@ git -C repo log --oneline -1
 - **Upstream:** `go` (type `go`) → https://proxy.golang.org
 - **Installs:** `rsc.io/quote@v1.5.2` — pinned as `{ecosystem: go, name: rsc.io/quote, version: v1.5.2}`
 - **Refused:** `github.com/pkg/errors@v0.9.1` — pinned as `{ecosystem: go, name: github.com/pkg/errors, version: v0.9.1}`
+- **Download log:** asserted — each client run reaches the proxy from its own address; the log must show the installed package for each of them and the refused one as blocked ([download-log.md](download-log.md))
 
 ```sh
 #!/bin/sh

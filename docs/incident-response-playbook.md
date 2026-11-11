@@ -540,6 +540,16 @@ Confirmed malicious?
    curl -fsS -X DELETE -H "Authorization: Bearer $PTS_ADMIN_TOKEN" \
      "$BASE/admin/api/cache/entry?key=<cache-key>"
    ```
+   Then find out **who has it**. The [download log](download-log.md) lists every
+   client address (and authenticated identity) the package was served to, and
+   every one that was refused it (read; any role):
+   ```sh
+   ptctl downloads --package evil-stealer                    # every pull and refused attempt
+   ptctl downloads --package evil-stealer --outcome served   # the machines to clean up
+   ptctl downloads --package evil-stealer --summary          # one line per client address
+   ```
+   or open the admin console at `#downloads?package=evil-stealer`. For each
+   affected machine, `ptctl downloads --ip <address>` shows what else it pulled.
 
 3. **Harden immediately** (administer) with a lockdown `block` so the coordinate
    is denied cluster-wide **ahead of the next feed refresh** on every replica —

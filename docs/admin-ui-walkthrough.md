@@ -64,7 +64,9 @@ Every view shares the top bar:
 Below it is the **tab bar**. Tabs follow the WAI-ARIA tabs pattern (arrow keys
 move between them), and the red **Incident** tab is always first so the
 kill-switch is one keystroke away during a crisis. An emergency-lockdown banner
-(hidden here) appears across every tab when a lockdown is active.
+(hidden here) appears across every tab when a lockdown is active. The address
+bar names the open tab (`…/admin/#secops`), so a tab can be bookmarked or
+linked, and survives a reload.
 
 The **Overview** tab itself is the at-a-glance landing page: cache hit ratio,
 bytes served, cached-artifact count and load/eviction counters, plus the full
@@ -88,6 +90,49 @@ verdicts as they happen (`stream: live`), backed by a rolling-window summary:
   flagged by the `vulnscan` and `content_scan` gates in real time.
 
 Each feed row drills down into the owning subsystem's own tab.
+
+---
+
+## Downloads — which package went to which address
+
+![Downloads tab](images/admin-ui/downloads.png)
+
+The **Downloads** tab is the [download log](download-log.md): one entry per
+package a client pulled through the proxy — and per attempt an admission gate
+refused — with the **client address** it came from. It is the tab to open when a
+package turns out to be malicious (*who has it?*) or a build host turns out to
+be compromised (*what did it pull?*). It is on by default.
+
+- **Filter bar** — client IP or CIDR, package (a name or `name@version`, `*` as a
+  wildcard), ecosystem, outcome, time range, and a free-text search over
+  address, package, path, client tool, identity and reason.
+- **Stat tiles** — downloads and bytes sent, blocked attempts, distinct client
+  addresses and packages, and the log's own bounds (entries held / capacity,
+  retention, whether it is persisted).
+- **Client addresses** and **Packages** — the busiest of each for the current
+  filter, with their blocked counts.
+- **Download log** — newest first: when, client address, package and version,
+  outcome (`served`, `blocked · <gate>`, `not found`, …), cache status, size and
+  the authenticated identity.
+
+**Click an address** to see everything it pulled; **click a package** to see
+everyone who pulled it. An address shown with a second line (`via 10.20.255.10`)
+reached the proxy through a trusted reverse proxy: the address is the client's,
+taken from `X-Forwarded-For`, and the second line is the proxy it came through
+([`server.trustedProxies`](download-log.md#the-client-address-and-reverse-proxies)).
+
+![Download detail](images/admin-ui/downloads-detail.png)
+
+A row opens the detail drawer: every field of the entry — here a Go module the
+dependency firewall refused, with the gate, its reason code and its explanation,
+the client tool and the identity it authenticated as — and the two pivots as
+buttons, plus *Open dossier* for the package. *Export CSV* downloads every
+matching entry; the address bar carries the filter
+(`…/admin/#downloads?package=cfg-if`), so a view can be linked from a ticket.
+
+This screenshot was captured with clients on a private network pulling real
+crates, Go modules and npm packages through the proxy, two of them
+authenticating with tokens and two reaching it through a load balancer.
 
 ---
 

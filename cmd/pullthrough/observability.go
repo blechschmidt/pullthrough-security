@@ -51,6 +51,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/coord"
 	"github.com/blechschmidt/pullthrough-security/internal/depfirewall"
 	"github.com/blechschmidt/pullthrough-security/internal/dossier"
+	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
 	"github.com/blechschmidt/pullthrough-security/internal/egress"
 	"github.com/blechschmidt/pullthrough-security/internal/extension"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
@@ -215,6 +216,7 @@ func buildObservability(
 	cacheFed *cachefed.Federation,
 	keyRotationSvc *keyrotation.Service,
 	webAuthnSvc *webauthn.Service,
+	downloads *downloadlog.Log,
 	logger *slog.Logger,
 ) observability {
 	var obs observability
@@ -511,6 +513,7 @@ func buildObservability(
 		bindClientMTLSMetrics(collector, clientMTLS)
 		bindSecOpsMetrics(collector, secopsHub)
 		bindMeteringMetrics(collector, meter)
+		bindDownloadLogMetrics(collector, downloads)
 		bindQueryAPIMetrics(collector, queryEngine)
 		bindMCPServerMetrics(collector, mcpSrv)
 		bindGRPCServerMetrics(collector, grpcSrv)
@@ -524,7 +527,7 @@ func buildObservability(
 	}
 
 	if cfg.Observability.Admin {
-		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, adminAuthSvc, vexExporter, logger)
+		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, adminAuthSvc, vexExporter, logger)
 		if err != nil {
 			// Cache inspection is the admin minimum; if it cannot be wired we log and
 			// run without the surface rather than aborting the whole proxy.
@@ -5236,6 +5239,7 @@ func buildAdminServer(
 	mcpSrv *mcpserver.Server,
 	grpcSrv *grpcapi.Server,
 	meter *metering.Meter,
+	downloads *downloadlog.Log,
 	adminAuthSvc *adminauth.Service,
 	vexExporter *vexexport.Service,
 	logger *slog.Logger,
@@ -5477,6 +5481,12 @@ func buildAdminServer(
 	}
 	if meter.Enabled() {
 		opts.Metering = meter
+	}
+	// The download log (Task 176) is handed over even when disabled: the admin
+	// API then reports it as disabled, which is what tells an operator looking
+	// at an empty Downloads tab why it is empty.
+	if downloads != nil {
+		opts.DownloadLog = downloads
 	}
 	// Outbound VEX authoring (Task 137): the service is built once in
 	// buildObservability so the metrics bridge and this endpoint share it.
@@ -5778,6 +5788,51 @@ func bindMeteringMetrics(c *metrics.Collector, m *metering.Meter) {
 	c.BindCounter("pullthrough_metering_budget_alerts_total",
 		"Total per-tenant budget-threshold alerts fired.",
 		func() float64 { return float64(m.MetricsSnapshot().BudgetAlerts) })
+}
+
+// bindDownloadLogMetrics surfaces the download log's (Task 176) telemetry: how
+// many downloads were recorded by outcome, how full the log is, and whether its
+// on-disk copy is keeping up. Safe to call with a nil or disabled log (the
+// metrics are simply absent).
+func bindDownloadLogMetrics(c *metrics.Collector, l *downloadlog.Log) {
+	if !l.Enabled() {
+		return
+	}
+	c.BindCounterVec("pullthrough_downloadlog_entries_total",
+		"Total package downloads recorded in the download log, by outcome (served, not_modified, blocked, not_found, error).",
+		[]string{"outcome"},
+		func() []metrics.LabeledValue {
+			st := l.Stats()
+			out := make([]metrics.LabeledValue, 0, len(downloadlog.Outcomes()))
+			for _, outcome := range downloadlog.Outcomes() {
+				out = append(out, metrics.LabeledValue{
+					Labels: []string{string(outcome)},
+					Value:  float64(st.ByOutcome[outcome]),
+				})
+			}
+			return out
+		})
+	c.BindGauge("pullthrough_downloadlog_retained_entries",
+		"Number of entries the download log currently holds.",
+		func() float64 { return float64(l.Stats().Retained) })
+	c.BindGauge("pullthrough_downloadlog_capacity_entries",
+		"Maximum number of entries the download log holds (downloadLog.maxEntries).",
+		func() float64 { return float64(l.Stats().Capacity) })
+	c.BindCounter("pullthrough_downloadlog_evicted_total",
+		"Total download-log entries dropped because the log was full.",
+		func() float64 { return float64(l.Stats().Evicted) })
+	c.BindCounter("pullthrough_downloadlog_expired_total",
+		"Total download-log entries dropped because they outlived the retention.",
+		func() float64 { return float64(l.Stats().Expired) })
+	c.BindCounter("pullthrough_downloadlog_persisted_total",
+		"Total download-log entries written to the on-disk log (downloadLog.path).",
+		func() float64 { return float64(l.Stats().Persisted) })
+	c.BindCounter("pullthrough_downloadlog_persist_errors_total",
+		"Total failed writes of the on-disk download log.",
+		func() float64 { return float64(l.Stats().PersistErrors) })
+	c.BindCounter("pullthrough_downloadlog_persist_lost_total",
+		"Total download-log entries that left the log before they could be written to disk.",
+		func() float64 { return float64(l.Stats().PersistLost) })
 }
 
 // bindQueryAPIMetrics surfaces the federated query engine's cost telemetry

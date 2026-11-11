@@ -63,7 +63,14 @@ type meteredWriter struct {
 	status      int
 	bytes       int64
 	wroteHeader bool
+	// errBody keeps the start of an error response's body. A gate's refusal is a
+	// small JSON document naming its reason code and explanation; the download
+	// log reads them from here. Nothing is kept for a successful response.
+	errBody []byte
 }
+
+// maxErrBody bounds how much of an error response's body is kept.
+const maxErrBody = 8 << 10
 
 func (w *meteredWriter) WriteHeader(code int) {
 	if !w.wroteHeader {
@@ -85,6 +92,9 @@ func (w *meteredWriter) Write(b []byte) (int, error) {
 	if !w.wroteHeader {
 		w.status = http.StatusOK
 		w.wroteHeader = true
+	}
+	if w.status >= http.StatusBadRequest && len(w.errBody) < maxErrBody {
+		w.errBody = append(w.errBody, b[:min(len(b), maxErrBody-len(w.errBody))]...)
 	}
 	n, err := w.ResponseWriter.Write(b)
 	w.bytes += int64(n)

@@ -190,7 +190,7 @@ func (g *Gateway) GateLFSObject(w http.ResponseWriter, r *http.Request, upstream
 		return true
 	}
 	digest := "sha256:" + oid
-	return g.admitLLMPkgScan(w, r, llmScanSubject{
+	admitted := g.admitLLMPkgScan(w, r, llmScanSubject{
 		backend:   upstreamName,
 		ecosystem: llmpkgscan.EcosystemGitLFS,
 		art: llmpkgscan.Artifact{
@@ -209,6 +209,12 @@ func (g *Gateway) GateLFSObject(w http.ResponseWriter, r *http.Request, upstream
 			}
 		},
 	})
+	if !admitted {
+		// The Git backend calls this gate directly, not through gateTrace: name
+		// the refusal in the download log here (Task 176).
+		noteRefusal(r, "llmpkgscan")
+	}
+	return admitted
 }
 
 // ErrPeerRefused is returned by PeerServeGuard for an artifact this proxy has a

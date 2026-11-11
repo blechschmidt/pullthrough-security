@@ -33,6 +33,7 @@
     <button class="tab tab-incident" role="tab" aria-selected="false" data-view="lockdown">Incident</button>
     <button class="tab" role="tab" aria-selected="true" data-view="overview">Overview</button>
     <button class="tab" role="tab" aria-selected="false" data-view="secops">Security Ops</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="downloads">Downloads</button>
     <button class="tab" role="tab" aria-selected="false" data-view="query">Query</button>
     <button class="tab" role="tab" aria-selected="false" data-view="timeline">Timeline</button>
     <button class="tab" role="tab" aria-selected="false" data-view="dossier">Dossier</button>
@@ -117,6 +118,111 @@
           </thead>
           <tbody id="secops-feed-body"></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- Download log (Task 176): which package was downloaded from which address -->
+    <section id="view-downloads" class="view" hidden aria-label="Download log">
+      <div class="toolbar">
+        <label class="visually-hidden" for="downloads-ip">Client IP address or CIDR prefix</label>
+        <input id="downloads-ip" class="input" type="search" placeholder="client IP or CIDR (10.0.0.0/8)" autocomplete="off" spellcheck="false" style="max-width:15rem">
+        <label class="visually-hidden" for="downloads-package">Package</label>
+        <input id="downloads-package" class="input" type="search" placeholder="package (name[@version], * wildcard)" autocomplete="off" spellcheck="false">
+        <label class="visually-hidden" for="downloads-ecosystem">Ecosystem</label>
+        <select id="downloads-ecosystem" class="input" style="max-width:10rem">
+          <option value="" selected>All ecosystems</option>
+        </select>
+        <label class="visually-hidden" for="downloads-outcome">Outcome</label>
+        <select id="downloads-outcome" class="input" style="max-width:9.5rem">
+          <option value="" selected>Any outcome</option>
+          <option value="served">Served</option>
+          <option value="blocked">Blocked</option>
+          <option value="not_modified">Not modified</option>
+          <option value="not_found">Not found</option>
+          <option value="error">Error</option>
+        </select>
+        <label class="visually-hidden" for="downloads-since">Time range</label>
+        <select id="downloads-since" class="input" style="max-width:10.5rem">
+          <option value="" selected>All retained</option>
+          <option value="15m">Last 15 minutes</option>
+          <option value="1h">Last hour</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+        </select>
+        <label class="visually-hidden" for="downloads-search">Search the log</label>
+        <input id="downloads-search" class="input" type="search" placeholder="search (user, tool, path, reason…)" autocomplete="off" spellcheck="false" style="max-width:15rem">
+        <button id="downloads-run" class="btn btn-sm btn-primary" type="button">Apply</button>
+        <button id="downloads-reset" class="btn btn-sm" type="button">Reset</button>
+        <button id="downloads-auto" class="btn btn-sm" type="button" aria-pressed="false" title="Reload the log every few seconds">Auto-refresh: off</button>
+        <button id="downloads-csv" class="btn btn-sm" type="button" title="Download every matching entry as CSV">Export CSV</button>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .7rem">
+        Which package was downloaded from which address. One entry per request for an installable
+        artifact — a crate, a module, a wheel, an image layer, a Git fetch — with the client address,
+        the package coordinate, the outcome and (when clients authenticate) who it was. Requests an
+        admission gate refused are listed too, with the gate that refused them. Click an address to
+        see everything it pulled, or a package to see everyone who pulled it. Enter applies.
+      </p>
+      <div id="downloads-notice" class="panel" role="status" hidden></div>
+      <div id="downloads-cards" class="stat-grid"></div>
+
+      <div class="secops-grid">
+        <div class="panel">
+          <h2>Client addresses <span class="muted">(most pulls first)</span></h2>
+          <div class="table-wrap">
+            <table id="downloads-clients-table">
+              <thead>
+                <tr>
+                  <th scope="col">Client IP</th>
+                  <th scope="col" class="num">Pulls</th>
+                  <th scope="col" class="num">Blocked</th>
+                  <th scope="col" class="num">Packages</th>
+                  <th scope="col">Seen</th>
+                </tr>
+              </thead>
+              <tbody id="downloads-clients-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Packages <span class="muted">(most pulls first)</span></h2>
+          <div class="table-wrap">
+            <table id="downloads-packages-table">
+              <thead>
+                <tr>
+                  <th scope="col">Package</th>
+                  <th scope="col" class="num">Pulls</th>
+                  <th scope="col" class="num">Blocked</th>
+                  <th scope="col" class="num">Clients</th>
+                  <th scope="col">Seen</th>
+                </tr>
+              </thead>
+              <tbody id="downloads-packages-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <h2 style="margin-top:1.1rem">Download log <span id="downloads-meta" class="muted" role="status" aria-live="polite"></span></h2>
+      <div class="table-wrap">
+        <table id="downloads-table">
+          <thead>
+            <tr>
+              <th scope="col">When</th>
+              <th scope="col">Client IP</th>
+              <th scope="col">Package</th>
+              <th scope="col">Version</th>
+              <th scope="col">Outcome</th>
+              <th scope="col">Cache</th>
+              <th scope="col" class="num">Size</th>
+              <th scope="col">Identity</th>
+            </tr>
+          </thead>
+          <tbody id="downloads-body"></tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="margin-top:.7rem">
+        <button id="downloads-more" class="btn btn-sm" type="button" hidden>Load older entries</button>
       </div>
     </section>
 

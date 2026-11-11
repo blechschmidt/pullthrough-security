@@ -17,6 +17,8 @@ import (
 
 	"github.com/blechschmidt/pullthrough-security/internal/backends/generic"
 	"github.com/blechschmidt/pullthrough-security/internal/cachegc"
+	"github.com/blechschmidt/pullthrough-security/internal/clientip"
+	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
 	"github.com/blechschmidt/pullthrough-security/internal/nameguard"
 	"github.com/blechschmidt/pullthrough-security/internal/notify"
@@ -307,6 +309,16 @@ type Config struct {
 	// quarantine/block counts), with durable periodic rollups, an admin Usage tab
 	// and report endpoints, and optional per-tenant budget-threshold alerts.
 	Metering MeteringConfig `yaml:"metering"`
+
+	// DownloadLog configures the download log (Task 176): a bounded, queryable
+	// record of which package was downloaded from which client address — and by
+	// which authenticated identity, when there is one — shown in the admin UI's
+	// Downloads tab and served by the admin API. It answers "who has this
+	// package?" when a package turns out to be malicious, and "what did this
+	// host pull?" when a host is compromised. Requests refused by an admission
+	// gate are recorded as well. It is cheap and bounded (a fixed number of
+	// entries, a retention period), so it is enabled by default.
+	DownloadLog DownloadLogConfig `yaml:"downloadLog"`
 
 	// Secrets configures the master key used to decrypt secret values stored
 	// encrypted at rest.
@@ -687,6 +699,20 @@ type ServerConfig struct {
 	// same upstreams at the host root, through the same access-control and
 	// admission pipeline.
 	Registry RegistryConfig `yaml:"registry"`
+	// TrustedProxies lists the reverse proxies — load balancers, ingress
+	// controllers — that sit between clients and this listener, as IP addresses
+	// or CIDR prefixes ("10.0.0.0/8", "192.168.1.10", "fd00::/8"). When a request
+	// arrives from one of them, the client address is taken from the
+	// X-Forwarded-For header it appended (the right-most entry that is not itself
+	// a trusted proxy) instead of from the TCP connection, so the download log,
+	// the audit log and anomaly detection attribute traffic to the real client
+	// rather than to the balancer.
+	//
+	// The header is believed only from these peers: with the list empty (the
+	// default) it is never read, and a client connecting directly cannot attribute
+	// its requests to another address. List only infrastructure that overwrites or
+	// appends to the header itself; never a network that clients are on.
+	TrustedProxies []string `yaml:"trustedProxies"`
 }
 
 // RegistryConfig configures the host-root Docker/OCI Registry v2 alias. It only
@@ -2134,6 +2160,47 @@ type MeteringBudget struct {
 	MaxBytes int64 `yaml:"maxBytes"`
 	// MaxScanCostMicros caps the cumulative estimated scan/LLM cost.
 	MaxScanCostMicros int64 `yaml:"maxScanCostMicros"`
+}
+
+// DownloadLogConfig configures the download log (Task 176). See
+// docs/download-log.md.
+type DownloadLogConfig struct {
+	// Enabled turns the log on: package downloads are recorded with the client
+	// address they came from, and the admin UI's Downloads tab and the
+	// /api/downloads endpoints serve them. Defaults to true.
+	Enabled bool `yaml:"enabled"`
+	// MaxEntries is how many entries the log holds; when full, the oldest entry
+	// is dropped. An entry typically costs under a kilobyte of memory, and never
+	// more than a few (every field is length-bounded). Zero uses
+	// the built-in default (50000).
+	MaxEntries int `yaml:"maxEntries"`
+	// Retention is how long an entry is kept before it is dropped, in memory and
+	// on disk. Client addresses are personal data in most jurisdictions; this is
+	// the control that keeps the log from becoming an indefinite record of them.
+	// Defaults to 720h (30 days). "0s" disables time-based expiry, leaving only
+	// the MaxEntries bound.
+	Retention time.Duration `yaml:"retention"`
+	// Path is the file the log is persisted to (JSON Lines, one entry per line,
+	// mode 0600) so it survives a restart. Empty keeps the log in memory only.
+	// Each proxy instance needs its own file: in a multi-replica deployment every
+	// replica logs the downloads it served. The directory must be one the proxy
+	// can create files in — the log is kept within its bounds by replacing the
+	// file through a temporary one next to it — or the proxy refuses to start.
+	Path string `yaml:"path"`
+	// IncludeMetadata also records requests for metadata documents — package
+	// indexes, version lists, checksum files — and not only for the packages
+	// themselves. Off by default: metadata requests outnumber downloads many
+	// times over and say what a client looked up, not what it installed.
+	IncludeMetadata bool `yaml:"includeMetadata"`
+}
+
+// MaxEntriesOrDefault returns the log capacity, applying the built-in default
+// when unset.
+func (d DownloadLogConfig) MaxEntriesOrDefault() int {
+	if d.MaxEntries <= 0 {
+		return downloadlog.DefaultMaxEntries
+	}
+	return d.MaxEntries
 }
 
 // PolicyConfig configures the admission-policy engine (Task 9), which gates
@@ -5020,6 +5087,15 @@ func Default() Config {
 			RetryMaxDelay:  30 * time.Second,
 			Timeout:        30 * time.Second,
 		},
+		DownloadLog: DownloadLogConfig{
+			// On by default: recording a download is an in-memory append, the log is
+			// bounded in entries and in time, and "which address pulled this
+			// package" is the first question of every supply-chain incident. It is
+			// kept in memory until an operator names a file to persist it to.
+			Enabled:    true,
+			MaxEntries: downloadlog.DefaultMaxEntries,
+			Retention:  downloadlog.DefaultRetention,
+		},
 		KeyRotation: KeyRotationConfig{
 			// On by default: expiry scanning is cheap, read-only, and never blocks a
 			// pull. It only acts on material the deployment actually configures
@@ -5770,6 +5846,12 @@ func (c *Config) Validate() error {
 	if err := c.validateMetering(); err != nil {
 		return err
 	}
+	if err := c.validateDownloadLog(); err != nil {
+		return err
+	}
+	if err := c.validateTrustedProxies(); err != nil {
+		return err
+	}
 	if err := c.validateEgress(); err != nil {
 		return err
 	}
@@ -6380,6 +6462,37 @@ func validateEgressEntries(field string, entries []string) error {
 			if _, _, err := net.ParseCIDR(entry); err != nil {
 				return fmt.Errorf("config: %s: %w", field, err)
 			}
+		}
+	}
+	return nil
+}
+
+// validateDownloadLog checks the download-log configuration (Task 176): a
+// capacity within the supported range and a non-negative retention.
+func (c *Config) validateDownloadLog() error {
+	d := c.DownloadLog
+	if d.MaxEntries < 0 {
+		return fmt.Errorf("config: downloadLog.maxEntries must not be negative")
+	}
+	if d.MaxEntries > downloadlog.MaxMaxEntries {
+		return fmt.Errorf("config: downloadLog.maxEntries must be at most %d (the log is held in memory; forward the audit log to a SIEM for a longer history)", downloadlog.MaxMaxEntries)
+	}
+	if d.Retention < 0 {
+		return fmt.Errorf("config: downloadLog.retention must not be negative (0s disables time-based expiry)")
+	}
+	return nil
+}
+
+// validateTrustedProxies checks that every server.trustedProxies entry is an IP
+// address or a CIDR prefix. A typo here must fail loudly: an entry that was
+// silently dropped would leave every download attributed to the load balancer.
+func (c *Config) validateTrustedProxies() error {
+	for i, entry := range c.Server.TrustedProxies {
+		if strings.TrimSpace(entry) == "" {
+			return fmt.Errorf("config: server.trustedProxies[%d] is empty", i)
+		}
+		if _, err := clientip.ParsePrefix(entry); err != nil {
+			return fmt.Errorf("config: server.trustedProxies[%d] %q is not an IP address or CIDR prefix", i, entry)
 		}
 	}
 	return nil

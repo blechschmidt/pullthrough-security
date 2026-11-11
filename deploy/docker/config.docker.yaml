@@ -95,6 +95,12 @@ audit:
   file: /var/lib/pullthrough/audit/audit.log
   hmacKey: ${PTS_AUDIT_HMAC_KEY}
 
+# Download log (docs/download-log.md): which package was downloaded from which
+# client address — the admin dashboard's Downloads tab. On by default; the path
+# keeps it across restarts, on the data volume.
+downloadLog:
+  path: /var/lib/pullthrough/downloads.jsonl
+
 observability:
   metrics: true
   metricsPath: /metrics

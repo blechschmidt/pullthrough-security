@@ -137,6 +137,14 @@ func (g *Gateway) auditPull(r *http.Request, backend, ecosystem string, p *auth.
 			ev.Detail["authMethod"] = p.Method
 		}
 	}
+	// Name the package the request resolved to, so the audit trail (and a SIEM
+	// fed from it) can be searched by coordinate and not only by request path.
+	if name, version, ok := pullRecordFrom(r.Context()).coordinate(); ok {
+		ev.Detail["package"] = name
+		if version != "" {
+			ev.Detail["version"] = version
+		}
+	}
 	g.logAudit(r.Context(), ev)
 }
 
@@ -174,11 +182,16 @@ func writeAccessError(w http.ResponseWriter, res auth.Result) {
 	http.Error(w, msg, res.Status)
 }
 
-// clientIP extracts the client source IP, honoring no proxy headers by default
-// (they are client-controlled and untrustworthy); it uses the transport peer
-// address. Operators terminating behind a trusted L7 proxy can map headers
-// upstream of this process.
+// clientIP returns the address a request is attributed to. For a request that
+// came in through the client-facing handler chain this is the address resolved
+// once at the edge (withClientSource): the transport peer, or — when the peer is
+// a configured trusted proxy — the client that proxy forwarded the request for.
+// Forwarding headers are client-controlled and are honored from no other peer.
+// For any other request it is the transport peer address.
 func clientIP(r *http.Request) string {
+	if rec := pullRecordFrom(r.Context()); rec != nil && rec.source.Client != "" {
+		return rec.source.Client
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

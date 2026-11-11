@@ -46,6 +46,18 @@ test: ## Run the test suite
 test-integration: ## Run integration tests (needs MinIO/Git fixtures; see docs)
 	$(GO) test -tags integration $(GOFLAGS) ./...
 
+# --- Download log: which package was downloaded from which address (Task 176) --
+#
+# The integration suite of the admin console's download log, with the Rust and
+# Go ecosystems: the real `cargo` and `go` clients fetch packages from stub
+# registries through the real proxy binary, every client machine from its own
+# source address; the log is asserted through the admin API. Hermetic (loopback
+# only). A missing package manager falls back to a scripted client unless
+# PT_DOWNLOADLOG_CLIENTS=real. See docs/download-log.md.
+.PHONY: test-download-log
+test-download-log: ## Download-log integration suite: real cargo & go through the proxy, one address per client (hermetic)
+	$(GO) test -tags integration -count=1 -v ./internal/e2e/downloadlog/
+
 # --- Ecosystem tests: real package managers through the proxy (Task 170) -----
 #
 # For every supported ecosystem, run the ecosystem's REAL client (npm, pip,
@@ -233,7 +245,17 @@ FUZZ_TARGETS := \
 	internal/llmpkgscan:FuzzParseVerdict \
 	internal/llmpkgscan:FuzzSafePath \
 	internal/llmpkgscan:FuzzBuildTree \
-	internal/llmpkgscan:FuzzToolCalls
+	internal/llmpkgscan:FuzzToolCalls \
+	internal/clientip:FuzzResolve \
+	internal/clientip:FuzzForgedPrefixCannotMoveTheClient \
+	internal/downloadlog:FuzzClean \
+	internal/downloadlog:FuzzGlobMatch \
+	internal/downloadlog:FuzzQueryFromValues \
+	internal/downloadlog:FuzzWriteCSV \
+	internal/downloadlog:FuzzLoad \
+	internal/git:FuzzFetchSniffer \
+	internal/git:FuzzDescribeDownload \
+	internal/git:FuzzAsksForNothingButRefs
 
 .PHONY: fuzz
 fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m)

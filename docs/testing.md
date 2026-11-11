@@ -23,7 +23,10 @@ Docker Engine, `helm`, `bundler`, `composer`, `terraform`, `conan`, `conda`,
 proxy binary and the real registry, with a mock LLM scanning the packages' source
 commits. A good package must install (and re-install from the cache); a bad one
 must be refused and the client must fail. Client containers have no network, so
-an install that succeeds took nothing from anywhere but the proxy. See
+an install that succeeds took nothing from anywhere but the proxy. For cargo and
+go the suite also asserts the [download log](download-log.md): each client run
+reaches the proxy from its own address, and the log must attribute the served
+and the refused package to the right ones. See
 [ecosystem-tests.md](ecosystem-tests.md); the verified client configurations are
 published in [ecosystem-tests-reference.md](ecosystem-tests-reference.md).
 
@@ -35,6 +38,20 @@ tooling and run in CI's `integration` job:
 
 ```sh
 go test -tags integration ./internal/e2e/...
+```
+
+The same job runs the **download-log suite** (`internal/e2e/downloadlog`, Task
+176), which tests "which package was downloaded from which address" with the
+Rust and Go ecosystems against the real `pullthrough` binary: the real `cargo`
+and the real `go` command fetch packages from stub registries through the
+proxy, every client machine from its own source address (one behind a trusted
+reverse proxy, one forging `X-Forwarded-For`), and the log is read through the
+admin API. `PT_DOWNLOADLOG_CLIENTS=real` (set in CI) makes a missing package
+manager a failure instead of falling back to a scripted client. See
+[download-log.md](download-log.md#tests).
+
+```sh
+go test -tags integration ./internal/e2e/downloadlog/
 ```
 
 The **red-team** tier (`internal/redteam`, Task 76) injects a catalog of
@@ -110,6 +127,16 @@ up by default.
 | `internal/llmpkgscan` | `FuzzSafePath` | archive member names → root-relative keys (path traversal) |
 | `internal/llmpkgscan` | `FuzzBuildTree` | package archives → the bounded in-memory tree |
 | `internal/llmpkgscan` | `FuzzToolCalls` | the model's tool-call arguments (list/read/grep) |
+| `internal/clientip` | `FuzzResolve` | peer address + `X-Forwarded-For` → the address a download is logged under |
+| `internal/clientip` | `FuzzForgedPrefixCannotMoveTheClient` | a forged `X-Forwarded-For` in front of what the trusted proxy appended |
+| `internal/downloadlog` | `FuzzClean` | every string a log entry stores (control and invisible format characters, bounds) |
+| `internal/downloadlog` | `FuzzGlobMatch` | the package filter's wildcard matcher, against a reference |
+| `internal/downloadlog` | `FuzzQueryFromValues` | the admin API's filter parameters |
+| `internal/downloadlog` | `FuzzWriteCSV` | the CSV export (formula injection, row integrity) |
+| `internal/downloadlog` | `FuzzLoad` | the on-disk log file after a crash or an edit |
+| `internal/git` | `FuzzFetchSniffer` | a Git client's SSH session stream (pkt-lines) |
+| `internal/git` | `FuzzDescribeDownload` | a Git `upload-pack` request body, plain or gzip |
+| `internal/git` | `FuzzAsksForNothingButRefs` | the decision that keeps a Git request out of the download log |
 
 Each target seeds its corpus (`f.Add`) with real-world samples and a battery of
 known-malformed inputs (truncated archives, unterminated grammars, deeply nested

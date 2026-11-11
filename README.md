@@ -18,8 +18,9 @@ It supports package managers (pip, npm, cargo, Go modules, NuGet), Docker/OCI
 registries, and Git over HTTPS and SSH, with content-addressable caching, LLM
 commit scanning, a sandboxed LLM review of each downloaded package's contents,
 package→commit provenance resolution, admission policy,
-authentication/RBAC/quotas, a tamper-evident audit log, and Prometheus metrics
-plus an admin dashboard.
+authentication/RBAC/quotas, a tamper-evident audit log, a download log that
+shows which package was downloaded from which client address, and Prometheus
+metrics plus an admin dashboard.
 
 > **Documentation:** see [docs/](docs/) for the full operator and user guides —
 > [architecture](docs/architecture.md), [configuration](docs/configuration.md),
@@ -41,6 +42,13 @@ plus an admin dashboard.
 > [docs/ecosystem-tests.md](docs/ecosystem-tests.md); the verified client
 > configuration for each ecosystem is in
 > [docs/ecosystem-tests-reference.md](docs/ecosystem-tests-reference.md).
+>
+> **Who pulled what.** The admin console's Downloads tab (and
+> `GET /admin/api/downloads`, `ptctl downloads`) lists every package download
+> with the client address it came from — and every attempt an admission gate
+> refused — filterable by address, CIDR, package and outcome. It is on by
+> default and tested end to end with the real `cargo` and `go` clients. See
+> [docs/download-log.md](docs/download-log.md).
 
 ## Architecture
 
@@ -87,6 +95,8 @@ For a deeper walkthrough see [docs/architecture.md](docs/architecture.md).
 | `internal/lockdown`      | Emergency lockdown / global kill-switch incident-response mode: one durable, coord-guarded, TTL'd piece of state consulted as the FIRST pull-path check. Modes — `freeze` (serve only already-cached artifacts, block all new upstream fetches), `strict` (flip every observe-mode gate to enforce + harden thresholds, surfaced as an admission signal), and targeted `block` (deny a specific `(eco,name[,version])` coordinate everywhere, ahead of the malfeed refresh). Mandatory reason + incident ID to the Merkle audit log, EventLockdown notify, break-glass override. See [docs/lockdown.md](docs/lockdown.md). |
 | `internal/egress`        | SSRF / outbound-egress guard: a transport-level (RoundTripper + dialer ControlContext) defense-in-depth control installed on every upstream client so all backends are covered uniformly. Enforces a scheme allowlist (https-only by default), an optional per-instance/per-tenant host/domain/CIDR allowlist, and denial of any request resolving to a private/link-local/loopback/unique-local/CGNAT/metadata IP range — re-validated immediately before connect to defeat DNS-rebinding — plus a redirect policy that re-checks every hop under a max-redirect cap. Fail-closed with `EventEgressBlocked` + per-reason metrics + Merkle audit. See [docs/egress-ssrf.md](docs/egress-ssrf.md). |
 | `internal/notify`        | Event-notification & alerting (webhooks + Slack): per-event routing, severity filtering, field redaction, retry-with-backoff, bounded async delivery. See [docs/notifications.md](docs/notifications.md). |
+| `internal/downloadlog`   | The download log: a bounded (entries + retention), queryable, optionally file-persisted record of which package was downloaded from which client address — and by which authenticated identity — including attempts an admission gate refused. Fed by the gateway (and the Git-over-SSH endpoint), served by the admin API's `/api/downloads` endpoints, shown in the console's Downloads tab and by `ptctl downloads`. Filters by address or CIDR, package (with wildcards), ecosystem, outcome, identity and time; aggregates "who pulled this package" / "what did this address pull"; CSV export. See [docs/download-log.md](docs/download-log.md). |
+| `internal/clientip`      | Resolves the address a request is attributed to: the TCP peer, or — for the reverse proxies listed in `server.trustedProxies` — the client they forwarded the request for (`X-Forwarded-For`, read from the right, honored from trusted peers only). One answer per request, shared by the download log, the audit log and anomaly detection. |
 | `internal/provenance`    | `Resolver` interface linking artifacts to source commits.             |
 | `internal/config`        | YAML + environment configuration loading and validation.             |
 | `internal/logging`       | Structured logging via `log/slog`.                                    |

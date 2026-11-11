@@ -85,6 +85,10 @@ func GenerateReference() string {
 		} else {
 			b.WriteString("- **Refused:** not applicable — the ecosystem has no package coordinate for the admission policy to gate\n")
 		}
+		if e.DownloadLog {
+			b.WriteString("- **Download log:** asserted — each client run reaches the proxy from its own address; the log must show " +
+				"the installed package for each of them and the refused one as blocked ([download-log.md](download-log.md))\n")
+		}
 		if e.Notes != "" {
 			fmt.Fprintf(&b, "- **Note:** %s\n", e.Notes)
 		}

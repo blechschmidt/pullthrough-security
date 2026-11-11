@@ -524,8 +524,12 @@ func TestResultLifecycle(t *testing.T) {
 		t.Errorf("packages = %q / %q", r.GoodPackage, r.BadPackage)
 	}
 	for _, name := range checkOrder {
-		if got := r.Status(name); got != StatusSkipped {
-			t.Errorf("npm: initial status of %s = %q, want skipped", name, got)
+		want := StatusSkipped
+		if name == CheckDownloadLog {
+			want = StatusNA // npm does not opt into the download-log assertion
+		}
+		if got := r.Status(name); got != want {
+			t.Errorf("npm: initial status of %s = %q, want %s", name, got, want)
 		}
 	}
 	r.Finalize()
@@ -553,9 +557,30 @@ func TestResultLifecycle(t *testing.T) {
 
 	// Git has no package coordinate and (pass-through) nothing cacheable.
 	g := NewResult(git)
-	for _, name := range []string{CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock} {
+	for _, name := range []string{CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock, CheckDownloadLog} {
 		if got := g.Status(name); got != StatusNA {
 			t.Errorf("git: status of %s = %q, want n/a", name, got)
+		}
+	}
+
+	// The ecosystems the download log is asserted with: every check applies.
+	for _, id := range []string{"cargo", "go"} {
+		e, ok := Lookup(id)
+		if !ok || !e.DownloadLog {
+			t.Fatalf("%s must assert the download log", id)
+		}
+		res := NewResult(e)
+		if got := res.Status(CheckDownloadLog); got != StatusSkipped {
+			t.Errorf("%s: initial status of %s = %q, want skipped (it applies and has not run)", id, CheckDownloadLog, got)
+		}
+		for _, name := range checkOrder {
+			if name != CheckDownloadLog {
+				res.Set(name, StatusPass, "ok")
+			}
+		}
+		res.Finalize()
+		if res.Passed {
+			t.Errorf("%s: the result passed although the download-log check never ran", id)
 		}
 	}
 	g.Set(CheckInstall, StatusPass, "cloned")
@@ -622,8 +647,9 @@ func TestMatrixRoundTrip(t *testing.T) {
 	md := m.Markdown()
 	for _, want := range []string{
 		"❌ failing", "1/3 ecosystems passed", "no result for: cargo",
-		"| npm | npm 10.9.9 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |",
-		"| pip | pip | ✅ | ❌ | ⏭ | ⏭ | ⏭ | ❌ |",
+		"| npm | npm 10.9.9 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |",
+		// pip does not assert the download log: that column is "not applicable".
+		"| pip | pip | ✅ | ❌ | ⏭ | ⏭ | ⏭ | ➖ | ❌ |",
 		"| cargo | — |",
 		"### Failures",
 		`no cache entry \| with a pipe and a newline`,

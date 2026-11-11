@@ -76,6 +76,12 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 	add("vex", cfg.Vulnerabilities.VEX.Dir, false)
 	// Policy-as-code bundle directory.
 	add("policy-bundles", cfg.PolicyEngine.Dir, false)
+	// The download log (downloadLog.path, Task 176) is deliberately not a
+	// source. A snapshot re-reads every metadata file after it has streamed the
+	// cache and fails if the file changed in between — and this one is appended
+	// to within a second of every download and replaced whenever it is
+	// compacted. As a source it would fail every backup taken while the proxy
+	// serves traffic. docs/download-log.md says how to copy it instead.
 
 	return srcs
 }

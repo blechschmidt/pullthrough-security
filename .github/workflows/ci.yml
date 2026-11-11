@@ -301,6 +301,15 @@ jobs:
   # malicious one blocks it). They need no network and no client tooling, so they
   # are deterministic and gate the image build. They live behind the
   # `integration` build tag, which the `test` job does not set.
+  #
+  # The download-log suite (Task 176, internal/e2e/downloadlog) runs here too. It
+  # is hermetic as well — stub registries on loopback — but its clients are real:
+  # the real `cargo` and the real `go` command fetch packages through the real
+  # proxy binary, every client machine from its own source address, and the suite
+  # asserts through the admin API which package the log attributes to which
+  # address (served, served from cache, refused, forwarded by a trusted proxy,
+  # forged). PT_DOWNLOADLOG_CLIENTS=real makes a missing package manager a
+  # failure rather than a silent fall-back to the scripted stand-in.
   integration:
     name: Ecosystem integration suites (hermetic)
     runs-on: ubuntu-latest
@@ -313,15 +322,24 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Run the per-ecosystem pipeline and LLM-scan admission suites
+      # The download-log suite drives the real package managers of the Rust and
+      # Go ecosystems. Rust ships with the hosted runner image; fail here, with a
+      # clear message, if that ever changes.
+      - name: Show the package managers the download-log suite drives
+        run: |
+          cargo --version
+          go version
+
+      - name: Run the per-ecosystem pipeline, LLM-scan admission and download-log suites
         env:
           PT_TEST_REPORT_DIR: ${{ runner.temp }}/integration-report
+          PT_DOWNLOADLOG_CLIENTS: real
         run: go test -race -tags integration ./internal/e2e/...
 
       - name: Publish matrices
         if: always()
         run: |
-          for f in e2e-coverage-matrix.md llm-scan-matrix.md; do
+          for f in e2e-coverage-matrix.md llm-scan-matrix.md download-log-matrix.md; do
             if [ -f "$RUNNER_TEMP/integration-report/$f" ]; then
               cat "$RUNNER_TEMP/integration-report/$f" >> "$GITHUB_STEP_SUMMARY"
               echo >> "$GITHUB_STEP_SUMMARY"
@@ -353,7 +371,11 @@ jobs:
   #      source commit it is pinned to (benign);
   #   2. a second install from a pristine client is served from the cache;
   #   3. a package whose source commit the LLM flagged malicious is refused, and
-  #      the real client fails.
+  #      the real client fails;
+  #   4. for cargo and go: the proxy's download log attributes the installed
+  #      package to the address of each client run that installed it, and the
+  #      refused one — as blocked — to the run that tried (Task 176). Every
+  #      client run reaches the proxy from an address of its own.
   #
   # The LLM is a mock speaking the provider's wire format; everything else is
   # real. Client containers run with no network at all (the proxy is reachable

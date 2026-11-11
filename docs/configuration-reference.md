@@ -42,6 +42,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `server.intercept.allowPlainHttp` | bool | false |
 | `server.registry.enabled` | bool | — |
 | `server.registry.defaultUpstream` | string | — |
+| `server.trustedProxies` | []string | [] |
 
 ## `logging`
 
@@ -1206,6 +1207,16 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `metering.scanCostMicros` | map[string]int | {} |
 | `metering.budgets.<string>.maxBytes` | int | — |
 | `metering.budgets.<string>.maxScanCostMicros` | int | — |
+
+## `downloadLog`
+
+| Setting | Type | Default |
+|---------|------|---------|
+| `downloadLog.enabled` | bool | true |
+| `downloadLog.maxEntries` | int | 50000 |
+| `downloadLog.retention` | duration | 720h0m0s |
+| `downloadLog.path` | string | — |
+| `downloadLog.includeMetadata` | bool | false |
 
 ## `secrets`
 

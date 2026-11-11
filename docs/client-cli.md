@@ -214,6 +214,33 @@ ptctl vex export --snapshot <snapshot-id>
 re-ingestable. It requires a signing key on the proxy
 (`vulnerabilities.vex.export.signingKey`, falling back to the attest/audit key).
 
+### `ptctl downloads` — which package went to which client address
+
+Queries the proxy's [download log](download-log.md) through the admin API: one
+entry per package download or refused attempt, with the client address it came
+from. It needs a token with the admin `read` capability.
+
+```bash
+ptctl downloads --package left-pad                # who pulled left-pad?
+ptctl downloads --package 'rsc.io/quote@v1.5.2'   # one exact version
+ptctl downloads --ip 10.0.0.7                     # what did 10.0.0.7 pull?
+ptctl downloads --ip 10.0.0.0/16 --outcome blocked --since 24h
+ptctl downloads --summary --ecosystem cargo       # busiest addresses and crates
+ptctl downloads --all --format csv > downloads.csv
+```
+
+Filters are ANDed: `--ip` (an address or a CIDR prefix), `--package`
+(a name or `name@version`; `*` is a wildcard), `--ecosystem`, `--upstream`,
+`--outcome` (`served`, `not_modified`, `blocked`, `not_found`, `error`),
+`--subject`, `--search` (free text), `--since` / `--until` (an age such as
+`15m`, `24h`, `7d`, RFC 3339, or unix seconds). `--limit` (default 50) bounds
+the table; `--all` pages through every match. `--summary` prints totals and the
+busiest client addresses and packages (`--top`) instead of entries. `--format`
+is `table` (default), `json` or `csv`.
+
+The global `--tenant` narrows the log only when given on the command line: an
+exported `PULLTHROUGH_TENANT` does not hide other tenants' downloads.
+
 ### `ptctl completion` — shell completion
 
 Emits a static completion script for `bash`, `zsh`, or `fish`:

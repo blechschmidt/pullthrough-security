@@ -28,18 +28,24 @@ const (
 	// CheckBlock: the bad package — source commit flagged malicious by the LLM —
 	// is refused by the proxy and the real client fails the install.
 	CheckBlock = "block"
+	// CheckDownloadLog: the proxy's download log attributes the good package
+	// (served) to the address of each client machine that installed it and the
+	// bad package (blocked) to the machine that tried. Asserted for the
+	// ecosystems that opt in (Ecosystem.DownloadLog).
+	CheckDownloadLog = "download-log"
 )
 
 // checkOrder is the canonical column order.
-var checkOrder = []string{CheckInstall, CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock}
+var checkOrder = []string{CheckInstall, CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock, CheckDownloadLog}
 
 // checkTitles are the matrix column headings.
 var checkTitles = map[string]string{
-	CheckInstall:   "Installs via proxy",
-	CheckCached:    "Stored in cache",
-	CheckScanAdmit: "Admitted by LLM scan",
-	CheckCacheHit:  "Re-install from cache",
-	CheckBlock:     "Bad package blocked",
+	CheckInstall:     "Installs via proxy",
+	CheckCached:      "Stored in cache",
+	CheckScanAdmit:   "Admitted by LLM scan",
+	CheckCacheHit:    "Re-install from cache",
+	CheckBlock:       "Bad package blocked",
+	CheckDownloadLog: "Downloads logged by client address",
 }
 
 // Check statuses.
@@ -108,6 +114,8 @@ func (e Ecosystem) applies(check string) bool {
 		return e.Artifact != ""
 	case CheckScanAdmit, CheckBlock:
 		return e.Bad != nil
+	case CheckDownloadLog:
+		return e.DownloadLog && e.Bad != nil
 	default:
 		return true
 	}

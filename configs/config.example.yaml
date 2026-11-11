@@ -54,6 +54,17 @@ server:
   registry:
     # enabled: true                # default; false serves registries only under /v1/<upstream>/v2/
     defaultUpstream: dockerhub     # "" = only upstream-prefixed repositories and ns-hinted requests
+  # trustedProxies lists the reverse proxies (load balancers, ingress
+  # controllers) in front of this listener, as IP addresses or CIDR prefixes.
+  # For a request arriving FROM one of them, the client address is taken from the
+  # X-Forwarded-For header it appended (the right-most entry that is not itself a
+  # trusted proxy) instead of from the TCP connection — so the download log, the
+  # audit log and anomaly detection name the real client, not the balancer.
+  # From every other peer, and with the list empty (the default), the header is
+  # never read: a client cannot attribute its requests to another address. List
+  # only infrastructure that writes the header itself, never a network clients
+  # are on. See docs/download-log.md.
+  # trustedProxies: ["10.0.0.0/8", "192.168.1.10", "fd00::/8"]
 
 logging:
   level: info        # debug | info | warn | error
@@ -1573,6 +1584,28 @@ audit:
     # verifies them via `verify-audit -pubkey`.
     # signingKeyFile: /etc/pullthrough/audit-signing-key.pem
     # signingKey: ${PTS_AUDIT_SIGNING_KEY}
+
+# ---------------------------------------------------------------------------
+# Download log: which package was downloaded from which address (Task 176)
+# ---------------------------------------------------------------------------
+# One entry per package download — and per attempt an admission gate refused —
+# with the client address it came from, the package coordinate, the outcome and
+# (when clients authenticate) the identity. Shown in the admin dashboard's
+# Downloads tab, served at <adminPathPrefix>/api/downloads (JSON or CSV) and by
+# `ptctl downloads`. It answers "who pulled this package?" and "what did this
+# host pull?". On by default; bounded in entries and in time. The client address
+# is the TCP peer unless the peer is listed in server.trustedProxies.
+# See docs/download-log.md.
+downloadLog:
+  enabled: true              # default
+  maxEntries: 50000          # default; a ring — when full, the oldest entry is dropped
+  retention: 720h            # default (30 days), enforced in memory and on disk; "0s" = no time limit
+  # path persists the log (JSON Lines, mode 0600) so it survives a restart.
+  # Unset keeps it in memory only. One file per proxy instance, in a directory
+  # the proxy can create files in: the log is kept within its bounds by replacing
+  # the file through a temporary one next to it.
+  path: /var/lib/pullthrough/downloads.jsonl
+  # includeMetadata: false   # true also records index / version-list requests
 
 # ---------------------------------------------------------------------------
 # Disaster-recovery backup & restore (Task 44)

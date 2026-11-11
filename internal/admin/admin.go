@@ -634,6 +634,7 @@ type Options struct {
 	Timeline                    TimelineInspector
 	Dossier                     DossierInspector
 	Metering                    MeteringInspector
+	DownloadLog                 DownloadLogInspector
 	Config                      ConfigInspector
 	Presets                     PresetController
 	VEXExport                   VEXExporter
@@ -846,6 +847,9 @@ func (s *Server) routes() *http.ServeMux {
 	// Per-tenant usage metering & chargeback (Task 84).
 	mux.HandleFunc("GET "+s.prefix+"/api/metering", s.handleMeteringStatus)
 	mux.HandleFunc("GET "+s.prefix+"/api/metering/usage", s.handleMeteringUsage)
+	// Download log (Task 176): which package was downloaded from which address.
+	mux.HandleFunc("GET "+s.prefix+"/api/downloads", s.handleDownloads)
+	mux.HandleFunc("GET "+s.prefix+"/api/downloads/summary", s.handleDownloadsSummary)
 	// Configuration validation, preflight & drift detection (Task 85).
 	mux.HandleFunc("GET "+s.prefix+"/api/config/validate", s.handleConfigValidate)
 	mux.HandleFunc("POST "+s.prefix+"/api/config/validate", s.handleConfigValidate)

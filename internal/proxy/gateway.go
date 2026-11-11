@@ -31,10 +31,12 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/buildprov"
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/cachefed"
+	"github.com/blechschmidt/pullthrough-security/internal/clientip"
 	"github.com/blechschmidt/pullthrough-security/internal/coalesce"
 	"github.com/blechschmidt/pullthrough-security/internal/contentscan"
 	"github.com/blechschmidt/pullthrough-security/internal/continuity"
 	"github.com/blechschmidt/pullthrough-security/internal/depfirewall"
+	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
 	"github.com/blechschmidt/pullthrough-security/internal/extension"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
@@ -451,6 +453,15 @@ type Dependencies struct {
 	// read this instance's already-gated cache. When nil or disabled, every miss
 	// goes straight to the upstream.
 	CacheFed *cachefed.Federation
+	// DownloadLog, when set and enabled, is the download log (Task 176): the
+	// record of which package was downloaded from which client address. The
+	// gateway adds one entry per request for an installable artifact — served,
+	// refused by a gate, or failed — with the client address (see
+	// Options.ClientIP), the resolved package coordinate, the outcome, and the
+	// authenticated identity when there is one. Recording is an in-memory append
+	// after the response is written and never affects serving. A nil log is a
+	// valid no-op.
+	DownloadLog *downloadlog.Log
 }
 
 // SSHServer is an auxiliary listener (Git-over-SSH) run for the lifetime of the
@@ -523,6 +534,13 @@ type Options struct {
 	// place container clients can address a registry. Requests are mapped onto
 	// the regular "/v1/<upstream>/v2/..." route space. See RegistryRoot.
 	RegistryRoot *RegistryRoot
+	// ClientIP resolves the address a request is attributed to. With trusted
+	// reverse proxies configured it reads the client address they forwarded
+	// (X-Forwarded-For) instead of the TCP peer, which behind a load balancer is
+	// the balancer for every request. The audit trail, anomaly scoping and the
+	// download log all use the address it returns. Nil trusts no proxy: the
+	// address is always the TCP peer.
+	ClientIP *clientip.Resolver
 }
 
 // Gateway is the core proxy. It is constructed via New and started with Run.
@@ -595,7 +613,7 @@ func (g *Gateway) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", g.handleHealth)
 	mux.HandleFunc("/readyz", g.handleReady)
-	backend := g.withTracing(g.withAccessControl(g.withRateLimit(http.HandlerFunc(g.handleBackend))))
+	backend := g.withClientSource(g.withTracing(g.withAccessControl(g.withRateLimit(http.HandlerFunc(g.handleBackend)))))
 	mux.Handle("/v1/", backend)
 
 	// Host-root Docker/OCI Registry v2 alias. Container clients always insert
@@ -754,6 +772,10 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 		// Bytes-served (split by cache outcome) and storage footprint are metered at
 		// the serve points below, where the cache status is known.
 		g.meterRequest(r, name)
+		// Add the request to the download log (Task 176) now that its outcome,
+		// status and byte count are final. A no-op for anything that is not a
+		// package download.
+		g.recordDownload(r, mw)
 	}()
 
 	backend, found := g.deps.Backends.Get(name)
@@ -778,6 +800,18 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 	// they negotiate over POST with a streaming body. Such backends implement
 	// HTTPHandler and own the raw request, including method handling.
 	if h, ok := backend.(backends.HTTPHandler); ok {
+		// Such a backend never goes through Resolve, so the download log asks it
+		// what the request is: a fetch of content, or protocol chatter.
+		if d, ok := backend.(backends.DownloadDescriber); ok && g.deps.DownloadLog.Enabled() {
+			if dl, ok := d.DescribeDownload(r, rest); ok {
+				pullRecordFrom(r.Context()).describeDownload(name, g.ecosystemFor(name), dl)
+				// A gate the backend runs itself (the Git backend's content gate
+				// on LFS objects) reports its refusal through the request context:
+				// it never passes gateTrace.
+				ctx := r.Context()
+				r = r.WithContext(backends.WithRefusalRecorder(ctx, func(gate string) { refused(ctx, gate) }))
+			}
+		}
 		h.ServeBackendHTTP(w, r, rest)
 		return
 	}
@@ -813,6 +847,10 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 	}
 	resolveSpan.SetAttributes(tracing.Bool("pullthrough.cacheable", resolved.Cacheable))
 	resolveSpan.End()
+
+	// From here on the request has a name: note what it resolved to, for the
+	// download log and for the audit record of the pull.
+	pullRecordFrom(r.Context()).describe(name, g.ecosystemFor(name), resolved)
 
 	// Enrich the request-level span with the resolved package coordinates so a
 	// trace is searchable by what was actually pulled.
@@ -1065,6 +1103,7 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		// actionable freeze response rather than a generic upstream error.
 		if _, frozen := fetchErr.(lockdownFreezeError); frozen {
 			cacheSpan.End()
+			pullRecordFrom(ctx).blockedBy("lockdown")
 			writeLockdownFreezeError(w, r, g, name, g.ecosystemFor(name), resolved)
 			return
 		}
@@ -1074,6 +1113,7 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		return
 	}
 	defer entry.Content.Close()
+	pullRecordFrom(ctx).setSize(entry.Stat.Size)
 
 	// Record how the artifact was obtained and close the cache span before the
 	// admission gates run (each gate is its own span). The same hit/miss is set
@@ -1357,6 +1397,7 @@ func (g *Gateway) serveDirect(w http.ResponseWriter, r *http.Request, name strin
 		return
 	}
 	defer body.cleanup()
+	pullRecordFrom(r.Context()).setSize(body.size)
 
 	h := w.Header()
 	if result.Header != nil {
@@ -1754,6 +1795,8 @@ func (g *Gateway) gateTrace(r *http.Request, gate string, fn func(*http.Request)
 		if !allowed {
 			// Attribute the refusal to its tenant/gate for per-tenant usage (Task 84).
 			g.meterBlock(r, gate)
+			// And name the refusing gate in the download log (Task 176).
+			noteRefusal(r, gate)
 		}
 		return allowed
 	}
@@ -1767,6 +1810,7 @@ func (g *Gateway) gateTrace(r *http.Request, gate string, fn func(*http.Request)
 	if !allowed {
 		span.SetStatus(tracing.StatusError, "blocked")
 		g.meterBlock(r, gate)
+		noteRefusal(r, gate)
 	}
 	return allowed
 }

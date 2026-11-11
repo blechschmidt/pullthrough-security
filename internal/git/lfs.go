@@ -16,9 +16,14 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
 )
+
+// lfsContentGateName is the name the LFS content gate (git.lfs.blockOnFindings)
+// reports a refusal under.
+const lfsContentGateName = "lfs-content"
 
 // Git LFS protocol constants. The batch API and transfer adapter are specified
 // at https://github.com/git-lfs/git-lfs/blob/main/docs/api/.
@@ -516,6 +521,10 @@ func (b *Backend) handleLFSObject(w http.ResponseWriter, r *http.Request, repo, 
 		if blocked {
 			entry.Content.Close()
 			_ = b.cache.Delete(ctx, key)
+			// This gate is the backend's own and passes none of the proxy core's
+			// gate bookkeeping: say that the request was refused, so the download
+			// log records "blocked by lfs-content" and not a request that failed.
+			backends.RecordRefusal(ctx, lfsContentGateName)
 			b.writeLFSError(w, http.StatusForbidden, "lfs object rejected by content policy")
 			return
 		}

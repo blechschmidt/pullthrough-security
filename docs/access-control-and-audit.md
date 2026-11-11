@@ -98,6 +98,15 @@ and `fsync`-ed per write.
 
 Editing, deleting, or reordering any record breaks the chain.
 
+A `pull` record names the request path and — when the request resolved to a
+package — the coordinate (`detail.package`, `detail.version`), so the audit
+trail and a SIEM fed from it can be searched by package. `remoteAddr` is the
+client's address: the TCP peer, or, for a request arriving from a reverse proxy
+listed in `server.trustedProxies`, the address that proxy forwarded it for
+(`X-Forwarded-For` is honored from those peers only). For day-to-day "which
+address pulled this package" questions there is a purpose-built, queryable view
+of the same facts: the [download log](download-log.md).
+
 ### Merkle transparency log (signed checkpoints)
 
 On top of the hash chain the proxy maintains an **RFC 6962 Merkle transparency

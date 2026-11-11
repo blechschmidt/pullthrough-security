@@ -65,6 +65,19 @@
     return d.toLocaleString();
   }
 
+  // fmtAge is the compact form of fmtTime for narrow table columns: "now",
+  // "5m ago", "3h ago", "12d ago". The full timestamp belongs in the title.
+  function fmtAge(s) {
+    if (!s) return "—";
+    const d = new Date(s);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2) return "—";
+    const secs = Math.max(0, (Date.now() - d.getTime()) / 1000);
+    if (secs < 60) return "now";
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+    if (secs < 172800) return `${Math.floor(secs / 3600)}h ago`;
+    return `${Math.floor(secs / 86400)}d ago`;
+  }
+
   function fmtPct(r) {
     return `${(Math.max(0, Math.min(1, r || 0)) * 100).toFixed(1)}%`;
   }
@@ -258,7 +271,10 @@
   function setView(name) {
     // Tear down the SOC live stream + poller when navigating away from it.
     if (currentView === "secops" && name !== "secops") secopsDisconnectStream();
+    // The download log's auto-refresh only runs while its tab is open.
+    if (currentView === "downloads" && name !== "downloads") downloadsStopAuto();
     currentView = name;
+    syncHash();
     $$(".tab").forEach((t) => {
       const sel = t.dataset.view === name;
       t.setAttribute("aria-selected", sel ? "true" : "false");
@@ -288,6 +304,50 @@
         if (!panel.hasAttribute("tabindex")) panel.setAttribute("tabindex", "0");
       }
     });
+  }
+
+  // --- deep links -----------------------------------------------------------
+  // The address bar names the open tab ("#downloads"), so a view can be
+  // bookmarked, linked from a ticket, and survives a reload or an SSO round
+  // trip. The download log additionally carries its filter
+  // ("#downloads?ip=10.0.0.7"): "who pulled this package" is a link.
+  function viewNames() {
+    return $$(".tab").map((t) => t.dataset.view);
+  }
+
+  function parseHash() {
+    const raw = location.hash.replace(/^#/, "");
+    if (!raw) return null;
+    const cut = raw.indexOf("?");
+    const name = cut < 0 ? raw : raw.slice(0, cut);
+    if (!viewNames().includes(name)) return null;
+    return { name, params: new URLSearchParams(cut < 0 ? "" : raw.slice(cut + 1)) };
+  }
+
+  function currentHash() {
+    let hash = "#" + currentView;
+    if (currentView === "downloads") {
+      const filter = downloadsParams().toString();
+      if (filter) hash += "?" + filter;
+    }
+    return hash;
+  }
+
+  // syncHash writes the open tab (and the download-log filter) to the address
+  // bar without adding a history entry per click.
+  function syncHash() {
+    const hash = currentHash();
+    if (location.hash !== hash) history.replaceState(null, "", hash);
+  }
+
+  // openFromHash opens what the address bar names; returns false when it names
+  // nothing this console has.
+  function openFromHash() {
+    const target = parseHash();
+    if (!target) return false;
+    if (target.name === "downloads") setDownloadsFilter(downloadsFilterFromParams(target.params), false);
+    setView(target.name);
+    return true;
   }
 
   // --- Overview -------------------------------------------------------------
@@ -867,6 +927,363 @@
     URL.revokeObjectURL(url);
     toast(format.toUpperCase() + " chargeback report downloaded");
   }
+
+  // --- Download log (Task 176) ----------------------------------------------
+  // Which package was downloaded from which address. The view is a filter over
+  // the proxy's download log: a page of entries (GET downloads) plus the
+  // aggregates for the same filter (GET downloads/summary). Clicking an address
+  // or a package sets the filter to it, which is how the two questions the log
+  // exists for are asked: "what did this address pull" and "who pulled this
+  // package".
+  const DOWNLOADS_PAGE = 100;
+  const DOWNLOADS_TOP = 8;
+  const DOWNLOADS_AUTO_MS = 5000;
+  const DOWNLOADS_FILTERS = ["ip", "package", "ecosystem", "outcome", "since", "search"];
+  const downloadsState = { wired: false, next: 0, shown: 0, total: 0, seq: 0, timer: null };
+
+  // downloadsParams turns the filter controls into API query parameters.
+  function downloadsParams() {
+    const p = new URLSearchParams();
+    const ip = $("#downloads-ip").value.trim();
+    const coord = $("#downloads-package").value.trim();
+    const eco = $("#downloads-ecosystem").value;
+    const outcome = $("#downloads-outcome").value;
+    const since = $("#downloads-since").value;
+    const q = $("#downloads-search").value.trim();
+    if (ip) p.set("ip", ip);
+    // The text goes to the API as it was typed. Whether "openssl@3" is a
+    // package of that name (it is, in Homebrew) or version 3 of "openssl" is
+    // not something the text says, so it is not split here: the API matches the
+    // filter against both the name and the name@version coordinate.
+    if (coord) p.set("package", coord);
+    if (eco) p.set("ecosystem", eco);
+    if (outcome) p.set("outcome", outcome);
+    if (since) p.set("since", since);
+    if (q) p.set("q", q);
+    return p;
+  }
+
+  // setDownloadsFilter sets filter controls by name and reloads. A value absent
+  // from `values` is left as it is; pass "" to clear one.
+  function setDownloadsFilter(values, reload) {
+    for (const name of DOWNLOADS_FILTERS) {
+      if (!(name in values)) continue;
+      const control = $("#downloads-" + name);
+      const value = values[name] || "";
+      if (control.tagName === "SELECT" && value && !$$("option", control).some((o) => o.value === value)) {
+        // A value the list does not offer yet (an ecosystem seen only in a
+        // link): add it rather than silently dropping the filter.
+        control.appendChild(el("option", { value, text: value }));
+      }
+      control.value = value;
+    }
+    if (reload !== false) runDownloads().catch((e) => toast(e.message, true));
+  }
+
+  // downloadsFilterFromParams maps deep-link parameters ("#downloads?ip=…") onto
+  // the filter controls. It accepts the API's names, so a link can be built from
+  // an API query.
+  function downloadsFilterFromParams(params) {
+    const values = {};
+    for (const name of DOWNLOADS_FILTERS) values[name] = "";
+    for (const [key, value] of params) {
+      if (key === "q" || key === "search") values.search = value;
+      else if (key === "version") values.version = value;
+      else if (DOWNLOADS_FILTERS.includes(key)) values[key] = value;
+    }
+    if (values.version) {
+      if (values.package) values.package += "@" + values.version;
+      delete values.version;
+    }
+    return values;
+  }
+
+  function downloadsOutcomePill(e) {
+    switch (e.outcome) {
+      case "served":
+        return el("span.pill.ok", { text: e.status === 206 ? "served · partial" : "served" });
+      case "blocked":
+        return el("span.pill.bad", { title: e.reason || e.code || "refused by an admission gate", text: e.gate ? "blocked · " + e.gate : "blocked" });
+      case "not_modified":
+        return el("span.pill", { title: "the client revalidated a copy it already holds", text: "not modified" });
+      case "not_found":
+        return el("span.pill.warn", { text: "not found" });
+      default:
+        return el("span.pill.warn", { text: e.status ? "error · " + e.status : "error" });
+    }
+  }
+
+  function downloadsIdentity(e) {
+    if (e.subject && e.tenant) return e.subject + " (" + e.tenant + ")";
+    return e.subject || e.tenant || "";
+  }
+
+  // downloadsLink renders a value as a button that filters the log by it.
+  function downloadsLink(text, title, values, mono) {
+    const btn = el("button.cell-link" + (mono ? ".mono" : "") + ".truncate", { type: "button", title, text });
+    // The enclosing row opens the detail drawer when clicked; activating the
+    // button must only filter.
+    btn.addEventListener("click", (ev) => { ev.stopPropagation(); setDownloadsFilter(values); });
+    return btn;
+  }
+
+  function downloadsRow(e) {
+    const pkg = e.package
+      ? downloadsLink(e.package, "Show everyone who pulled " + e.package, { package: e.package, ecosystem: e.ecosystem }, true)
+      : el("span.mono.muted.truncate", { title: e.path || "", text: e.artifact || e.path || "—" });
+    const client = el("td", null,
+      downloadsLink(e.clientIp, "Show everything " + e.clientIp + " pulled", { ip: e.clientIp }, true),
+      e.forwardedBy ? el("span.cell-note", { title: "client address forwarded by the trusted proxy " + e.forwardedBy, text: "via " + e.forwardedBy }) : null);
+    const identity = downloadsIdentity(e);
+    const open = () => showDownload(e);
+    // The row is clickable as a convenience for the mouse; the control that
+    // opens the details — for the keyboard and for assistive technology — is a
+    // real button in the first cell. (A row acting as a button would nest the
+    // address and package buttons inside another interactive element.)
+    const when = el("button.cell-link.quiet", {
+      type: "button", title: e.time,
+      "aria-label": "Details of the download of " + (e.package || e.path || "an artifact") + " from " + e.clientIp + ", " + fmtTime(e.time),
+      text: fmtTime(e.time),
+    });
+    when.addEventListener("click", (ev) => { ev.stopPropagation(); open(); });
+    const row = el("tr.clickable", null,
+      el("td.nowrap", null, when),
+      client,
+      el("td.nowrap", null, el("span.chip", { text: e.ecosystem || "—" }), " ", pkg),
+      el("td", null, el("span.mono.truncate", { title: e.version || "", text: e.version || "—" })),
+      el("td.nowrap", null, downloadsOutcomePill(e)),
+      // For a refused request the cache column would only repeat "blocked".
+      el("td", null, el("span.muted", { text: e.outcome === "blocked" ? "—" : (e.cache || "—") })),
+      el("td.num", { text: e.outcome === "served" ? fmtBytes(e.bytes) : "—" }),
+      el("td", null, el("span.truncate", { title: identity, text: identity || "—" })));
+    row.addEventListener("click", open);
+    return row;
+  }
+
+  // showDownload opens the detail drawer for one entry.
+  function showDownload(e) {
+    const sent = e.size && e.size !== e.bytes ? fmtBytes(e.bytes) + " of " + fmtBytes(e.size) : fmtBytes(e.bytes);
+    const body = el("div", null, kv([
+      ["When", new Date(e.time).toLocaleString() + " (" + e.time + ")"],
+      ["Client IP", el("span.mono", { text: e.clientIp })],
+      ["Forwarded by", e.forwardedBy ? el("span.mono", { text: e.forwardedBy }) : ""],
+      ["Identity", e.subject],
+      ["Tenant", e.tenant],
+      ["Authenticated via", e.authMethod],
+      ["Ecosystem", e.ecosystem],
+      ["Upstream", e.upstream],
+      ["Package", e.package ? el("span.mono", { text: e.package }) : ""],
+      ["Version", e.version ? el("span.mono", { text: e.version }) : ""],
+      ["Artifact", e.artifact ? el("span.mono", { text: e.artifact }) : ""],
+      ["Digest", e.digest ? el("span.mono", { text: e.digest }) : ""],
+      ["Kind", e.kind],
+      ["Outcome", downloadsOutcomePill(e)],
+      ["Refused by", e.gate],
+      ["Reason code", e.code],
+      ["Reason", e.reason],
+      // Git over SSH has no HTTP status; the entry carries 0.
+      ["HTTP status", e.status ? String(e.status) : ""],
+      ["Cache", e.outcome === "blocked" ? "" : e.cache],
+      ["Bytes sent", e.outcome === "served" ? sent : ""],
+      ["Duration", (e.durationMs || 0) + " ms"],
+      ["Client tool", e.userAgent],
+      ["Request", el("span.mono", { text: (e.method || "GET") + " " + (e.path || "") })],
+      ["Trace ID", e.traceId ? el("span.mono", { text: e.traceId }) : ""],
+    ]));
+    const actions = el("div.button-group");
+    const act = (label, fn) => {
+      const b = el("button.btn.btn-sm", { type: "button", text: label });
+      b.addEventListener("click", () => { closeDrawer(); fn(); });
+      actions.appendChild(b);
+    };
+    act("Everything from " + e.clientIp, () => setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), { ip: e.clientIp })));
+    if (e.package) {
+      act("Everyone who pulled " + e.package, () => setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), { package: e.package, ecosystem: e.ecosystem })));
+      act("Open dossier", () => {
+        $("#dossier-ecosystem").value = e.ecosystem || "";
+        $("#dossier-coordinate").value = e.version ? e.package + "@" + e.version : e.package;
+        setView("dossier");
+        runDossier().catch((err) => toast(err.message, true));
+      });
+    }
+    body.appendChild(actions);
+    openDrawer(e.package ? e.package + (e.version ? "@" + e.version : "") : "Download", body);
+  }
+
+  function renderDownloadsSummary(sum, log) {
+    const cards = clear($("#downloads-cards"));
+    const stat = (label, value, sub, tone) => el("div.stat" + (tone ? "." + tone : ""), null,
+      el("div.label", { text: label }), el("div.value", { text: String(value) }), sub ? el("div.sub", { text: sub }) : null);
+    const failed = (sum.notFound || 0) + (sum.errors || 0);
+    cards.appendChild(stat("Downloads", sum.total || 0,
+      `${sum.served || 0} served · ${fmtBytes(sum.bytes || 0)} sent` + (failed ? ` · ${failed} failed` : "")));
+    cards.appendChild(stat("Blocked attempts", sum.blocked || 0, "refused by an admission gate", sum.blocked ? "bad" : "ok"));
+    cards.appendChild(stat("Client addresses", sum.clients || 0, "distinct addresses"));
+    cards.appendChild(stat("Packages", sum.packages || 0, "distinct packages"));
+    if (log) {
+      const keep = log.retentionSeconds ? Math.round(log.retentionSeconds / 8640) / 10 + " d retention" : "no time limit";
+      cards.appendChild(stat("Log", `${log.retained || 0} / ${log.capacity || 0}`,
+        keep + (log.persistent ? " · on disk" : " · in memory")));
+    }
+
+    const clients = clear($("#downloads-clients-body"));
+    if (!sum.byClient || !sum.byClient.length) {
+      clients.appendChild(emptyRow($("#downloads-clients-table"), 5, "No downloads match."));
+    } else {
+      sum.byClient.forEach((c) => clients.appendChild(el("tr", null,
+        el("td", null,
+          downloadsLink(c.clientIp, "Show everything " + c.clientIp + " pulled", { ip: c.clientIp }, true),
+          c.identities && c.identities.length ? el("span.muted", { text: " " + c.identities.join(", ") }) : null),
+        el("td.num", { text: String(c.downloads || 0) }),
+        el("td.num", null, c.blocked ? el("span.bad", { text: String(c.blocked) }) : "0"),
+        el("td.num", { text: String(c.packages || 0) }),
+        el("td.nowrap", null, el("span.muted", { title: c.lastSeen, text: fmtAge(c.lastSeen) })))));
+    }
+
+    const packages = clear($("#downloads-packages-body"));
+    if (!sum.byPackage || !sum.byPackage.length) {
+      packages.appendChild(emptyRow($("#downloads-packages-table"), 5, "No downloads match."));
+    } else {
+      sum.byPackage.forEach((p) => packages.appendChild(el("tr", null,
+        el("td", null,
+          el("span.chip", { text: p.ecosystem || "—" }), " ",
+          downloadsLink(p.package, "Show everyone who pulled " + p.package, { package: p.package, ecosystem: p.ecosystem }, true)),
+        el("td.num", { text: String(p.downloads || 0) }),
+        el("td.num", null, p.blocked ? el("span.bad", { text: String(p.blocked) }) : "0"),
+        el("td.num", { text: String(p.clients || 0) }),
+        el("td.nowrap", null, el("span.muted", { title: p.lastSeen, text: fmtAge(p.lastSeen) })))));
+    }
+
+    // Offer every ecosystem that has entries, whatever the page shows.
+    const select = $("#downloads-ecosystem");
+    (sum.byEcosystem || []).forEach((eco) => {
+      if (eco.ecosystem && !$$("option", select).some((o) => o.value === eco.ecosystem)) {
+        select.appendChild(el("option", { value: eco.ecosystem, text: eco.ecosystem }));
+      }
+    });
+  }
+
+  // runDownloads (re)loads the view for the current filter. With {older: true}
+  // it appends the next page instead.
+  async function runDownloads(opts) {
+    const older = !!(opts && opts.older);
+    const seq = ++downloadsState.seq;
+    const meta = $("#downloads-meta");
+    const params = downloadsParams();
+    const listParams = new URLSearchParams(params);
+    listParams.set("limit", String(DOWNLOADS_PAGE));
+    if (older && downloadsState.next) listParams.set("before", String(downloadsState.next));
+    const summaryParams = new URLSearchParams(params);
+    summaryParams.set("top", String(DOWNLOADS_TOP));
+
+    if (!(opts && opts.quiet)) meta.textContent = "loading…";
+    if (currentView === "downloads") syncHash();
+    let list, sum;
+    try {
+      [list, sum] = await Promise.all([
+        api.get("downloads?" + listParams.toString()),
+        older ? Promise.resolve(null) : api.get("downloads/summary?" + summaryParams.toString()),
+      ]);
+    } catch (e) {
+      if (seq === downloadsState.seq) meta.textContent = "error: " + e.message;
+      throw e;
+    }
+    // A slower, older request must not overwrite the answer to a newer one.
+    if (seq !== downloadsState.seq) return;
+
+    const notice = $("#downloads-notice");
+    if (!list.enabled) {
+      notice.hidden = false;
+      clear(notice).appendChild(el("span", { text: "The download log is switched off. Set downloadLog.enabled: true in the proxy configuration to record which package is downloaded from which address." }));
+      clear($("#downloads-cards"));
+      clear($("#downloads-clients-body"));
+      clear($("#downloads-packages-body"));
+      clear($("#downloads-body")).appendChild(emptyRow($("#downloads-table"), 8, "The download log is disabled."));
+      $("#downloads-more").hidden = true;
+      meta.textContent = "";
+      return;
+    }
+    notice.hidden = true;
+    if (sum) renderDownloadsSummary(sum, list.log);
+
+    const body = $("#downloads-body");
+    if (!older) { clear(body); downloadsState.shown = 0; }
+    (list.entries || []).forEach((e) => body.appendChild(downloadsRow(e)));
+    downloadsState.shown += (list.entries || []).length;
+    downloadsState.total = list.total || 0;
+    downloadsState.next = list.nextBefore || 0;
+    if (!downloadsState.shown) {
+      const filtered = params.toString() !== "";
+      body.appendChild(emptyRow($("#downloads-table"), 8, filtered
+        ? "No downloads match this filter."
+        : "No downloads recorded yet. Entries appear as clients pull packages through the proxy."));
+    }
+    $("#downloads-more").hidden = !downloadsState.next;
+    meta.textContent = downloadsState.total
+      ? `${downloadsState.shown} of ${downloadsState.total} ${downloadsState.total === 1 ? "entry" : "entries"}`
+      : "";
+  }
+
+  async function exportDownloads() {
+    const params = downloadsParams();
+    params.set("format", "csv");
+    const text = await api.raw("downloads?" + params.toString());
+    const url = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    const a = el("a", { href: url, download: "downloads.csv" });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("Download log exported as CSV");
+  }
+
+  function downloadsStopAuto() {
+    if (downloadsState.timer) clearInterval(downloadsState.timer);
+    downloadsState.timer = null;
+    const btn = $("#downloads-auto");
+    btn.setAttribute("aria-pressed", "false");
+    btn.textContent = "Auto-refresh: off";
+  }
+
+  function downloadsToggleAuto() {
+    if (downloadsState.timer) { downloadsStopAuto(); return; }
+    const btn = $("#downloads-auto");
+    btn.setAttribute("aria-pressed", "true");
+    btn.textContent = "Auto-refresh: on";
+    downloadsState.timer = setInterval(() => {
+      // Only while the log is what the operator is looking at, and never while a
+      // detail drawer is open or older pages are loaded (a reload would yank
+      // the rows away from under them).
+      if (currentView !== "downloads" || document.hidden || !$("#drawer").hidden) return;
+      if (downloadsState.shown > DOWNLOADS_PAGE) return;
+      runDownloads({ quiet: true }).catch(() => {});
+    }, DOWNLOADS_AUTO_MS);
+  }
+
+  views.downloads = async function () {
+    if (!downloadsState.wired) {
+      downloadsState.wired = true;
+      const go = () => runDownloads().catch((e) => toast(e.message, true));
+      $("#downloads-run").addEventListener("click", go);
+      $("#downloads-reset").addEventListener("click", () => setDownloadsFilter(downloadsFilterFromParams([])));
+      $("#downloads-auto").addEventListener("click", downloadsToggleAuto);
+      $("#downloads-csv").addEventListener("click", () => exportDownloads().catch((e) => toast(e.message, true)));
+      $("#downloads-more").addEventListener("click", () => runDownloads({ older: true }).catch((e) => toast(e.message, true)));
+      ["#downloads-ip", "#downloads-package", "#downloads-search"].forEach((id) => {
+        $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      });
+      ["#downloads-ecosystem", "#downloads-outcome", "#downloads-since"].forEach((id) => $(id).addEventListener("change", go));
+      // Offer the configured ecosystems before any download has been recorded.
+      api.get("policy").then((info) => {
+        const select = $("#downloads-ecosystem");
+        const types = Array.from(new Set((info.upstreams || []).map((u) => u.type).filter(Boolean))).sort();
+        types.forEach((type) => {
+          if (!$$("option", select).some((o) => o.value === type)) select.appendChild(el("option", { value: type, text: type }));
+        });
+      }).catch(() => {});
+    }
+    await runDownloads();
+  };
 
   // --- Cache ----------------------------------------------------------------
   let cacheQueryTimer = null;
@@ -3166,10 +3583,15 @@
     const goRollback = $("#gitops-rollback");
     if (goRollback) goRollback.addEventListener("click", gitopsRollbackAction);
 
+    // Follow the address bar: a link, the back button, a hand-edited hash.
+    window.addEventListener("hashchange", () => {
+      if (location.hash !== currentHash()) openFromHash();
+    });
+
     refreshHealth();
     refreshWhoami();
     refreshIncidentBanner();
-    setView("overview");
+    if (!openFromHash()) setView("overview");
   }
 
   if (document.readyState === "loading") {

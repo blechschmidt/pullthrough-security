@@ -295,3 +295,33 @@ pre { background: var(--surface-2); border: 1px solid var(--border); border-radi
 .linkish { cursor: pointer; }
 a.chip.linkish { text-decoration: none; }
 a.chip.linkish:hover { background: var(--accent-solid); color: #fff; }
+
+/* --- Download log (Task 176) ----------------------------------------------- */
+/* A value that filters the log when activated: a real <button>, so it is
+   keyboard-reachable and announced as an action, styled as the value it shows. */
+.cell-link {
+  appearance: none; border: 0; background: none; padding: 0; margin: 0; cursor: pointer;
+  font: inherit; color: var(--accent); text-align: left; max-width: 100%;
+  text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cell-link:hover { text-decoration-color: var(--accent); }
+.cell-link.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; }
+/* The quiet variant reads as plain (muted) text until hovered or focused: the
+   timestamp that opens an entry's details. */
+.cell-link.quiet { color: var(--muted); text-decoration: none; font-size: .85rem; }
+.cell-link.quiet:hover, .cell-link.quiet:focus-visible { color: var(--accent); text-decoration: underline; }
+/* A secondary line under a cell's value (the proxy an address was forwarded by). */
+.cell-note { display: block; color: var(--muted); font-size: .74rem; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+/* Tables inside a panel already sit on a surface: drop the second card chrome,
+   and tighten the cells so five columns fit a half-width panel. */
+.panel > .table-wrap { box-shadow: none; }
+.panel > .table-wrap thead th, .panel > .table-wrap tbody td { padding: .45rem .55rem; }
+.panel > .table-wrap thead th { white-space: nowrap; }
+.panel .truncate { max-width: 190px; display: inline-block; vertical-align: bottom; }
+#downloads-notice { border-left: 3px solid var(--warn); }
+#downloads-table thead th, #downloads-table tbody td { padding: .5rem .65rem; }
+#downloads-table .truncate { max-width: 200px; display: inline-block; vertical-align: bottom; }
+#downloads-table .mono.truncate { max-width: 150px; }
+#downloads-table .cell-link.truncate { max-width: 250px; }

@@ -39,6 +39,11 @@ type SSHServerOptions struct {
 	// Resolve maps an upstream name (the first repo path segment) to its Upstream.
 	// Required.
 	Resolve func(name string) (*Upstream, bool)
+	// OnFetch, when set, is called after each session in which the client asked
+	// for objects (a clone or a fetch; not a bare ref listing), with what was
+	// served to whom. The download log is fed from it. It is called from the
+	// session's goroutine and must not block.
+	OnFetch func(FetchEvent)
 	Logger  *slog.Logger
 }
 
@@ -50,6 +55,7 @@ type SSHServer struct {
 	cfg     *ssh.ServerConfig
 	mirror  *Mirror
 	resolve func(name string) (*Upstream, bool)
+	onFetch func(FetchEvent)
 	logger  *slog.Logger
 
 	mu       sync.Mutex
@@ -104,6 +110,7 @@ func NewSSHServer(opts SSHServerOptions) (*SSHServer, error) {
 		cfg:     cfg,
 		mirror:  opts.Mirror,
 		resolve: opts.Resolve,
+		onFetch: opts.OnFetch,
 		logger:  logger,
 	}, nil
 }
@@ -204,7 +211,7 @@ func (s *SSHServer) handleSession(ctx context.Context, conn *ssh.ServerConn, ch 
 			}
 		case "exec":
 			cmd := decodeExecPayload(req.Payload)
-			status := s.runExec(ctx, ch, cmd, gitProtocol)
+			status := s.runExec(ctx, conn, ch, cmd, gitProtocol)
 			if req.WantReply {
 				_ = req.Reply(true, nil)
 			}
@@ -228,7 +235,7 @@ func (s *SSHServer) handleSession(ctx context.Context, conn *ssh.ServerConn, ch 
 
 // runExec parses and serves a git exec command, returning the exit status to
 // report to the client.
-func (s *SSHServer) runExec(ctx context.Context, ch ssh.Channel, rawCmd, protocol string) uint32 {
+func (s *SSHServer) runExec(ctx context.Context, conn *ssh.ServerConn, ch ssh.Channel, rawCmd, protocol string) uint32 {
 	service, repoArg, err := parseGitCommand(rawCmd)
 	if err != nil {
 		fmt.Fprintf(ch.Stderr(), "%v\n", err)
@@ -262,7 +269,29 @@ func (s *SSHServer) runExec(ctx context.Context, ch ssh.Channel, rawCmd, protoco
 		return 1
 	}
 
-	if err := s.mirror.UploadPackStateful(ctx, dir, ch, ch, ch.Stderr(), protocol); err != nil {
+	// Watch what the client asks for and count what it is sent, so a session
+	// that fetched objects can be reported to the download log.
+	started := time.Now()
+	in := &fetchSniffer{r: ch}
+	out := &countingWriter{w: ch}
+	err = s.mirror.UploadPackStateful(ctx, dir, in, out, ch.Stderr(), protocol)
+	if s.onFetch != nil && in.fetch {
+		ev := FetchEvent{
+			Upstream: name,
+			Repo:     repo,
+			Bytes:    out.n,
+			Duration: time.Since(started),
+			Err:      err,
+		}
+		if conn != nil {
+			ev.RemoteAddr = conn.RemoteAddr().String()
+			if conn.Permissions != nil {
+				ev.KeyFingerprint = conn.Permissions.Extensions["pubkey-fp"]
+			}
+		}
+		s.onFetch(ev)
+	}
+	if err != nil {
 		s.logger.Warn("git ssh upload-pack failed", "upstream", name, "repo", repo, "error", err)
 		return 1
 	}

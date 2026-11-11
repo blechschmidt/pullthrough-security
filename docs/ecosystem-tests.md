@@ -29,7 +29,8 @@ The verified client configuration for each ecosystem — the exact script CI run
 
 ## What is asserted
 
-Each ecosystem runs the same five checks, reported as one row of a matrix:
+Each ecosystem runs the same five checks — the Rust and Go ecosystems a sixth —
+reported as one row of a matrix:
 
 | Check | Meaning |
 |---|---|
@@ -38,6 +39,7 @@ Each ecosystem runs the same five checks, reported as one row of a matrix:
 | **Admitted by LLM scan** | The package was admitted *because* the LLM scan of its source commit was benign: the proxy holds a provenance link from the package to that commit, the commit has a benign verdict, and the policy engine recorded an allow decision. |
 | **Re-install from cache** | A second install from a pristine client succeeds and the artifact is **not** fetched from the upstream again. |
 | **Bad package blocked** | A package whose source commit the LLM flagged malicious is refused by the proxy (`403`, reason `malicious`, recorded in the audit log with the offending commit) **and the real client fails**. |
+| **Downloads logged by client address** | The proxy's [download log](download-log.md) — read through the admin API, as the console's Downloads tab reads it — shows the installed package as *served* to the address of each client run that installed it (the second from the cache), and the refused package as *blocked* by the admission policy for the run that tried, and served to nobody. Filtering the log by one run's address lists that run's entries only. Asserted for the ecosystems that opt in (`DownloadLog` in the catalog): **cargo** and **go**. |
 
 The last check needs both halves. A client that fails for another reason (a
 flaky registry, a typo) does not count as a block; a proxy that blocks while the
@@ -115,6 +117,17 @@ on the host. Consequences:
 - The client uses the same `http://127.0.0.1:PORT` URL the proxy advertises as
   its `server.publicUrl`, so no client needs an "insecure host" exception that
   would not exist in an HTTPS deployment.
+
+### Every client run has its own address
+
+Each client run gets a unix socket of its own, and the harness relays that
+socket's connections to the proxy from a loopback address that belongs to this
+run alone (`127.77.0.2`, `127.77.0.3`, …). To the proxy every run is therefore a
+different client machine — which is what makes the *download log* check
+meaningful: the address the log attributes a package to is one the proxy
+observed on the connection, and it differs between the run that installed the
+good package first, the run that re-installed it from the cache, and the run
+that was refused the bad one.
 
 ### Tying a package to a commit: provenance pins
 
