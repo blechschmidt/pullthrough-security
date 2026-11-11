@@ -482,6 +482,189 @@ func TestModuleDownloadPassthroughGitGetter(t *testing.T) {
 	}
 }
 
+// moduleLocationOf decodes the body form of a module download answer.
+func moduleLocationOf(t *testing.T, body []byte) string {
+	t.Helper()
+	var doc struct {
+		Location string `json:"location"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("module download body is not JSON (OpenTofu parses the body of a 200): %v\nbody: %q", err, body)
+	}
+	return doc.Location
+}
+
+// A module download is answered in both forms a client reads: the
+// X-Terraform-Get header (Terraform) and a JSON body (OpenTofu, which parses the
+// body of a 200 and fails on an empty one). The gateway serves a successful
+// fetch as 200, so an empty body would break every OpenTofu module install.
+func TestModuleDownloadAnswersInHeaderAndBody(t *testing.T) {
+	fr := newFakeRegistry(t)
+	dlPath := "/v1/modules/hashicorp/consul/aws/1.2.0/download"
+	fr.statuses[dlPath] = http.StatusNoContent
+	fr.headers[dlPath] = http.Header{"X-Terraform-Get": {fr.srv.URL + "/src/consul.tar.gz"}}
+	b := newTestBackend(t, fr, &Metrics{})
+
+	fres, body, err := resolveFetch(t, b, dlPath)
+	if err != nil {
+		t.Fatalf("fetch download: %v", err)
+	}
+	want := "https://proxy/v1/tf/v1/modules/hashicorp/consul/aws/1.2.0/archive?archive=tar.gz"
+	if got := fres.Header.Get("X-Terraform-Get"); got != want {
+		t.Errorf("X-Terraform-Get = %q, want %q", got, want)
+	}
+	if got := moduleLocationOf(t, body); got != want {
+		t.Errorf("body location = %q, want %q", got, want)
+	}
+	if fres.MediaType != "application/json" {
+		t.Errorf("MediaType = %q, want application/json", fres.MediaType)
+	}
+	if fres.Size != int64(len(body)) {
+		t.Errorf("Size = %d, body is %d bytes", fres.Size, len(body))
+	}
+}
+
+// registry.opentofu.org names a module's source in the body of a 200,
+// {"location": "..."}, and sends no X-Terraform-Get header. The location is read
+// from there, rewritten like the header form, and the archive endpoint resolves
+// it the same way.
+func TestModuleDownloadReadsBodyLocation(t *testing.T) {
+	fr := newFakeRegistry(t)
+	archive := []byte("module source archive tarball")
+	fr.files["/src/label.tar.gz"] = archive
+	dlPath := "/v1/modules/cloudposse/label/null/0.25.0/download"
+	fr.files[dlPath] = []byte("{\n  \"location\": \"" + fr.srv.URL + "/src/label.tar.gz\"\n}\n")
+	m := &Metrics{}
+	b := newTestBackend(t, fr, m)
+
+	fres, body, err := resolveFetch(t, b, dlPath)
+	if err != nil {
+		t.Fatalf("fetch download: %v", err)
+	}
+	want := "https://proxy/v1/tf/v1/modules/cloudposse/label/null/0.25.0/archive?archive=tar.gz"
+	if got := fres.Header.Get("X-Terraform-Get"); got != want {
+		t.Errorf("X-Terraform-Get = %q, want %q", got, want)
+	}
+	if got := moduleLocationOf(t, body); got != want {
+		t.Errorf("body location = %q, want %q", got, want)
+	}
+
+	_, got, err := resolveFetch(t, b, "/v1/modules/cloudposse/label/null/0.25.0/archive")
+	if err != nil {
+		t.Fatalf("fetch archive: %v", err)
+	}
+	if !bytes.Equal(got, archive) {
+		t.Errorf("archive body mismatch")
+	}
+	if m.Stats().ModuleArchives != 1 {
+		t.Errorf("module-archive metric = %v", m.Stats().ModuleArchives)
+	}
+}
+
+// A Git source named in the body form is passed on unchanged, in both forms,
+// with its query intact.
+func TestModuleDownloadBodyLocationGitGetterPassesThrough(t *testing.T) {
+	fr := newFakeRegistry(t)
+	dlPath := "/v1/modules/cloudposse/label/null/0.25.0/download"
+	gitURL := "git::https://github.com/cloudposse/terraform-null-label?ref=488ab91e34a24a86957e397d9f7262ec5925586a&depth=1"
+	doc, err := json.Marshal(map[string]string{"location": gitURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fr.files[dlPath] = doc
+	m := &Metrics{}
+	b := newTestBackend(t, fr, m)
+
+	fres, body, err := resolveFetch(t, b, dlPath)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if got := fres.Header.Get("X-Terraform-Get"); got != gitURL {
+		t.Errorf("X-Terraform-Get = %q, want the git getter unchanged", got)
+	}
+	if got := moduleLocationOf(t, body); got != gitURL {
+		t.Errorf("body location = %q, want the git getter unchanged", got)
+	}
+	if !bytes.Contains(body, []byte("&depth=1")) {
+		t.Errorf("body = %q: the query separator should not be escaped", body)
+	}
+	if m.Stats().ModuleArchivePassed != 1 {
+		t.Errorf("passthrough metric = %v", m.Stats().ModuleArchivePassed)
+	}
+}
+
+// The header is the protocol's own spelling and wins over a body that disagrees.
+func TestModuleSourcePrefersHeader(t *testing.T) {
+	fr := newFakeRegistry(t)
+	dlPath := "/v1/modules/a/b/c/1.0.0/download"
+	fr.headers[dlPath] = http.Header{"X-Terraform-Get": {"git::https://example.com/from-header.git"}}
+	fr.files[dlPath] = []byte(`{"location":"git::https://example.com/from-body.git"}`)
+	b := newTestBackend(t, fr, &Metrics{})
+
+	fres, body, err := resolveFetch(t, b, dlPath)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	const want = "git::https://example.com/from-header.git"
+	if got := fres.Header.Get("X-Terraform-Get"); got != want {
+		t.Errorf("X-Terraform-Get = %q, want %q", got, want)
+	}
+	if got := moduleLocationOf(t, body); got != want {
+		t.Errorf("body location = %q, want %q", got, want)
+	}
+}
+
+// An answer that names no location — no header, and a body that is empty, not
+// JSON, or JSON without one — is passed on as an empty JSON object with no
+// header, which both clients report as a module without a download location.
+func TestModuleDownloadWithoutLocation(t *testing.T) {
+	for name, upstreamBody := range map[string]string{
+		"empty body":       "",
+		"not json":         "<html>maintenance</html>",
+		"no location":      `{"something":"else"}`,
+		"blank location":   `{"location":"   "}`,
+		"location not str": `{"location":42}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fr := newFakeRegistry(t)
+			dlPath := "/v1/modules/a/b/c/1.0.0/download"
+			fr.files[dlPath] = []byte(upstreamBody)
+			b := newTestBackend(t, fr, &Metrics{})
+
+			fres, body, err := resolveFetch(t, b, dlPath)
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+			if got := fres.Header.Get("X-Terraform-Get"); got != "" {
+				t.Errorf("X-Terraform-Get = %q, want none", got)
+			}
+			if got := moduleLocationOf(t, body); got != "" {
+				t.Errorf("body location = %q, want none", got)
+			}
+		})
+	}
+}
+
+// A body that is larger than any location document is not read for one.
+func TestModuleSourceBoundsTheBody(t *testing.T) {
+	fr := newFakeRegistry(t)
+	dlPath := "/v1/modules/a/b/c/1.0.0/download"
+	huge := `{"location":"https://example.com/x.tar.gz","pad":"` + strings.Repeat("a", maxModuleLocationBytes) + `"}`
+	fr.files[dlPath] = []byte(huge)
+	b := newTestBackend(t, fr, &Metrics{})
+
+	fres, body, err := resolveFetch(t, b, dlPath)
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if got := fres.Header.Get("X-Terraform-Get"); got != "" {
+		t.Errorf("X-Terraform-Get = %q: an oversized body must not be parsed", got)
+	}
+	if got := moduleLocationOf(t, body); got != "" {
+		t.Errorf("body location = %q: an oversized body must not be parsed", got)
+	}
+}
+
 func TestDiscoveryDocument(t *testing.T) {
 	b := newTestBackend(t, newFakeRegistry(t), nil)
 	_, body, err := resolveFetch(t, b, "/.well-known/terraform.json")

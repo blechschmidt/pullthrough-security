@@ -9,9 +9,10 @@ import (
 //	GET /v1/modules/{namespace}/{name}/{system}/{version}/download
 //
 // returns 204 No Content with an X-Terraform-Get header naming a go-getter
-// source URL for the module's source archive. The proxy resolves that header to
-// fetch and cache the archive, and rewrites the header so the client retrieves
-// the archive through the proxy. See
+// source URL for the module's source archive (the OpenTofu registry answers 200
+// with that URL as {"location": ...} in the body instead; see moduleSource). The
+// proxy resolves that URL to fetch and cache the archive, and rewrites it so the
+// client retrieves the archive through the proxy. See
 // https://developer.hashicorp.com/terraform/internals/module-registry-protocol.
 
 // terraformGet is a parsed X-Terraform-Get value. go-getter encodes the source

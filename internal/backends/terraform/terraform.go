@@ -10,10 +10,11 @@
 //
 //   - The module registry protocol (`module "x" { source = "<host>/ns/name/sys" }`):
 //     the client lists versions, then asks the download endpoint for the module
-//     source, which answers with an X-Terraform-Get go-getter URL. The proxy
-//     resolves that URL and rewrites it so the source archive is fetched and
-//     cached through the proxy (for plain HTTP(S) sources; other getters are
-//     passed through).
+//     source, which answers with a go-getter URL — in the X-Terraform-Get header
+//     (registry.terraform.io) or as {"location": ...} in the body
+//     (registry.opentofu.org). The proxy resolves that URL and rewrites it so the
+//     source archive is fetched and cached through the proxy (for plain HTTP(S)
+//     sources; other getters are passed through), and answers in both forms.
 //
 //   - The provider registry protocol (`required_providers`): the client lists
 //     versions, then asks the download endpoint for a concrete os/arch package,
@@ -35,6 +36,7 @@ package terraform
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -292,11 +294,16 @@ func (b *Backend) proxyDirect(ctx context.Context, resolved *backends.Resolved, 
 	return b.streamResult(resolved, resp, resp.Body, resp.ContentType), nil
 }
 
-// fetchModuleDownload proxies the module download endpoint and rewrites its
-// X-Terraform-Get header so the source archive is fetched through the proxy. When
-// the source is not a plain HTTP(S) getter (or no absolute public base is
+// fetchModuleDownload proxies the module download endpoint and rewrites the
+// source location it names so the source archive is fetched through the proxy.
+// When the source is not a plain HTTP(S) getter (or no absolute public base is
 // configured, or the request is for the latest version with no version in the
-// path) the original header is passed through unchanged.
+// path) the original location is passed through unchanged.
+//
+// The answer carries the location both ways a client may read it — in the
+// X-Terraform-Get header (Terraform) and as {"location": "..."} in the body
+// (OpenTofu, which parses the body of a 200) — whichever of the two the
+// upstream registry used (see moduleSource).
 func (b *Backend) fetchModuleDownload(ctx context.Context, resolved *backends.Resolved, res resource) (*backends.FetchResult, error) {
 	resp, err := b.get(ctx, resolved.UpstreamURL, "")
 	if err != nil {
@@ -307,30 +314,42 @@ func (b *Backend) fetchModuleDownload(ctx context.Context, resolved *backends.Re
 	}
 	b.metrics.incModuleDownloads()
 
-	getURL := resp.Header.Get("X-Terraform-Get")
-	drainClose(resp.Body)
+	getURL := moduleSource(resp)
 
-	header := make(http.Header)
+	location := ""
 	if g, ok := parseTerraformGet(getURL); ok && g.cacheable() && b.canRewrite && res.version != "" {
-		header.Set("X-Terraform-Get", g.rewrite(b.publicArchiveURL(res)))
+		location = g.rewrite(b.publicArchiveURL(res))
 	} else if getURL != "" {
-		header.Set("X-Terraform-Get", getURL)
+		location = getURL
 		b.metrics.incModuleArchivePassed()
 	}
-	// The download endpoint is a metadata response (typically 204 No Content); the
-	// archive bytes arrive on the separate archive request.
-	status := resp.Status
-	if status == http.StatusOK {
-		// Normalize a 200-with-empty-body to 204 so the client treats it as a
-		// header-only response.
-		status = http.StatusNoContent
+
+	// One value for both spellings; a location is a URL and has no control
+	// characters to lose.
+	location = headerSafe(location)
+
+	header := make(http.Header)
+	body := []byte("{}\n")
+	if location != "" {
+		header.Set("X-Terraform-Get", location)
+		var doc bytes.Buffer
+		enc := json.NewEncoder(&doc)
+		enc.SetEscapeHTML(false) // a query's "&" stays readable
+		if err := enc.Encode(moduleLocation{Location: location}); err != nil {
+			return nil, fmt.Errorf("terraform %q: encoding the module location: %w", b.name, err)
+		}
+		body = doc.Bytes()
 	}
+	// The gateway answers a successful fetch with 200. Terraform reads the header
+	// of a 200 as it does that of a 204; OpenTofu parses the body of a 200 as
+	// JSON and fails on an empty one, so the body is always a JSON document.
 	return &backends.FetchResult{
-		Resolved: resolved,
-		Content:  io.NopCloser(bytes.NewReader(nil)),
-		Size:     0,
-		Header:   header,
-		Status:   status,
+		Resolved:  resolved,
+		Content:   io.NopCloser(bytes.NewReader(body)),
+		Size:      int64(len(body)),
+		MediaType: "application/json",
+		Header:    header,
+		Status:    http.StatusOK,
 	}, nil
 }
 
@@ -345,12 +364,11 @@ func (b *Backend) fetchModuleArchive(ctx context.Context, resolved *backends.Res
 	if !resp.IsSuccess() {
 		return nil, b.statusError(resp, resolved.UpstreamURL)
 	}
-	getURL := resp.Header.Get("X-Terraform-Get")
-	drainClose(resp.Body)
+	getURL := moduleSource(resp)
 
 	g, ok := parseTerraformGet(getURL)
 	if !ok || !g.cacheable() {
-		return nil, fmt.Errorf("terraform %q: module %s has no cacheable HTTP(S) source archive (X-Terraform-Get=%q)",
+		return nil, fmt.Errorf("terraform %q: module %s has no cacheable HTTP(S) source archive (source location %q)",
 			b.name, res.coordinateName(), getURL)
 	}
 
@@ -705,6 +723,45 @@ func readSnippet(r io.Reader) string {
 	}
 	buf, _ := io.ReadAll(io.LimitReader(r, maxErrorBodySnippet))
 	return strings.TrimSpace(string(buf))
+}
+
+// maxModuleLocationBytes bounds the body of a module download response read for
+// its source location; the document is a single short URL.
+const maxModuleLocationBytes = 64 << 10
+
+// moduleLocation is the body form of a module download response.
+type moduleLocation struct {
+	Location string `json:"location"`
+}
+
+// moduleSource returns the go-getter source a module download response names,
+// consuming and closing the response body. Registries spell it two ways:
+//
+//   - the module registry protocol's own: no body, the location in the
+//     X-Terraform-Get header (registry.terraform.io answers 204 this way);
+//   - a 200 whose JSON body is {"location": "..."} and no header, which is how
+//     registry.opentofu.org answers.
+//
+// The header wins when both are present. An answer that names no location in
+// either form yields "".
+func moduleSource(resp *upstream.Response) string {
+	if loc := strings.TrimSpace(resp.Header.Get("X-Terraform-Get")); loc != "" {
+		drainClose(resp.Body)
+		return loc
+	}
+	if resp.Body == nil {
+		return ""
+	}
+	body, err := readAllLimited(resp.Body, maxModuleLocationBytes)
+	_ = resp.Body.Close()
+	if err != nil || len(bytes.TrimSpace(body)) == 0 {
+		return ""
+	}
+	var doc moduleLocation
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(doc.Location)
 }
 
 // drainClose drains a small amount of the body (to allow connection reuse) and
