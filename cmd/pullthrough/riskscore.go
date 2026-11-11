@@ -87,6 +87,7 @@ func riskWeights(w config.RiskScoreWeights) riskscore.Weights {
 		Quarantine:    w.Quarantine,
 		InstallHooks:  w.InstallHooks,
 		RepoHealth:    w.RepoHealth,
+		LLMPackage:    w.LLMPackageScan,
 	}
 }
 

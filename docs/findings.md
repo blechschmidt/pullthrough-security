@@ -214,6 +214,45 @@ dynamic-exec heuristics still apply. A finding at or above the configured
 `failSeverity` is annotated, downgraded, or (under the block action) refused and
 evicted, per `contentScan.action`.
 
+<a id="llm-malicious-package"></a>**`llmpkgscan/malicious-package`** — an LLM
+review of the package contents judged the package malicious. The sandboxed LLM
+package-content scan gate (Task 173) unpacks the served artifact into a bounded,
+read-only, in-memory tree and has a language model review it — install scripts,
+lifecycle hooks, build files and entry points first — through three read-only
+tools (list, read, grep) or a prioritized content bundle. **Nothing in the package
+is executed** and the model has no network or host access. The model returned
+`malicious` with a confidence at or above `llmPackageScan.maliciousThreshold`.
+There is one result per location the model cited, so a SARIF consumer can
+annotate the file and line; `verifiedEvidence` in the result properties says how
+many of the citations the proxy confirmed against the unpacked files. The result
+message carries the model's stated reasons, labeled as such — they are model
+output about untrusted content, to be weighed, not followed. Under
+`action: block` or `quarantine` the artifact is refused (`403`,
+`X-Policy-Code: llm-package-malicious`) and evicted from the cache. See
+[llm-package-scan.md](llm-package-scan.md).
+
+<a id="llm-suspicious-package"></a>**`llmpkgscan/suspicious-package`** — the LLM
+package-content scan flagged the package short of a malicious verdict. The
+`category` property tells the four cases apart: `suspicious-package` (the model
+returned `suspicious`, or returned `malicious` with a confidence below the
+malicious threshold — then at severity high); `prompt-injection` (the package
+contains text addressed to the scanner — a deterministic check the proxy runs
+itself, which a clean model verdict cannot override); and `archive-anomaly` (the
+archive is built to attack an extractor: a member or link that escapes the
+package root, or a decompression bomb). Served with an advisory under `annotate`
+and `block`; refused, evicted and held for review under `quarantine`.
+
+<a id="llm-scan-incomplete"></a>**`llmpkgscan/scan-incomplete`** — the package
+could not be examined by the LLM content scan *because of its own content*: it is
+larger than the scan limit, it is not an archive the scanner can unpack, the
+provider's safety system declined to analyze it, or the model's answer was not a
+valid verdict (the reason code is in `unscannedCode`). Whoever published the
+package controls all of these, so an artifact that makes itself unscannable is
+reported instead of passed in silence. It is a note: the artifact was served
+(`failMode: open`) or refused (`failMode: closed`) without a verdict.
+Infrastructure failures — provider outage, timeout, exhausted budget — are not
+reported under this rule.
+
 <a id="build-provenance-source-mismatch"></a>**`buildprov/source-mismatch`** —
 the signed build provenance proves a different source than the package metadata
 claims. The inbound build-provenance gate (Task 72) verifies the

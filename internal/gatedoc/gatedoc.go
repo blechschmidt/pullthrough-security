@@ -199,6 +199,12 @@ var catalog = []Gate{
 		Summary: "ClamAV/antivirus byte-level content scanning of fetched artifact payloads.",
 	},
 	{
+		Name: "llmpkgscan", Package: "internal/llmpkgscan", Trigger: TriggerServe,
+		Actions: []string{"annotate", "block", "quarantine", "fail-open | fail-closed (when unscanned)"}, ConfigPath: "llmPackageScan",
+		MetricPrefix: "pullthrough_llmpkgscan_", FindingsGate: findings.GateLLMPkgScan,
+		Summary: "Sandboxed LLM review of the unpacked package contents (read-only tools, no execution); verdict cached per sha256 digest + model + prompt version.",
+	},
+	{
 		Name: "reposcore", Package: "internal/reposcore", Trigger: TriggerServe,
 		Actions: []string{"signal-only (never blocks)"}, ConfigPath: "repoScore",
 		MetricPrefix: "pullthrough_reposcore_",

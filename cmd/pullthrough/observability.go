@@ -62,6 +62,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/k8swebhook"
 	"github.com/blechschmidt/pullthrough-security/internal/keyrotation"
 	"github.com/blechschmidt/pullthrough-security/internal/license"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockdown"
 	"github.com/blechschmidt/pullthrough-security/internal/malfeed"
 	"github.com/blechschmidt/pullthrough-security/internal/maturity"
@@ -168,6 +169,7 @@ func buildObservability(
 	mlGuardSvc *mlguard.Service,
 	avScanSvc *avscan.Service,
 	contentScanSvc *contentscan.Service,
+	llmPkgScanSvc *llmpkgscan.Service,
 	sigVerify *sigverify.Service,
 	licenseService *license.Service,
 	pacEngine *policyengine.Engine,
@@ -408,7 +410,7 @@ func buildObservability(
 			grpcCfg.Compliance = complianceSvc
 		}
 		grpcRemediationSvc := buildRemediation(cfg, vulnService, licenseService, maturitySvc, depFirewallSvc)
-		grpcCfg.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, grpcRemediationSvc, suppressionLedger)
+		grpcCfg.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, grpcRemediationSvc, suppressionLedger, llmPkgScanSvc)
 		grpcSrv = grpcapi.New(grpcCfg)
 	}
 
@@ -465,6 +467,7 @@ func buildObservability(
 		bindMLGuardMetrics(collector, mlGuardSvc)
 		bindAVScanMetrics(collector, avScanSvc)
 		bindContentScanMetrics(collector, contentScanSvc)
+		bindLLMPkgScanMetrics(collector, llmPkgScanSvc)
 		bindFindingsDedupMetrics(collector, findingsMetrics, suppressionLedger)
 		bindSigverifyMetrics(collector, sigVerify)
 		bindPolicyEngineMetrics(collector, pacEngine)
@@ -521,7 +524,7 @@ func buildObservability(
 	}
 
 	if cfg.Observability.Admin {
-		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, adminAuthSvc, vexExporter, logger)
+		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, adminAuthSvc, vexExporter, logger)
 		if err != nil {
 			// Cache inspection is the admin minimum; if it cannot be wired we log and
 			// run without the surface rather than aborting the whole proxy.
@@ -562,7 +565,7 @@ func buildObservability(
 	// active lockdown flips un-vetted images to deny.
 	if cfg.AdmissionWebhook.Enabled {
 		remediationSvc := buildRemediation(cfg, vulnService, licenseService, maturitySvc, depFirewallSvc)
-		builder := newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger)
+		builder := newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger, llmPkgScanSvc)
 		wh, err := buildAdmissionWebhook(cfg, builder, lockdownSvc, logger)
 		if err != nil {
 			logger.Error("admission webhook disabled (construction failed)", "error", err)
@@ -3102,6 +3105,159 @@ func bindAVScanMetrics(c *metrics.Collector, svc *avscan.Service) {
 		})
 }
 
+// bindLLMPkgScanMetrics registers the LLM package-content scan gate's
+// cumulative counters (Task 173) as pullthrough_llmpkgscan_*: what the gate was
+// asked and how it answered (verdict cache hits vs. scans, coalesced requests),
+// what the model said, what the gate did about it, why artifacts went unscanned,
+// and what the scans cost (provider calls, tokens, dollars, time). Every label
+// set is closed: verdict categories, reason codes, the three tool names,
+// configured ecosystems and budget scopes. Safe with a nil service.
+func bindLLMPkgScanMetrics(c *metrics.Collector, svc *llmpkgscan.Service) {
+	if svc == nil {
+		return
+	}
+	c.BindCounter("pullthrough_llmpkgscan_assessed_total",
+		"Total pulls of a package artifact the LLM content-scan gate produced a report for.",
+		func() float64 { return float64(svc.Metrics().Assessed) })
+	c.BindCounter("pullthrough_llmpkgscan_not_package_total",
+		"Total pulls the gate left alone because the resource is not an archive (a metadata document under a package coordinate).",
+		func() float64 { return float64(svc.Metrics().NotPackage) })
+	c.BindCounter("pullthrough_llmpkgscan_cache_hits_total",
+		"Total pulls answered from a stored verdict (no model call).",
+		func() float64 { return float64(svc.Metrics().CacheHits) })
+	c.BindCounter("pullthrough_llmpkgscan_cache_misses_total",
+		"Total pulls of an artifact with no stored verdict (a scan was needed).",
+		func() float64 { return float64(svc.Metrics().CacheMisses) })
+	c.BindCounter("pullthrough_llmpkgscan_negative_cache_hits_total",
+		"Total pulls answered from a remembered scan failure (no model call).",
+		func() float64 { return float64(svc.Metrics().NegativeHits) })
+	c.BindCounter("pullthrough_llmpkgscan_coalesced_total",
+		"Total pulls that joined a scan of the same digest already in flight.",
+		func() float64 { return float64(svc.Metrics().Coalesced) })
+	c.BindCounter("pullthrough_llmpkgscan_scans_total",
+		"Total scans that produced a verdict.",
+		func() float64 { return float64(svc.Metrics().Scans) })
+	c.BindCounter("pullthrough_llmpkgscan_scan_errors_total",
+		"Total scans that ended without a verdict.",
+		func() float64 { return float64(svc.Metrics().ScanErrors) })
+	c.BindCounterVec("pullthrough_llmpkgscan_verdicts_total",
+		"Fresh verdicts, labeled by what the model said (malicious|suspicious|benign).",
+		[]string{"verdict"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			return []metrics.LabeledValue{
+				{Labels: []string{llmpkgscan.VerdictMalicious}, Value: float64(snap.VerdictMalicious)},
+				{Labels: []string{llmpkgscan.VerdictSuspicious}, Value: float64(snap.VerdictSuspicious)},
+				{Labels: []string{llmpkgscan.VerdictBenign}, Value: float64(snap.VerdictBenign)},
+			}
+		})
+	c.BindCounter("pullthrough_llmpkgscan_injection_detected_total",
+		"Total scanned artifacts whose content addressed the scanner (deterministic prompt-injection indicators).",
+		func() float64 { return float64(svc.Metrics().InjectionDetected) })
+	c.BindCounter("pullthrough_llmpkgscan_truncated_total",
+		"Total verdicts that rest on an incomplete view of the package (an unpack or prompt limit was hit).",
+		func() float64 { return float64(svc.Metrics().Truncated) })
+	c.BindCounter("pullthrough_llmpkgscan_blocked_total",
+		"Total pulls refused (and the artifact evicted) under the block action.",
+		func() float64 { return float64(svc.Metrics().Blocked) })
+	c.BindCounter("pullthrough_llmpkgscan_quarantined_total",
+		"Total pulls refused (and the artifact evicted) under the quarantine action.",
+		func() float64 { return float64(svc.Metrics().Quarantined) })
+	c.BindCounter("pullthrough_llmpkgscan_annotated_total",
+		"Total pulls of a flagged artifact that were served with the verdict on record.",
+		func() float64 { return float64(svc.Metrics().Annotated) })
+	c.BindCounter("pullthrough_llmpkgscan_failed_open_total",
+		"Total pulls served without a verdict under the fail-open policy.",
+		func() float64 { return float64(svc.Metrics().FailedOpen) })
+	c.BindCounter("pullthrough_llmpkgscan_failed_closed_total",
+		"Total pulls refused for want of a verdict under the fail-closed policy.",
+		func() float64 { return float64(svc.Metrics().FailedClosed) })
+	c.BindCounterVec("pullthrough_llmpkgscan_unscanned_total",
+		"Scans that ended without a verdict, labeled by reason code.",
+		[]string{"code"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.UnscannedByCode))
+			for code, n := range snap.UnscannedByCode {
+				out = append(out, metrics.LabeledValue{Labels: []string{code}, Value: float64(n)})
+			}
+			return out
+		})
+	c.BindCounter("pullthrough_llmpkgscan_provider_calls_total",
+		"Total LLM provider completions requested by the gate.",
+		func() float64 { return float64(svc.Metrics().ProviderCalls) })
+	c.BindCounter("pullthrough_llmpkgscan_provider_errors_total",
+		"Total LLM provider completions that failed.",
+		func() float64 { return float64(svc.Metrics().ProviderErrors) })
+	c.BindCounterVec("pullthrough_llmpkgscan_tokens_total",
+		"Tokens consumed by package scans, labeled by kind (input|output|cache_read).",
+		[]string{"kind"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			return []metrics.LabeledValue{
+				{Labels: []string{"input"}, Value: float64(snap.InputTokens)},
+				{Labels: []string{"output"}, Value: float64(snap.OutputTokens)},
+				{Labels: []string{"cache_read"}, Value: float64(snap.CacheReadTokens)},
+			}
+		})
+	c.BindCounter("pullthrough_llmpkgscan_turns_total",
+		"Total model turns across all scans.",
+		func() float64 { return float64(svc.Metrics().Turns) })
+	c.BindCounterVec("pullthrough_llmpkgscan_tool_calls_total",
+		"Read-only tool calls executed for the model, labeled by tool (list_files|read_file|grep).",
+		[]string{"tool"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.ToolCallsByTool))
+			for tool, n := range snap.ToolCallsByTool {
+				out = append(out, metrics.LabeledValue{Labels: []string{tool}, Value: float64(n)})
+			}
+			return out
+		})
+	c.BindCounter("pullthrough_llmpkgscan_cost_usd_total",
+		"Estimated provider spend on package scans, in US dollars.",
+		func() float64 { return svc.Metrics().CostUSD })
+	c.BindCounter("pullthrough_llmpkgscan_scan_seconds_total",
+		"Total wall-clock seconds spent in scans that produced a verdict.",
+		func() float64 { return svc.Metrics().ScanSeconds })
+	c.BindCounterVec("pullthrough_llmpkgscan_scans_by_ecosystem_total",
+		"Scans that produced a verdict, labeled by ecosystem.",
+		[]string{"ecosystem"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.ScansByEcosystem))
+			for eco, n := range snap.ScansByEcosystem {
+				out = append(out, metrics.LabeledValue{Labels: []string{eco}, Value: float64(n)})
+			}
+			return out
+		})
+	c.BindCounterVec("pullthrough_llmpkgscan_budget_exhausted_total",
+		"Pulls not scanned because a cost ceiling was reached, labeled by scope (tenant|global).",
+		[]string{"scope"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.BudgetExhaustedByKind))
+			for scope, n := range snap.BudgetExhaustedByKind {
+				out = append(out, metrics.LabeledValue{Labels: []string{scope}, Value: float64(n)})
+			}
+			return out
+		})
+	c.BindGauge("pullthrough_llmpkgscan_in_flight",
+		"Scans currently running.",
+		func() float64 { return float64(svc.Metrics().InFlight) })
+	c.BindGauge("pullthrough_llmpkgscan_queued",
+		"Scans waiting for a free scan slot.",
+		func() float64 { return float64(svc.Metrics().Queued) })
+	c.BindGauge("pullthrough_llmpkgscan_breaker_open",
+		"1 while the provider circuit breaker is open (scans are paused after repeated provider failures), else 0.",
+		func() float64 {
+			if svc.Metrics().BreakerOpen {
+				return 1
+			}
+			return 0
+		})
+}
+
 // bindFindingsDedupMetrics registers the finding de-duplication and suppression
 // audit-trail counters (Task 165): the pullthrough_findings_dedup_* family
 // (documents processed, findings seen vs retained, duplicates collapsed, and the
@@ -4929,6 +5085,7 @@ func newDossierBuilder(
 	timelineEngine *timeline.Engine,
 	remediationSvc *remediation.Service,
 	suppressionLedger *findings.SuppressionLedger,
+	llmPkgScanSvc *llmpkgscan.Service,
 ) *dossier.Builder {
 	dp := dossier.Providers{}
 	if findingsStore != nil {
@@ -4973,6 +5130,9 @@ func newDossierBuilder(
 	if remediationSvc != nil {
 		dp.Remediation = remediationSvc
 	}
+	if llmPkgScanSvc != nil {
+		dp.LLMPackageScan = llmPkgScanSvc
+	}
 	return dossier.New(dossier.Config{}, dp)
 }
 
@@ -5015,6 +5175,7 @@ func buildAdminServer(
 	installHooksSvc *installhooks.Service,
 	avScanSvc *avscan.Service,
 	contentScanSvc *contentscan.Service,
+	llmPkgScanSvc *llmpkgscan.Service,
 	poolMgr *upstreampool.Manager,
 	egressGuard *egress.Guard,
 	cacheGC *cachegc.Engine,
@@ -5195,6 +5356,9 @@ func buildAdminServer(
 	if contentScanSvc != nil {
 		opts.ContentScan = contentScanSvc
 	}
+	if llmPkgScanSvc != nil {
+		opts.LLMPkgScan = llmPkgScanSvc
+	}
 	if poolMgr != nil && poolMgr.Len() > 0 {
 		opts.UpstreamPool = poolMgr
 	}
@@ -5267,7 +5431,7 @@ func buildAdminServer(
 	// fans out across whichever subsystems are wired and degrades to partial
 	// results for the rest. The same builder backs the admission webhook's
 	// in-process verdict source (Task 111).
-	opts.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger)
+	opts.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger, llmPkgScanSvc)
 	if mcpSrv.Enabled() {
 		opts.MCP = mcpSrv
 	}

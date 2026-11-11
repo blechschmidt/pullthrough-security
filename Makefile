@@ -227,7 +227,11 @@ FUZZ_TARGETS := \
 	internal/contentscan:FuzzWalkArchive \
 	internal/contentscan:FuzzObfuscatedJS \
 	internal/contentscan:FuzzScanExecLine \
-	internal/contentscan:FuzzSynthesizeAddedPatch
+	internal/contentscan:FuzzSynthesizeAddedPatch \
+	internal/llmpkgscan:FuzzParseVerdict \
+	internal/llmpkgscan:FuzzSafePath \
+	internal/llmpkgscan:FuzzBuildTree \
+	internal/llmpkgscan:FuzzToolCalls
 
 .PHONY: fuzz
 fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m)

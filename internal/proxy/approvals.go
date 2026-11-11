@@ -25,6 +25,7 @@ const (
 	approvalGateMLGuard       approvalGate = "mlguard"
 	approvalGateAVScan        approvalGate = "avscan"
 	approvalGateContentScan   approvalGate = "contentscan"
+	approvalGateLLMPkgScan    approvalGate = "llmpkgscan"
 	approvalGateSbomDrift     approvalGate = "sbomdrift"
 	approvalGateRebuildVerify approvalGate = "rebuildverify"
 	approvalGateBuildProv     approvalGate = "buildprov"

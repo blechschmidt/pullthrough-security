@@ -93,6 +93,37 @@ verdict and the raw `riskScore` are both available to the policy engine.
 
 ---
 
+
+## Scanning (LLM package-content analysis)
+
+Configured under [`llmPackageScan`](configuration-reference.md#llmpackagescan);
+off by default. Full reference: [llm-package-scan.md](llm-package-scan.md).
+
+Commit analysis judges the source a package is *believed* to come from. The
+package-content scan judges the artifact itself — the bytes a package manager is
+about to install — and, unlike commit analysis, it is **synchronous**: the
+response is held until a verdict exists, so a package judged malicious is
+refused (403, `X-Policy-Code: llm-package-malicious`) and evicted from the cache
+before any of it is served.
+
+- **Sandboxed by construction.** The artifact is unpacked into a bounded,
+  read-only tree held in memory. The model gets three read-only tools over it
+  (list, read, grep) or one prioritized bundle. Package code is never executed
+  and the model has no network, filesystem or host access.
+- **Content is untrusted data.** Per-scan random delimiters, a frozen system
+  prompt, a strict JSON verdict, and deterministic prompt-injection and
+  archive-structure checks the content cannot argue with. A scan that fails for
+  any reason is *unscanned* — never benign — and `failMode` (`open` | `closed`)
+  decides what happens.
+- **Scanned once.** Verdicts are cached by artifact digest + model + prompt
+  version; concurrent pulls share one scan; per-tenant and global budgets bound
+  the spend.
+- **Same provider abstraction** as commit analysis: with `llmPackageScan.provider`
+  empty it inherits `scanning.provider`, key and endpoint.
+
+It sends package contents to the LLM provider: exclude private registries with
+`llmPackageScan.excludeUpstreams` where that is not acceptable.
+
 ## Provenance (package → commit)
 
 Configured under [`provenance`](configuration.md#provenance).

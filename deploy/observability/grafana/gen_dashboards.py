@@ -378,8 +378,59 @@ def build_security():
     ]
     p, y = lay(ng, y0=y + 1, h=8, cols=2)
     panels += p
+
+    panels.append(row("LLM package-content scan", y))
+    llm = [
+        lambda gp: timeseries("Verdicts (fresh scans)", gp,
+                              [("sum by (verdict) (increase(pullthrough_llmpkgscan_verdicts_total[10m]))", "{{verdict}}")],
+                              unit="short", stack=True,
+                              desc="What the model said about newly scanned artifacts. Any 'malicious' is worth a look."),
+        lambda gp: timeseries("Gate decisions (rate)", gp,
+                              [("sum(rate(pullthrough_llmpkgscan_blocked_total[10m]))", "blocked"),
+                               ("sum(rate(pullthrough_llmpkgscan_quarantined_total[10m]))", "quarantined"),
+                               ("sum(rate(pullthrough_llmpkgscan_annotated_total[10m]))", "served, flagged"),
+                               ("sum(rate(pullthrough_llmpkgscan_failed_open_total[10m]))", "served unscanned (fail-open)"),
+                               ("sum(rate(pullthrough_llmpkgscan_failed_closed_total[10m]))", "refused unscanned (fail-closed)")],
+                              unit="ops",
+                              desc="What pulls were told. 'Served unscanned' is the gate not doing its job: check the next panel for why."),
+        lambda gp: timeseries("Why artifacts went unscanned", gp,
+                              [("sum by (code) (increase(pullthrough_llmpkgscan_unscanned_total[10m]))", "{{code}}"),
+                               ("sum by (scope) (increase(pullthrough_llmpkgscan_budget_exhausted_total[10m]))", "budget ({{scope}})")],
+                              unit="short", stack=True,
+                              desc="Scans that ended without a verdict, by reason code. provider-error/timeout point at the LLM provider; "
+                                   "oversized/unsupported-format/provider-refusal/malformed-output are about the artifact itself."),
+        lambda gp: timeseries("Verdict cache: hits vs scans", gp,
+                              [("sum(rate(pullthrough_llmpkgscan_cache_hits_total[10m]))", "cache hits"),
+                               ("sum(rate(pullthrough_llmpkgscan_scans_total[10m]))", "scans"),
+                               ("sum(rate(pullthrough_llmpkgscan_coalesced_total[10m]))", "coalesced"),
+                               ("sum(pullthrough_llmpkgscan_in_flight)", "in flight"),
+                               ("sum(pullthrough_llmpkgscan_queued)", "queued")],
+                              unit="ops",
+                              desc="Each distinct artifact digest is scanned once; everything after is a cache hit. "
+                                   "A standing queue means scans are waiting for a slot: raise llmPackageScan.maxConcurrent."),
+        lambda gp: timeseries("Spend (USD / hour) and tokens", gp,
+                              [("sum(increase(pullthrough_llmpkgscan_cost_usd_total[1h]))", "USD (last hour)"),
+                               ("sum by (kind) (rate(pullthrough_llmpkgscan_tokens_total[10m]))", "tokens/s {{kind}}")],
+                              unit="short", decimals=2,
+                              desc="Estimated provider spend on package scans. Bound it with llmPackageScan.budget."),
+        lambda gp: timeseries("Scan effort", gp,
+                              [("sum(rate(pullthrough_llmpkgscan_scan_seconds_total[10m])) / clamp_min(sum(rate(pullthrough_llmpkgscan_scans_total[10m])),0.001)", "seconds per scan"),
+                               ("sum(rate(pullthrough_llmpkgscan_turns_total[10m])) / clamp_min(sum(rate(pullthrough_llmpkgscan_scans_total[10m])),0.001)", "turns per scan"),
+                               ("sum by (tool) (rate(pullthrough_llmpkgscan_tool_calls_total[10m]))", "tool calls/s {{tool}}")],
+                              unit="short", decimals=2,
+                              desc="How long a first pull of a new artifact waits, and how much the model investigates."),
+        lambda gp: stat("Provider circuit breaker", gp, [("max(pullthrough_llmpkgscan_breaker_open)", "open")], unit="short",
+                        desc="1 while scans are paused after repeated provider failures.",
+                        thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}]),
+        lambda gp: stat("Prompt-injection indicators (24h)", gp,
+                        [("sum(increase(pullthrough_llmpkgscan_injection_detected_total[24h]))", "packages")], unit="short",
+                        desc="Scanned packages whose content addressed the scanner. Such a package is never given a clean pass.",
+                        thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 1}]),
+    ]
+    p, y = lay(llm, y0=y + 1, h=8, cols=2)
+    panels += p
     return dashboard("pullthrough-supply-chain", "Pull-through · Supply-chain Security",
-                     "Vulnerability gate, CVE-drift re-scan/quarantine, signature/attestation verification, and name-guard posture.",
+                     "Vulnerability gate, CVE-drift re-scan/quarantine, signature/attestation verification, name-guard posture, and the LLM package-content scan.",
                      ["pullthrough", "security", "supply-chain"], panels)
 
 

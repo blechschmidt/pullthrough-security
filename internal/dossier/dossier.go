@@ -6,9 +6,10 @@
 // vulnerabilities and VEX state (vulnscan), license disposition (derived from
 // findings), signature/attestation status (sigverify + attestbundle),
 // approval/break-glass history (approvals), the reproducible-build verdict
-// (rebuildverify), SBOM drift (sbomdiff), and the correlated forensic event
-// timeline (timeline) — and folds them into one opinionated, human-first card
-// optimized for incident triage.
+// (rebuildverify), SBOM drift (sbomdiff), the LLM package-content scan verdict
+// (llmpkgscan), and the correlated forensic event timeline (timeline) — and
+// folds them into one opinionated, human-first card optimized for incident
+// triage.
 //
 // Unlike the generic federated query DSL (internal/queryapi), this is a fixed
 // projection: the caller does not choose fields, it gets the whole story. The
@@ -29,6 +30,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/attestbundle"
 	"github.com/blechschmidt/pullthrough-security/internal/buildprov"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/provgraph"
 	"github.com/blechschmidt/pullthrough-security/internal/pypiattest"
 	"github.com/blechschmidt/pullthrough-security/internal/rebuildverify"
@@ -163,6 +165,18 @@ type SuppressionProvider interface {
 	ByCoordinate(tenant, coordinate string) []findings.SuppressionRecord
 }
 
+// LLMPackageScanProvider exposes the sandboxed LLM package-content scan's stored
+// verdicts (Task 173). ForCoordinate is tenant-scoped by the provider: a verdict
+// quotes the package it describes, so a tenant-bound reader is given only
+// verdicts on bytes its own tenant has pulled. Standing applies the gate's
+// current thresholds and action to a stored verdict. The *llmpkgscan.Service
+// satisfies it.
+type LLMPackageScanProvider interface {
+	Enabled() bool
+	ForCoordinate(tenant, ecosystem, name, version string) []*llmpkgscan.Verdict
+	Standing(v *llmpkgscan.Verdict) llmpkgscan.Standing
+}
+
 // Providers bundles the optional subsystem read-models the dossier folds
 // together. Any nil field yields an absent section reported as "disabled".
 type Providers struct {
@@ -180,6 +194,8 @@ type Providers struct {
 	Timeline     TimelineProvider
 	Remediation  RemediationProvider
 	Suppressions SuppressionProvider
+	// LLMPackageScan is the LLM package-content scan gate (Task 173).
+	LLMPackageScan LLMPackageScanProvider
 }
 
 // Config tunes the builder. The zero value is usable: it falls back to the
@@ -240,6 +256,7 @@ func (b *Builder) Sources() map[string]bool {
 		"timeline":     p.Timeline != nil,
 		"suggestedfix": p.Remediation != nil && p.Remediation.Enabled(),
 		"suppression":  p.Suppressions != nil,
+		"llmpkgscan":   p.LLMPackageScan != nil && p.LLMPackageScan.Enabled(),
 	}
 }
 
@@ -370,6 +387,9 @@ func (b *Builder) jobs(id ident, tenant string, now time.Time) []sourceJob {
 		}},
 		{name: "suppression", enabled: p.Suppressions != nil, fn: func(ctx context.Context, mu *sync.Mutex, d *Dossier) (string, string) {
 			return b.fillSuppression(id, tenant, mu, d)
+		}},
+		{name: "llmpkgscan", enabled: p.LLMPackageScan != nil && p.LLMPackageScan.Enabled(), fn: func(ctx context.Context, mu *sync.Mutex, d *Dossier) (string, string) {
+			return b.fillLLMPackageScan(id, tenant, mu, d)
 		}},
 	}
 }

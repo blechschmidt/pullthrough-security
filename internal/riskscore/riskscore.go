@@ -118,6 +118,7 @@ const (
 	SignalInstallHooks  SignalKind = "installhooks"
 	SignalAVScan        SignalKind = "avscan"
 	SignalContentScan   SignalKind = "contentscan"
+	SignalLLMPackage    SignalKind = "llmpkgscan"
 	SignalRepoHealth    SignalKind = "repohealth"
 	SignalRebuildVerify SignalKind = "rebuildverify"
 	SignalContinuity    SignalKind = "continuity"
@@ -137,6 +138,7 @@ var allSignals = []SignalKind{
 	SignalInstallHooks,
 	SignalAVScan,
 	SignalContentScan,
+	SignalLLMPackage,
 	SignalRepoHealth,
 	SignalRebuildVerify,
 	SignalContinuity,

@@ -48,6 +48,7 @@ have no SARIF rule of their own. For finding remediation guidance see
 | `contentscan` | `internal/contentscan` | serveCacheable (post-fetch) | `annotate`, `downgrade`, `block` | `contentScan` | SuspiciousContent | `contentscan/suspicious-content` | `pullthrough_contentscan_*` |
 | `mlguard` | `internal/mlguard` | serveCacheable (post-fetch) | `warn`, `block` | `mlGuard` | unsafe ML-weight deserialization (pickle-*) findings (policy-engine signal, no SARIF rule) | — | `pullthrough_mlguard_*` |
 | `avscan` | `internal/avscan` | serveCacheable (post-fetch) | `annotate`, `quarantine`, `block` | `avScan` | MalwareDetected | `avscan/malware-detected` | `pullthrough_avscan_*` |
+| `llmpkgscan` | `internal/llmpkgscan` | serveCacheable (post-fetch) | `annotate`, `block`, `quarantine`, `fail-open \| fail-closed (when unscanned)` | `llmPackageScan` | LLMMaliciousPackage, LLMSuspiciousPackage, LLMScanIncomplete | `llmpkgscan/malicious-package`, `llmpkgscan/suspicious-package`, `llmpkgscan/scan-incomplete` | `pullthrough_llmpkgscan_*` |
 | `reposcore` | `internal/reposcore` | serveCacheable (post-fetch) | `signal-only (never blocks)` | `repoScore` | source-repository health grade feeding riskscore/policyengine (no SARIF rule) | — | `pullthrough_reposcore_*` |
 | `provenance` | `internal/provenance` | serveCacheable (post-fetch) | `warn`, `block` | `provenance` | UnverifiedProvenance, MaliciousSourceCommit | `provenance/unverified`, `provenance/malicious-commit` | — (no dedicated family) |
 | `policyengine` | `internal/policyengine` | serveCacheable (post-fetch) | `allow`, `warn`, `deny`, `mode: enforce \| audit` | `policyEngine` | PolicyViolation | `policyengine/policy-violation` | `pullthrough_policyengine_*` |
@@ -56,4 +57,4 @@ have no SARIF rule of their own. For finding remediation guidance see
 | `secretscan` | `internal/scan/commit` | commit pipeline | `warn \| block (by failOn severity)` | `scanning.secrets` | ExposedCredential | `secretscan/exposed-credential` | `pullthrough_secrets_*` |
 | `actionpin` | `internal/actionpin` | commit pipeline | `warn`, `block` | `scanning.actions` | UnpinnedAction, DisallowedActionOwner | `actionpin/unpinned-action`, `actionpin/disallowed-owner` | — (no dedicated family) |
 
-_25 admission gates documented; 18 emit SARIF findings, 7 are signal/hard-block gates._
+_26 admission gates documented; 19 emit SARIF findings, 7 are signal/hard-block gates._

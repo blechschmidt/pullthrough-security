@@ -617,6 +617,7 @@ type Options struct {
 	InstallHooks                InstallHooksInspector
 	AVScan                      AVScanInspector
 	ContentScan                 ContentScanInspector
+	LLMPkgScan                  LLMPkgScanInspector
 	UpstreamPool                UpstreamPoolInspector
 	Egress                      EgressInspector
 	Backup                      BackupController
@@ -816,6 +817,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+s.prefix+"/api/installhooks", s.handleInstallHooks)
 	mux.HandleFunc("GET "+s.prefix+"/api/avscan", s.handleAVScan)
 	mux.HandleFunc("GET "+s.prefix+"/api/contentscan", s.handleContentScan)
+	mux.HandleFunc("GET "+s.prefix+"/api/llmpkgscan", s.handleLLMPkgScan)
+	mux.HandleFunc("GET "+s.prefix+"/api/llmpkgscan/verdicts", s.handleLLMPkgScanVerdicts)
 	mux.HandleFunc("GET "+s.prefix+"/api/tracing", s.handleTracing)
 	mux.HandleFunc("GET "+s.prefix+"/api/findings", s.handleFindingsList)
 	mux.HandleFunc("GET "+s.prefix+"/api/findings/sarif", s.handleFindingsSARIF)

@@ -25,6 +25,7 @@ type Input struct {
 	MLGuard       *MLGuardInput       `json:"mlGuard,omitempty"`
 	AVScan        *AVScanInput        `json:"avScan,omitempty"`
 	ContentScan   *ContentScanInput   `json:"contentScan,omitempty"`
+	LLMPackage    *LLMPackageInput    `json:"llmPackageScan,omitempty"`
 	RepoHealth    *RepoHealthInput    `json:"repoHealth,omitempty"`
 	SbomDrift     *SbomDriftInput     `json:"sbomDrift,omitempty"`
 	RebuildVerify *RebuildVerifyInput `json:"rebuildVerify,omitempty"`
@@ -652,6 +653,110 @@ func (c *ContentScanInput) document() map[string]any {
 	}
 }
 
+// LLMPackageInput summarizes the sandboxed LLM package-content scan gate (Task
+// 173): a language model's malicious / suspicious / benign verdict on the
+// unpacked contents of the served artifact, together with the deterministic
+// checks the gate applies on top of it. A rule can deny on, e.g.
+// `has(input.llmPackageScan) && input.llmPackageScan.disposition == "suspicious"`
+// (to refuse what the gate itself only flags), or on
+// `input.llmPackageScan.unscanned && input.llmPackageScan.contentAttributable`
+// (to refuse an artifact that made itself unscannable, even under fail-open).
+type LLMPackageInput struct {
+	// Scanned is true when a verdict exists for the artifact (fresh or cached).
+	Scanned bool `json:"scanned"`
+	// Verdict is the model's raw answer: malicious|suspicious|benign.
+	Verdict string `json:"verdict,omitempty"`
+	// Confidence is the model's confidence in that verdict, 0..1.
+	Confidence float64 `json:"confidence"`
+	// Disposition is how the gate reads the verdict under its thresholds and
+	// deterministic checks: malicious|suspicious|benign|unscanned.
+	Disposition string `json:"disposition,omitempty"`
+	// Action is the gate's configured action (annotate|quarantine|block).
+	Action string `json:"action,omitempty"`
+	// Cached is true when the verdict came from the verdict cache.
+	Cached bool `json:"cached,omitempty"`
+	// Model is the model that produced the verdict; Mode is "tools" or "bundle".
+	Model string `json:"model,omitempty"`
+	Mode  string `json:"mode,omitempty"`
+	// Truncated is true when the verdict rests on an incomplete view of the
+	// package (an unpack or prompt limit was hit).
+	Truncated bool `json:"truncated,omitempty"`
+	// Injection is true when the package content addresses the scanner (a
+	// deterministic prompt-injection indicator); InjectionRules names the rules.
+	Injection      bool     `json:"injection,omitempty"`
+	InjectionRules []string `json:"injectionRules,omitempty"`
+	// StructuralRisk is true when the archive is built to attack an extractor (a
+	// path or link escaping the package root, a decompression bomb).
+	StructuralRisk bool `json:"structuralRisk,omitempty"`
+	// EvidenceCount / VerifiedEvidence count the model's citations and how many
+	// of them the gate confirmed against the unpacked package.
+	EvidenceCount    int `json:"evidenceCount"`
+	VerifiedEvidence int `json:"verifiedEvidence"`
+	// Unscanned is true when no verdict could be obtained; UnscannedCode is the
+	// reason code and ContentAttributable whether the artifact's own bytes caused
+	// it (oversized, not unpackable, provider refusal, unparseable answer).
+	Unscanned           bool   `json:"unscanned,omitempty"`
+	UnscannedCode       string `json:"unscannedCode,omitempty"`
+	ContentAttributable bool   `json:"contentAttributable,omitempty"`
+	// Reason is the one-line explanation of the disposition.
+	Reason       string `json:"reason,omitempty"`
+	FindingCount int    `json:"findingCount"`
+	MaxSeverity  string `json:"maxSeverity,omitempty"`
+	Risk         int    `json:"risk"` // ordinal 0..100 contribution
+	// Findings are the gate's findings, one per cited location / indicator.
+	Findings []LLMPackageFinding `json:"findings,omitempty"`
+}
+
+// LLMPackageFinding is a single finding of the LLM package-content scan.
+type LLMPackageFinding struct {
+	RuleID   string `json:"ruleId,omitempty"`
+	Category string `json:"category,omitempty"`
+	Severity string `json:"severity,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+	File     string `json:"file,omitempty"`
+	Line     int    `json:"line,omitempty"`
+}
+
+func (l *LLMPackageInput) document() map[string]any {
+	findings := make([]any, 0, len(l.Findings))
+	for _, f := range l.Findings {
+		findings = append(findings, map[string]any{
+			"ruleId":   f.RuleID,
+			"category": f.Category,
+			"severity": f.Severity,
+			"file":     f.File,
+			"line":     int64(f.Line),
+		})
+	}
+	return map[string]any{
+		"scanned":             l.Scanned,
+		"verdict":             l.Verdict,
+		"confidence":          l.Confidence,
+		"disposition":         l.Disposition,
+		"malicious":           l.Disposition == "malicious",
+		"suspicious":          l.Disposition == "suspicious",
+		"action":              l.Action,
+		"cached":              l.Cached,
+		"model":               l.Model,
+		"mode":                l.Mode,
+		"truncated":           l.Truncated,
+		"injection":           l.Injection,
+		"injectionRules":      toAnyStrings(l.InjectionRules),
+		"structuralRisk":      l.StructuralRisk,
+		"evidenceCount":       int64(l.EvidenceCount),
+		"verifiedEvidence":    int64(l.VerifiedEvidence),
+		"unscanned":           l.Unscanned,
+		"unscannedCode":       l.UnscannedCode,
+		"contentAttributable": l.ContentAttributable,
+		"findingCount":        int64(l.FindingCount),
+		"hasFindings":         l.FindingCount > 0,
+		"maxSeverity":         l.MaxSeverity,
+		"risk":                int64(l.Risk),
+		"findings":            findings,
+	}
+}
+
 // RepoHealthInput summarizes the source-repository health signals (Task 63)
 // derived from the package's associated Git repository (via the provenance
 // association). The signals are OpenSSF Scorecard-style and offline-derivable:
@@ -725,6 +830,9 @@ func (in Input) Document() map[string]any {
 	}
 	if in.ContentScan != nil {
 		doc["contentScan"] = in.ContentScan.document()
+	}
+	if in.LLMPackage != nil {
+		doc["llmPackageScan"] = in.LLMPackage.document()
 	}
 	if in.RepoHealth != nil {
 		doc["repoHealth"] = in.RepoHealth.document()

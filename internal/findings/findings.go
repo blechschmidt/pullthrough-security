@@ -43,6 +43,7 @@ const (
 	GateInstallHooks  Gate = "installhooks"
 	GateAVScan        Gate = "avscan"
 	GateContentScan   Gate = "contentscan"
+	GateLLMPkgScan    Gate = "llmpkgscan"
 	GateRebuildVerify Gate = "rebuildverify"
 	GateBuildProv     Gate = "buildprov"
 	GatePyPIAttest    Gate = "pypiattest"

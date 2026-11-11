@@ -552,6 +552,23 @@ func run() error {
 		return fmt.Errorf("building package-content analysis gate: %w", err)
 	}
 
+	// Sandboxed LLM package-content scan gate (Task 173): has a language model
+	// read the unpacked contents of a fetched package — through a bounded,
+	// read-only view; nothing is executed — and return a malicious / suspicious /
+	// benign verdict before the artifact is served. It reuses the commit scanner's
+	// provider abstraction, caches verdicts by artifact digest, and is bounded by
+	// a per-tenant / global cost budget. Built before the gateway so it can be
+	// wired as a content gate and surfaced in observability/admin.
+	llmPkgScanSvc, closeLLMPkgScan, err := buildLLMPkgScan(cfg, auditLog, notifier, logger)
+	if err != nil {
+		return fmt.Errorf("building LLM package-content scan gate: %w", err)
+	}
+	defer func() {
+		if cerr := closeLLMPkgScan(); cerr != nil {
+			logger.Error("closing LLM package-content scan gate", "error", cerr)
+		}
+	}()
+
 	licenseService, err := buildLicense(cfg, logger)
 	if err != nil {
 		return err
@@ -838,7 +855,7 @@ func run() error {
 		return err
 	}
 
-	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, logger)
+	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, logger)
 
 	// Only the coordination leader emits expiry notifications (the scan still runs
 	// on every replica so each node's gauge is populated); then start the loop.
@@ -903,6 +920,7 @@ func run() error {
 		MLGuard:         mlGuardSvc,
 		AVScan:          avScanSvc,
 		ContentScan:     contentScanSvc,
+		LLMPkgScan:      llmPkgScanSvc,
 		Sigverify:       sigVerify,
 		PolicyEngine:    pacEngine,
 		RiskScore:       riskEngine,

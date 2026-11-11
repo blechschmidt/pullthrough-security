@@ -31,7 +31,7 @@ run `make observability-gen`, don't hand-edit the JSON.
 | Dashboard (uid) | Focus |
 |-----------------|-------|
 | **Cache Performance** (`pullthrough-cache`) | hit/miss ratio & trend, read throughput, upstream fills/coalesced, I/O bytes, evictions/expiry, **backend (incl. S3) errors** |
-| **Supply-chain Security** (`pullthrough-supply-chain`) | vuln severities & gate decisions, scan-backend health, CVE-drift re-scan & quarantine, signature/attestation verification, name-guard findings |
+| **Supply-chain Security** (`pullthrough-supply-chain`) | vuln severities & gate decisions, scan-backend health, CVE-drift re-scan & quarantine, signature/attestation verification, name-guard findings, **LLM package-content scan** (verdicts, decisions, why artifacts went unscanned, verdict-cache hits, spend, scan effort) |
 | **Upstream Latency & Errors** (`pullthrough-upstream`) | request rate, 5xx ratio, upstream latency p50/p95/p99 & error ratio per backend, admission-policy decisions |
 | **Per-tenant Traffic & Limits** (`pullthrough-tenant`) | rate-limit allow/throttle & reasons, per-tenant concurrency & byte-quota usage, traffic mix, notification delivery |
 
@@ -160,6 +160,33 @@ VEX suppression: `pullthrough_vex_suppressed_total`,
 `warned_total`, `typosquat_total`, `dependency_confusion_total`,
 `homoglyph_total`, `namespace_mismatch_total`, `new_package_total`.
 
+### LLM package-content scan
+
+`pullthrough_llmpkgscan_` (registered when `llmPackageScan.enabled`; see
+[llm-package-scan.md](llm-package-scan.md)):
+
+- **What the gate was asked:** `assessed_total`, `not_package_total` (metadata
+  documents it left alone), `cache_hits_total` / `cache_misses_total` (verdict
+  cache), `negative_cache_hits_total`, `coalesced_total`.
+- **Scans:** `scans_total`, `scan_errors_total`,
+  `unscanned_total{code}` (why a scan produced no verdict),
+  `scans_by_ecosystem_total{ecosystem}`, `in_flight` and `queued` (gauges),
+  `breaker_open` (gauge, 1 while scans are paused after provider failures).
+- **What the model said:** `verdicts_total{verdict}`
+  (malicious\|suspicious\|benign), `injection_detected_total`,
+  `truncated_total` (verdicts resting on an incomplete view).
+- **What the gate did:** `blocked_total`, `quarantined_total`,
+  `annotated_total`, `failed_open_total`, `failed_closed_total`,
+  `budget_exhausted_total{scope}` (tenant\|global).
+- **What it cost:** `provider_calls_total`, `provider_errors_total`,
+  `tokens_total{kind}` (input\|output\|cache_read), `turns_total`,
+  `tool_calls_total{tool}` (list_files\|read_file\|grep), `cost_usd_total`,
+  `scan_seconds_total`.
+
+Every label set is closed (verdict categories, reason codes, tool names,
+configured ecosystems, budget scopes): nothing a package or the model writes can
+become a label value.
+
 ### Rate limiting (per-tenant)
 
 `pullthrough_ratelimit_` + `allowed_total`, `throttled_total`,
@@ -240,7 +267,7 @@ API exposes the same status at `{adminPrefix}/api/tracing`.
 
 ## Alert catalogue
 
-24 alerts in 5 groups ship in
+36 alerts in 9 groups ship in
 [`deploy/observability/prometheus/alerts.yaml`](../deploy/observability/prometheus/alerts.yaml).
 Thresholds are conservative defaults — tune `expr`/`for` to your traffic and SLOs.
 Each alert carries `severity` and `component` labels plus `summary`,
@@ -291,6 +318,29 @@ hit ratio usually means the cache is undersized or TTL too short
 active supply-chain attack — investigate immediately via the admin scans/vuln
 surfaces ([security-model.md](security-model.md), [sigverify.md](sigverify.md),
 [runbook.md](runbook.md#a-malicious-package-is-being-pulled)).
+
+### LLM package-scan alerts
+
+| Alert | Severity | Fires when |
+|-------|----------|-----------|
+| `PullthroughLLMPackageScanMaliciousVerdict` | critical | a newly scanned package was judged malicious in the last 15m. |
+| `PullthroughLLMPackageScanPromptInjection` | warning | a scanned package contains text addressed to the scanner. |
+| `PullthroughLLMPackageScanFailing` | warning | scans fail more often than they succeed, or the provider circuit breaker is open, for 10m. |
+| `PullthroughLLMPackageScanServingUnscanned` | warning | pulls are being served without a verdict (fail-open) for 15m. |
+| `PullthroughLLMPackageScanBudgetExhausted` | warning | a tenant or the global cost ceiling was reached. |
+
+**Respond:** a malicious verdict under `action: annotate` means the package **was
+served** — treat hosts that installed it as potentially compromised and follow
+[runbook.md](runbook.md#a-malicious-package-is-being-pulled). Read the verdict
+(reasons, cited files) in the package dossier or at
+`GET /admin/api/llmpkgscan/verdicts`; release a confirmed false positive through
+the break-glass workflow. For *failing* / *serving unscanned*, the `code` label
+of `pullthrough_llmpkgscan_unscanned_total` says why: `provider-error`,
+`timeout` and `provider-unavailable` point at the LLM provider (reachability,
+credentials, rate limits); `scanner-busy` means scans are queueing — raise
+`llmPackageScan.maxConcurrent`; `budget-exhausted` means a ceiling was reached.
+While any of these lasts the gate enforces nothing for new artifacts unless
+`failMode` is `closed`. See [llm-package-scan.md](llm-package-scan.md).
 
 ### Compliance alerts
 

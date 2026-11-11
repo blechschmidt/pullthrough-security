@@ -21,6 +21,7 @@ type Weights struct {
 	InstallHooks  float64 `json:"installHooks"`
 	AVScan        float64 `json:"avScan"`
 	ContentScan   float64 `json:"contentScan"`
+	LLMPackage    float64 `json:"llmPackageScan"`
 	RepoHealth    float64 `json:"repoHealth"`
 	RebuildVerify float64 `json:"rebuildVerify"`
 	Continuity    float64 `json:"continuity"`
@@ -49,6 +50,8 @@ func (w Weights) forSignal(k SignalKind) float64 {
 		return w.AVScan
 	case SignalContentScan:
 		return w.ContentScan
+	case SignalLLMPackage:
+		return w.LLMPackage
 	case SignalRepoHealth:
 		return w.RepoHealth
 	case SignalRebuildVerify:
@@ -62,7 +65,7 @@ func (w Weights) forSignal(k SignalKind) float64 {
 
 // sum returns the total of all weights.
 func (w Weights) sum() float64 {
-	return w.Vulnerability + w.Signature + w.License + w.Nameguard + w.Secret + w.Provenance + w.Quarantine + w.InstallHooks + w.AVScan + w.ContentScan + w.RepoHealth + w.RebuildVerify + w.Continuity
+	return w.Vulnerability + w.Signature + w.License + w.Nameguard + w.Secret + w.Provenance + w.Quarantine + w.InstallHooks + w.AVScan + w.ContentScan + w.LLMPackage + w.RepoHealth + w.RebuildVerify + w.Continuity
 }
 
 // isZero reports whether no weight has been set, so the caller can substitute
@@ -82,6 +85,7 @@ func DefaultWeights() Weights {
 		InstallHooks:  0.10,
 		AVScan:        0.20,
 		ContentScan:   0.12,
+		LLMPackage:    0.20,
 		RebuildVerify: 0.10,
 		Continuity:    0.10,
 		Secret:        0.08,
@@ -249,7 +253,8 @@ func validateWeights(w Weights) error {
 	for name, v := range map[string]float64{
 		"vulnerability": w.Vulnerability, "signature": w.Signature, "license": w.License,
 		"nameguard": w.Nameguard, "secret": w.Secret, "provenance": w.Provenance, "quarantine": w.Quarantine,
-		"installHooks": w.InstallHooks, "avScan": w.AVScan, "repoHealth": w.RepoHealth,
+		"installHooks": w.InstallHooks, "avScan": w.AVScan, "contentScan": w.ContentScan,
+		"llmPackageScan": w.LLMPackage, "repoHealth": w.RepoHealth,
 		"rebuildVerify": w.RebuildVerify, "continuity": w.Continuity,
 	} {
 		if v < 0 {

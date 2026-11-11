@@ -49,6 +49,9 @@ const (
 	RuleRiskyInstallScript        = "installhooks/risky-install-script"
 	RuleMalwareDetected           = "avscan/malware-detected"
 	RuleSuspiciousContent         = "contentscan/suspicious-content"
+	RuleLLMMaliciousPackage       = "llmpkgscan/malicious-package"
+	RuleLLMSuspiciousPackage      = "llmpkgscan/suspicious-package"
+	RuleLLMScanIncomplete         = "llmpkgscan/scan-incomplete"
 	RuleReproducibilityMismatch   = "rebuildverify/reproducibility-mismatch"
 	RuleProvenanceSourceMismatch  = "buildprov/source-mismatch"
 	RuleUnverifiedBuildProvenance = "buildprov/unverified-provenance"
@@ -216,6 +219,30 @@ var catalog = map[string]Rule{
 		HelpText: "Review the flagged file(s); the category, rule, and a redacted excerpt are in the result properties. A native binary or packed blob inside a source package, obfuscated code, or an in-source secret rarely has a legitimate reason to ship in a published package.",
 		Default:  LevelWarning, Tags: []string{"security", "content-analysis", "obfuscation", "secret", "supply-chain"},
 	},
+	RuleLLMMaliciousPackage: {
+		ID: RuleLLMMaliciousPackage, Gate: GateLLMPkgScan, Name: "LLMMaliciousPackage",
+		Short:    "An LLM review of the package contents judged the package malicious.",
+		Full:     "The sandboxed LLM package-content scan gate unpacked the served artifact into a bounded, read-only, in-memory tree and had a language model review it — install scripts, lifecycle hooks, build files and entry points first — through read-only tools (or a prioritized content bundle). The model returned a malicious verdict at or above the configured confidence threshold. Nothing in the package was executed, and the model had no network or host access. Each result is located at a file and line the model cited; whether the gate could confirm the quoted text in the unpacked package is recorded in the result properties.",
+		HelpURI:  helpURIBase + "#llm-malicious-package",
+		HelpText: "Treat the artifact as malicious: do not consume it. The model's reasons and the cited file/line are in the result properties; review them before deciding. If the verdict is a confirmed false positive, release the coordinate through the break-glass approval workflow.",
+		Default:  LevelError, Tags: []string{"security", "malware", "llm", "supply-chain"},
+	},
+	RuleLLMSuspiciousPackage: {
+		ID: RuleLLMSuspiciousPackage, Gate: GateLLMPkgScan, Name: "LLMSuspiciousPackage",
+		Short:    "An LLM review of the package contents flagged the package as suspicious.",
+		Full:     "The sandboxed LLM package-content scan gate flagged the served artifact short of a malicious verdict. This covers four cases: the model returned \"suspicious\"; the model returned \"malicious\" with a confidence below the malicious threshold; the package content contains text addressed to the scanner (a deterministic prompt-injection indicator, which the gate does not let a clean verdict override); or the archive is built to attack an extractor (a path or link that escapes the package root, or a decompression bomb). The result's category property tells them apart.",
+		HelpURI:  helpURIBase + "#llm-suspicious-package",
+		HelpText: "Review the cited file(s) and the model's reasons. Text that tries to steer an automated reviewer, or an archive with path-traversal members, has no legitimate reason to ship in a published package.",
+		Default:  LevelWarning, Tags: []string{"security", "llm", "prompt-injection", "supply-chain"},
+	},
+	RuleLLMScanIncomplete: {
+		ID: RuleLLMScanIncomplete, Gate: GateLLMPkgScan, Name: "LLMScanIncomplete",
+		Short:    "The package could not be examined by the LLM content scan because of its own content.",
+		Full:     "The sandboxed LLM package-content scan gate could not produce a verdict for the artifact, for a reason the artifact's own bytes caused: it is larger than the scan limit, it is not an archive the unpacker understands (or nothing could be unpacked within the limits), the provider's safety system declined to analyze it, or the model's answer was not a valid verdict. Whoever published the package controls all of these, so an artifact that makes itself unscannable is reported rather than passed in silence. Infrastructure failures (provider outage, timeout, exhausted budget) are not reported under this rule.",
+		HelpURI:  helpURIBase + "#llm-scan-incomplete",
+		HelpText: "The artifact was served (fail-open) or refused (fail-closed) without an LLM verdict; the reason code is in the result properties. Raise the scan limits or exclude the ecosystem if this is expected for the package, and investigate it if it is not.",
+		Default:  LevelNote, Tags: []string{"security", "llm", "coverage", "supply-chain"},
+	},
 	RuleReproducibilityMismatch: {
 		ID: RuleReproducibilityMismatch, Gate: GateRebuildVerify, Name: "ReproducibilityMismatch",
 		Short:    "The artifact could not be reproduced from its attested source commit.",
@@ -308,6 +335,9 @@ var catalogOrder = []string{
 	RuleRiskyInstallScript,
 	RuleMalwareDetected,
 	RuleSuspiciousContent,
+	RuleLLMMaliciousPackage,
+	RuleLLMSuspiciousPackage,
+	RuleLLMScanIncomplete,
 	RuleReproducibilityMismatch,
 	RuleProvenanceSourceMismatch,
 	RuleUnverifiedBuildProvenance,

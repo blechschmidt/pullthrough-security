@@ -34,6 +34,7 @@ pull-through proxy focused on software supply-chain security.
 | Authenticate workloads with SPIFFE/SVID mTLS (SPIRE, mesh) | [spiffe-mtls.md](spiffe-mtls.md) |
 | Alert on security events (webhooks, Slack) | [notifications.md](notifications.md) |
 | Stream audit events & gate findings to a SIEM (Splunk HEC, syslog/CEF) | [siem.md](siem.md) |
+| Have an LLM review the contents of every downloaded package before it is served (sandboxed, cached per digest, budgeted) | [llm-package-scan.md](llm-package-scan.md) |
 | Decorate PRs / fail CI with unified SARIF findings | [findings.md](findings.md) |
 | Test policy/risk changes against real traffic before rollout | [simreplay.md](simreplay.md) |
 | Add custom admission gates with sandboxed WASM modules | [extensions.md](extensions.md) |

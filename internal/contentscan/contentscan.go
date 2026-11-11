@@ -116,6 +116,15 @@ type budget struct {
 	maxArchiveBytes int64
 	maxFileBytes    int64
 	maxFiles        int
+	// maxTotalBytes caps the decompressed bytes the walk may produce across the
+	// whole archive, counting bytes skipped as well as bytes read. Zero disables
+	// the cap (the walk is then bounded by the input cap, the entry count and the
+	// scan timeout).
+	maxTotalBytes int64
+	// maxRatio caps the decompressed:compressed ratio once the archive has
+	// produced more than a few megabytes — a decompression-bomb guard. Zero
+	// disables it.
+	maxRatio float64
 }
 
 // Service is the package-payload static content-analysis gate. The zero value is

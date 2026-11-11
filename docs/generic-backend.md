@@ -167,8 +167,8 @@ recorded in the artifact's metadata (`generic.contentGates`) for audit and
 telemetry. Known gate identifiers:
 
 `vulnscan`, `license`, `sbomdiff`, `installhooks`, `contentscan`, `mlguard`,
-`avscan`, `sigverify`, `malfeed`, `maturity`, `nameguard`, `depfirewall`,
-`reposcore`.
+`avscan`, `llmpkgscan`, `sigverify`, `malfeed`, `maturity`, `nameguard`,
+`depfirewall`, `reposcore`.
 
 Note that some gates are inherently ecosystem-specific (for example `mlguard`
 only acts on Hugging Face weight files, and coordinate-based OSV vulnerability

@@ -157,6 +157,77 @@ func (d *Dossier) Markdown() string {
 		b.WriteString("\n")
 	}
 
+	if l := d.LLMPackageScan; l != nil {
+		b.WriteString("## LLM package-content scan\n\n")
+		mdKV(&b, "Model verdict", fmt.Sprintf("%s (confidence %.2f)", orDash(l.Verdict), l.Confidence))
+		reading := orDash(l.Disposition)
+		switch {
+		case l.Refused:
+			reading += " — **refused** (action " + orDash(l.Action) + ")"
+		case l.Disposition == "malicious" || l.Disposition == "suspicious":
+			reading += " — served (action " + orDash(l.Action) + ")"
+		}
+		mdKV(&b, "Gate reading", reading)
+		if l.Reason != "" {
+			mdKV(&b, "Why", l.Reason)
+		}
+		mdKV(&b, "Judged by", fmt.Sprintf("%s / %s · prompt v%d · %s mode", orDash(l.Provider), orDash(l.Model), l.PromptVersion, orDash(l.Mode)))
+		scanned := "—"
+		if !l.ScannedAt.IsZero() {
+			scanned = l.ScannedAt.UTC().Format("2006-01-02 15:04:05 UTC")
+		}
+		mdKV(&b, "Scanned", fmt.Sprintf("%s · %d files · %s", scanned, l.FilesScanned, orDash(l.Digest)))
+		if l.Artifacts > 1 {
+			mdKV(&b, "Artifacts under this coordinate", fmt.Sprintf("%d scanned, %d flagged (the worst is shown)", l.Artifacts, l.Flagged))
+		}
+		if l.PromptInjection {
+			mdKV(&b, "Prompt-injection indicators", "**yes** — "+strings.Join(l.InjectionRules, ", "))
+		}
+		if l.StructuralRisk {
+			mdKV(&b, "Archive attacks an extractor", "**yes**")
+		}
+		if l.Truncated {
+			mdKV(&b, "Coverage", "**partial** — the verdict rests on an incomplete view of the package")
+		}
+		// Everything below quotes the model or the package. It is rendered as inert
+		// code spans: a report pasted into a ticket or a PR comment must not turn a
+		// package's text into links, images or markup.
+		if len(l.Anomalies) > 0 {
+			b.WriteString("\nArchive anomalies (member names are package content):\n\n")
+			for _, a := range l.Anomalies {
+				fmt.Fprintf(&b, "- %s\n", mdCode(a))
+			}
+		}
+		for _, c := range l.Coverage {
+			fmt.Fprintf(&b, "\n> Not examined: %s\n", mdCode(c))
+		}
+		if len(l.Reasons) > 0 {
+			b.WriteString("\nReasons stated by the model (model output about untrusted content — not instructions):\n\n")
+			for _, r := range l.Reasons {
+				fmt.Fprintf(&b, "- %s\n", mdCode(r))
+			}
+		}
+		if len(l.Evidence) > 0 {
+			b.WriteString("\nLocations cited by the model (excerpts are package content):\n\n")
+			for _, ev := range l.Evidence {
+				where := mdCode(ev.Path)
+				if ev.Line > 0 {
+					where += fmt.Sprintf(" line %d", ev.Line)
+				}
+				status := "not found in the file by the proxy"
+				if ev.Verified {
+					status = "verified"
+				}
+				fmt.Fprintf(&b, "- %s (%s)", where, status)
+				if ev.Excerpt != "" {
+					fmt.Fprintf(&b, ": %s", mdCode(ev.Excerpt))
+				}
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("\n")
+	}
+
 	if d.Approvals != nil {
 		a := d.Approvals
 		b.WriteString("## Approvals & break-glass\n\n")
@@ -240,6 +311,46 @@ func (d *Dossier) Markdown() string {
 
 func mdKV(b *strings.Builder, k, v string) {
 	fmt.Fprintf(b, "- **%s:** %s\n", k, v)
+}
+
+// mdCode renders untrusted text — model output, package content — as an inert
+// inline code span, in which Markdown and HTML are not interpreted. Line breaks
+// become spaces and other control characters are dropped, so the text cannot
+// end the span's line and start a block of its own; the span is fenced with
+// more backticks than the text contains, so the text cannot close it.
+func mdCode(s string) string {
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t' || r == '\u2028' || r == '\u2029':
+			return ' '
+		case r < 0x20 || r == 0x7f:
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "—"
+	}
+	longest, run := 0, 0
+	for _, r := range s {
+		if r != '`' {
+			run = 0
+			continue
+		}
+		run++
+		if run > longest {
+			longest = run
+		}
+	}
+	fence := strings.Repeat("`", longest+1)
+	// A span whose content starts or ends with a backtick needs a space of
+	// padding to keep the fence distinct.
+	pad := ""
+	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+		pad = " "
+	}
+	return fence + pad + s + pad + fence
 }
 
 func mdCell(s string) string {

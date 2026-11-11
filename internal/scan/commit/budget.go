@@ -44,6 +44,17 @@ func DefaultPricing() *Pricing {
 			"claude-sonnet-4":  {InputPerMTok: 3, OutputPerMTok: 15},
 			"claude-haiku-4":   {InputPerMTok: 1, OutputPerMTok: 5},
 			"claude-3-5-haiku": {InputPerMTok: 0.80, OutputPerMTok: 4},
+			// Claude 5 family (Task 173), USD per 1M tokens per published list
+			// pricing. Without these a 5.x model would fall through to the
+			// conservative Opus-tier fallback and exhaust a cost budget several
+			// times too early. The longest matching prefix wins, so
+			// "claude-opus-5-5" is priced apart from "claude-opus-5".
+			"claude-fable-5":   {InputPerMTok: 10, OutputPerMTok: 50},
+			"claude-mythos-5":  {InputPerMTok: 10, OutputPerMTok: 50},
+			"claude-opus-5":    {InputPerMTok: 5, OutputPerMTok: 25},
+			"claude-opus-5-5":  {InputPerMTok: 4, OutputPerMTok: 20},
+			"claude-sonnet-5":  {InputPerMTok: 2, OutputPerMTok: 10},
+			"claude-haiku-5-5": {InputPerMTok: 0.10, OutputPerMTok: 0.50},
 			// OpenAI/Codex models (Task 101), USD per 1M tokens per published list
 			// pricing. Dated/suffixed model IDs inherit via longest-prefix match.
 			"gpt-4o":      {InputPerMTok: 2.50, OutputPerMTok: 10},

@@ -1197,6 +1197,84 @@ contentScan:
   timeout: 20s                 # wall-clock budget for the whole scan
 
 # ---------------------------------------------------------------------------
+# Sandboxed LLM package-content scan (Task 173)
+# ---------------------------------------------------------------------------
+# Have a language model read the unpacked contents of each downloaded package
+# and return a malicious / suspicious / benign verdict BEFORE the artifact is
+# served. The package is unpacked into a bounded, read-only, in-memory tree; the
+# model gets three read-only tools over it (list_files, read_file, grep) or, for
+# a provider without tool use, one prioritized content bundle. Package code is
+# never executed and the model has no network or host access. Package contents
+# are treated as untrusted data throughout, and a scan that fails for any reason
+# is "unscanned" — never benign.
+#
+# Verdicts are cached by sha256(artifact) + model + prompt version, so each
+# distinct artifact is scanned (and paid for) once; a cache hit consults the
+# stored verdict. Off by default: it needs an LLM provider and costs money.
+# See docs/llm-package-scan.md.
+#
+# NOTE: a scan sends package contents to the LLM provider. List private
+# registries under excludeUpstreams if their code must not leave your network.
+llmPackageScan:
+  enabled: false
+  # provider/model/apiKey: empty `provider` inherits scanning.provider together
+  # with scanning.apiKey / baseUrl / apiVersion / reasoningEffort and the commit
+  # scanner's deep model, so a deployment that already scans commits only needs
+  # `enabled: true`.
+  provider: ""               # claude | openai | codex
+  model: ""                  # empty = the provider's default deep-analysis model
+  apiKey: ""                 # secretRef (env://, file://, vault://), ${ENV_VAR} or enc:v1:; or PTS_LLM_PACKAGE_SCAN_API_KEY
+  # baseUrl: ""              # provider endpoint override (e.g. an internal gateway)
+  mode: auto                 # auto | tools | bundle (bundle = one prompt, for a model without function calling)
+  # thinking: true           # extended reasoning; default: on for models known to support it
+
+  action: block              # annotate (record + serve)
+                             # block (refuse + evict a malicious artifact; serve a suspicious one with an advisory)
+                             # quarantine (as block, and also hold a suspicious artifact for break-glass review)
+  failMode: open             # when no verdict could be obtained: open (serve unscanned) | closed (refuse, 403)
+  maliciousThreshold: 0.7    # minimum confidence for a "malicious" verdict to be acted on as malicious
+  suspiciousThreshold: 0.5   # minimum confidence for a "suspicious" verdict to be flagged
+
+  timeout: 2m                # wall-clock bound on one scan, queueing included; keep below server.writeTimeout
+  maxConcurrent: 4           # scans in flight (each holds one unpacked package in memory)
+  maxRetries: 1              # extra attempts after a transient provider error
+
+  include: []                # [] = built-in set: npm, pip, cargo, rubygems, composer, nuget
+  exclude: []                # ecosystems never scanned (wins over include)
+  excludeUpstreams: []       # upstream names never scanned, e.g. [corp-npm] — keep private code off the provider
+
+  storeDir: ""               # persist verdicts here; empty = memory only (re-scanned after a restart)
+  cacheTtl: 0s               # expire stored verdicts after this age (0 = keep; a digest's bytes never change)
+  errorTtl: 5m               # how long a failed scan is remembered before the artifact is retried
+
+  # Bounds on one scan. Every quantity is controlled by the package's publisher.
+  limits:
+    maxArtifactBytes: 67108864     # 64 MiB compressed; a larger artifact is not scanned (failMode applies)
+    maxUnpackedBytes: 268435456    # 256 MiB decompressed
+    maxFileBytes: 1048576          # 1 MiB retained per file
+    maxFiles: 5000                 # archive members examined
+    maxDepth: 32                   # directory depth of a member path
+    maxCompressionRatio: 200       # decompression-bomb guard
+    maxPromptBytes: 122880         # package material in the first prompt
+    maxToolResultBytes: 24576      # one tool result
+    maxToolBytes: 262144           # all tool results of one scan
+    maxTurns: 8                    # model turns
+    maxToolCalls: 24               # tool invocations
+    maxOutputTokens: 16000         # one model response
+    maxTotalTokens: 600000         # tokens one scan may consume
+
+  # Spend. Scanning is driven by what clients pull: without a ceiling, cost is
+  # bounded only by what clients request.
+  budget:
+    enabled: false
+    globalCeilingUsd: 0      # across all tenants per window (0 = unlimited)
+    tenantCeilingUsd: 0      # per tenant per window (0 = unlimited)
+    tenantCeilingsUsd: {}    # per-tenant overrides, e.g. {platform: 100}
+    window: 24h
+    # pricing:               # override the built-in price table (USD per 1M tokens)
+    #   my-model: {inputPerMTok: 3, outputPerMTok: 15}
+
+# ---------------------------------------------------------------------------
 # SBOM diff & dependency-drift report (Task 64)
 # ---------------------------------------------------------------------------
 # Persist a bounded per-coordinate history of resolved SBOMs and, on each new

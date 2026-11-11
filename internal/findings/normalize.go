@@ -63,6 +63,7 @@ func FromInput(in policyengine.Input, opts Options) Document {
 	d.addInstallHooks(in.InstallHooks, baseLoc)
 	d.addAVScan(in.AVScan, baseLoc)
 	d.addContentScan(in.ContentScan, baseLoc)
+	d.addLLMPackage(in.LLMPackage, baseLoc)
 	d.addContinuity(in.Continuity, baseLoc)
 	d.addRebuildVerify(in.RebuildVerify, baseLoc)
 	d.addBuildProv(in.BuildProv, baseLoc)
@@ -357,6 +358,59 @@ func (d *Document) addContentScan(c *policyengine.ContentScanInput, base Locatio
 			Message:    fmt.Sprintf("Static content analysis flagged %q in %s during the unpack-and-scan of the served package (no execution).", cat, fallback(f.File, "(file)")),
 			Location:   loc,
 			Properties: map[string]any{"rule": f.RuleID, "category": f.Category, "file": f.File},
+		})
+	}
+}
+
+// addLLMPackage emits the LLM package-content scan's findings: one per location
+// the model cited (so a consumer can annotate the file and line), plus one per
+// deterministic indicator, plus — for an artifact that made itself unscannable —
+// the scan-incomplete note. A benign verdict and an infrastructure failure emit
+// nothing.
+func (d *Document) addLLMPackage(l *policyengine.LLMPackageInput, base Location) {
+	if l == nil {
+		return
+	}
+	for i := range l.Findings {
+		f := l.Findings[i]
+		loc := base
+		loc.File = f.File
+		loc.Line = f.Line
+		props := map[string]any{
+			"category":    f.Category,
+			"disposition": l.Disposition,
+			"model":       l.Model,
+			"mode":        l.Mode,
+		}
+		if l.Scanned {
+			props["verdict"] = l.Verdict
+			props["confidence"] = l.Confidence
+			props["verifiedEvidence"] = l.VerifiedEvidence
+			props["truncated"] = l.Truncated
+		}
+		if l.Unscanned {
+			props["unscannedCode"] = l.UnscannedCode
+		}
+		if f.Detail != "" {
+			props["detail"] = f.Detail
+		}
+		ruleID := f.RuleID
+		if _, known := catalog[ruleID]; !known {
+			ruleID = RuleLLMSuspiciousPackage
+		}
+		message := f.Title
+		if f.Detail != "" {
+			message += ": " + f.Detail
+		}
+		d.add(Finding{
+			RuleID:     ruleID,
+			Gate:       GateLLMPkgScan,
+			Severity:   normalizeSeverity(f.Severity),
+			Identifier: fallback(f.Category, "llm-verdict"),
+			Title:      fallback(f.Title, "LLM package-content scan finding"),
+			Message:    fallback(message, "The LLM package-content scan flagged this package."),
+			Location:   loc,
+			Properties: props,
 		})
 	}
 }

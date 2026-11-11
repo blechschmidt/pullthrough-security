@@ -193,7 +193,8 @@ func fullProviders() Providers {
 				ResolvedFindings: []remediation.Finding{{Gate: remediation.GateVuln, ID: "CVE-2026-0001"}},
 			},
 		}},
-		Suppressions: fullSuppressionLedger(),
+		Suppressions:   fullSuppressionLedger(),
+		LLMPackageScan: fullLLMScan(),
 	}
 }
 
@@ -271,6 +272,9 @@ func TestBuildFullDossier(t *testing.T) {
 	}
 	if d.Suppression == nil || d.Suppression.Total != 1 || d.Suppression.ByMechanism["vex"] != 1 {
 		t.Errorf("suppression history wrong: %+v", d.Suppression)
+	}
+	if d.LLMPackageScan == nil || d.LLMPackageScan.Disposition != "malicious" || !d.LLMPackageScan.Refused {
+		t.Errorf("LLM package-scan section wrong: %+v", d.LLMPackageScan)
 	}
 	if d.Partial {
 		t.Errorf("dossier should not be partial: %+v", d.Sources)

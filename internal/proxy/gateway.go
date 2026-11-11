@@ -40,6 +40,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
 	"github.com/blechschmidt/pullthrough-security/internal/installhooks"
 	"github.com/blechschmidt/pullthrough-security/internal/license"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockdown"
 	"github.com/blechschmidt/pullthrough-security/internal/malfeed"
 	"github.com/blechschmidt/pullthrough-security/internal/maturity"
@@ -174,6 +175,21 @@ type Dependencies struct {
 	// finding meeting the fail threshold can block per policy. When nil, package
 	// content analysis is disabled.
 	ContentScan *contentscan.Service
+	// LLMPkgScan, when set, is the sandboxed LLM package-content scan gate (Task
+	// 173). It unpacks a cached package artifact into a bounded, read-only,
+	// in-memory tree and has a language model judge it malicious / suspicious /
+	// benign — through a fixed set of read-only tools (list, read, grep) or a
+	// prioritized single-shot bundle; package code is never executed and the model
+	// has no network or host access. Package content is handled as untrusted data
+	// throughout (prompt-injection defenses, a strict verdict schema, deterministic
+	// cross-checks), and a scan that fails for any reason is "unscanned", never
+	// benign. Verdicts are cached by artifact digest + model + prompt version;
+	// concurrent scans of one digest are coalesced and spend is bounded by a
+	// per-tenant / global budget. Its verdict feeds the policy and risk engines,
+	// the SARIF layer, the dossier and the notification pipeline, and per the
+	// configured action it annotates, blocks or quarantines. When nil, LLM package
+	// scanning is disabled.
+	LLMPkgScan *llmpkgscan.Service
 	// Sigverify, when set, cryptographically verifies cosign signatures and SLSA
 	// provenance attestations (OCI) and Sigstore publish attestations (npm/pip)
 	// before serving (Task 23). An artifact whose authenticity cannot be
@@ -1190,6 +1206,23 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 	// fail-closed per config) when the engine is unreachable.
 	if !g.gateTrace(r, "avscan", func(rr *http.Request) bool {
 		return g.gateAVScan(w, rr, name, g.ecosystemFor(name), resolved, entry)
+	}) {
+		return
+	}
+
+	// Sandboxed LLM package-content scan gate (Task 173): have a language model
+	// read the unpacked package (bounded read-only tools or a prioritized bundle;
+	// nothing is executed) and return a malicious / suspicious / benign verdict,
+	// cached by artifact digest so a cache hit consults the stored verdict instead
+	// of scanning again. It is deliberately the last content gate: the
+	// deterministic ones above are cheap and anything they refuse never costs a
+	// model call. It still runs before the policy/risk gates, which consume its
+	// signal, and before the first byte is served. A malicious verdict under the
+	// block or quarantine action is refused here with the standard policy headers
+	// and the artifact is evicted; an artifact that could not be scanned follows
+	// the configured fail mode and is never treated as clean.
+	if !g.gateTrace(r, "llmpkgscan", func(rr *http.Request) bool {
+		return g.gateLLMPkgScan(w, rr, name, g.ecosystemFor(name), resolved, entry)
 	}) {
 		return
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/blechschmidt/pullthrough-security/internal/approvals"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/rebuildverify"
 	"github.com/blechschmidt/pullthrough-security/internal/remediation"
 	"github.com/blechschmidt/pullthrough-security/internal/timeline"
@@ -696,4 +697,98 @@ func (b *Builder) fillSuppression(id ident, tenant string, mu *sync.Mutex, d *Do
 	d.Suppression = sec
 	mu.Unlock()
 	return StatusOK, ""
+}
+
+// maxLLMEvidence bounds the cited locations embedded on the card.
+const maxLLMEvidence = 12
+
+// fillLLMPackageScan projects the LLM package-content scan verdict (Task 173)
+// for the coordinate. A coordinate can cover several artifacts (a wheel and an
+// sdist, or every version when the query is unversioned); the card shows the
+// one the gate reads worst — that is the one a responder has to act on — and
+// counts the rest.
+func (b *Builder) fillLLMPackageScan(id ident, tenant string, mu *sync.Mutex, d *Dossier) (string, string) {
+	p := b.providers.LLMPackageScan
+	verdicts := p.ForCoordinate(strings.TrimSpace(tenant), id.eco, id.name, id.version)
+	if len(verdicts) == 0 {
+		return StatusEmpty, ""
+	}
+
+	var (
+		worst   *llmpkgscan.Verdict
+		worstSt llmpkgscan.Standing
+		flagged int
+	)
+	for _, v := range verdicts { // newest first: a tie keeps the most recent
+		st := p.Standing(v)
+		if st.Disposition == llmpkgscan.DispositionMalicious || st.Disposition == llmpkgscan.DispositionSuspicious {
+			flagged++
+		}
+		if worst == nil || llmStandingRank(st) > llmStandingRank(worstSt) {
+			worst, worstSt = v, st
+		}
+	}
+
+	sec := &LLMPackageScanSection{
+		Verdict:        worst.Verdict,
+		Confidence:     worst.Confidence,
+		Disposition:    string(worstSt.Disposition),
+		Reason:         worstSt.Reason,
+		Action:         string(worstSt.Action),
+		Refused:        worstSt.Refused,
+		Reasons:        append([]string(nil), worst.Reasons...),
+		StructuralRisk: worst.StructuralRisk,
+		Anomalies:      append([]string(nil), worst.Anomalies...),
+		Truncated:      worst.Truncated,
+		Coverage:       append([]string(nil), worst.Coverage...),
+		Digest:         worst.Digest,
+		Provider:       worst.Provider,
+		Model:          worst.Model,
+		PromptVersion:  worst.PromptVersion,
+		Mode:           worst.Mode,
+		FilesScanned:   worst.Files,
+		ScannedAt:      worst.ScannedAt,
+		Artifacts:      len(verdicts),
+		Flagged:        flagged,
+	}
+	for _, ev := range worst.Evidence {
+		if len(sec.Evidence) >= maxLLMEvidence {
+			break
+		}
+		sec.Evidence = append(sec.Evidence, LLMEvidence{Path: ev.Path, Line: ev.Line, Excerpt: ev.Excerpt, Verified: ev.Verified})
+	}
+	seen := make(map[string]bool)
+	for _, hit := range worst.Injection {
+		if !hit.Strong {
+			continue
+		}
+		sec.PromptInjection = true
+		if !seen[hit.Rule] {
+			seen[hit.Rule] = true
+			sec.InjectionRules = append(sec.InjectionRules, hit.Rule)
+		}
+	}
+	sort.Strings(sec.InjectionRules)
+
+	mu.Lock()
+	d.LLMPackageScan = sec
+	mu.Unlock()
+	return StatusOK, ""
+}
+
+// llmStandingRank orders gate readings worst-last for "worst of" selection.
+func llmStandingRank(st llmpkgscan.Standing) int {
+	rank := 0
+	switch st.Disposition {
+	case llmpkgscan.DispositionMalicious:
+		rank = 4
+	case llmpkgscan.DispositionSuspicious:
+		rank = 2
+	case llmpkgscan.DispositionBenign:
+		rank = 1
+	}
+	if st.Refused {
+		rank++
+	}
+	return rank
 }

@@ -37,8 +37,12 @@ A dependency contains a backdoor, data-exfiltration, or build-tampering change.
 **Mitigation:** LLM commit scanning produces a risk score and `malicious` verdict;
 the policy engine blocks (`blockMalicious`, `blockAtRiskScore`) before the
 artifact is cached or served. Findings and rationale are surfaced in the 403 body
-and the admin dashboard. *Residual risk:* LLM analysis is probabilistic — see
-[Limitations](#limitations-and-non-goals).
+and the admin dashboard. Where the malice is in the published artifact rather
+than in any commit — an extra install script in the tarball, a payload added at
+publish time — the [LLM package-content scan](llm-package-scan.md) has a model
+read the unpacked artifact itself and refuses (and evicts) what it judges
+malicious before the first byte is served. *Residual risk:* LLM analysis is
+probabilistic — see [Limitations](#limitations-and-non-goals).
 
 ### T2 — Artifact ↔ source mismatch / unverifiable origin
 An artifact's published bytes don't correspond to the source it claims, or its
@@ -100,7 +104,12 @@ This is a side benefit, not a high-availability guarantee.
 - The **configuration and its secrets** are protected; the `secrets` master key
   and `audit.hmacKey` are managed out-of-band (env/secret store), not committed.
 - The **LLM provider** is trusted to return analysis (not to be exfiltrated to).
-  Commit diffs are sent to the provider — see [Data handling](#data-handling).
+  Commit diffs — and, when the LLM package-content scan is enabled, the contents
+  of scanned packages — are sent to the provider; see
+  [Data handling](#data-handling). Its *answers* are not trusted: a verdict is
+  parsed strictly and cross-checked, and content under review is treated as an
+  attempt to steer the model (see
+  [llm-package-scan.md](llm-package-scan.md#prompt-injection-defenses)).
 - **Trust roots** (`provenance.trustRootsFile`) are authentic; a wrong root
   silently weakens attestation guarantees.
 - **TLS PKI** for upstreams is intact unless you pin CAs explicitly.
@@ -130,9 +139,13 @@ This is a side benefit, not a high-availability guarantee.
   `failOn`/`blockAtRiskScore` to your risk tolerance and keep humans in the loop
   for blocks. Verdicts are cached per SHA — a model improvement doesn't re-score
   already-seen commits unless the store is cleared.
-- **No artifact-internal scanning.** Scanning targets *commits*, not the built
-  artifact's bytes, dependency-resolution lockfiles, or runtime behavior. It is
-  not an antivirus, SAST, or sandbox detonation engine.
+- **Static analysis only; nothing is detonated.** Commit scanning judges
+  commits. The artifact's own bytes are examined by the deterministic content
+  gates and, when enabled, by the [LLM package-content scan](llm-package-scan.md)
+  — all of them read the artifact and none of them runs it. There is no sandbox
+  detonation and no observation of runtime behavior, binary members are not
+  read by the LLM, and a verdict on a package too large to show in full says so
+  (`truncated`) rather than claiming more than it saw.
 - **No coverage without provenance.** An artifact with no resolvable source link
   can't be scored on its commit; the `onMissingProvenance`/`onMissingScan`
   actions decide how that gap is treated.
@@ -148,6 +161,14 @@ This is a side benefit, not a high-availability guarantee.
 - **Commit diffs** are transmitted to the configured LLM provider for analysis.
   In regulated or air-gapped environments, point `scanning.baseUrl` at a
   self-hosted/approved gateway, or disable scanning.
+- **Package contents** are transmitted to the configured LLM provider when
+  `llmPackageScan` is enabled. For public registries that is public data; for a
+  private registry it is your source code. List such upstreams under
+  `llmPackageScan.excludeUpstreams` (their artifacts are then never opened for
+  scanning), or point `llmPackageScan.baseUrl` at an endpoint you are entitled
+  to send that code to. Configuration preflight warns about every authenticated
+  upstream that would be scanned. Stored verdicts quote the package and are
+  shown, on the admin surface, only to tenants that pulled those bytes.
 - **The audit log is integrity-protected, not encrypted**, and deliberately
   contains no secrets (no tokens/credentials).
 - **Provenance lookups** contact GitHub (or your `githubApiBase`) and signature

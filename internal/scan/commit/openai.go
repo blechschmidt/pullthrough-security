@@ -103,6 +103,10 @@ const (
 	defaultOpenAITimeout        = 60 * time.Second
 	maxOpenAIBackoff            = 30 * time.Second
 	maxOpenAIErrorBodyBytes     = 16 << 10 // cap error-body reads at 16 KiB
+	// maxOpenAIResponseBytes caps a successful response body. A completion is
+	// bounded by max_tokens, so anything near this size is a misbehaving (or
+	// hostile) endpoint, not a real answer.
+	maxOpenAIResponseBytes = 16 << 20
 )
 
 // NewOpenAIProvider constructs an OpenAIProvider. It returns an error only for
@@ -230,73 +234,60 @@ func (p *OpenAIProvider) Complete(ctx context.Context, req Request) (string, Usa
 		return "", Usage{}, fmt.Errorf("commit: openai: marshaling request: %w", err)
 	}
 
-	// Attempt loop: 1 initial attempt + maxRetries additional attempts.
+	var (
+		text  string
+		usage Usage
+	)
+	err = p.withRetries(ctx, func() (bool, error) {
+		t, u, retryable, derr := p.doOnce(ctx, body)
+		if derr != nil {
+			return retryable, derr
+		}
+		text, usage = t, u
+		return false, nil
+	})
+	if err != nil {
+		return "", Usage{}, err
+	}
+	return text, usage, nil
+}
+
+// withRetries runs attempt up to 1 + maxRetries times, backing off between
+// transient failures. attempt reports whether its error is worth retrying.
+// Context errors and non-retryable errors surface verbatim; exhausting the
+// retries returns the last transient error, still marked retryable so a
+// caller's own outer backoff loop may make a further attempt.
+func (p *OpenAIProvider) withRetries(ctx context.Context, attempt func() (retryable bool, err error)) error {
 	var lastErr error
-	for attempt := 0; attempt <= p.maxRetries; attempt++ {
-		if attempt > 0 {
-			delay := p.backoff(attempt, lastErr)
+	for n := 0; n <= p.maxRetries; n++ {
+		if n > 0 {
+			delay := p.backoff(n, lastErr)
 			if werr := sleepCtx(ctx, delay); werr != nil {
-				return "", Usage{}, werr
+				return werr
 			}
 		}
-		text, usage, retryable, err := p.doOnce(ctx, body)
+		retryable, err := attempt()
 		if err == nil {
-			return text, usage, nil
+			return nil
 		}
 		// Context errors are terminal and must surface verbatim.
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return "", Usage{}, err
+			return err
 		}
 		if !retryable {
-			return "", Usage{}, err
+			return err
 		}
 		lastErr = err
 	}
-	// Retries exhausted: report the last transient error, still marked retryable
-	// so the pipeline's outer backoff loop may make a further attempt.
-	return "", Usage{}, markRetryable(fmt.Errorf("commit: openai: retries exhausted: %w", lastErr))
+	return markRetryable(fmt.Errorf("commit: openai: retries exhausted: %w", lastErr))
 }
 
 // doOnce performs a single HTTP attempt. It returns whether the error is a
 // transient one worth retrying.
 func (p *OpenAIProvider) doOnce(ctx context.Context, body []byte) (text string, usage Usage, retryable bool, err error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint(), bytes.NewReader(body))
+	data, retryable, err := p.post(ctx, body)
 	if err != nil {
-		return "", Usage{}, false, fmt.Errorf("commit: openai: building request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	if p.apiKey != "" {
-		if p.apiVersion != "" {
-			httpReq.Header.Set("api-key", p.apiKey) // Azure OpenAI
-		} else {
-			httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-		}
-	}
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		// Preserve context errors so the caller can treat them as terminal.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return "", Usage{}, false, err
-		}
-		// Transport-level failures (DNS, connection reset, client timeout) never
-		// reached a definitive server answer and are worth retrying.
-		return "", Usage{}, true, fmt.Errorf("commit: openai: request failed: %w", err)
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxOpenAIErrorBodyBytes))
-		_ = resp.Body.Close()
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, isRetryableStatus(resp.StatusCode), p.statusError(resp)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		// A truncated body on an otherwise-OK response is a transient read error.
-		return "", Usage{}, true, fmt.Errorf("commit: openai: reading response body: %w", err)
+		return "", Usage{}, retryable, err
 	}
 
 	var parsed chatResponse
@@ -313,10 +304,308 @@ func (p *OpenAIProvider) doOnce(ctx context.Context, body []byte) (text string, 
 		OutputTokens: parsed.Usage.CompletionTokens,
 	}
 	if choice.FinishReason == "content_filter" {
-		return choice.Message.Content, usage, false,
-			errors.New("commit: openai: request blocked by content filter")
+		return choice.Message.Content, usage, false, openAIRefusal()
 	}
 	return choice.Message.Content, usage, false, nil
+}
+
+// openAIRefusal renders a content-filter finish as the typed, terminal
+// RefusalError.
+func openAIRefusal() error {
+	return &RefusalError{
+		Provider: "openai",
+		Category: "content_filter",
+		msg:      "commit: openai: request blocked by content filter",
+	}
+}
+
+// post performs one Chat Completions HTTP exchange and returns the body of a
+// 200 response. It reports whether a failure is a transient one worth retrying.
+func (p *OpenAIProvider) post(ctx context.Context, body []byte) (data []byte, retryable bool, err error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint(), bytes.NewReader(body))
+	if err != nil {
+		return nil, false, fmt.Errorf("commit: openai: building request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	if p.apiKey != "" {
+		if p.apiVersion != "" {
+			httpReq.Header.Set("api-key", p.apiKey) // Azure OpenAI
+		} else {
+			httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+		}
+	}
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		// Preserve context errors so the caller can treat them as terminal.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, false, err
+		}
+		// Transport-level failures (DNS, connection reset, client timeout) never
+		// reached a definitive server answer and are worth retrying.
+		return nil, true, fmt.Errorf("commit: openai: request failed: %w", err)
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxOpenAIErrorBodyBytes))
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, isRetryableStatus(resp.StatusCode), p.statusError(resp)
+	}
+
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxOpenAIResponseBytes+1))
+	if err != nil {
+		// A truncated body on an otherwise-OK response is a transient read error.
+		return nil, true, fmt.Errorf("commit: openai: reading response body: %w", err)
+	}
+	if len(data) > maxOpenAIResponseBytes {
+		return nil, false, fmt.Errorf("commit: openai: response body exceeds %d bytes", maxOpenAIResponseBytes)
+	}
+	return data, false, nil
+}
+
+// --- Tool use (function calling) --------------------------------------------
+
+// chatToolsRequest is the Chat Completions payload for a tool conversation.
+// Messages is heterogeneous: turns the caller authored are typed, while an
+// assistant turn being replayed is the raw JSON the API returned for it.
+type chatToolsRequest struct {
+	Model           string        `json:"model"`
+	Messages        []any         `json:"messages"`
+	Tools           []chatToolDef `json:"tools,omitempty"`
+	ToolChoice      string        `json:"tool_choice,omitempty"`
+	MaxTokens       int           `json:"max_tokens,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+}
+
+type chatToolDef struct {
+	Type     string          `json:"type"`
+	Function chatFunctionDef `json:"function"`
+}
+
+type chatFunctionDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+// chatToolMessage is one turn of a tool conversation. Content is a pointer so
+// an assistant turn that carries only tool calls can send the JSON null the API
+// expects rather than an empty string.
+type chatToolMessage struct {
+	Role       string         `json:"role"`
+	Content    *string        `json:"content"`
+	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+}
+
+type chatToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function chatFunctionCall `json:"function"`
+}
+
+type chatFunctionCall struct {
+	Name string `json:"name"`
+	// Arguments is the JSON-encoded argument object, as a string.
+	Arguments string `json:"arguments"`
+}
+
+// chatToolsResponse is the subset of a tool-conversation response we consume.
+// Message is kept raw so it can be replayed verbatim on the next turn.
+type chatToolsResponse struct {
+	Choices []struct {
+		Message      json.RawMessage `json:"message"`
+		FinishReason string          `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+	} `json:"usage"`
+}
+
+// CompleteTools implements ToolProvider against the Chat Completions API using
+// function calling. Only function tools the caller executes itself are
+// declared; nothing the provider hosts is reachable through this method.
+//
+// A gateway that fronts a model without function calling rejects the request
+// with a 4xx; a caller that must work against such a gateway should use
+// Complete (a single prompt) instead.
+func (p *OpenAIProvider) CompleteTools(ctx context.Context, req ToolRequest) (ToolResponse, Usage, error) {
+	if strings.TrimSpace(req.Model) == "" {
+		return ToolResponse{}, Usage{}, errors.New("commit: openai: model is required")
+	}
+	maxTokens := req.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+	messages, err := openAIMessages(req.System, req.Messages)
+	if err != nil {
+		return ToolResponse{}, Usage{}, err
+	}
+	payload := chatToolsRequest{
+		Model:     req.Model,
+		Messages:  messages,
+		MaxTokens: maxTokens,
+	}
+	for _, s := range req.Tools {
+		params := map[string]any{"type": "object", "properties": s.Parameters.Properties}
+		if s.Parameters.Properties == nil {
+			params["properties"] = map[string]any{}
+		}
+		if len(s.Parameters.Required) > 0 {
+			params["required"] = s.Parameters.Required
+		}
+		payload.Tools = append(payload.Tools, chatToolDef{
+			Type:     "function",
+			Function: chatFunctionDef{Name: s.Name, Description: s.Description, Parameters: params},
+		})
+	}
+	if len(payload.Tools) > 0 {
+		payload.ToolChoice = "auto"
+		if req.NoTools {
+			payload.ToolChoice = "none"
+		}
+	}
+	if req.Thinking && p.reasoningEffort != "" {
+		payload.ReasoningEffort = p.reasoningEffort
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return ToolResponse{}, Usage{}, fmt.Errorf("commit: openai: marshaling request: %w", err)
+	}
+
+	var (
+		out   ToolResponse
+		usage Usage
+	)
+	err = p.withRetries(ctx, func() (bool, error) {
+		data, retryable, perr := p.post(ctx, body)
+		if perr != nil {
+			return retryable, perr
+		}
+		o, u, derr := decodeToolsResponse(data)
+		usage = u
+		if derr != nil {
+			return false, derr
+		}
+		out = o
+		return false, nil
+	})
+	if err != nil {
+		return ToolResponse{}, usage, err
+	}
+	return out, usage, nil
+}
+
+// decodeToolsResponse parses one tool-conversation response.
+func decodeToolsResponse(data []byte) (ToolResponse, Usage, error) {
+	var parsed chatToolsResponse
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return ToolResponse{}, Usage{}, fmt.Errorf("commit: openai: decoding response: %w", err)
+	}
+	usage := Usage{InputTokens: parsed.Usage.PromptTokens, OutputTokens: parsed.Usage.CompletionTokens}
+	if len(parsed.Choices) == 0 {
+		return ToolResponse{}, usage, errors.New("commit: openai: response contained no choices")
+	}
+	choice := parsed.Choices[0]
+	if choice.FinishReason == "content_filter" {
+		return ToolResponse{}, usage, openAIRefusal()
+	}
+	var msg chatToolMessage
+	if err := json.Unmarshal(choice.Message, &msg); err != nil {
+		return ToolResponse{}, usage, fmt.Errorf("commit: openai: decoding response message: %w", err)
+	}
+	out := ToolResponse{Native: append(json.RawMessage(nil), choice.Message...)}
+	if msg.Content != nil {
+		out.Text = *msg.Content
+	}
+	for _, c := range msg.ToolCalls {
+		args := strings.TrimSpace(c.Function.Arguments)
+		if args == "" {
+			args = "{}"
+		}
+		out.ToolCalls = append(out.ToolCalls, ToolCall{ID: c.ID, Name: c.Function.Name, Input: json.RawMessage(args)})
+	}
+	switch choice.FinishReason {
+	case "tool_calls", "function_call":
+		out.Stop = ToolStopToolUse
+	case "length":
+		out.Stop = ToolStopMaxTokens
+	case "stop":
+		out.Stop = ToolStopEnd
+	default:
+		out.Stop = ToolStopOther
+	}
+	// Some gateways report "stop" while still returning tool calls; the calls
+	// are what the caller must act on.
+	if len(out.ToolCalls) > 0 && out.Stop == ToolStopEnd {
+		out.Stop = ToolStopToolUse
+	}
+	return out, usage, nil
+}
+
+// openAIMessages converts a tool conversation into Chat Completions messages.
+// Each tool result becomes its own "tool" message, as the API requires; an
+// assistant turn that carries the API's own JSON is replayed verbatim.
+func openAIMessages(system string, msgs []ToolMessage) ([]any, error) {
+	if len(msgs) == 0 {
+		return nil, errors.New("commit: openai: a conversation needs at least one message")
+	}
+	str := func(s string) *string { return &s }
+	out := make([]any, 0, len(msgs)+1)
+	if system != "" {
+		out = append(out, chatToolMessage{Role: "system", Content: str(system)})
+	}
+	for i, m := range msgs {
+		switch m.Role {
+		case ToolRoleAssistant:
+			if native, ok := m.Native.(json.RawMessage); ok && len(native) > 0 {
+				out = append(out, native)
+				continue
+			}
+			am := chatToolMessage{Role: "assistant"}
+			if m.Text != "" {
+				am.Content = str(m.Text)
+			}
+			for _, c := range m.ToolCalls {
+				args := string(c.Input)
+				if strings.TrimSpace(args) == "" {
+					args = "{}"
+				}
+				am.ToolCalls = append(am.ToolCalls, chatToolCall{
+					ID: c.ID, Type: "function",
+					Function: chatFunctionCall{Name: c.Name, Arguments: args},
+				})
+			}
+			if am.Content == nil && len(am.ToolCalls) == 0 {
+				return nil, fmt.Errorf("commit: openai: assistant message %d is empty", i)
+			}
+			out = append(out, am)
+		case ToolRoleUser:
+			if len(m.ToolResults) == 0 && m.Text == "" {
+				return nil, fmt.Errorf("commit: openai: user message %d is empty", i)
+			}
+			for _, r := range m.ToolResults {
+				content := r.Content
+				if content == "" {
+					content = "(no output)"
+				}
+				if r.IsError {
+					content = "ERROR: " + content
+				}
+				out = append(out, chatToolMessage{Role: "tool", Content: str(content), ToolCallID: r.CallID})
+			}
+			if m.Text != "" {
+				out = append(out, chatToolMessage{Role: "user", Content: str(m.Text)})
+			}
+		default:
+			return nil, fmt.Errorf("commit: openai: message %d has unknown role %q", i, m.Role)
+		}
+	}
+	return out, nil
 }
 
 // endpoint returns the full Chat Completions URL, including the Azure
@@ -342,7 +631,10 @@ func (p *OpenAIProvider) statusError(resp *http.Response) error {
 	if msg == "" {
 		msg = http.StatusText(resp.StatusCode)
 	}
-	base := fmt.Errorf("commit: openai: API error (status %d): %s", resp.StatusCode, msg)
+	var base error = &StatusError{
+		Status: resp.StatusCode,
+		Err:    fmt.Errorf("commit: openai: API error (status %d): %s", resp.StatusCode, msg),
+	}
 	if !isRetryableStatus(resp.StatusCode) {
 		return base
 	}

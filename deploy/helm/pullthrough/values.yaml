@@ -183,7 +183,7 @@ serviceMonitor:
   path: /metrics
 
 # Prometheus alerting rules as a PrometheusRule CRD (requires the Prometheus
-# Operator). Ships the same 24 alerts as deploy/observability/prometheus/alerts.yaml
+# Operator). Ships the same 36 alerts as deploy/observability/prometheus/alerts.yaml
 # (cache/S3 backend errors, vuln & quarantine drift, signature-verification
 # failures, quota exhaustion, upstream outages, ...).
 prometheusRule:

@@ -578,6 +578,54 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `contentScan.maxFindingsPerFile` | int | 0 |
 | `contentScan.timeout` | duration | 0s |
 
+## `llmPackageScan`
+
+| Setting | Type | Default |
+|---------|------|---------|
+| `llmPackageScan.enabled` | bool | false |
+| `llmPackageScan.provider` | string | — |
+| `llmPackageScan.model` | string | — |
+| `llmPackageScan.apiKey` | string | — |
+| `llmPackageScan.baseUrl` | string | — |
+| `llmPackageScan.apiVersion` | string | — |
+| `llmPackageScan.reasoningEffort` | string | — |
+| `llmPackageScan.mode` | string | `auto` |
+| `llmPackageScan.thinking` | bool | — |
+| `llmPackageScan.action` | string | `block` |
+| `llmPackageScan.failMode` | string | `open` |
+| `llmPackageScan.maliciousThreshold` | float | 0.7 |
+| `llmPackageScan.suspiciousThreshold` | float | 0.5 |
+| `llmPackageScan.timeout` | duration | 2m0s |
+| `llmPackageScan.requestTimeout` | duration | 0s |
+| `llmPackageScan.maxRetries` | int | 1 |
+| `llmPackageScan.maxConcurrent` | int | 4 |
+| `llmPackageScan.include` | []string | [] |
+| `llmPackageScan.exclude` | []string | [] |
+| `llmPackageScan.excludeUpstreams` | []string | [] |
+| `llmPackageScan.storeDir` | string | — |
+| `llmPackageScan.cacheTtl` | duration | 0s |
+| `llmPackageScan.errorTtl` | duration | 5m0s |
+| `llmPackageScan.limits.maxArtifactBytes` | int | 67108864 |
+| `llmPackageScan.limits.maxUnpackedBytes` | int | 268435456 |
+| `llmPackageScan.limits.maxFileBytes` | int | 1048576 |
+| `llmPackageScan.limits.maxFiles` | int | 5000 |
+| `llmPackageScan.limits.maxDepth` | int | 32 |
+| `llmPackageScan.limits.maxCompressionRatio` | float | 200 |
+| `llmPackageScan.limits.maxPromptBytes` | int | 122880 |
+| `llmPackageScan.limits.maxToolResultBytes` | int | 24576 |
+| `llmPackageScan.limits.maxToolBytes` | int | 262144 |
+| `llmPackageScan.limits.maxTurns` | int | 8 |
+| `llmPackageScan.limits.maxToolCalls` | int | 24 |
+| `llmPackageScan.limits.maxOutputTokens` | int | 16000 |
+| `llmPackageScan.limits.maxTotalTokens` | int | 600000 |
+| `llmPackageScan.budget.enabled` | bool | false |
+| `llmPackageScan.budget.globalCeilingUsd` | float | 0 |
+| `llmPackageScan.budget.tenantCeilingUsd` | float | 0 |
+| `llmPackageScan.budget.tenantCeilingsUsd` | map[string]float | {} |
+| `llmPackageScan.budget.window` | duration | 24h0m0s |
+| `llmPackageScan.budget.pricing.<string>.inputPerMTok` | float | — |
+| `llmPackageScan.budget.pricing.<string>.outputPerMTok` | float | — |
+
 ## `sigverify`
 
 | Setting | Type | Default |
@@ -809,6 +857,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `riskScore.weights.quarantine` | float | 0 |
 | `riskScore.weights.installHooks` | float | 0 |
 | `riskScore.weights.repoHealth` | float | 0 |
+| `riskScore.weights.llmPackageScan` | float | 0 |
 | `riskScore.bands.medium` | int | 0 |
 | `riskScore.bands.high` | int | 0 |
 | `riskScore.bands.critical` | int | 0 |
@@ -821,6 +870,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `riskScore.tenants.<string>.weights.quarantine` | float | — |
 | `riskScore.tenants.<string>.weights.installHooks` | float | — |
 | `riskScore.tenants.<string>.weights.repoHealth` | float | — |
+| `riskScore.tenants.<string>.weights.llmPackageScan` | float | — |
 | `riskScore.tenants.<string>.bands.medium` | int | — |
 | `riskScore.tenants.<string>.bands.high` | int | — |
 | `riskScore.tenants.<string>.bands.critical` | int | — |

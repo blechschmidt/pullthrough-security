@@ -135,6 +135,12 @@ const (
 	// clamd INSTREAM), matched a malware signature. The artifact was
 	// annotated/quarantined/blocked per policy.
 	EventAVScan EventType = "av_scan"
+	// EventLLMPackageScan is a verdict of the sandboxed LLM package-content scan
+	// gate (Task 173): a language model reviewed the unpacked contents of a served
+	// package — through read-only tools, executing nothing — and judged it
+	// malicious or suspicious, or the package made itself unscannable. The artifact
+	// was annotated/quarantined/blocked per policy.
+	EventLLMPackageScan EventType = "llm_package_scan"
 	// EventSbomDrift is a significant dependency-drift event (Task 64): a new
 	// version of a package introduced a materially larger or more suspicious
 	// dependency footprint than the version before it — added transitive
@@ -265,6 +271,7 @@ var allEventTypes = []EventType{
 	EventMLGuard,
 	EventAVScan,
 	EventContentScan,
+	EventLLMPackageScan,
 	EventSbomDrift,
 	EventDepFirewall,
 	EventRebuildVerify,
@@ -296,7 +303,7 @@ func ValidEventType(s string) bool {
 		EventProvenanceFailure, EventLicense, EventQuarantine, EventRescanRegression,
 		EventRiskScore, EventUpstreamCircuitOpen, EventAnomaly, EventMaliciousBlock,
 		EventApproval, EventCacheGC, EventExtension, EventMaturity, EventInstallHooks,
-		EventMLGuard, EventAVScan, EventContentScan,
+		EventMLGuard, EventAVScan, EventContentScan, EventLLMPackageScan,
 		EventSbomDrift, EventDepFirewall, EventRebuildVerify, EventSnapshot,
 		EventBuildProvenance, EventLockdown, EventMeteringBudget, EventEgressBlocked,
 		EventMaintainerDrift, EventGitOps, EventCacheIntegrity, EventTLSPinViolation,
@@ -870,6 +877,67 @@ func AVScanEvent(severity Severity, ecosystem, backend, artifact, action, engine
 	}.withField("action", action).
 		withField("engine", engine).
 		withField("signature", signature)
+}
+
+// LLMPackageScanEvent describes a verdict of the sandboxed LLM package-content
+// scan gate (Task 173). disposition is how the gate read the verdict
+// ("malicious", "suspicious" or "unscanned"); action is what it did ("annotate",
+// "block", "quarantine", "fail-open" or "fail-closed"); model is the model that
+// judged; confidence is its confidence in the verdict; reason is the one-line
+// explanation. The reason is the proxy's own sentence — the model's free-text
+// reasons, which are shaped by the package under review, are deliberately not
+// carried into an alert.
+func LLMPackageScanEvent(severity Severity, ecosystem, backend, artifact, disposition, action, model string, confidence float64, reason string) Event {
+	title := "LLM content scan flagged a package"
+	switch {
+	case disposition == "malicious" && (action == "block" || action == "quarantine"):
+		title = "Package blocked: LLM content scan judged it malicious"
+	case disposition == "malicious":
+		title = "LLM content scan judged a package malicious"
+	case disposition == "suspicious" && action == "quarantine":
+		title = "Package held for review: LLM content scan judged it suspicious"
+	case disposition == "suspicious":
+		title = "LLM content scan judged a package suspicious"
+	case disposition == "unscanned":
+		title = "Package could not be examined by the LLM content scan"
+	}
+	return Event{
+		Type:      EventLLMPackageScan,
+		Severity:  severity,
+		Title:     title,
+		Summary:   reason,
+		Ecosystem: ecosystem,
+		Backend:   backend,
+		Artifact:  artifact,
+	}.withField("disposition", disposition).
+		withField("action", action).
+		withField("model", model).
+		withField("confidence", strconv.FormatFloat(confidence, 'f', 2, 64))
+}
+
+// LLMPackageBudgetEvent describes an exhausted LLM package-scan cost budget
+// (Task 173). scope is "tenant" or "global"; failOpen reports whether unscanned
+// artifacts are being served (true) or refused (false) while it lasts.
+func LLMPackageBudgetEvent(scope, tenant string, failOpen bool) Event {
+	mode := "fail-closed (unscanned pulls refused)"
+	sev := SeverityHigh
+	if failOpen {
+		mode = "fail-open (artifacts served without an LLM verdict)"
+		sev = SeverityMedium
+	}
+	if tenant == "" {
+		tenant = "(none)"
+	}
+	summary := "the global LLM package-scan cost ceiling was reached; " + mode
+	if scope == "tenant" {
+		summary = "tenant " + tenant + " reached its LLM package-scan cost ceiling; " + mode
+	}
+	return Event{
+		Type:     EventCostBudget,
+		Severity: sev,
+		Title:    "LLM package-scan budget exhausted",
+		Summary:  summary,
+	}.withField("scope", scope).withField("tenant", tenant).withField("mode", mode)
 }
 
 // ContentScanEvent describes a package-payload static content-analysis finding

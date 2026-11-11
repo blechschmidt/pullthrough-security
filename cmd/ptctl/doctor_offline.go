@@ -161,6 +161,7 @@ func offlineGateCoverageCheck(cfg *config.Config) checkResult {
 		{"mlguard", cfg.MLGuard.Enabled},
 		{"avscan", cfg.AVScan.Enabled},
 		{"contentscan", cfg.ContentScan.Enabled},
+		{"llmpkgscan", cfg.LLMPackageScan.Enabled},
 	}
 	var enabled []string
 	for _, g := range gates {

@@ -1397,6 +1397,606 @@
           "legendFormat": "warned"
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "LLM package-content scan",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Verdicts (fresh scans)",
+      "description": "What the model said about newly scanned artifacts. Any 'malicious' is worth a look.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (verdict) (increase(pullthrough_llmpkgscan_verdicts_total[10m]))",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "{{verdict}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gate decisions (rate)",
+      "description": "What pulls were told. 'Served unscanned' is the gate not doing its job: check the next panel for why.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 57,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_blocked_total[10m]))",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "blocked"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_quarantined_total[10m]))",
+          "refId": "B",
+          "instant": false,
+          "legendFormat": "quarantined"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_annotated_total[10m]))",
+          "refId": "C",
+          "instant": false,
+          "legendFormat": "served, flagged"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_failed_open_total[10m]))",
+          "refId": "D",
+          "instant": false,
+          "legendFormat": "served unscanned (fail-open)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_failed_closed_total[10m]))",
+          "refId": "E",
+          "instant": false,
+          "legendFormat": "refused unscanned (fail-closed)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Why artifacts went unscanned",
+      "description": "Scans that ended without a verdict, by reason code. provider-error/timeout point at the LLM provider; oversized/unsupported-format/provider-refusal/malformed-output are about the artifact itself.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 65,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (code) (increase(pullthrough_llmpkgscan_unscanned_total[10m]))",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "{{code}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (scope) (increase(pullthrough_llmpkgscan_budget_exhausted_total[10m]))",
+          "refId": "B",
+          "instant": false,
+          "legendFormat": "budget ({{scope}})"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verdict cache: hits vs scans",
+      "description": "Each distinct artifact digest is scanned once; everything after is a cache hit. A standing queue means scans are waiting for a slot: raise llmPackageScan.maxConcurrent.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 65,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_cache_hits_total[10m]))",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "cache hits"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_scans_total[10m]))",
+          "refId": "B",
+          "instant": false,
+          "legendFormat": "scans"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_coalesced_total[10m]))",
+          "refId": "C",
+          "instant": false,
+          "legendFormat": "coalesced"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(pullthrough_llmpkgscan_in_flight)",
+          "refId": "D",
+          "instant": false,
+          "legendFormat": "in flight"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(pullthrough_llmpkgscan_queued)",
+          "refId": "E",
+          "instant": false,
+          "legendFormat": "queued"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Spend (USD / hour) and tokens",
+      "description": "Estimated provider spend on package scans. Bound it with llmPackageScan.budget.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(pullthrough_llmpkgscan_cost_usd_total[1h]))",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "USD (last hour)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (kind) (rate(pullthrough_llmpkgscan_tokens_total[10m]))",
+          "refId": "B",
+          "instant": false,
+          "legendFormat": "tokens/s {{kind}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scan effort",
+      "description": "How long a first pull of a new artifact waits, and how much the model investigates.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 73,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "last",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_scan_seconds_total[10m])) / clamp_min(sum(rate(pullthrough_llmpkgscan_scans_total[10m])),0.001)",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "seconds per scan"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(pullthrough_llmpkgscan_turns_total[10m])) / clamp_min(sum(rate(pullthrough_llmpkgscan_scans_total[10m])),0.001)",
+          "refId": "B",
+          "instant": false,
+          "legendFormat": "turns per scan"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (tool) (rate(pullthrough_llmpkgscan_tool_calls_total[10m]))",
+          "refId": "C",
+          "instant": false,
+          "legendFormat": "tool calls/s {{tool}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Provider circuit breaker",
+      "description": "1 while scans are paused after repeated provider failures.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 81,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(pullthrough_llmpkgscan_breaker_open)",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "open"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Prompt-injection indicators (24h)",
+      "description": "Scanned packages whose content addressed the scanner. Such a package is never given a clean pass.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 81,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(increase(pullthrough_llmpkgscan_injection_detected_total[24h]))",
+          "refId": "A",
+          "instant": false,
+          "legendFormat": "packages"
+        }
+      ]
     }
   ],
   "refresh": "30s",
@@ -1457,7 +2057,7 @@
   "timepicker": {},
   "timezone": "",
   "title": "Pull-through \u00b7 Supply-chain Security",
-  "description": "Vulnerability gate, CVE-drift re-scan/quarantine, signature/attestation verification, and name-guard posture.",
+  "description": "Vulnerability gate, CVE-drift re-scan/quarantine, signature/attestation verification, name-guard posture, and the LLM package-content scan.",
   "uid": "pullthrough-supply-chain",
   "version": 1,
   "weekStart": ""

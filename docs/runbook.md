@@ -82,7 +82,7 @@ highlights below are the metrics operators reach for most.
 
 ### Suggested alerts
 
-A ready-to-deploy rule file with 24 alerts (availability, cache/S3 errors,
+A ready-to-deploy rule file with 36 alerts (availability, cache/S3 errors,
 supply-chain, rate-limit, notify) ships in
 [`../deploy/observability/prometheus/alerts.yaml`](../deploy/observability/prometheus/alerts.yaml)
 — see the [alert catalogue](observability.md#alert-catalogue). The table below is

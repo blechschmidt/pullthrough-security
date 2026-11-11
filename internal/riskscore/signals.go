@@ -82,6 +82,8 @@ func evalSignal(k SignalKind, s Subject) signalResult {
 		return evalAVScan(s.Input.AVScan)
 	case SignalContentScan:
 		return evalContentScan(s.Input.ContentScan)
+	case SignalLLMPackage:
+		return evalLLMPackage(s.Input.LLMPackage)
 	case SignalRepoHealth:
 		return evalRepoHealth(s.Input.RepoHealth)
 	case SignalRebuildVerify:
@@ -321,6 +323,46 @@ func evalContentScan(c *policyengine.ContentScanInput) signalResult {
 			"maxSeverity":  orNone(c.MaxSeverity),
 			"categories":   c.Categories,
 			"risk":         c.Risk,
+		},
+	}
+}
+
+// evalLLMPackage scores the sandboxed LLM package-content scan gate (Task 173).
+// The gate already reduces its verdict to an ordinal 0..100 risk — a malicious
+// disposition sits at the top of the scale, a suspicious one in the middle, both
+// scaled by the model's confidence — so the sub-score is that figure. A benign
+// verdict is present-and-zero: it is evidence the artifact was examined. An
+// artifact that could not be examined carries a signal only when its own content
+// was the cause (it made itself unscannable); an infrastructure failure is not
+// held against the artifact and is not applicable.
+func evalLLMPackage(l *policyengine.LLMPackageInput) signalResult {
+	if l == nil {
+		return signalResult{}
+	}
+	if !l.Scanned && !(l.Unscanned && l.ContentAttributable) {
+		return signalResult{}
+	}
+	raw := "LLM content scan: benign"
+	switch {
+	case !l.Scanned:
+		raw = fmt.Sprintf("LLM content scan could not examine the package (%s)", orNone(l.UnscannedCode))
+	case l.Disposition == "malicious" || l.Disposition == "suspicious":
+		raw = fmt.Sprintf("LLM content scan: %s (verdict %s, confidence %.2f)", l.Disposition, orNone(l.Verdict), l.Confidence)
+	}
+	return signalResult{
+		present:  true,
+		subscore: clamp01(float64(l.Risk) / 100),
+		raw:      raw,
+		detail: map[string]any{
+			"disposition":    orNone(l.Disposition),
+			"verdict":        orNone(l.Verdict),
+			"confidence":     l.Confidence,
+			"model":          l.Model,
+			"injection":      l.Injection,
+			"structuralRisk": l.StructuralRisk,
+			"truncated":      l.Truncated,
+			"unscannedCode":  l.UnscannedCode,
+			"risk":           l.Risk,
 		},
 	}
 }

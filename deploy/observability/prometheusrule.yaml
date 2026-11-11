@@ -209,6 +209,58 @@ spec:
         summary: Typosquat / homoglyph package pulls flagged
         description: '{{ $value | humanize }} typosquat finding(s) in the last 15m (names similar to popular packages). Review the name guard''s flagged-pull log.'
         runbook: docs/observability.md#supply-chain-alerts
+  - name: pullthrough-llm-package-scan
+    rules:
+    - alert: PullthroughLLMPackageScanMaliciousVerdict
+      expr: sum(increase(pullthrough_llmpkgscan_verdicts_total{verdict="malicious"}[15m])) > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: llmpkgscan
+      annotations:
+        summary: LLM content scan judged a package malicious
+        description: '{{ $value | humanize }} newly scanned package artifact(s) were judged malicious by the LLM package-content scan in the last 15m. Under action block/quarantine they were refused and evicted; under annotate they were SERVED. Review the verdict (admin API /api/llmpkgscan/verdicts or the package dossier) and treat any host that installed the package as potentially compromised.'
+        runbook: docs/observability.md#llm-package-scan-alerts
+    - alert: PullthroughLLMPackageScanPromptInjection
+      expr: sum(increase(pullthrough_llmpkgscan_injection_detected_total[15m])) > 0
+      for: 0m
+      labels:
+        severity: warning
+        component: llmpkgscan
+      annotations:
+        summary: Package content tried to address the LLM scanner
+        description: '{{ $value | humanize }} scanned package(s) contain text addressed to an automated reviewer (prompt-injection indicators). Such a package is never given a clean pass by the gate; a legitimate package has no reason to talk to its scanner, so review it.'
+        runbook: docs/observability.md#llm-package-scan-alerts
+    - alert: PullthroughLLMPackageScanFailing
+      expr: "max(pullthrough_llmpkgscan_breaker_open) > 0\nor\nsum(rate(pullthrough_llmpkgscan_scan_errors_total[10m]))\n  >\nsum(rate(pullthrough_llmpkgscan_scans_total[10m]))\n"
+      for: 10m
+      labels:
+        severity: warning
+        component: llmpkgscan
+      annotations:
+        summary: LLM package-content scans are failing
+        description: 'The LLM package-content scan is producing more failures than verdicts, or its provider circuit breaker is open. New artifacts are going unscanned: under failMode open they are served without a verdict, under closed they are refused. Check the LLM provider''s reachability, credentials and rate limits (pullthrough_llmpkgscan_unscanned_total by code).'
+        runbook: docs/observability.md#llm-package-scan-alerts
+    - alert: PullthroughLLMPackageScanServingUnscanned
+      expr: sum(increase(pullthrough_llmpkgscan_failed_open_total[15m])) > 0
+      for: 15m
+      labels:
+        severity: warning
+        component: llmpkgscan
+      annotations:
+        summary: Packages are being served without an LLM verdict
+        description: '{{ $value | humanize }} pull(s) in the last 15m were served under the fail-open policy because no verdict could be obtained. While this lasts the gate enforces nothing for new artifacts. Find the cause in pullthrough_llmpkgscan_unscanned_total (code) and pullthrough_llmpkgscan_budget_exhausted_total; set llmPackageScan.failMode to closed where serving unscanned packages is not acceptable.'
+        runbook: docs/observability.md#llm-package-scan-alerts
+    - alert: PullthroughLLMPackageScanBudgetExhausted
+      expr: sum by (scope) (increase(pullthrough_llmpkgscan_budget_exhausted_total[15m])) > 0
+      for: 0m
+      labels:
+        severity: warning
+        component: llmpkgscan
+      annotations:
+        summary: LLM package-scan budget exhausted ({{ $labels.scope }})
+        description: 'The {{ $labels.scope }} cost ceiling of the LLM package-content scan was reached: {{ $value | humanize }} pull(s) in the last 15m were not scanned and will not be until the budget window resets. Raise llmPackageScan.budget if the spend is expected, or look for a client pulling an unusual number of distinct artifacts.'
+        runbook: docs/observability.md#llm-package-scan-alerts
   - name: pullthrough-rate-limit
     rules:
     - alert: PullthroughRateLimitThrottlingHigh

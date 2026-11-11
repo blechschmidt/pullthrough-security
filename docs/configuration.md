@@ -306,6 +306,35 @@ Per-rule hit counts are exported as `pullthrough_secrets_found_by_rule_total{rul
 | `revealPrefix` | `4` | Leading chars kept when redacting a finding (0–8). |
 | `maxFindingsPerFile` | `100` | Cap on findings per file. |
 
+## `llmPackageScan`
+
+Sandboxed LLM review of each downloaded package's contents, before it is served.
+Off by default. See [llm-package-scan.md](llm-package-scan.md) for the design and
+the [generated reference](configuration-reference.md#llmpackagescan) for every
+key (limits, budget pricing, …).
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Master switch. Needs an LLM provider and spends money per distinct artifact. |
+| `provider` | _(inherits `scanning.provider`)_ | `claude` \| `openai` \| `codex`. When empty, the provider, `apiKey`, `baseUrl`, `apiVersion`, `reasoningEffort` and the deep model are inherited from `scanning.*`. |
+| `model` | provider's deep model | Model id. Empty uses `scanning.commit.deepModel` when the provider is inherited, else the provider default. |
+| `apiKey` | — | Provider API key: a secretRef (`env://`, `file://`, `vault://`), `${ENV}` or `enc:v1:`. Also `PTS_LLM_PACKAGE_SCAN_API_KEY`. |
+| `baseUrl` | _(empty)_ | Provider endpoint override (an absolute http(s) URL). |
+| `mode` | `auto` | `auto` \| `tools` \| `bundle`. `tools` gives the model list/read/grep over the unpacked package; `bundle` is one prompt, for a model without function calling; `auto` uses tools when the provider accepts them. |
+| `thinking` | _(per model)_ | Extended reasoning. Default: on for models known to support it. |
+| `action` | `block` | `annotate` (record, serve) \| `block` (refuse and evict a malicious artifact; serve a suspicious one with an advisory) \| `quarantine` (as `block`, and hold a suspicious artifact for break-glass review). |
+| `failMode` | `open` | What happens when no verdict could be obtained: `open` serves the artifact unscanned, `closed` refuses it (403). |
+| `maliciousThreshold` | `0.7` | Minimum confidence for a `malicious` verdict to be acted on as malicious; below it the artifact is treated as suspicious. |
+| `suspiciousThreshold` | `0.5` | Minimum confidence for a `suspicious` verdict to be flagged. |
+| `timeout` | `2m` | Wall-clock bound on one scan, queueing included. Keep it below `server.writeTimeout`. |
+| `maxConcurrent` | `4` | Scans in flight; each holds one unpacked package in memory. |
+| `include` / `exclude` | built-in set / — | Ecosystems scanned (default `npm, pip, cargo, rubygems, composer, nuget`) and ecosystems never scanned. |
+| `excludeUpstreams` | — | Upstream names never scanned. A scan sends package contents to the LLM provider: list private registries here. An unknown name is a configuration error. |
+| `storeDir` | _(empty)_ | Persist verdicts (one file per artifact digest). Empty keeps them in memory: every artifact is scanned again after a restart. |
+| `cacheTtl` / `errorTtl` | `0` / `5m` | Expire stored verdicts after this age (0 = keep); how long a failed scan is remembered before a retry. |
+| `limits.*` | see reference | Bounds on one scan: artifact and unpacked size, file count, depth, compression ratio, prompt bytes, turns, tool calls, tokens. |
+| `budget.*` | disabled | `enabled`, `globalCeilingUsd`, `tenantCeilingUsd`, `tenantCeilingsUsd`, `window` (24h), `pricing`. Without a ceiling, spend is bounded only by what clients pull. |
+
 ## `provenance`
 
 Package-to-commit association. See
@@ -873,6 +902,7 @@ time (handy for containers and 12-factor deploys):
 | `PTS_CACHE_S3_SESSION_TOKEN` | `cache.s3.sessionToken` |
 | `PTS_SCAN_ENABLED` | `scanning.enabled` (parsed as bool) |
 | `PTS_SCAN_API_KEY` | `scanning.apiKey` |
+| `PTS_LLM_PACKAGE_SCAN_API_KEY` | `llmPackageScan.apiKey` |
 | `PTS_ADMIN_TOKEN` | `observability.adminToken` |
 | `PTS_TRACING_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` | `tracing.endpoint` (also auto-enables tracing) |
 | `PTS_TRACING_ENABLED` | `tracing.enabled` (bool) |

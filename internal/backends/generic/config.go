@@ -135,6 +135,7 @@ var knownGates = map[string]bool{
 	"contentscan":  true,
 	"mlguard":      true,
 	"avscan":       true,
+	"llmpkgscan":   true,
 	"sigverify":    true,
 	"malfeed":      true,
 	"maturity":     true,

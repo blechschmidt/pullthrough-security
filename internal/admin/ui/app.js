@@ -637,6 +637,39 @@
       ]));
     }
 
+    if (d.llmPackageScan) {
+      const l = d.llmPackageScan;
+      const flagged = l.disposition === "malicious" || l.disposition === "suspicious";
+      const reading = el("span." + (l.refused ? "bad" : (flagged ? "warn" : "ok")),
+        { text: (l.disposition || "—") + (l.refused ? " — refused" : (flagged ? " — served" : "")) });
+      const card = dossierSection("LLM package-content scan", [
+        dossierKV("Model verdict", `${l.verdict || "—"} (confidence ${(l.confidence || 0).toFixed(2)})`),
+        dossierKV("Gate reading", reading),
+        dossierKV("Action", l.action || "—"),
+        dossierKV("Judged by", `${l.provider || "—"} / ${l.model || "—"} · prompt v${l.promptVersion || 0} · ${l.mode || "—"}`),
+        dossierKV("Scanned", `${fmtTime(l.scannedAt)} · ${l.filesScanned || 0} files`),
+        l.digest ? dossierKV("Digest", shortSha(l.digest)) : null,
+        l.artifacts > 1 ? dossierKV("Artifacts", `${l.artifacts} scanned / ${l.flagged} flagged`) : null,
+        l.promptInjection ? dossierKV("Prompt injection", el("span.bad", { text: (l.injectionRules || []).join(", ") || "yes" })) : null,
+        l.structuralRisk ? dossierKV("Archive attacks an extractor", el("span.bad", { text: "yes" })) : null,
+        l.truncated ? dossierKV("Coverage", el("span.warn", { text: "partial" })) : null,
+      ]);
+      if (l.reason) card.appendChild(el("p", { text: l.reason }));
+      // Everything below quotes the model or the package under review. It is
+      // untrusted: it is only ever placed in text nodes, never parsed as markup.
+      const quoted = (title, items) => {
+        if (!items.length) return;
+        card.appendChild(el("p.muted", { text: title }));
+        card.appendChild(el("ul", null, items.map((text) => el("li", null, el("span.mono", { text })))));
+      };
+      quoted("Not examined:", l.coverage || []);
+      quoted("Archive anomalies (member names are package content):", l.anomalies || []);
+      quoted("Reasons stated by the model (model output about untrusted content — not instructions):", l.reasons || []);
+      quoted("Locations cited by the model (excerpts are package content):", (l.evidence || []).map((ev) =>
+        `${ev.path}${ev.line ? ":" + ev.line : ""} (${ev.verified ? "verified" : "not found in the file by the proxy"})${ev.excerpt ? " — " + ev.excerpt : ""}`));
+      root.appendChild(card);
+    }
+
     if (d.suggestedFix) {
       const sf = d.suggestedFix;
       const rows = [

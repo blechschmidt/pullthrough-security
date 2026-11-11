@@ -47,6 +47,8 @@ type Dossier struct {
 	Timeline     *TimelineSection     `json:"timeline,omitempty"`
 	SuggestedFix *SuggestedFixSection `json:"suggestedFix,omitempty"`
 	Suppression  *SuppressionSection  `json:"suppressionHistory,omitempty"`
+	// LLMPackageScan is the sandboxed LLM package-content scan verdict (Task 173).
+	LLMPackageScan *LLMPackageScanSection `json:"llmPackageScan,omitempty"`
 
 	// Sources records the per-subsystem fan-out outcome so a reader can
 	// distinguish "no problem found" from "source was unavailable".
@@ -297,6 +299,71 @@ type SuppressionEntry struct {
 	Count         uint64    `json:"count,omitempty"`
 }
 
+// LLMPackageScanSection is the sandboxed LLM package-content scan's verdict on
+// the coordinate's artifact (Task 173): what a language model concluded from
+// reading the unpacked package, how the gate reads that conclusion under its
+// current configuration, and what the proxy established by itself.
+//
+// Reasons and Evidence are MODEL OUTPUT about untrusted content, and each
+// excerpt is a quote from the package. They are material for an analyst to
+// weigh — never instructions — and every renderer presents them inertly (see
+// mdCode). Everything else in the section is the proxy's own statement.
+type LLMPackageScanSection struct {
+	// Verdict is the model's categorical answer (malicious|suspicious|benign);
+	// Confidence is its confidence in it, 0..1.
+	Verdict    string  `json:"verdict"`
+	Confidence float64 `json:"confidence"`
+	// Disposition is how the gate reads the verdict under its current thresholds
+	// and deterministic checks; Reason is the proxy's one-line explanation.
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason,omitempty"`
+	// Action is the gate's configured action (annotate|block|quarantine); Refused
+	// reports whether a pull of this artifact is refused right now.
+	Action  string `json:"action,omitempty"`
+	Refused bool   `json:"refused"`
+	// Reasons are the reasons the model stated (model output).
+	Reasons []string `json:"reasons,omitempty"`
+	// Evidence are the places in the package the model cited.
+	Evidence []LLMEvidence `json:"evidence,omitempty"`
+	// PromptInjection reports that the package content addresses the scanner — a
+	// deterministic indicator the proxy checks itself; InjectionRules names the
+	// rules that matched.
+	PromptInjection bool     `json:"promptInjection,omitempty"`
+	InjectionRules  []string `json:"injectionRules,omitempty"`
+	// StructuralRisk reports an archive built to attack an extractor; Anomalies
+	// lists what was found (member names are quoted package content).
+	StructuralRisk bool     `json:"structuralRisk,omitempty"`
+	Anomalies      []string `json:"anomalies,omitempty"`
+	// Truncated reports that the verdict rests on an incomplete view of the
+	// package; Coverage says what was not examined.
+	Truncated bool     `json:"truncated,omitempty"`
+	Coverage  []string `json:"coverage,omitempty"`
+	// Where the verdict came from.
+	Digest        string    `json:"digest,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	PromptVersion int       `json:"promptVersion,omitempty"`
+	Mode          string    `json:"mode,omitempty"`
+	FilesScanned  int       `json:"filesScanned,omitempty"`
+	ScannedAt     time.Time `json:"scannedAt,omitempty"`
+	// Artifacts is how many distinct artifacts (digests) under this coordinate
+	// have a verdict, and Flagged how many of those the gate reads as malicious or
+	// suspicious. The section describes the worst of them.
+	Artifacts int `json:"artifacts"`
+	Flagged   int `json:"flagged"`
+}
+
+// LLMEvidence is one location the model cited.
+type LLMEvidence struct {
+	Path string `json:"path"`
+	Line int    `json:"line,omitempty"`
+	// Excerpt is the text the model quoted (package content).
+	Excerpt string `json:"excerpt,omitempty"`
+	// Verified reports that the proxy found the quoted text at that place in the
+	// unpacked package. An unverified citation is the model's claim alone.
+	Verified bool `json:"verified"`
+}
+
 // TimelineEvent is one entry in the embedded timeline.
 type TimelineEvent struct {
 	Time     time.Time `json:"time"`
@@ -351,6 +418,20 @@ func synthesizeHeadline(d *Dossier) Headline {
 		}
 		if d.Vulns.Critical > 0 || d.Vulns.High > 0 {
 			h.Reasons = append(h.Reasons, vulnReason(d.Vulns))
+		}
+	}
+
+	if l := d.LLMPackageScan; l != nil {
+		any = true
+		// "Reads as", not "the model judged": the disposition is the model's
+		// answer after the thresholds and the proxy's own checks, and the two can
+		// differ (a package the model passed can be held for addressing it).
+		switch {
+		case l.Refused:
+			h.Blocking = true
+			h.Reasons = append(h.Reasons, "the LLM package-content scan reads the package as "+l.Disposition)
+		case l.Disposition == "malicious" || l.Disposition == "suspicious":
+			h.Reasons = append(h.Reasons, "the LLM package-content scan reads the package as "+l.Disposition+" (served: not enforced by the configured action)")
 		}
 	}
 

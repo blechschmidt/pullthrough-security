@@ -113,6 +113,12 @@ type Config struct {
 	// binaries, obfuscated JavaScript, dynamic code-execution sinks, and in-source
 	// secrets — never executing anything.
 	ContentScan ContentScanConfig `yaml:"contentScan"`
+	// LLMPackageScan configures the sandboxed LLM package-content scan gate (Task
+	// 173): a language model reviews the unpacked contents of a downloaded package
+	// — through read-only tools over an in-memory tree, executing nothing — and
+	// returns a malicious/suspicious/benign verdict before the artifact is served.
+	// The verdict is cached per artifact sha256 digest + model + prompt version.
+	LLMPackageScan LLMPackageScanConfig `yaml:"llmPackageScan"`
 	// Sigverify configures cryptographic signature & attestation verification
 	// (cosign/Sigstore) as a pull-path admission gate (Task 23).
 	Sigverify SigverifyConfig `yaml:"sigverify"`
@@ -1872,6 +1878,9 @@ type RiskScoreWeights struct {
 	Quarantine    float64 `yaml:"quarantine"`
 	InstallHooks  float64 `yaml:"installHooks"`
 	RepoHealth    float64 `yaml:"repoHealth"`
+	// LLMPackageScan weights the sandboxed LLM package-content scan verdict
+	// (Task 173).
+	LLMPackageScan float64 `yaml:"llmPackageScan"`
 }
 
 // RiskScoreBands mirrors internal/riskscore.BandThresholds (inclusive lower
@@ -2835,6 +2844,381 @@ type ContentScanConfig struct {
 	MaxFindings         int           `yaml:"maxFindings"`
 	MaxFindingsPerFile  int           `yaml:"maxFindingsPerFile"`
 	Timeout             time.Duration `yaml:"timeout"`
+}
+
+// LLMPackageScanConfig configures the sandboxed LLM package-content scan gate
+// (Task 173). On the pull path, after the deterministic content gates, the gate
+// unpacks the fetched artifact into a bounded, read-only, in-memory tree and has
+// a language model review it — install scripts, lifecycle hooks, build files and
+// entry points first. The model can list, read and search that tree and nothing
+// else: no package code is ever executed, and it has no network or host access.
+// It must answer with a strict JSON verdict; anything else is a scan error and is
+// handled by FailMode, never read as "benign".
+//
+// Scans cost money and time, so each artifact is scanned once: the verdict is
+// stored under the artifact's sha256 digest together with the model and the
+// prompt version, concurrent requests for one digest share a scan, and a cost
+// budget bounds the spend.
+type LLMPackageScanConfig struct {
+	// Enabled turns on the gate, its admin surface, and the Prometheus metrics.
+	// Off by default: it needs an LLM provider and spends money per artifact.
+	Enabled bool `yaml:"enabled"`
+	// Provider selects the LLM provider: "claude", "openai" or "codex". Empty
+	// inherits scanning.provider (and with it scanning.apiKey / baseUrl /
+	// apiVersion / reasoningEffort), so a deployment that already scans commits
+	// only needs to set enabled.
+	Provider string `yaml:"provider"`
+	// Model is the provider-specific model identifier. Empty uses the provider's
+	// default deep-analysis model (scanning.commit.deepModel when the provider is
+	// inherited and that is set).
+	Model string `yaml:"model"`
+	// APIKey authenticates to the provider. It accepts a secretRef (env://,
+	// file://, vault://), ${ENV_VAR} and enc:v1: like every other credential.
+	// Empty inherits scanning.apiKey when the provider is the same.
+	APIKey string `yaml:"apiKey"`
+	// BaseURL optionally overrides the provider API endpoint (e.g. a gateway).
+	// Empty inherits scanning.baseUrl when the provider is the same.
+	BaseURL string `yaml:"baseUrl"`
+	// APIVersion selects Azure OpenAI mode for the "openai" provider.
+	APIVersion string `yaml:"apiVersion"`
+	// ReasoningEffort, for the "openai" provider, is forwarded as
+	// "reasoning_effort" when Thinking is on.
+	ReasoningEffort string `yaml:"reasoningEffort"`
+	// Mode selects how the model is shown the package: "tools" (list/read/grep
+	// over the unpacked tree), "bundle" (one prompt holding the highest-priority
+	// files — for a gateway whose model has no function calling), or "auto"
+	// (tools when the provider supports them, else bundle). Default "auto".
+	Mode string `yaml:"mode"`
+	// Thinking requests extended reasoning. When unset it is on for the models
+	// known to support it and off otherwise.
+	Thinking *bool `yaml:"thinking"`
+
+	// Action is applied to a verdict: "annotate" (record + serve), "block" (refuse
+	// a malicious artifact with a 403 and quarantine it — evict it from the cache
+	// — while serving a suspicious one with an advisory) or "quarantine" (as block,
+	// and additionally hold a suspicious artifact until an operator releases it
+	// through the break-glass approval workflow). Default "block".
+	Action string `yaml:"action"`
+	// FailMode is applied when no verdict could be obtained (provider down,
+	// timeout, budget exhausted, unparseable answer, artifact too large or not
+	// unpackable): "open" serves the artifact unscanned, "closed" refuses it.
+	// Default "open".
+	FailMode string `yaml:"failMode"`
+	// MaliciousThreshold is the minimum confidence (0..1] at which a "malicious"
+	// verdict is acted on as malicious; below it the artifact is treated as
+	// suspicious. Default 0.7.
+	MaliciousThreshold float64 `yaml:"maliciousThreshold"`
+	// SuspiciousThreshold is the minimum confidence (0..1] at which a "suspicious"
+	// verdict is flagged; below it the artifact is treated as benign. Default 0.5.
+	SuspiciousThreshold float64 `yaml:"suspiciousThreshold"`
+
+	// Timeout is the wall-clock bound on one scan, queueing included. The client
+	// waits this long, at most, for the first byte of an unscanned artifact; keep
+	// it below server.writeTimeout and above your package manager's patience.
+	// Default 2m.
+	Timeout time.Duration `yaml:"timeout"`
+	// RequestTimeout bounds a single provider HTTP attempt (the "openai"
+	// provider). Zero uses the provider default.
+	RequestTimeout time.Duration `yaml:"requestTimeout"`
+	// MaxRetries is the number of extra attempts after a transient provider
+	// error (0 => 1; negative disables retries).
+	MaxRetries int `yaml:"maxRetries"`
+	// MaxConcurrent bounds the scans in flight (0 => 4). Each holds the unpacked
+	// package in memory.
+	MaxConcurrent int `yaml:"maxConcurrent"`
+
+	// Include is the set of ecosystems scanned (upstream types, e.g. npm, pip).
+	// Empty selects the built-in set: npm, pip, cargo, rubygems, composer, nuget.
+	Include []string `yaml:"include"`
+	// Exclude removes ecosystems from the scanned set; it always wins.
+	Exclude []string `yaml:"exclude"`
+	// ExcludeUpstreams names upstreams (keys of `upstreams`) whose artifacts are
+	// never scanned, whatever their ecosystem. A scan sends package contents to
+	// the LLM provider, so list here any private registry whose packages must not
+	// leave your network; public registries of the same ecosystem are still
+	// scanned. An unknown name is a configuration error, not a silent no-op.
+	ExcludeUpstreams []string `yaml:"excludeUpstreams"`
+
+	// StoreDir is the directory verdicts are persisted in, one file per artifact
+	// digest. Empty keeps verdicts in memory only: every artifact is then scanned
+	// (and paid for) again after a restart.
+	StoreDir string `yaml:"storeDir"`
+	// CacheTTL expires a stored verdict after this age, so the artifact is scanned
+	// again. Zero keeps verdicts indefinitely.
+	CacheTTL time.Duration `yaml:"cacheTtl"`
+	// ErrorTTL is how long a failed scan is remembered before the same artifact is
+	// tried again (0 => 5m).
+	ErrorTTL time.Duration `yaml:"errorTtl"`
+
+	// Limits bounds one scan.
+	Limits LLMPackageScanLimits `yaml:"limits"`
+	// Budget bounds provider spend.
+	Budget LLMPackageScanBudget `yaml:"budget"`
+}
+
+// LLMPackageScanLimits bounds one LLM package-content scan (Task 173). Every
+// quantity here is controlled by whoever published the package; 0 selects the
+// default shown.
+type LLMPackageScanLimits struct {
+	// MaxArtifactBytes is the largest (compressed) artifact scanned. A larger one
+	// is not scanned at all and is handled by failMode.
+	MaxArtifactBytes int64 `yaml:"maxArtifactBytes"`
+	// MaxUnpackedBytes caps the decompressed bytes produced while unpacking.
+	MaxUnpackedBytes int64 `yaml:"maxUnpackedBytes"`
+	// MaxFileBytes caps the bytes retained per file; a larger file is cut.
+	MaxFileBytes int64 `yaml:"maxFileBytes"`
+	// MaxFiles caps the archive members examined.
+	MaxFiles int `yaml:"maxFiles"`
+	// MaxDepth caps the directory depth of a member's path.
+	MaxDepth int `yaml:"maxDepth"`
+	// MaxCompressionRatio is the decompression-bomb guard (decompressed :
+	// compressed).
+	MaxCompressionRatio float64 `yaml:"maxCompressionRatio"`
+	// MaxPromptBytes bounds the package material in the first prompt.
+	MaxPromptBytes int `yaml:"maxPromptBytes"`
+	// MaxToolResultBytes bounds one tool result; MaxToolBytes bounds all of them.
+	MaxToolResultBytes int `yaml:"maxToolResultBytes"`
+	MaxToolBytes       int `yaml:"maxToolBytes"`
+	// MaxTurns caps model turns; MaxToolCalls caps tool invocations.
+	MaxTurns     int `yaml:"maxTurns"`
+	MaxToolCalls int `yaml:"maxToolCalls"`
+	// MaxOutputTokens bounds one model response; MaxTotalTokens bounds the tokens
+	// one scan may consume across all turns.
+	MaxOutputTokens int `yaml:"maxOutputTokens"`
+	MaxTotalTokens  int `yaml:"maxTotalTokens"`
+}
+
+// LLMPackageScanBudget bounds what the LLM package-content scan may spend on
+// the provider (Task 173). When a ceiling is reached, further artifacts are not
+// scanned until the window resets; failMode decides whether they are served.
+type LLMPackageScanBudget struct {
+	// Enabled turns on budget enforcement.
+	Enabled bool `yaml:"enabled"`
+	// GlobalCeilingUSD caps spend across all tenants per window (0 = unlimited).
+	GlobalCeilingUSD float64 `yaml:"globalCeilingUsd"`
+	// TenantCeilingUSD caps each tenant's spend per window (0 = unlimited).
+	TenantCeilingUSD float64 `yaml:"tenantCeilingUsd"`
+	// TenantCeilingsUSD overrides TenantCeilingUSD for specific tenants.
+	TenantCeilingsUSD map[string]float64 `yaml:"tenantCeilingsUsd"`
+	// Window is the period after which usage resets (0 => 24h).
+	Window time.Duration `yaml:"window"`
+	// Pricing overrides the built-in per-model price table (USD per 1M tokens),
+	// keyed by model ID.
+	Pricing map[string]ModelPriceConfig `yaml:"pricing"`
+}
+
+// validUpstreamTypes is the set of upstream (ecosystem) types the proxy fronts.
+var validUpstreamTypes = map[string]bool{
+	"git": true, "pip": true, "npm": true, "cargo": true,
+	"go": true, "nuget": true, "docker": true, "maven": true,
+	"rubygems": true, "composer": true, "helm": true,
+	"apt": true, "deb": true, "yum": true, "rpm": true,
+	"terraform": true, "conan": true, "swift": true,
+	"dart": true, "pub": true, "huggingface": true,
+	"conda": true, "cran": true, "hex": true,
+	"bazel": true, "julia": true, "cpan": true,
+	"openvsx": true, "nix": true, "generic": true,
+	"jsr": true, "hackage": true, "homebrew": true,
+	"ansible": true, "puppet": true,
+}
+
+// knownEcosystem reports whether e names an ecosystem the proxy fronts, by
+// upstream type or by one of the aliases the LLM package-scan gate accepts.
+func knownEcosystem(e string) bool {
+	return validUpstreamTypes[canonLLMEcosystem(e)]
+}
+
+// llmPackageScanProviders is the set of provider identifiers the gate accepts.
+var llmPackageScanProviders = map[string]bool{"claude": true, "openai": true, "codex": true}
+
+// EffectiveLLMPackageScan returns the LLM package-scan configuration with the
+// values it inherits from the commit-scanning block filled in: an empty provider
+// takes scanning.provider, and — when the provider is the same — an empty API
+// key, base URL, API version or reasoning effort takes scanning's. It is the
+// single place that inheritance is decided, shared by validation, preflight and
+// the wiring layer.
+func (c *Config) EffectiveLLMPackageScan() LLMPackageScanConfig {
+	l := c.LLMPackageScan
+	l.Provider = strings.ToLower(strings.TrimSpace(l.Provider))
+	scanProvider := strings.ToLower(strings.TrimSpace(c.Scanning.Provider))
+	inherited := false
+	if l.Provider == "" && llmPackageScanProviders[scanProvider] {
+		l.Provider = scanProvider
+		inherited = true
+	}
+	// "codex" is the OpenAI-compatible provider under another name.
+	same := inherited || (l.Provider != "" && providerFamily(l.Provider) == providerFamily(scanProvider))
+	if same {
+		if strings.TrimSpace(l.APIKey) == "" {
+			l.APIKey = c.Scanning.APIKey
+		}
+		if strings.TrimSpace(l.BaseURL) == "" {
+			l.BaseURL = c.Scanning.BaseURL
+		}
+		if strings.TrimSpace(l.APIVersion) == "" {
+			l.APIVersion = c.Scanning.APIVersion
+		}
+		if strings.TrimSpace(l.ReasoningEffort) == "" {
+			l.ReasoningEffort = c.Scanning.ReasoningEffort
+		}
+		if l.RequestTimeout == 0 {
+			l.RequestTimeout = c.Scanning.Timeout
+		}
+	}
+	if strings.TrimSpace(l.Model) == "" && inherited {
+		l.Model = strings.TrimSpace(c.Scanning.Commit.DeepModel)
+	}
+	return l
+}
+
+// llmPackageScanDefaultEcosystems mirrors the gate's built-in ecosystem set
+// (llmpkgscan.DefaultEcosystems), used when llmPackageScan.include is empty.
+var llmPackageScanDefaultEcosystems = []string{"npm", "pip", "cargo", "rubygems", "composer", "nuget"}
+
+// LLMPackageScanDefaultEcosystems returns the ecosystems the LLM package scan
+// covers when llmPackageScan.include is empty. It exists so the mirror above
+// can be held to the gate's own list by a test outside this package.
+func LLMPackageScanDefaultEcosystems() []string {
+	return append([]string(nil), llmPackageScanDefaultEcosystems...)
+}
+
+// providerFamily folds provider aliases onto the client that serves them.
+func providerFamily(p string) string {
+	if p == "codex" {
+		return "openai"
+	}
+	return p
+}
+
+// validateLLMPackageScan checks the LLM package-content scan gate configuration:
+// a usable provider, valid action / fail mode / mode enums, thresholds within
+// (0,1], non-negative timeouts, limits within their hard bounds, known
+// ecosystems, and a sane budget.
+func (c *Config) validateLLMPackageScan() error {
+	if !c.LLMPackageScan.Enabled {
+		return nil
+	}
+	l := c.EffectiveLLMPackageScan()
+	if l.Provider == "" {
+		return fmt.Errorf("config: llmPackageScan.provider is required when the gate is enabled (claude|openai|codex), or configure scanning.provider to inherit it")
+	}
+	if !llmPackageScanProviders[l.Provider] {
+		return fmt.Errorf("config: llmPackageScan.provider must be claude|openai|codex, got %q", l.Provider)
+	}
+	if u := strings.TrimSpace(l.BaseURL); u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		return fmt.Errorf("config: llmPackageScan.baseUrl must be an absolute http(s) URL, got %q", l.BaseURL)
+	}
+	switch strings.ToLower(strings.TrimSpace(l.Mode)) {
+	case "", "auto", "tools", "bundle":
+	default:
+		return fmt.Errorf("config: llmPackageScan.mode must be auto|tools|bundle, got %q", l.Mode)
+	}
+	switch strings.ToLower(strings.TrimSpace(l.Action)) {
+	case "", "annotate", "quarantine", "block":
+	default:
+		return fmt.Errorf("config: llmPackageScan.action must be annotate|quarantine|block, got %q", l.Action)
+	}
+	switch strings.ToLower(strings.TrimSpace(l.FailMode)) {
+	case "", "open", "closed":
+	default:
+		return fmt.Errorf("config: llmPackageScan.failMode must be open|closed, got %q", l.FailMode)
+	}
+	if l.MaliciousThreshold < 0 || l.MaliciousThreshold > 1 {
+		return fmt.Errorf("config: llmPackageScan.maliciousThreshold must be within (0,1], got %g", l.MaliciousThreshold)
+	}
+	if l.SuspiciousThreshold < 0 || l.SuspiciousThreshold > 1 {
+		return fmt.Errorf("config: llmPackageScan.suspiciousThreshold must be within (0,1], got %g", l.SuspiciousThreshold)
+	}
+	if l.Timeout < 0 || l.RequestTimeout < 0 || l.CacheTTL < 0 || l.ErrorTTL < 0 {
+		return fmt.Errorf("config: llmPackageScan durations (timeout, requestTimeout, cacheTtl, errorTtl) must not be negative")
+	}
+	if l.MaxConcurrent < 0 {
+		return fmt.Errorf("config: llmPackageScan.maxConcurrent must not be negative, got %d", l.MaxConcurrent)
+	}
+	for _, list := range []struct {
+		name string
+		ecos []string
+	}{{"include", l.Include}, {"exclude", l.Exclude}} {
+		for _, e := range list.ecos {
+			if !knownEcosystem(e) {
+				return fmt.Errorf("config: llmPackageScan.%s contains unknown ecosystem %q", list.name, e)
+			}
+		}
+	}
+	for _, name := range l.ExcludeUpstreams {
+		// A typo here would send a private registry's packages to the provider, so
+		// it is an error rather than a warning.
+		if _, ok := c.Upstreams[strings.TrimSpace(name)]; !ok {
+			return fmt.Errorf("config: llmPackageScan.excludeUpstreams names upstream %q, which is not defined under upstreams", name)
+		}
+	}
+	if err := l.Limits.validate(); err != nil {
+		return err
+	}
+	b := l.Budget
+	if b.GlobalCeilingUSD < 0 || b.TenantCeilingUSD < 0 || b.Window < 0 {
+		return fmt.Errorf("config: llmPackageScan.budget ceilings and window must not be negative")
+	}
+	for tenant, v := range b.TenantCeilingsUSD {
+		if v < 0 {
+			return fmt.Errorf("config: llmPackageScan.budget.tenantCeilingsUsd[%q] must not be negative", tenant)
+		}
+	}
+	for model, p := range b.Pricing {
+		if p.InputPerMTok < 0 || p.OutputPerMTok < 0 {
+			return fmt.Errorf("config: llmPackageScan.budget.pricing[%q] must not be negative", model)
+		}
+	}
+	return nil
+}
+
+// Hard bounds on the LLM package-scan limits. They mirror the gate's own
+// (internal/llmpkgscan), which the configuration package deliberately does not
+// import: doing so would link the LLM provider SDK into every tool that only
+// reads configuration. A cross-check test in cmd/pullthrough keeps the two in
+// agreement.
+const (
+	llmPkgScanMinPromptBytes     = 4 << 10
+	llmPkgScanMinToolResultBytes = 1 << 10
+	llmPkgScanMaxTurns           = 64
+	llmPkgScanMaxToolCalls       = 512
+	llmPkgScanMinOutputTokens    = 256
+)
+
+// validate checks the limits. A zero field is "use the default" and always
+// valid; only an explicit out-of-range value is rejected.
+func (l LLMPackageScanLimits) validate() error {
+	if l.MaxArtifactBytes < 0 || l.MaxUnpackedBytes < 0 || l.MaxFileBytes < 0 {
+		return fmt.Errorf("config: llmPackageScan.limits byte bounds must not be negative")
+	}
+	if l.MaxFiles < 0 || l.MaxDepth < 0 {
+		return fmt.Errorf("config: llmPackageScan.limits.maxFiles and maxDepth must not be negative")
+	}
+	if l.MaxCompressionRatio != 0 && l.MaxCompressionRatio < 1 {
+		return fmt.Errorf("config: llmPackageScan.limits.maxCompressionRatio must be at least 1, got %g", l.MaxCompressionRatio)
+	}
+	if l.MaxPromptBytes != 0 && l.MaxPromptBytes < llmPkgScanMinPromptBytes {
+		return fmt.Errorf("config: llmPackageScan.limits.maxPromptBytes must be at least %d, got %d", llmPkgScanMinPromptBytes, l.MaxPromptBytes)
+	}
+	if l.MaxToolResultBytes != 0 && l.MaxToolResultBytes < llmPkgScanMinToolResultBytes {
+		return fmt.Errorf("config: llmPackageScan.limits.maxToolResultBytes must be at least %d, got %d", llmPkgScanMinToolResultBytes, l.MaxToolResultBytes)
+	}
+	if l.MaxToolBytes < 0 || (l.MaxToolBytes != 0 && l.MaxToolResultBytes != 0 && l.MaxToolBytes < l.MaxToolResultBytes) {
+		return fmt.Errorf("config: llmPackageScan.limits.maxToolBytes must not be smaller than maxToolResultBytes")
+	}
+	if l.MaxTurns < 0 || l.MaxTurns > llmPkgScanMaxTurns {
+		return fmt.Errorf("config: llmPackageScan.limits.maxTurns must be within [1,%d], got %d", llmPkgScanMaxTurns, l.MaxTurns)
+	}
+	if l.MaxToolCalls < 0 || l.MaxToolCalls > llmPkgScanMaxToolCalls {
+		return fmt.Errorf("config: llmPackageScan.limits.maxToolCalls must be within [0,%d], got %d", llmPkgScanMaxToolCalls, l.MaxToolCalls)
+	}
+	if l.MaxOutputTokens != 0 && l.MaxOutputTokens < llmPkgScanMinOutputTokens {
+		return fmt.Errorf("config: llmPackageScan.limits.maxOutputTokens must be at least %d, got %d", llmPkgScanMinOutputTokens, l.MaxOutputTokens)
+	}
+	if l.MaxTotalTokens < 0 || (l.MaxTotalTokens != 0 && l.MaxOutputTokens != 0 && l.MaxTotalTokens < l.MaxOutputTokens) {
+		return fmt.Errorf("config: llmPackageScan.limits.maxTotalTokens must not be smaller than maxOutputTokens")
+	}
+	return nil
 }
 
 // MalfeedSourceConfig describes one upstream malware feed.
@@ -4462,6 +4846,39 @@ func Default() Config {
 			Action:       "annotate",
 			FailSeverity: "high",
 		},
+		LLMPackageScan: LLMPackageScanConfig{
+			// Off by default: it needs an LLM provider and spends money per
+			// artifact. When enabled it blocks (and quarantines) what the model
+			// judges malicious and fails open when no verdict can be obtained.
+			Enabled:             false,
+			Mode:                "auto",
+			Action:              "block",
+			FailMode:            "open",
+			MaliciousThreshold:  0.7,
+			SuspiciousThreshold: 0.5,
+			Timeout:             2 * time.Minute,
+			MaxRetries:          1,
+			MaxConcurrent:       4,
+			ErrorTTL:            5 * time.Minute,
+			Limits: LLMPackageScanLimits{
+				MaxArtifactBytes:    64 << 20,
+				MaxUnpackedBytes:    256 << 20,
+				MaxFileBytes:        1 << 20,
+				MaxFiles:            5000,
+				MaxDepth:            32,
+				MaxCompressionRatio: 200,
+				MaxPromptBytes:      120 << 10,
+				MaxToolResultBytes:  24 << 10,
+				MaxToolBytes:        256 << 10,
+				MaxTurns:            8,
+				MaxToolCalls:        24,
+				MaxOutputTokens:     16000,
+				MaxTotalTokens:      600000,
+			},
+			Budget: LLMPackageScanBudget{
+				Window: 24 * time.Hour,
+			},
+		},
 		Findings: FindingsConfig{
 			Enabled: true,
 		},
@@ -4728,6 +5145,7 @@ func decryptSecrets(cfg *Config) error {
 	var refs []ref
 	refs = append(refs,
 		ref{"scanning.apiKey", &cfg.Scanning.APIKey},
+		ref{"llmPackageScan.apiKey", &cfg.LLMPackageScan.APIKey},
 		ref{"scanning.watch.webhookSecret", &cfg.Scanning.Watch.WebhookSecret},
 		ref{"provenance.githubToken", &cfg.Provenance.GitHubToken},
 		ref{"observability.adminToken", &cfg.Observability.AdminToken},
@@ -4821,6 +5239,7 @@ func decryptSecrets(cfg *Config) error {
 // expandSecrets resolves ${ENV_VAR} references in credential/secret fields.
 func expandSecrets(cfg *Config) {
 	cfg.Scanning.APIKey = os.ExpandEnv(cfg.Scanning.APIKey)
+	cfg.LLMPackageScan.APIKey = os.ExpandEnv(cfg.LLMPackageScan.APIKey)
 	for i := range cfg.Scanning.Commit.Consensus {
 		cfg.Scanning.Commit.Consensus[i].APIKey = os.ExpandEnv(cfg.Scanning.Commit.Consensus[i].APIKey)
 	}
@@ -4925,6 +5344,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("PTS_SCAN_API_KEY"); v != "" {
 		cfg.Scanning.APIKey = v
+	}
+	if v := os.Getenv("PTS_LLM_PACKAGE_SCAN_API_KEY"); v != "" {
+		cfg.LLMPackageScan.APIKey = v
 	}
 	if v := os.Getenv("PTS_ADMIN_TOKEN"); v != "" {
 		cfg.Observability.AdminToken = v
@@ -5049,19 +5471,7 @@ func (c *Config) Validate() error {
 		return err
 	}
 
-	validTypes := map[string]bool{
-		"git": true, "pip": true, "npm": true, "cargo": true,
-		"go": true, "nuget": true, "docker": true, "maven": true,
-		"rubygems": true, "composer": true, "helm": true,
-		"apt": true, "deb": true, "yum": true, "rpm": true,
-		"terraform": true, "conan": true, "swift": true,
-		"dart": true, "pub": true, "huggingface": true,
-		"conda": true, "cran": true, "hex": true,
-		"bazel": true, "julia": true, "cpan": true,
-		"openvsx": true, "nix": true, "generic": true,
-		"jsr": true, "hackage": true, "homebrew": true,
-		"ansible": true, "puppet": true,
-	}
+	validTypes := validUpstreamTypes
 	for name, up := range c.Upstreams {
 		if !validTypes[up.Type] {
 			return fmt.Errorf("config: upstream %q has unknown type %q", name, up.Type)
@@ -5269,6 +5679,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateContentScan(); err != nil {
+		return err
+	}
+	if err := c.validateLLMPackageScan(); err != nil {
 		return err
 	}
 	if err := c.validateMalfeed(); err != nil {

@@ -18,6 +18,8 @@ under the [`notifications`](configuration.md#notifications) config block.
 | `vulnerability` | The SBOM/OSV gate (Task 15) warns on, blocks, or quarantines an artifact. | the finding's max severity |
 | `commit_scan` | An LLM commit-scan verdict (Task 7) is produced. A malicious verdict is escalated to ≥ `high`. | the verdict's max severity |
 | `quarantine` | An artifact is quarantined (made unservable and evicted). | the finding's max severity |
+| `llm_package_scan` | The LLM package-content scan (Task 173) flags a package: once per fresh malicious/suspicious verdict, and on every refused pull. Fields: `disposition`, `action`, `model`, `confidence`. The summary is the proxy's own sentence — the model's free-text reasons are shaped by the package under review and are deliberately not carried into an alert. See [llm-package-scan.md](llm-package-scan.md). | `critical` (malicious), `high`/`medium` (suspicious) |
+| `cost_budget` | An LLM cost ceiling is reached — the commit scanner's per-tenant budget, or the package scan's per-tenant or global budget (once per budget window, with `scope`/`tenant` fields). | `high` when unscanned work is refused, `medium` when it is let through |
 | `rescan_regression` | The continuous re-scan subsystem (Task 18) finds a cached artifact became vulnerable against a newly-disclosed CVE. | the new max severity |
 | `lockdown` | The emergency-lockdown / global kill-switch (Task 74) was engaged, cleared, or auto-expired (freeze/strict/targeted-block). | `critical` on engage, else `high` |
 

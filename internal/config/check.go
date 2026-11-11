@@ -162,6 +162,8 @@ func (c *Config) checkConsistency(r *Report) {
 		}
 	}
 
+	c.checkLLMPackageScan(r)
+
 	// Tracing enabled without an exporter endpoint is the documented inert state,
 	// but worth flagging so an operator who meant to export spans notices.
 	if c.Tracing.Enabled && strings.TrimSpace(c.Tracing.Endpoint) == "" {
@@ -217,6 +219,124 @@ func (c *Config) checkConsistency(r *Report) {
 	}
 }
 
+// checkLLMPackageScan reports the LLM package-content scan gate's loadable-but-
+// questionable configurations (Task 173): the ones a schema check cannot see
+// and an operator would want to hear about before the first pull stalls or the
+// first invoice arrives.
+func (c *Config) checkLLMPackageScan(r *Report) {
+	if !c.LLMPackageScan.Enabled {
+		return
+	}
+	l := c.EffectiveLLMPackageScan()
+
+	// No credential: every scan fails, and under fail-open that is silent.
+	if llmPackageScanProviders[l.Provider] && strings.TrimSpace(l.APIKey) == "" {
+		r.warnf("llmPackageScan.apiKey", "the LLM package scan is enabled with provider %q but no apiKey is configured (and none is inherited from scanning.apiKey); every scan will fail to authenticate unless the provider's own environment variable supplies a key", l.Provider)
+	}
+	// Spend is driven by what clients pull; without a ceiling it is unbounded.
+	if !l.Budget.Enabled || (l.Budget.GlobalCeilingUSD == 0 && l.Budget.TenantCeilingUSD == 0 && len(l.Budget.TenantCeilingsUSD) == 0) {
+		r.warnf("llmPackageScan.budget", "the LLM package scan has no cost ceiling; every first pull of an artifact is a paid scan, so set llmPackageScan.budget (enabled plus a global and/or per-tenant ceiling)")
+	}
+	// Verdicts in memory are re-bought after every restart.
+	if strings.TrimSpace(l.StoreDir) == "" {
+		r.warnf("llmPackageScan.storeDir", "llmPackageScan.storeDir is empty, so verdicts are kept in memory only; every artifact is scanned (and paid for) again after a restart")
+	}
+	// The client waits for the verdict before the first byte; the server must
+	// not give up on the response first.
+	if c.Server.WriteTimeout > 0 && l.Timeout > 0 && l.Timeout >= c.Server.WriteTimeout {
+		r.warnf("llmPackageScan.timeout", "llmPackageScan.timeout (%s) is not below server.writeTimeout (%s); a scan that runs to its limit would have its response cut off", l.Timeout, c.Server.WriteTimeout)
+	}
+	// An enforcing action that fails open stops enforcing whenever the provider
+	// is unreachable or the budget is spent — and whenever a package makes itself
+	// unscannable. Worth a deliberate decision rather than a default.
+	if strings.EqualFold(strings.TrimSpace(l.FailMode), "open") || strings.TrimSpace(l.FailMode) == "" {
+		switch strings.ToLower(strings.TrimSpace(l.Action)) {
+		case "", "block", "quarantine":
+			r.warnf("llmPackageScan.failMode", "llmPackageScan.action enforces verdicts but failMode is \"open\": an artifact that cannot be scanned (provider outage, exhausted budget, oversized or unparseable package) is served anyway; use failMode \"closed\" where that is not acceptable")
+		}
+	}
+	// A scan sends package contents to the LLM provider. An upstream that needs
+	// credentials is, as a rule, a private registry — the one place whose packages
+	// an operator may not want to leave the network. Name each such upstream so
+	// that sending its packages is a decision rather than a default.
+	scanned := func(upType string) bool {
+		eco := canonLLMEcosystem(upType)
+		for _, e := range l.Exclude {
+			if canonLLMEcosystem(e) == eco {
+				return false
+			}
+		}
+		include := l.Include
+		if len(include) == 0 {
+			include = llmPackageScanDefaultEcosystems
+		}
+		for _, e := range include {
+			if canonLLMEcosystem(e) == eco {
+				return true
+			}
+		}
+		return false
+	}
+	excluded := map[string]bool{}
+	for _, name := range l.ExcludeUpstreams {
+		excluded[strings.TrimSpace(name)] = true
+	}
+	private := make([]string, 0, 2)
+	for name, up := range c.Upstreams {
+		cr := up.Credentials
+		if !up.IsEnabled() || excluded[name] || !scanned(up.Type) {
+			continue
+		}
+		if cr.Username != "" || cr.Password != "" || cr.Token != "" {
+			private = append(private, name)
+		}
+	}
+	sort.Strings(private)
+	for _, name := range private {
+		r.warnf("llmPackageScan.excludeUpstreams", "upstream %q is authenticated (likely a private registry) and its packages will be sent to the LLM provider for scanning; add it to llmPackageScan.excludeUpstreams if its contents must not leave your network", name)
+	}
+	// An ecosystem named for scanning that no upstream serves is a typo or a
+	// leftover.
+	if len(l.Include) > 0 {
+		served := map[string]bool{}
+		for _, up := range c.Upstreams {
+			if up.IsEnabled() {
+				served[canonLLMEcosystem(up.Type)] = true
+			}
+		}
+		for _, e := range l.Include {
+			if ce := canonLLMEcosystem(e); !served[ce] {
+				r.warnf("llmPackageScan.include", "llmPackageScan.include names ecosystem %q but no enabled upstream has that type; nothing will be scanned for it", e)
+			}
+		}
+	}
+}
+
+// canonLLMEcosystem folds the ecosystem aliases the LLM package-scan gate
+// accepts onto upstream type names.
+func canonLLMEcosystem(e string) string {
+	switch e = strings.ToLower(strings.TrimSpace(e)); e {
+	case "pypi", "python":
+		return "pip"
+	case "gem", "gems", "ruby":
+		return "rubygems"
+	case "crates", "crate", "rust":
+		return "cargo"
+	case "node", "nodejs":
+		return "npm"
+	case "packagist", "php":
+		return "composer"
+	case "dotnet", ".net":
+		return "nuget"
+	case "golang":
+		return "go"
+	case "java", "gradle":
+		return "maven"
+	default:
+		return e
+	}
+}
+
 // hasSecretsKey reports whether a master encryption key is resolvable from the
 // Secrets configuration or its environment variable.
 func (c *Config) hasSecretsKey() bool {
@@ -235,6 +355,7 @@ func (c *Config) hasSecretsKey() bool {
 func (c *Config) hasEncryptedSecret() bool {
 	candidates := []string{
 		c.Scanning.APIKey,
+		c.LLMPackageScan.APIKey,
 		c.Provenance.GitHubToken,
 		c.Observability.AdminToken,
 		c.AdminAuth.SessionKey,

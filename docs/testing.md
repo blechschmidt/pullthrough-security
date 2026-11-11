@@ -106,6 +106,10 @@ up by default.
 | `internal/vulnscan` | `FuzzOSVRecord` | OSV advisory records |
 | `internal/vulnscan` | `FuzzParseCVSSBaseScore` | CVSS vectors |
 | `internal/sigverify` | `FuzzOCIManifest` | OCI image manifest / index JSON |
+| `internal/llmpkgscan` | `FuzzParseVerdict` | the LLM's verdict JSON (model output shaped by untrusted package content) |
+| `internal/llmpkgscan` | `FuzzSafePath` | archive member names → root-relative keys (path traversal) |
+| `internal/llmpkgscan` | `FuzzBuildTree` | package archives → the bounded in-memory tree |
+| `internal/llmpkgscan` | `FuzzToolCalls` | the model's tool-call arguments (list/read/grep) |
 
 Each target seeds its corpus (`f.Add`) with real-world samples and a battery of
 known-malformed inputs (truncated archives, unterminated grammars, deeply nested
