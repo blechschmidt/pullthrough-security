@@ -31,4 +31,4 @@ pnpm add is-number@7.0.0
 node -e "require('is-number')"
 
 # pnpm-lock.yaml records an integrity hash, not a URL.
-! grep -q 'proxy.example.com' pnpm-lock.yaml
+if grep -q 'proxy.example.com' pnpm-lock.yaml; then echo "pnpm-lock.yaml names the proxy"; exit 1; fi

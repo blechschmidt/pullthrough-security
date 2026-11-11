@@ -27,6 +27,8 @@ go get rsc.io/quote@v1.5.2
 test "$(go env GOSUMDB)" = "sum.golang.org"
 test -z "$(go env GONOSUMDB)"
 grep -q '^rsc.io/quote v1.5.2 h1:' go.sum
+# go.mod and go.sum record module paths, versions and hashes, no URL.
+if grep -q 'proxy.example.com' go.mod go.sum; then echo "go.mod or go.sum names the proxy"; exit 1; fi
 
 if [ -n "${PROXY_TOKEN:-}" ]; then
     # The same without ~/.netrc: the credentials in the GOPROXY URL.

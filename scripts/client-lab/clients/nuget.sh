@@ -7,7 +7,10 @@
 # token to the proxy; see nuget-token.sh.)
 set -eu
 echo "LAB_CLIENT_VERSION=$(dotnet --version)"
-export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+# The dotnet command reports usage to dc.services.visualstudio.com unless told
+# not to (the lab saw the lookup without this line).
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NOLOGO=1
 # NuGet verifies package signatures and, for that, asks the signing CAs'
 # revocation servers (crl3.digicert.com, ocsp.digicert.com for nuget.org's
 # packages). "offline" keeps that check to what is cached locally.
@@ -41,5 +44,5 @@ dotnet restore app.csproj
 test -d ~/.nuget/packages/newtonsoft.json/13.0.3
 
 # packages.lock.json records versions and content hashes, not the source.
-! grep -q 'proxy.example.com' packages.lock.json
+if grep -q 'proxy.example.com' packages.lock.json; then echo "packages.lock.json names the proxy"; exit 1; fi
 dotnet nuget list source | grep -q "https://proxy.example.com/v1/nuget/v3/index.json"

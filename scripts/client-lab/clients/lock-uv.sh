@@ -37,4 +37,5 @@ grep -q "needs to be updated" locked.log
 uv lock
 uv sync --locked
 grep -q 'registry = "https://proxy.example.com/v1/pypi/simple/"' uv.lock
-grep -q 'name = "six"' uv.lock && grep -q 'version = "1.16.0"' uv.lock
+grep -q 'name = "six"' uv.lock
+grep -q 'version = "1.16.0"' uv.lock

@@ -33,8 +33,11 @@
 #   lab.sh list                  print the client scripts with their image and modes
 #   lab.sh matrix                the same, grouped by image, as JSON (a CI job matrix)
 #   lab.sh report                print the result table (Markdown)
-#   lab.sh document              write that table into docs/client-lab.md
-#   lab.sh check                 fail unless every script passed in every mode it is for
+#   lab.sh document              write that table into docs/client-lab.md (refused
+#                                unless "check" passes)
+#   lab.sh check                 fail unless every script passed in every mode it is
+#                                for, as the script is now (a result is the result of
+#                                one version of a script; see fingerprint below)
 #   lab.sh logs <client> <mode>  print a run's client output, the requests it made
 #                                and the names it looked up
 #   lab.sh down                  stop the proxies, remove the networks
@@ -58,7 +61,10 @@
 # Requirements: Docker, Go, openssl, network access to the public registries.
 # Environment:
 #   CLIENT_LAB_DIR        where the lab keeps its state (default: $TMPDIR/pullthrough-client-lab)
-#   CLIENT_LAB_PROXY_BIN  a prebuilt static proxy binary (default: built from this checkout)
+#   CLIENT_LAB_PROXY_BIN  a prebuilt static linux proxy binary (default: built from this checkout)
+#   CLIENT_LAB_DNSLOG_BIN the same for the name server (scripts/client-lab/dnslog)
+#   CLIENT_LAB_PROXY_IMAGE the image the proxy runs in: anything with git, CA
+#                         certificates and wget (default: alpine/git)
 #   LAB_KEEP_IMAGES=0     remove an image the lab pulled once its client has run (small disks)
 #   LAB_KEEP_WORK=1       keep a run's scratch directory (work/<mode>-<client>)
 set -euo pipefail
@@ -69,7 +75,7 @@ repo="$(cd "$here/../.." && pwd)"
 LAB_DIR="${CLIENT_LAB_DIR:-${TMPDIR:-/tmp}/pullthrough-client-lab}"
 LAB_TOKEN="${CLIENT_LAB_TOKEN:-ptk_lab_4f9a1c7e2b8d4e6fa0b1c2d3}"
 LAB_KEEP_IMAGES="${LAB_KEEP_IMAGES:-1}"
-PROXY_IMAGE="${CLIENT_LAB_PROXY_IMAGE:-alpine/git:2.49.1}" # any image with git and CA certificates
+PROXY_IMAGE="${CLIENT_LAB_PROXY_IMAGE:-alpine/git:2.49.1}"
 # Where every client container finds the CA certificate. The guide uses the same
 # path in its examples.
 CA_PATH=/etc/ssl/corp-ca.pem
@@ -95,10 +101,23 @@ address() {
 
 # --- up ----------------------------------------------------------------------
 
+# pki_valid reports whether the lab's CA and server certificate exist and are
+# valid for another <seconds>.
+pki_valid() {
+  local pki="$LAB_DIR/pki" cert
+  for cert in "$pki/ca.crt" "$pki/server.crt"; do
+    [ -s "$cert" ] || return 1
+    openssl x509 -checkend "$1" -noout -in "$cert" >/dev/null 2>&1 || return 1
+  done
+}
+
+# make_pki creates the CA and the proxy's certificate. They last 30 days: a lab
+# directory is scratch space, and a CA nobody remembers creating should not be
+# valid for years. An existing pair is kept while it is good for another day.
 make_pki() {
   local pki="$LAB_DIR/pki"
-  [ -s "$pki/server.crt" ] && return
   need openssl
+  pki_valid 86400 && return
   mkdir -p "$pki"
   openssl req -x509 -newkey rsa:2048 -nodes -days 30 \
     -keyout "$pki/ca.key" -out "$pki/ca.crt" -subj "/CN=Example Corp Root CA" \
@@ -119,6 +138,17 @@ render_config() {
   esac
 }
 
+# serving reports whether a mode's proxy is running and answers an HTTPS
+# request. (The line the proxy logs when it starts is not evidence of that: it
+# is written before the listener binds, and a container that has exited still
+# exists.)
+serving() {
+  local name
+  name="$(proxy "$1")"
+  [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" = true ] || return 1
+  docker exec "$name" wget -q -O /dev/null --no-check-certificate https://127.0.0.1/healthz >/dev/null 2>&1
+}
+
 start_proxy() {
   local mode="$1" name network
   name="$(proxy "$mode")"
@@ -136,7 +166,7 @@ start_proxy() {
   docker network connect "$network" "$name"
   local up=0
   for _ in $(seq 1 30); do
-    if docker logs "$name" 2>&1 | grep -q '"http gateway listening"'; then
+    if serving "$mode"; then
       up=1
       break
     fi
@@ -151,6 +181,11 @@ start_proxy() {
   # exists, and every question is logged. Clients get it as their only resolver.
   docker run -d --name "$(dns "$mode")" --network "$network" -v "$LAB_DIR/bin:/lab/bin:ro" \
     --entrypoint /lab/bin/dnslog "$PROXY_IMAGE" -name proxy.example.com -addr "$(address "$name" "$network")" >/dev/null
+  sleep 1
+  [ "$(docker inspect -f '{{.State.Running}}' "$(dns "$mode")" 2>/dev/null)" = true ] || {
+    docker logs "$(dns "$mode")" 2>&1 | tail -5 >&2
+    die "the $mode name server did not start"
+  }
   echo "nameserver $(address "$(dns "$mode")" "$network")" >"$LAB_DIR/resolv-$mode.conf"
   echo "client-lab: $mode proxy is up (network $network)"
 }
@@ -158,20 +193,24 @@ start_proxy() {
 cmd_up() {
   need docker
   mkdir -p "$LAB_DIR/bin" "$LAB_DIR/logs" "$LAB_DIR/results" "$LAB_DIR/work"
+  # The binaries run in containers: linux, on the architecture of the Docker
+  # host — which is not this machine's operating system on a Mac.
+  local arch
+  arch="$(docker version -f '{{.Server.Arch}}')"
   if [ -n "${CLIENT_LAB_PROXY_BIN:-}" ]; then
     cp "$CLIENT_LAB_PROXY_BIN" "$LAB_DIR/bin/pullthrough"
     chmod +x "$LAB_DIR/bin/pullthrough"
   else
     need go
     echo "client-lab: building the proxy"
-    (cd "$repo" && CGO_ENABLED=0 go build -o "$LAB_DIR/bin/pullthrough" ./cmd/pullthrough)
+    (cd "$repo" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -o "$LAB_DIR/bin/pullthrough" ./cmd/pullthrough)
   fi
   if [ -n "${CLIENT_LAB_DNSLOG_BIN:-}" ]; then
     cp "$CLIENT_LAB_DNSLOG_BIN" "$LAB_DIR/bin/dnslog"
     chmod +x "$LAB_DIR/bin/dnslog"
   else
     need go
-    (cd "$repo" && CGO_ENABLED=0 go build -o "$LAB_DIR/bin/dnslog" ./scripts/client-lab/dnslog)
+    (cd "$repo" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -o "$LAB_DIR/bin/dnslog" ./scripts/client-lab/dnslog)
   fi
   make_pki
   local mode
@@ -205,6 +244,18 @@ cmd_clean() {
 # meta <script> <key> prints the value of a "# lab: key=value" header line.
 meta() {
   sed -n "s/^# lab: $2=//p" "$1" | head -1
+}
+
+# fingerprint <script> identifies what a script executes: a hash over its
+# "# lab:" header lines and its lines that are neither blank nor comments. A
+# result is the result of one fingerprint — so that editing a script makes its
+# recorded result stale (check, document), while rewording a comment does not.
+# internal/clientguide computes the same value to hold docs/client-lab.md to it.
+fingerprint() {
+  {
+    grep -E '^# lab: ' "$1" || true
+    grep -v -E '^[[:space:]]*(#|$)' "$1" || true
+  } | openssl dgst -sha256 -r | cut -c1-12
 }
 
 # modes_of <script> prints the modes a client script is for.
@@ -253,7 +304,9 @@ run_one() {
   local client="$1" mode="$2"
   local script="$here/clients/$client.sh"
   [ -f "$script" ] || die "no such client script: clients/$client.sh"
-  docker inspect "$(proxy "$mode")" >/dev/null 2>&1 || die "the $mode proxy is not running (lab.sh up)"
+  need openssl
+  serving "$mode" || die "the $mode proxy is not running (lab.sh up)"
+  pki_valid 0 || die "the lab's certificates have expired (they last 30 days): run lab.sh up again"
 
   local image entrypoint modes daemon expected user
   image="$(meta "$script" image)"
@@ -331,8 +384,9 @@ run_one() {
   statuses="$(awk '{c[$1]++} END {for (s in c) printf "%s×%d ", s, c[s]}' "$LAB_DIR/logs/$mode-$client.req")"
   version="$(sed -n 's/^LAB_CLIENT_VERSION=//p' "$log" | head -1)"
   lookups="$(tr '\n' ' ' <"$LAB_DIR/logs/$mode-$client.dns" | sed 's/ $//')"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$client" "$mode" "$rc" "${version:-?}" "$image" "$took" "$statuses" "$lookups" \
-    >"$LAB_DIR/results/$mode-$client.tsv"
+  # The fingerprint is that of the copy that ran.
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$client" "$mode" "$rc" "${version:-?}" "$image" "$took" "$statuses" "$lookups" \
+    "$(fingerprint "$work/client.sh")" >"$LAB_DIR/results/$mode-$client.tsv"
   if [ "$rc" = 0 ]; then
     echo "client-lab: [$mode/$client] ok (${took}s; ${version:-?}; requests: ${statuses:-none}${lookups:+; also looked up: $lookups})"
   elif [ "$rc" = 90 ]; then
@@ -448,42 +502,74 @@ cmd_report() {
 }
 
 # document replaces the result table of docs/client-lab.md (between the
-# "results:begin" and "results:end" comments) with the current results.
+# "results:begin" and "results:end" comments) with the current results, and
+# records the fingerprint of every script next to it. It writes nothing unless
+# every script passed in every mode it is for: the page is a record of a
+# complete, passing run of the scripts as they are.
 cmd_document() {
-  local doc="$repo/docs/client-lab.md" tmp
-  grep -q '^<!-- results:begin -->$' "$doc" || die "docs/client-lab.md has no results:begin marker"
+  local doc="$repo/docs/client-lab.md" tmp begin end script problems
+  need openssl
+  begin="$(grep -n -x -F -e '<!-- results:begin -->' "$doc" | cut -d: -f1 || true)"
+  end="$(grep -n -x -F -e '<!-- results:end -->' "$doc" | cut -d: -f1 || true)"
+  # Exactly one of each, in this order: anything else would cut the page.
+  [ "$(echo "$begin" | wc -w)" = 1 ] && [ "$(echo "$end" | wc -w)" = 1 ] && [ "$begin" -lt "$end" ] ||
+    die "docs/client-lab.md needs one '<!-- results:begin -->' line followed by one '<!-- results:end -->' line"
+  problems="$(result_problems)"
+  if [ -n "$problems" ]; then
+    echo "$problems" >&2
+    die "not writing docs/client-lab.md: run the missing, failed or stale scripts first"
+  fi
   tmp="$(mktemp)"
   {
-    sed -n '1,/^<!-- results:begin -->$/p' "$doc"
+    head -n "$begin" "$doc"
     echo
     echo "Last run: $(date -u +%Y-%m-%d), $(uname -s | tr '[:upper:]' '[:lower:]')/$(uname -m)."
     echo
     cmd_report
     echo
-    sed -n '/^<!-- results:end -->$/,$p' "$doc"
+    echo "<!-- fingerprints: what each script executed when it produced its row (lab.sh document)"
+    for script in "$here"/clients/*.sh; do
+      echo "$(basename "$script" .sh) $(fingerprint "$script")"
+    done
+    echo "-->"
+    echo
+    tail -n "+$end" "$doc"
   } >"$tmp"
   cat "$tmp" >"$doc"
   rm -f "$tmp"
   echo "client-lab: wrote the result table to docs/client-lab.md"
 }
 
-# check fails unless every script has a passing result in every mode it is for.
-cmd_check() {
-  local script client mode file bad=0
+# result_problems prints one line for every run that is missing, failed or
+# stale: every script needs a passing result in every mode it is for, produced
+# by the script as it is now.
+result_problems() {
+  local script client mode file now
   for script in "$here"/clients/*.sh; do
     client="$(basename "$script" .sh)"
+    now="$(fingerprint "$script")"
     for mode in $(modes_of "$script"); do
       file="$LAB_DIR/results/$mode-$client.tsv"
       if [ ! -s "$file" ]; then
         echo "client-lab: [$mode/$client] has no result"
-        bad=$((bad + 1))
       elif [ "$(cut -f3 "$file")" != 0 ]; then
         echo "client-lab: [$mode/$client] failed (exit $(cut -f3 "$file"))"
-        bad=$((bad + 1))
+      elif [ "$(cut -f9 "$file")" != "$now" ]; then
+        echo "client-lab: [$mode/$client] is stale: the script changed since it ran"
       fi
     done
   done
-  [ "$bad" = 0 ] || die "$bad run(s) missing or failed"
+}
+
+# check fails unless result_problems finds nothing.
+cmd_check() {
+  local problems
+  need openssl
+  problems="$(result_problems)"
+  if [ -n "$problems" ]; then
+    echo "$problems"
+    die "$(echo "$problems" | wc -l | tr -d ' ') run(s) missing, failed or stale"
+  fi
   echo "client-lab: every script passed in every mode it is for"
 }
 

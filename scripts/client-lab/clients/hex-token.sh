@@ -6,8 +6,10 @@
 # A LIMITATION, asserted: Mix has no credential setting for the download of Hex
 # itself, so against a proxy that requires a token `mix local.hex` is answered
 # 401 — and without Hex nothing else can be fetched. (Hex, once installed by
-# other means, does not send a repository auth key to a mirror of hex.pm
-# either.)
+# other means, presents no credential to a mirror either: HEX_REPOS_KEY and
+# HEX_API_KEY are not sent to HEX_MIRROR, and with HEX_TRUSTED_MIRROR Hex 2.7
+# first exchanges the key at hex.pm. Tried by hand on the lab's network; this
+# script cannot install Hex without the token it is about.)
 set -eu
 echo "LAB_CLIENT_VERSION=$(elixir --short-version)"
 

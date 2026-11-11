@@ -60,7 +60,13 @@ local cache (`HF_HOME`).
 
 - **Pin a commit.** A download at a 40-character commit hash (`--revision`,
   `revision=`) is immutable: the proxy caches it and serves it without asking
-  the Hub again. A branch or tag (`main`) is looked up at the Hub every time.
+  the Hub again. At a branch or tag (`main`), configuration and tokenizer
+  files are looked up at the Hub every time — but **weight files are cached
+  under the branch name** (`.safetensors`, `.bin`, `.pt`, `.gguf`, `.onnx`
+  and the like; every weight download goes through the proxy's content
+  checks, which run on what it caches). A push to the branch is therefore not
+  seen for a weight file the proxy already holds. Pin the commit to know what
+  you get.
 - **Pickle weights are inspected.** `.bin`, `.pt`, `.pkl`, `.ckpt` files pass
   the proxy's weight scan before they are served, and a file that would execute
   code on load is a `403`. Prefer `safetensors`.

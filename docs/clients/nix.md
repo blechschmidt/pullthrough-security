@@ -84,8 +84,10 @@ effect.
 - **A store path the proxy refuses is built locally** if Nix can build it
   (`--fallback`, or no substitute at all): a refusal is not an install failure
   here.
-- **Policies see store paths**: a binary cache addresses content by store hash,
-  so the coordinate is `name-version` of the path.
+- **Policies see store hashes, not names**: a binary cache addresses content
+  by hash, so the coordinate of a store path is its 32-character hash, as name
+  and as version — `n5glp21rsz314qssw9fbvfswgy3kc68f`, not `hello-2.12.1`. A
+  rule written against a package name never matches; pin or deny the hash.
 
 ## On the proxy
 

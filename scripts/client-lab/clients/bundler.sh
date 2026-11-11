@@ -27,4 +27,4 @@ bundle install
 bundle exec rake --version
 
 grep -q "remote: https://rubygems.org/" Gemfile.lock
-! grep -q 'proxy.example.com' Gemfile.lock
+if grep -q 'proxy.example.com' Gemfile.lock; then echo "Gemfile.lock names the proxy"; exit 1; fi

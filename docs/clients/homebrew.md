@@ -114,6 +114,25 @@ https://proxy.example.com/v1/homebrew/v2/homebrew/core/hello/…`).
 - **Not `HOMEBREW_BOTTLE_DOMAIN`.** That variable asks for a different,
   flat-file layout, which the proxy does not serve, and brew falls back from it
   to `ghcr.io`.
+- **brew updates itself before it installs.** That is a Git fetch from
+  `github.com` and a question to `api.github.com` — both of which the lab saw
+  brew look up — not a request to the proxy. Switch it off, or route Git
+  through the proxy ([Git](git.md)):
+
+  <!-- verified: lab:brew -->
+
+  ```sh
+  export HOMEBREW_NO_AUTO_UPDATE=1
+  ```
+- **Usage reports** go to Homebrew's analytics service, not to the proxy. The
+  lab did not see one go out — a first run sends none — and switches them off
+  all the same:
+
+  <!-- verified: lab:brew -->
+
+  ```sh
+  export HOMEBREW_NO_ANALYTICS=1
+  ```
 - **Only bottles.** What brew builds from source (`--build-from-source`, a
   formula without a bottle for the platform) and cask downloads come from their
   own upstream URLs.

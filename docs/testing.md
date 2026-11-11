@@ -40,8 +40,9 @@ modes. Its network has no way out *and* a name server that records every name
 a client looks up, so a client that quietly tries the public registry fails its
 run instead of passing unnoticed. `go test ./internal/clientguide/` (part of
 `make test`) holds the guide to those scripts: every fenced block of the guide
-names the scripts that execute it, and a line that is in none of them fails the
-test. See [client-lab.md](client-lab.md).
+names the scripts that execute it, and a line that none of them executes fails
+the test — as does a script that was edited after its result was recorded on
+the lab's page. See [client-lab.md](client-lab.md).
 
 The hermetic **per-ecosystem integration suites** (`internal/e2e`, Tasks 144 and
 168) drive an in-process gateway over a recorded upstream for every ecosystem:

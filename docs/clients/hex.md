@@ -38,9 +38,7 @@ under any other name.
 ## Authenticate
 
 **mix cannot use a proxy that requires a token.** Mix has no credential setting
-for the download of Hex itself, so `mix local.hex` is answered `401`; and Hex,
-once installed some other way, does not send a repository key to a mirror of
-hex.pm.
+for the download of Hex itself, so `mix local.hex` is answered `401`:
 
 <!-- output: lab:hex-token -->
 
@@ -49,6 +47,14 @@ hex.pm.
 
 Could not install Hex because Mix could not download metadata at https://proxy.example.com/v1/hex/installs/hex-1.x.csv.
 ```
+
+Hex, installed some other way, has no setting the proxy could use either. A
+key (`HEX_REPOS_KEY`, `HEX_API_KEY`) is not sent to a mirror; and with a
+*trusted* mirror (`HEX_TRUSTED_MIRROR`) Hex 2.7 first exchanges the key at
+hex.pm — it asked for `hex.pm` and stopped with `Failed to exchange API key for
+OAuth token`. **Do not put a proxy token into Hex's key settings.** (The lab's
+script asserts the `401` above; the rest was tried by hand on the lab's
+network.)
 
 Where access control is on, the operator has to admit anonymous reads for the
 Hex upstream ([how](../clients.md#clients-that-cannot-present-a-token)).
@@ -74,10 +80,14 @@ image has no such tool and appends to the bundle):
 cat /etc/ssl/corp-ca.pem >> /etc/ssl/certs/ca-certificates.crt
 ```
 
-> **Without the CA in the system store Mix does not fail — it skips
-> verification.** It prints `warning: failed to load system certificates. SSL
-> peer verification will be skipped but downloads are still verified with a
-> checksum` and downloads Hex over an unverified connection.
+> **Where there is no system trust store at all, Mix does not fail — it skips
+> verification.** That is the case in slim container images (`elixir:1.16-slim`
+> has no `ca-certificates` package). Mix prints "warning: failed to load system
+> certificates. SSL peer verification will be skipped but downloads are still
+> verified with a checksum" and downloads Hex over an unverified connection;
+> what it downloads is still checked against Hex's signed checksum list. The
+> lab asserts this. With a trust store that merely lacks the CA, Mix fails
+> instead (`Unknown CA`).
 
 ## Check that it works
 

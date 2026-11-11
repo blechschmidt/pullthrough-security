@@ -38,4 +38,4 @@ cargo fetch
 
 # Cargo.lock keeps naming crates.io: source replacement does not change it.
 grep -q 'source = "registry+https://github.com/rust-lang/crates.io-index"' Cargo.lock
-! grep -q 'proxy.example.com' Cargo.lock
+if grep -q 'proxy.example.com' Cargo.lock; then echo "Cargo.lock names the proxy"; exit 1; fi

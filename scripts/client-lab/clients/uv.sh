@@ -34,7 +34,7 @@ uv run python -c "import six"
 
 # uv.lock records the index and the URL of every file: the proxy's.
 grep -q 'registry = "https://proxy.example.com/v1/pypi/simple/"' uv.lock
-! grep -q "${PROXY_TOKEN:-no-token-in-the-lock-file}" uv.lock
+if grep -q "${PROXY_TOKEN:-no-token-in-the-lock-file}" uv.lock; then echo "the token is in uv.lock"; exit 1; fi
 
 # Without a configuration file: the index in the environment.
 cd .. && rm ~/.config/uv/uv.toml

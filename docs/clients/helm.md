@@ -22,12 +22,13 @@ One upstream fronts one chart repository; add it under any local name:
 <!-- verified: lab:helm -->
 
 ```sh
-helm repo add podinfo https://proxy.example.com/v1/podinfo
+helm repo add podinfo https://proxy.example.com/v1/podinfo --ca-file /etc/ssl/corp-ca.pem
 helm repo update
 helm pull podinfo/podinfo --version 6.7.1
 ```
 
-Chart archives come back through the proxy even when the repository's index
+(`--ca-file` is needed only with a private CA; Helm stores it with the
+repository.) Chart archives come back through the proxy even when the repository's index
 points somewhere else (a release asset on another host, an `oci://` reference):
 the proxy rewrites every chart URL in the `index.yaml` it serves.
 

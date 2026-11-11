@@ -47,7 +47,7 @@ metrics plus an admin dashboard.
 >
 > **The client guide is executed, too.** Every configuration snippet in
 > [docs/clients/](docs/clients.md) is, line for line, in a script that the real
-> client runs — in the ecosystem tests, or in the
+> client runs (the four that are not say so) — in the ecosystem tests, or in the
 > [client lab](docs/client-lab.md), which serves the proxy over HTTPS with a
 > private CA, with and without a required token, to some sixty client
 > configurations (Yarn, pnpm, Bun, uv, Poetry, Gradle, containerd, skopeo,

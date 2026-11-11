@@ -203,10 +203,22 @@ Collecting six==1.16.0
 
 ## Good to know
 
-- **Do not add `pypi.org` as an extra index.** `--extra-index-url` (and a second
-  uv or Poetry source) makes the client ask both and take the best version from
-  either: packages the proxy refused arrive anyway, and a public package can
-  shadow an internal one of the same name. One index, the proxy.
+- **Do not add `pypi.org` as an extra index.** With `--extra-index-url` pip
+  asks both indexes and takes the best version from either; uv takes a package
+  from the first index that has it, and an extra index comes before the default
+  one; a second Poetry source is searched as well. Whichever the rule, packages
+  the proxy refused arrive anyway, and a public package can shadow an internal
+  one of the same name. One index, the proxy. (This is the tools' documented
+  behaviour; the lab configures one index and does not run a second.)
+- **PDM looks for a newer release of itself** on pypi.org now and then, in an
+  interactive session. The lab, which runs without a terminal, did not see it
+  ask. To switch the check off:
+
+  <!-- verified: lab:pdm -->
+
+  ```sh
+  pdm config check_update false
+  ```
 - **Lock files.** `uv.lock` records the index and the URL of every file — the
   proxy's, without credentials — and `poetry.lock` records the source's name and
   URL, so those lock files are tied to the proxy's address. `pdm.lock` and a

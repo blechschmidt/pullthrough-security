@@ -47,7 +47,7 @@ To pull Docker Hub images under their usual names (`alpine:3.19`), make the
 proxy the daemon's mirror in `/etc/docker/daemon.json`. The mirror is the bare
 proxy URL — the Engine rejects a mirror URL that has a path:
 
-<!-- verified: ci:docker lab:docker -->
+<!-- verified: lab:docker -->
 
 ```json
 {
@@ -166,7 +166,23 @@ Where access control is on, the operator has to admit the Engine without a
 token: an anonymous role scoped to the registry upstreams
 ([how](../clients.md#clients-that-cannot-present-a-token)).
 
-Podman, Buildah, CRI-O, skopeo and Helm's OCI client fail the same way.
+**Podman, Buildah and CRI-O cannot either.** All they have is a login — a user
+name and a password in an auth file — and the library they share answers the
+proxy's challenge the way the Engine does. The lab asserts that with skopeo,
+which is built on the same library (`skopeo login` and `--creds` fail with the
+error above); Podman, Buildah and CRI-O themselves are not run. Helm's OCI
+client fails like the Engine as well ([Helm](helm.md#authenticate)).
+
+**skopeo can**: it takes a bearer token for the registry it reads from on the
+command line, sends it without waiting for a login, and sends it to a mirror as
+well:
+
+<!-- verified: lab:skopeo -->
+
+```sh
+skopeo copy --src-registry-token "<token>" docker://docker.io/library/alpine:3.19 dir:/tmp/alpine
+skopeo inspect --registry-token "<token>" docker://proxy.example.com/dockerhub/library/alpine:3.19
+```
 
 **containerd can**: a `hosts.toml` carries request headers, and the proxy takes
 the token as a bearer token.

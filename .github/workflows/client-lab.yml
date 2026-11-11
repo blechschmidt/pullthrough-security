@@ -142,7 +142,7 @@ jobs:
 
       # The result rows; the report job assembles them.
       - name: Upload results
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: client-lab-results-${{ matrix.group.name }}
@@ -153,7 +153,9 @@ jobs:
   report:
     name: Client lab · report
     needs: lab
-    if: always()
+    # Also when a lab job failed — the table then says which — but not for a run
+    # that was cancelled (a newer push): its results are incomplete by design.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

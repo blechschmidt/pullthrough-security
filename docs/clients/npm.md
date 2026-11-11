@@ -248,6 +248,15 @@ a rejected token ([client CLI](../client-cli.md)).
   endpoint returned an error`. The proxy's own
   [vulnerability gate](../security-model.md) checks what it serves, and
   `ptctl inspect` shows a package's findings.
+- **Yarn 2+ reports usage to its own telemetry service**, about once a week
+  — not something a fresh lab container gets to, so the lab did not see it ask.
+  The lab's `.yarnrc.yml` switches it off all the same:
+
+  <!-- verified: lab:yarn -->
+
+  ```yaml
+  enableTelemetry: false
+  ```
 - **Publishing does not go through the proxy.** It is read-only: `npm publish`,
   `npm login` and the other write commands need the registry itself.
 - **A refused package is a `403`**, with the proxy's reason in the error:

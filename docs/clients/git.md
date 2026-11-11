@@ -70,9 +70,25 @@ it:
 git config --global http."https://proxy.example.com/".extraHeader "Authorization: Bearer <token>"
 ```
 
-**A credential helper, or a token in the URL, does not work.** Git presents a
-stored credential only in answer to a `Basic` challenge, and the proxy
-challenges with `Bearer`:
+The token is then in `~/.gitconfig`. To keep it in a **credential helper**
+instead — the platform's keychain — tell Git to send the credential without
+waiting to be asked for it. This needs Git 2.46 or later:
+
+<!-- verified: lab:git -->
+
+```sh
+git config --global credential.helper store
+git config --global http."https://proxy.example.com/".proactiveAuth basic
+```
+
+`store` is the helper the lab uses (a plain file); name your own. The proxy
+takes the token as the password, with any user name.
+
+**Without `proactiveAuth`, a credential helper or a token in the URL does not
+work.** Git presents such a credential only in answer to a `Basic` challenge,
+and the proxy challenges with `Bearer`. (Git then also erases the credential
+from the helper, as one that was refused: store it again once `proactiveAuth`
+is set.)
 
 <!-- output: lab:git -->
 
@@ -140,6 +156,7 @@ upstreams:
 
 With `git.mirrorDir` set the proxy keeps bare mirrors and serves from them
 (and can serve SSH, `server.sshAddr`); without it, requests are passed through
-with ref advertisements cached briefly. Upstream `credentials` let clients
+(ref advertisements can be cached for a short time with `git.infoRefsTtl`; by
+default they are not). Upstream `credentials` let clients
 clone private repositories without holding forge tokens. Details:
 [backends: git](../backends.md#git).

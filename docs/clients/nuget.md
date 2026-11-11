@@ -91,6 +91,15 @@ dotnet nuget list source | grep -q "https://proxy.example.com/v1/nuget/v3/index.
   ```sh
   export NUGET_CERT_REVOCATION_MODE=offline
   ```
+- **The `dotnet` command reports usage to Microsoft** —
+  `dc.services.visualstudio.com`, the one other host the lab saw it look up.
+  To switch that off:
+
+  <!-- verified: lab:nuget -->
+
+  ```sh
+  export DOTNET_CLI_TELEMETRY_OPTOUT=1
+  ```
 - **Search is not proxied.** The service index the proxy serves keeps the
   search resource pointing at nuget.org (it lives on another host), so IDE
   package search needs that host or fails; restore does not use it.

@@ -25,4 +25,4 @@ pdm add six==1.16.0
 pdm run python -c "import six"
 
 # pdm.lock records file names and hashes, not URLs.
-! grep -q 'proxy.example.com' pdm.lock
+if grep -q 'proxy.example.com' pdm.lock; then echo "pdm.lock names the proxy"; exit 1; fi

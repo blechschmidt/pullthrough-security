@@ -36,7 +36,8 @@ it:
 ```
 
 - **The proxy** is the binary built from the checkout, with
-  [`proxy.yaml`](../scripts/client-lab/proxy.yaml): every upstream type, under
+  [`proxy.yaml`](../scripts/client-lab/proxy.yaml): every upstream type that
+  has a public registry to put behind it (all but `swift` and `generic`), under
   the names the guide uses, served as `https://proxy.example.com` with a
   certificate from a CA the lab creates. There are three of them, one per
   **mode**, each on a network of its own:
@@ -49,8 +50,9 @@ it:
 
 - **A client** runs in its ecosystem's own container image on that network. It
   gets the CA certificate at `/etc/ssl/corp-ca.pem` — the path the guide uses —
-  and, in `auth` and `anon`, the token in `$PROXY_TOKEN`. Nothing else: the
-  script has to configure the client the way the guide says.
+  the mode in `$LAB_MODE` and, in `auth` and `anon`, the token in
+  `$PROXY_TOKEN`. Nothing else: the script has to configure the client the way
+  the guide says.
 - **The name server**
   ([`dnslog`](../scripts/client-lab/dnslog/main.go)) is the client's only
   resolver. It answers the proxy's name, answers "no such domain" for every
@@ -81,12 +83,17 @@ make client-lab-down
 scripts/client-lab/lab.sh run npm auth    # one script in one mode
 scripts/client-lab/lab.sh logs npm auth   # its output, the requests it made, the names it looked up
 scripts/client-lab/lab.sh list            # every script, with its image and modes
+scripts/client-lab/lab.sh check           # which scripts are missing a passing result
 ```
+
+The lab's CA and certificate last 30 days — a lab directory is scratch space —
+and `lab.sh up` makes new ones when they are about to run out.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `CLIENT_LAB_DIR` | `$TMPDIR/pullthrough-client-lab` | Where the lab keeps its state: the CA, the proxies' caches, logs, results. |
-| `CLIENT_LAB_PROXY_BIN` | built from the checkout | A prebuilt, statically linked `pullthrough` to test. |
+| `CLIENT_LAB_PROXY_BIN` | built from the checkout | A prebuilt, statically linked `pullthrough` for linux to test. |
+| `CLIENT_LAB_PROXY_IMAGE` | `alpine/git` | The image the proxy runs in: anything with `git`, CA certificates and `wget`. |
 | `LAB_KEEP_IMAGES` | `1` | `0` removes an image the lab pulled once its last script has run (small disks). |
 | `LAB_KEEP_WORK` | `0` | `1` keeps a run's scratch directory for inspection. |
 
@@ -156,12 +163,79 @@ Last run: 2026-11-11, linux/x86_64.
 | go (a refused module) | 1.24.13 | ✔ | ✔ | — | — | [`refused-go.sh`](../scripts/client-lab/clients/refused-go.sh) |
 | npm (a refused package) | 10.9.9 | ✔ | ✔ | — | — | [`refused-npm.sh`](../scripts/client-lab/clients/refused-npm.sh) |
 | pip (a refused package) | 25.0.1 | ✔ | ✔ | — | — | [`refused-pip.sh`](../scripts/client-lab/clients/refused-pip.sh) |
-| skopeo (Podman, Buildah, CRI-O) | 1.17.0 | ✔ | — | — | — | [`skopeo.sh`](../scripts/client-lab/clients/skopeo.sh) |
+| skopeo (Podman, Buildah, CRI-O) | 1.17.0 | ✔ | ✔ | — | — | [`skopeo.sh`](../scripts/client-lab/clients/skopeo.sh) |
 | Terraform | v1.9.8 | ✔ | ✔ | — | — | [`terraform.sh`](../scripts/client-lab/clients/terraform.sh) |
 | OpenTofu | v1.8.11 | ✔ | ✔ | — | — | [`tofu.sh`](../scripts/client-lab/clients/tofu.sh) |
 | uv | 0.13.7 | ✔ | ✔ | — | — | [`uv.sh`](../scripts/client-lab/clients/uv.sh) |
 | Yarn 1 (classic) | 1.22.22 | ✔ | ✔ | — | — | [`yarn-classic.sh`](../scripts/client-lab/clients/yarn-classic.sh) |
 | Yarn 4 (berry) | 4.5.3 | ✔ | ✔ | — | — | [`yarn.sh`](../scripts/client-lab/clients/yarn.sh) |
+
+<!-- fingerprints: what each script executed when it produced its row (lab.sh document)
+ansible 77a1e435e34f
+apt 4e9089c4e9ed
+bazel 420f0e50fe9f
+brew 572f687c1bdf
+bundler 99b45664b51f
+bun 8996e206868e
+cabal 0c7b9131d2cc
+cargo-flags 4de24e9c6d54
+cargo 4eea2834617f
+cargo-token 585539c75afe
+composer 43598c625c69
+conan 586d2e9917a5
+conan-token b3d1b0522a27
+conda 96a42a6800a8
+containerd 902de43cad4a
+cpanm 612b416cd570
+cran 0c32c9d5eae9
+dart 5fa99b599820
+deno 5a34612e29c8
+dnf 7b64165e9e5d
+docker-login ea748ff7fb77
+docker 9643275c270c
+gem 23e5f2282587
+git 111e9a440240
+go 71ce814e4af3
+gradle 336a42c56280
+helm d1a042e1f1b5
+hex ab46b2828f3e
+hex-token 1518bdbd0854
+huggingface 25375d201adf
+julia 74e7e2be3589
+lock-composer e3232366259d
+lock-npm 4201826a2c6e
+lock-poetry 43e9e0e54602
+lock-pub 097782e47f0f
+lock-uv 289dce3d08c4
+lock-yarn-classic ac536d96aa96
+maven-basic 1fdebbccc5e2
+maven 72ab2ee7d060
+micromamba a20141be2b07
+nix d0f1dc76eb9b
+npm-env dc6655485f89
+npm-jsr 4002ea5f9e7a
+npm de353d7e54a1
+nuget 3a8df6311fd4
+nuget-token da49199b38e6
+openvsx 544fdc8f90e5
+pdm 0656c5ea6c29
+pip-netrc 29af0e5f1677
+pip e8ab457ae544
+pnpm 303ba01e75c1
+poetry bd3a8e796e2d
+puppet cddda50d22f7
+r10k ef9a1ea2f8a7
+refused-cargo 2b3150e9baaa
+refused-go da63b18d03cd
+refused-npm 67d9252420e6
+refused-pip f87b2d06a802
+skopeo a92c9a1235a0
+terraform 092d85c93c62
+tofu edef86277dc2
+uv c098c8c7f3f9
+yarn-classic aa4145f4eb87
+yarn 1a9294439d81
+-->
 
 <!-- results:end -->
 
@@ -169,9 +243,19 @@ Last run: 2026-11-11, linux/x86_64.
 looked up*: names besides the proxy's that the client asked the name server
 for, all declared in the script.
 
-A script whose client name says *refused* asserts a **limitation**: it passes
+A script named *with a token: refused* asserts a **limitation**: it passes
 when the client still cannot do what the guide says it cannot (present a token,
-mostly), and fails — telling the guide to be updated — when it can.
+mostly), and fails — telling the guide to be updated — when it can. So do
+single steps of other scripts (`git`, `helm`, `skopeo`, `terraform`, `tofu`,
+`openvsx`). The scripts named *a refused package* (crate, module) are
+something else: they show what a client prints when the proxy blocks a
+package.
+
+A row is the result of the script as it is now. Each run records a fingerprint
+of what its script executes, `lab.sh document` writes the table only when
+every script has passed in every mode it is for, and a test fails when a
+script has changed since its row was written — so an edited script has to be
+run again before its ✔ is worth anything.
 
 ## What the lab found
 
@@ -194,8 +278,8 @@ tooling and the proxy:
 - **A documented cargo configuration never worked.** `CARGO_SOURCE_…`
   environment variables are ignored by cargo; `--config` flags work
   ([cargo](clients/cargo.md#configure)).
-- **Mix skips certificate verification** when the CA is not in the system
-  trust store, with a warning, instead of failing
+- **Mix skips certificate verification** on a machine with no system trust
+  store at all — a slim container image — with a warning, instead of failing
   ([Hex](clients/hex.md#trust-a-private-ca)).
 - **Homebrew falls back to the public formula API** when it cannot verify the
   proxy's certificate — and no environment variable gives it the CA
@@ -205,14 +289,22 @@ tooling and the proxy:
 - **Clients ask hosts that are not registries**: Terraform asks
   `checkpoint-api.hashicorp.com` for new versions of itself, the `hf` command
   asks pypi.org, NuGet asks the signing CAs' revocation servers while verifying
-  package signatures. Each page says how to switch that off.
+  package signatures, the `dotnet` command reports usage to
+  `dc.services.visualstudio.com`, brew updates itself from `github.com`. Each
+  page says how to switch that off, and each script that sets such a switch
+  was also run without it to see what it is for.
 - **Several clients cannot present a token to the proxy**: cargo, NuGet, the
-  Docker Engine and the clients that share Podman's library, Helm for OCI
+  Docker Engine, the library Podman, Buildah and CRI-O share (a login fails;
+  skopeo, built on it, takes a token on its command line), Helm for OCI
   charts, Terraform and OpenTofu for providers, Conan, mix, ovsx; Git and Maven
-  only in one of their forms. The guide says so per client, `ptctl config` no
-  longer prints credentials those clients cannot send, and the lab asserts each
-  limitation so that the guide follows when one is lifted
+  only in some of their forms. The guide says so per client, and the lab
+  asserts these limitations so that the guide follows when one is lifted
   ([which clients](clients.md#clients-that-cannot-present-a-token)).
+- **`ptctl config` printed configurations that cannot work**: a
+  `mix hex.repo add` that Hex rejects, credentials cargo and NuGet never send,
+  a token in a Git URL, a conda channel alias whose credentials conda drops, a
+  `GOPROXY` with a `,direct` fallback. Those are corrected; where its snippets
+  still differ from the guide is listed on [its page](client-cli.md).
 - **An anonymous role turns `401` into `403`** for requests without a token to
   other upstreams, which keeps a client that waits for a `401` from ever
   sending its token ([access control](clients.md#clients-that-cannot-present-a-token)).
@@ -242,15 +334,24 @@ echo "LAB_CLIENT_VERSION=$(npm --version)"
 Rules, most of which a test enforces:
 
 - Write addresses and paths as the guide prints them
-  (`https://proxy.example.com/v1/npm/`, `/etc/ssl/corp-ca.pem`): a block of the
-  guide is verified by finding its lines in the script.
+  (`https://proxy.example.com/v1/npm/`, `/etc/ssl/corp-ca.pem`), and give a
+  command the guide prints a line of its own: a line of the guide is verified
+  by being a whole line of the script. Write a configuration file with a here
+  document, so that the script has the file's lines as the guide shows them.
 - Add credential lines only when `$PROXY_TOKEN` is set, so one script serves
   every mode.
 - Assert what the guide claims — that a lock file does or does not name the
   proxy, that an alternative that looks right does not work.
-- Run under `set -eu`, and print `LAB_CLIENT_VERSION=<version>`.
+- Run under `set -eu`, and print `LAB_CLIENT_VERSION=<version>`. Write "this
+  must not be there" as `if grep -q … ; then echo …; exit 1; fi`: a negated
+  command (`! grep -q …`) never fails a script, whatever `set -e` suggests.
+- A switch that keeps the client from asking another host belongs on the
+  client's page as well. A script that needs `DOTNET_CLI_TELEMETRY_OPTOUT=1` to
+  stay on the proxy has found something the page has to say: run it once
+  without the switch, and write down which host it is for.
 - Then run it (`lab.sh run <name>`), regenerate the table above
-  (`make client-lab-report`), and reference the script from the guide:
+  (`make client-lab-report`, which refuses while a script is missing, failing
+  or changed since it ran), and reference the script from the guide:
 
 <!-- illustration -->
 
@@ -264,11 +365,24 @@ The markers a block of the guide may carry, and what
 
 | Marker | Meaning | Check |
 |---|---|---|
-| `verified: lab:<script> ci:<ecosystem>` | executed by these scripts | every line is in one of them; every script named holds at least one |
-| `output: lab:<script>` | what a run printed | the script exists |
-| `proxy-config` | a fragment of the proxy's configuration | it is YAML, and every key is a real setting |
+| `verified: lab:<script> ci:<ecosystem>` | executed by these scripts | every line is a whole line one of them executes (a comment in a script is not executed), in the script's order; the lines of a file are written by one script and nested as it nests them; every script named executes a line of the block; the block has no comments of its own |
+| `output: lab:<script>` | what a run printed | the script exists; the block has no language |
+| `proxy-config` | a fragment of the proxy's configuration | it decodes as the proxy's configuration: real settings, values of their types, upstream types that exist |
 | `untested: <reason>` | not executed | a reason is given |
 | `illustration` | not something to type | — |
+
+What the check cannot show is that a block is complete: a block may be part of
+a file — the registry line of an `.npmrc` under *Configure*, its token line
+under *Authenticate* — so one that leaves out a line the client needs passes
+all the same. Two things narrow that gap: a block of a configuration language
+has to close the brackets it opens (a file cut short does not), and the lines
+without which a configured client still goes to the public registry —
+`default_channels: []`, `{ "packagist.org": false }`, `<clear />`,
+`--mirror-only` and the like — are listed in the test and have to be on their
+pages. The rest is for a reader of the page to catch.
+
+The same scripts stand behind `ptctl config`: for the ecosystems listed in the
+test (`heldGenerators`), every line it prints is a line a lab script executes.
 
 ## In CI
 

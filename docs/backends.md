@@ -967,7 +967,11 @@ is proxied under `/v1/<name>`. The backend speaks the Hub **resolve protocol**
 
 A resolve pinned to a 40-hex **commit SHA** is immutable, so its blob is cached
 **content-addressably** and served indefinitely; a resolve against a branch or
-tag (`main`) is mutable and revalidated. Large weight files are stored in Git LFS
+tag (`main`) is mutable and revalidated — except a **weight file**
+(`.safetensors`, `.bin`, `.pt`, `.gguf`, `.onnx`, …), which is cached under
+the revision's name as well, so that every weight download passes the content
+gates that run on cached artifacts. Such an entry does not follow a later push
+to the branch; clients that need a known state pin the commit. Large weight files are stored in Git LFS
 and served from a CDN via a redirect the proxy follows transparently; the resolve
 response advertises the object's SHA-256 out-of-band (`X-Linked-Etag`), which the
 proxy **verifies** the delivered bytes against — streaming, so multi-GB weights
@@ -1519,7 +1523,7 @@ challenge, which Git does not answer with a stored credential or one in the URL
 When `git.mirrorDir` is set the proxy keeps local bare mirrors and serves
 packs/objects from cache (refreshed at most every `git.refreshInterval`); without
 it, smart-HTTP requests stream straight through with ref advertisements cached
-for `git.infoRefsTtl`.
+for `git.infoRefsTtl` (`0`, the default, does not cache them).
 
 ### Git over SSH
 

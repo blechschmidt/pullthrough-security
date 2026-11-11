@@ -63,7 +63,7 @@ if [ -z "${PROXY_TOKEN:-}" ]; then
     tofu init -input=false -no-color
     # The lock file names the public registry, not the proxy.
     grep -q 'provider "registry.opentofu.org/hashicorp/null"' .terraform.lock.hcl
-    ! grep -q 'proxy.example.com' .terraform.lock.hcl
+    if grep -q 'proxy.example.com' .terraform.lock.hcl; then echo ".terraform.lock.hcl names the proxy"; exit 1; fi
 else
     # A LIMITATION, asserted: OpenTofu sends its token to the registry API, but
     # fetches the checksums, their signature and the provider package without

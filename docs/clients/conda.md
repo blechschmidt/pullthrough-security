@@ -49,6 +49,9 @@ the alias:
 channel_alias: https://pullthrough:<token>@proxy.example.com/v1
 ```
 
+The user name is needed: conda sends nothing for a URL that has the token
+alone before the `@`, and every request is answered `401`.
+
 ## Trust a private CA
 
 In `~/.condarc`:

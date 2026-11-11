@@ -56,7 +56,7 @@ composer update --no-progress --no-install $(php -r '
         echo "--with ", $p["name"], ":", $p["version"], " ";
     }')
 grep -q '"url": "https://proxy.example.com/v1/packagist/dist/psr/log/3.0.0/' composer.lock
-! grep -q 'api.github.com' composer.lock
+if grep -q 'api.github.com' composer.lock; then echo "composer.lock still names api.github.com"; exit 1; fi
 
 composer install --prefer-dist --no-progress
 test -d vendor/psr/log

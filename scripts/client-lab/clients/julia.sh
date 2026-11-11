@@ -18,4 +18,4 @@ julia -e 'using Pkg; Pkg.add(name="Example", version="0.5.3"); using Example; pr
 
 # Manifest.toml records UUIDs and tree hashes, no URL.
 grep -q 'git-tree-sha1' ~/.julia/environments/v1.10/Manifest.toml
-! grep -q 'proxy.example.com' ~/.julia/environments/v1.10/Manifest.toml
+if grep -q 'proxy.example.com' ~/.julia/environments/v1.10/Manifest.toml; then echo "Manifest.toml names the proxy"; exit 1; fi

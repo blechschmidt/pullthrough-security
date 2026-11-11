@@ -20,8 +20,10 @@ chmod 600 ~/.netrc
 fi
 
 # Bazel's server is a JVM, which does not read PEM bundles: add the CA to a copy
-# of a JDK trust store and hand it to the server in .bazelrc.
-cp /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts /etc/ssl/corp-truststore.jks
+# of a JDK trust store and hand it to the server in .bazelrc. (The image has a
+# Java runtime for keytool, and does not say where.)
+JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64/jre
+cp "$JAVA_HOME/lib/security/cacerts" /etc/ssl/corp-truststore.jks
 keytool -importcert -noprompt -trustcacerts -alias corp-ca -file /etc/ssl/corp-ca.pem \
     -keystore /etc/ssl/corp-truststore.jks -storepass changeit
 

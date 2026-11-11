@@ -217,6 +217,6 @@ upstreams:
 ```
 
 Artifacts are verified against the strongest checksum sidecar the upstream
-publishes (SHA-256, then SHA-1, then MD5) and cached immutably;
+publishes (SHA-512, then SHA-256, SHA-1, MD5) and cached immutably;
 `maven-metadata.xml` is served live. Details:
 [backends: maven](../backends.md#maven).

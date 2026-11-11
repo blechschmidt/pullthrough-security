@@ -45,7 +45,7 @@ lock = open("poetry.lock").read()
 lock = re.sub(r'\n\[package\.source\]\ntype = "legacy"\nurl = "[^"]*"\nreference = "proxy"\n', "\n", lock)
 open("poetry.lock", "w").write(lock)
 PY
-! grep -q "package.source" poetry.lock
+if grep -q "package.source" poetry.lock; then echo "poetry.lock still has a package source"; exit 1; fi
 rm -rf .venv
 poetry cache clear --all . --no-interaction >/dev/null 2>&1
 

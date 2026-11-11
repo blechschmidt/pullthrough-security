@@ -42,14 +42,19 @@ machine proxy.example.com
 ## Trust a private CA
 
 Bazel's server is a JVM with its own trust store, and it does not read PEM
-bundles. Add the CA to a copy of a JDK trust store:
+bundles. Copy the trust store of a JDK — it holds the public CAs, which Bazel
+still needs for what it downloads directly — and add the CA to the copy:
 
 <!-- verified: lab:bazel -->
 
 ```sh
+cp "$JAVA_HOME/lib/security/cacerts" /etc/ssl/corp-truststore.jks
 keytool -importcert -noprompt -trustcacerts -alias corp-ca -file /etc/ssl/corp-ca.pem \
     -keystore /etc/ssl/corp-truststore.jks -storepass changeit
 ```
+
+(`keytool` on a file that does not exist creates a store with the corporate CA
+alone.)
 
 and hand it to the server in `.bazelrc`:
 

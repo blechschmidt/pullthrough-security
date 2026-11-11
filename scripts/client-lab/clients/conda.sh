@@ -36,4 +36,4 @@ test -d env2/conda-meta
 
 # The channels in effect are the proxy's and nothing else.
 conda config --show channels default_channels | grep -q "conda-forge"
-! conda config --show default_channels | grep -q "repo.anaconda.com"
+if conda config --show default_channels | grep -q "repo.anaconda.com"; then echo "repo.anaconda.com is still a default channel"; exit 1; fi

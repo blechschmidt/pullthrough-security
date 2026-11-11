@@ -13,6 +13,7 @@ import (
 
 	"github.com/blechschmidt/pullthrough-security/internal/config"
 	"github.com/blechschmidt/pullthrough-security/internal/ecotest"
+	"github.com/blechschmidt/pullthrough-security/internal/onboard"
 )
 
 // The tests in this file read the repository: the guide (docs/clients.md,
@@ -100,6 +101,35 @@ func labScripts(t *testing.T) map[string]string {
 		t.Fatalf("%s/clients holds no script", labDir)
 	}
 	return out
+}
+
+// unclosed returns a bracket of which a block of a configuration language has
+// more openings than closings (or the other way round), "" when it is balanced.
+// A block may show part of a file, but a part that stops in the middle of a
+// structure — an init script without its last braces — is a file the client
+// rejects. Shell is exempt: a `case` pattern closes a parenthesis it never
+// opened.
+func unclosed(b Block) string {
+	if b.Lang == "" || b.Lang == "sh" {
+		return ""
+	}
+	text := strings.Join(b.Lines, "\n")
+	for _, pair := range []string{"{}", "[]", "()"} {
+		if strings.Count(text, pair[:1]) != strings.Count(text, pair[1:]) {
+			return pair[:1]
+		}
+	}
+	return ""
+}
+
+// labClientName returns the "# lab: client=" name of a client-lab script.
+func labClientName(script string) string {
+	for _, m := range labMetaRE.FindAllStringSubmatch(script, -1) {
+		if m[1] == "client" {
+			return strings.TrimSpace(m[2])
+		}
+	}
+	return ""
 }
 
 // scriptOf returns the text of the script a source names.
@@ -201,10 +231,11 @@ func TestPagesFollowTheTemplate(t *testing.T) {
 }
 
 // Every fenced block in the guide says what stands behind it, and a block that
-// says "verified" is, line for line, in the scripts it names.
+// says "verified" is, line for line, what the scripts it names execute.
 func TestSnippetsAreVerified(t *testing.T) {
 	lab := labScripts(t)
 	usedLab := map[string]bool{}
+	checker := Checker{Scripts: map[Source]string{}, MountTypes: labUpstreams(t), CITypes: map[string]string{}}
 	for _, rel := range guideFiles(t) {
 		page := parseRepo(t, rel)
 		verified := 0
@@ -216,28 +247,59 @@ func TestSnippetsAreVerified(t *testing.T) {
 					"<!-- proxy-config -->, <!-- output: lab:<script> --> or <!-- illustration -->", at)
 				continue
 			}
-			scripts := map[Source]string{}
 			for _, src := range b.Marker.Sources {
 				text, ok := scriptOf(t, lab, src)
 				if !ok {
 					t.Errorf("%s: the marker names %s, which does not exist", at, src)
 					continue
 				}
-				scripts[src] = text
-				if src.Kind == SourceLab {
+				checker.Scripts[src] = text
+				switch src.Kind {
+				case SourceLab:
 					usedLab[src.Name] = true
+				case SourceCI:
+					if eco, ok := ecotest.Lookup(src.Name); ok {
+						checker.CITypes[src.Name] = eco.Upstream.Type
+					}
 				}
 			}
 			switch b.Marker.Kind {
+			case KindOutput:
+				// What a client printed is shown as text. A block in a shell's
+				// colours reads as something to type.
+				if b.Lang != "" {
+					t.Errorf("%s: an output block has no language (it has %q)", at, b.Lang)
+				}
 			case KindVerified:
 				verified++
-				missing, unused := b.Unverified(scripts)
-				for _, line := range missing {
-					t.Errorf("%s: marked verified by %v, but no such script has the line\n    %s", at, b.Marker.Sources, line)
+				// A script named "… (with a token: refused)" asserts that a
+				// client cannot authenticate: it holds the configuration that
+				// does NOT work. Its error message may be quoted (an output
+				// block); its lines are not a configuration to copy.
+				for _, src := range b.Marker.Sources {
+					if src.Kind == SourceLab && strings.Contains(labClientName(lab[src.Name]), "with a token: refused") {
+						t.Errorf("%s: %s asserts that its configuration is refused; a verified block cannot be taken from it", at, src)
+					}
 				}
-				for _, src := range unused {
-					if _, ok := scripts[src]; ok {
-						t.Errorf("%s: the marker names %s, but no line of the block is in that script", at, src)
+				if open := unclosed(b); open != "" {
+					t.Errorf("%s: the block does not close every %q it opens: a file cut short?", at, open)
+				}
+				res := checker.Check(b)
+				for _, line := range res.Missing {
+					t.Errorf("%s: marked verified by %v, but none of them executes the line\n    %s", at, b.Marker.Sources, line)
+				}
+				for _, line := range res.Misordered {
+					t.Errorf("%s: the script executes this line before the one above it; the block has the script's lines in another order\n    %s", at, line)
+				}
+				for _, line := range res.Misindented {
+					t.Errorf("%s: the script indents this line of the file differently, relative to the line above it\n    %s", at, line)
+				}
+				if res.Scattered {
+					t.Errorf("%s: the block's lines of a file are written by several of %v and by none of them all: no client was given this file", at, b.Marker.Sources)
+				}
+				for _, src := range res.Unused {
+					if _, ok := checker.Scripts[src]; ok {
+						t.Errorf("%s: the marker names %s, but that script executes no line of the block (braces and the like do not count)", at, src)
 					}
 				}
 			case KindProxyConfig:
@@ -270,7 +332,9 @@ var (
 )
 
 // checkProxyConfig holds a fragment of the proxy's configuration to the schema:
-// it is YAML, and every key path in it names a real setting.
+// it is YAML, every key path in it names a real setting, and it decodes as
+// configuration — values have the types of their settings, an upstream is a name
+// with settings below it, and its type is one the proxy has.
 func checkProxyConfig(t *testing.T, at, text string) {
 	t.Helper()
 	var doc map[string]any
@@ -280,6 +344,21 @@ func checkProxyConfig(t *testing.T, at, text string) {
 	}
 	if len(doc) == 0 {
 		t.Errorf("%s: the proxy-config block is empty", at)
+	}
+	var cfg config.Config
+	dec := yaml.NewDecoder(strings.NewReader(text))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		t.Errorf("%s: the proxy-config block does not decode as the proxy's configuration: %v", at, err)
+	}
+	types := map[string]bool{}
+	for _, typ := range config.UpstreamTypes() {
+		types[typ] = true
+	}
+	for name, up := range cfg.Upstreams {
+		if !types[up.Type] {
+			t.Errorf("%s: upstream %q has type %q, which is not an upstream type", at, name, up.Type)
+		}
 	}
 	var walk func(path string, v any)
 	walk = func(path string, v any) {
@@ -387,6 +466,9 @@ func TestGuideLinksResolve(t *testing.T) {
 var (
 	labMetaRE  = regexp.MustCompile(`(?m)^# lab: ([a-z-]+)=(.*)$`)
 	labImageRE = regexp.MustCompile(`^[a-z0-9./_-]+:[A-Za-z0-9._-]+$`)
+	// negatedRE matches a command line that starts with "!", also after "&&",
+	// "||", ";" or "then".
+	negatedRE = regexp.MustCompile(`(^|&&|\|\||;|\bthen|\bdo)\s*!\s`)
 )
 
 // Client-lab scripts follow the contract lab.sh relies on, and use only
@@ -431,6 +513,14 @@ func TestLabScriptsFollowTheContract(t *testing.T) {
 		if !strings.Contains(text, "\nset -eu\n") {
 			t.Errorf("%s: must run under `set -eu`, so that a failing step fails the script", at)
 		}
+		// … which `set -e` does not do for a negated command: "! grep -q x f"
+		// never ends a script, whatever grep finds. An assertion that something
+		// is absent is written "if grep -q x f; then echo …; exit 1; fi".
+		for i, line := range strings.Split(text, "\n") {
+			if negatedRE.MatchString(line) {
+				t.Errorf("%s:%d: a negated command cannot fail the script (`set -e` ignores it): use `if …; then …; exit 1; fi`\n    %s", at, i+1, line)
+			}
+		}
 		if strings.Count(text, "LAB_CLIENT_VERSION=") < 1 {
 			t.Errorf("%s: must print LAB_CLIENT_VERSION=<version>", at)
 		}
@@ -464,13 +554,261 @@ func TestLabProxyCoversEveryUpstreamType(t *testing.T) {
 	}
 }
 
-// The result table in docs/client-lab.md has a row for every lab script: a
-// script that was added has been run.
-func TestLabResultsListEveryScript(t *testing.T) {
+var (
+	resultRowRE   = regexp.MustCompile("\\[`([a-z0-9-]+)\\.sh`\\]")
+	fingerprintRE = regexp.MustCompile(`(?s)<!-- fingerprints:[^\n]*\n(.*?)-->`)
+)
+
+// labResults reads the result table of docs/client-lab.md: for every script the
+// cells of its row, and the fingerprint recorded for it next to the table.
+func labResults(t *testing.T) (rows map[string][]string, fingerprints map[string]string) {
+	t.Helper()
 	doc := string(readRepo(t, labDoc))
-	for name := range labScripts(t) {
-		if !strings.Contains(doc, "[`"+name+".sh`]") {
-			t.Errorf("%s has no result row for %s.sh (run it and regenerate the table: scripts/client-lab/lab.sh report)", labDoc, name)
+	_, rest, ok := strings.Cut(doc, "<!-- results:begin -->")
+	section, _, ok2 := strings.Cut(rest, "<!-- results:end -->")
+	if !ok || !ok2 {
+		t.Fatalf("%s: no results:begin … results:end section", labDoc)
+	}
+	rows = map[string][]string{}
+	for _, line := range strings.Split(section, "\n") {
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		m := resultRowRE.FindStringSubmatch(line)
+		if m == nil {
+			continue // the header and its rule
+		}
+		var cells []string
+		for _, cell := range strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|") {
+			cells = append(cells, strings.TrimSpace(cell))
+		}
+		if _, dup := rows[m[1]]; dup {
+			t.Errorf("%s: two result rows for %s.sh", labDoc, m[1])
+		}
+		rows[m[1]] = cells
+	}
+	fingerprints = map[string]string{}
+	if m := fingerprintRE.FindStringSubmatch(section); m != nil {
+		for _, line := range strings.Split(m[1], "\n") {
+			if name, value, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+				fingerprints[name] = value
+			}
+		}
+	}
+	return rows, fingerprints
+}
+
+// The result table in docs/client-lab.md is the record of a complete, passing
+// run of the scripts as they are: every script has a row, the row says "passed"
+// for every mode the script is for and for no other, and the script has not
+// changed since (its fingerprint is the one lab.sh recorded when it wrote the
+// table). A script that was edited has to be run again.
+func TestLabResultsAreCurrent(t *testing.T) {
+	rows, fingerprints := labResults(t)
+	scripts := labScripts(t)
+	// stale collects the scripts whose result is missing or of another version
+	// of the script; they are reported together.
+	var stale []string
+	for name, text := range scripts {
+		cells, ok := rows[name]
+		if !ok {
+			stale = append(stale, name)
+			continue
+		}
+		// | Client | Version | open | auth | anon | Other hosts looked up | Script |
+		if len(cells) != 7 {
+			t.Errorf("%s: the row of %s.sh has %d cells, want 7", labDoc, name, len(cells))
+			continue
+		}
+		if cells[1] == "" || cells[1] == "?" {
+			t.Errorf("%s: the row of %s.sh has no client version", labDoc, name)
+		}
+		modes := "open auth"
+		if m := regexp.MustCompile(`(?m)^# lab: modes=(.*)$`).FindStringSubmatch(text); m != nil {
+			modes = m[1]
+		}
+		for i, mode := range []string{"open", "auth", "anon"} {
+			want := "—"
+			if strings.Contains(" "+modes+" ", " "+mode+" ") {
+				want = "✔"
+			}
+			if got := cells[2+i]; got != want {
+				t.Errorf("%s: the row of %s.sh says %q for mode %s, want %q", labDoc, name, got, mode, want)
+			}
+		}
+		if fingerprints[name] != Fingerprint(text) {
+			stale = append(stale, name)
+		}
+	}
+	if len(stale) > 0 {
+		sort.Strings(stale)
+		t.Errorf("%s holds no result of the current version of %d script(s): %s\n"+
+			"a script that is new or was edited has to be run again:\n"+
+			"    scripts/client-lab/lab.sh up && scripts/client-lab/lab.sh run <script> && scripts/client-lab/lab.sh document",
+			labDoc, len(stale), strings.Join(stale, " "))
+	}
+	for name := range rows {
+		if _, ok := scripts[name]; !ok {
+			t.Errorf("%s has a result row for %s.sh, which does not exist", labDoc, name)
+		}
+	}
+	for name := range fingerprints {
+		if _, ok := scripts[name]; !ok {
+			t.Errorf("%s records a fingerprint for %s.sh, which does not exist", labDoc, name)
+		}
+	}
+}
+
+// `ptctl config` prints client configurations too (internal/onboard). For the
+// upstreams of the lab proxy listed here, every line it prints — without a
+// token and with one — is a line a lab script executes: the generator cannot
+// print a configuration no client has run.
+var heldGenerators = []string{
+	"ansible", "bazel", "conda-forge", "cpan", "crates", "hackage", "hex", "homebrew",
+	"huggingface", "julia", "maven", "nix", "nuget", "opentofu", "terraform",
+}
+
+// looseGenerators are the upstreams whose snippet is not held to the lab yet,
+// with what is in the way. An entry leaves this list by making the generator
+// print the guide's lines.
+var looseGenerators = map[string]string{
+	"conancenter":    "the remote is added without the options the lab passes",
+	"cran":           "prints an R session, where the lab writes an Rprofile",
+	"debian":         "a one-line sources.list entry with placeholders, where the guide has a .sources file",
+	"dockerhub":      "prints docker login, which fails against the proxy's challenge",
+	"ghcr":           "prints docker login, which fails against the proxy's challenge",
+	"github":         "placeholders in the clone URL; the header is spelled without the quotes the lab uses",
+	"goproxy":        "a one-line ~/.netrc entry, where the lab's has three lines",
+	"gradle-plugins": "the Maven mirror is tested with the maven upstream",
+	"helm-oci":       "adds the repository under the name pullthrough, and for an OCI upstream",
+	"podinfo":        "adds the repository under the name pullthrough",
+	"jsr":            "a trailing comment on the deno command",
+	"npm":            "the token placeholder is spelled ${PULLTHROUGH_TOKEN}",
+	"npm-jsr":        "the lab uses this upstream for the @jsr scope only",
+	"openvsx":        "placeholders for the extension",
+	"packagist":      "a repositories array in composer.json, where the lab uses composer config",
+	"pub":            "a trailing comment on the dart command",
+	"puppet":         "puppet module install with a module the lab does not install",
+	"pypi":           "the token as a user name alone (it works: tried by hand), where the lab uses pullthrough:<token>",
+	"rocky":          "a repository section of its own naming",
+	"rubygems":       "bundle config without set --global; the token as a user name alone (it works: tried by hand)",
+}
+
+// unverifiedGeneratorLines returns the lines `ptctl config` prints for an
+// upstream of the lab proxy that no lab script executes.
+func unverifiedGeneratorLines(name, typ string, executedLines map[string]bool) []string {
+	// What a generator needs to know about the upstream behind the mount.
+	upstreamURL := map[string]string{"nix": "https://cache.nixos.org", "github": "https://github.com"}
+	var out []string
+	for _, token := range []string{"", "LABTOKEN"} {
+		ctx := onboard.Context{ProxyBase: "https://proxy.example.com", Host: "proxy.example.com", Token: token}
+		for _, snip := range onboard.For(ctx, onboard.Backend{Name: name, Type: typ, URL: upstreamURL[name]}) {
+			body := strings.ReplaceAll(snip.Body, "LABTOKEN", labToken)
+			for _, raw := range strings.Split(body, "\n") {
+				line := squash(raw)
+				// The generator's own comments: every snippet format has "#" ones.
+				if line == "" || line == "#" || strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "<!--") {
+					continue
+				}
+				if !executedLines[line] {
+					out = append(out, raw)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func TestPtctlConfigPrintsWhatTheLabRuns(t *testing.T) {
+	executedLines := map[string]bool{}
+	for _, text := range labScripts(t) {
+		for _, line := range executed(text, SourceLab) {
+			for _, form := range line.forms {
+				executedLines[form] = true
+			}
+		}
+	}
+	upstreams := labUpstreams(t)
+	held := map[string]bool{}
+	for _, name := range heldGenerators {
+		held[name] = true
+		typ, ok := upstreams[name]
+		if !ok {
+			t.Errorf("heldGenerators names %q, which is not an upstream of the lab proxy", name)
+			continue
+		}
+		if _, both := looseGenerators[name]; both {
+			t.Errorf("%q is in heldGenerators and in looseGenerators", name)
+		}
+		for _, line := range unverifiedGeneratorLines(name, typ, executedLines) {
+			t.Errorf("`ptctl config` prints, for the %s upstream %q, a line no lab script executes:\n    %s\n"+
+				"print the line the guide documents (docs/clients/%s.md), or run this one in a lab script first",
+				typ, name, line, PageFor(typ))
+		}
+	}
+	for name, why := range looseGenerators {
+		typ, ok := upstreams[name]
+		if !ok {
+			t.Errorf("looseGenerators names %q, which is not an upstream of the lab proxy", name)
+			continue
+		}
+		if why == "" {
+			t.Errorf("looseGenerators[%q] does not say what is in the way", name)
+		}
+		if len(unverifiedGeneratorLines(name, typ, executedLines)) == 0 {
+			t.Errorf("every line `ptctl config` prints for %q is executed by the lab now: move it to heldGenerators", name)
+		}
+	}
+	// A new upstream of the lab proxy is in one list or the other.
+	for name := range upstreams {
+		if _, loose := looseGenerators[name]; !held[name] && !loose {
+			t.Errorf("the lab upstream %q is in neither heldGenerators nor looseGenerators", name)
+		}
+	}
+}
+
+// keepsOnTheProxy lists, per page, the lines without which a client that is
+// otherwise configured for the proxy still goes to the public registry — what
+// the lab's name server found, or what the client's own documentation says. A
+// block may show part of a file, so the check of a verified block cannot notice
+// that such a line was left out; this list can. Each line has to be in a
+// verified block of its page.
+var keepsOnTheProxy = map[string][]string{
+	"composer": {
+		// Redefining "packagist" is not enough: Composer keeps asking packagist.org.
+		"composer config --global repositories.packagist.org false",
+		`{ "packagist.org": false }`,
+	},
+	// An empty default_channels: the "defaults" channel is repo.anaconda.com.
+	"conda": {"default_channels: []"},
+	// Without --mirror-only cpanm asks cpanmetadb and other mirrors.
+	"cpan": {`export PERL_CPANM_OPT="--mirror https://proxy.example.com/v1/cpan --mirror-only"`},
+	// Without the artifact domain brew downloads every bottle from ghcr.io.
+	"homebrew": {"export HOMEBREW_ARTIFACT_DOMAIN=https://proxy.example.com/v1/homebrew"},
+	// A mirror of every repository, not of Maven Central alone.
+	"maven": {"<mirrorOf>*</mirrorOf>"},
+	// <clear /> removes nuget.org, which is a source by default.
+	"nuget": {"<clear />"},
+	// Source replacement, not an additional registry.
+	"cargo": {`replace-with = "proxy"`},
+}
+
+func TestPagesShowTheLinesThatKeepAClientOnTheProxy(t *testing.T) {
+	for slug, lines := range keepsOnTheProxy {
+		rel := pagesDir + "/" + slug + ".md"
+		shown := map[string]bool{}
+		for _, b := range parseRepo(t, rel).Blocks {
+			if b.Marker == nil || b.Marker.Kind != KindVerified {
+				continue
+			}
+			for _, line := range b.Lines {
+				shown[squash(line)] = true
+			}
+		}
+		for _, line := range lines {
+			if !shown[line] {
+				t.Errorf("%s: no verified block has the line\n    %s\nwithout it the client still goes to the public registry", rel, line)
+			}
 		}
 	}
 }

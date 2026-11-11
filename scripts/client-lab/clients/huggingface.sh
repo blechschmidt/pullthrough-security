@@ -20,7 +20,7 @@ if [ -n "${PROXY_TOKEN:-}" ]; then
     # Hub token itself.
     export HF_TOKEN="${PROXY_TOKEN}"
 fi
-export HF_HOME="$PWD/hf-home" HF_HUB_DISABLE_TELEMETRY=1
+export HF_HOME="$PWD/hf-home"
 # The `hf` command asks pypi.org whether a newer huggingface_hub exists; this
 # switches the check off. (The library itself does not ask.)
 export HF_HUB_DISABLE_UPDATE_CHECK=1

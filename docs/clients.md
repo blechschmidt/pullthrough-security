@@ -4,8 +4,8 @@ How to point each package manager at the pull-through proxy — and, where a
 deployment has them, how to hand it a token and a private CA certificate. There
 is one page per ecosystem; this page holds what they have in common.
 
-> **Every configuration in this guide is executed.** A snippet marked as
-> verified is, line for line, in a script that a real client runs: the
+> **Every configuration in this guide is executed.** Each line of a snippet
+> marked as verified is a line of a script that a real client runs: the
 > [ecosystem tests](ecosystem-tests.md) run each ecosystem's client through the
 > proxy in CI on every push, and the [client lab](client-lab.md) runs the rest
 > — other clients of an ecosystem, a private CA, a required token — on a
@@ -29,13 +29,14 @@ Ask the proxy's operator for four things:
 | | In this guide | |
 |---|---|---|
 | The proxy's address | `https://proxy.example.com` | `server.publicUrl` of the proxy |
-| The name of each upstream | `npm`, `pypi`, `crates`, … | A package source is `https://proxy.example.com/v1/<name>/`. Names are the operator's choice; the guide uses those of [`configs/config.example.yaml`](../configs/config.example.yaml). |
+| The name of each upstream | `npm`, `pypi`, `crates`, … | A package source is `https://proxy.example.com/v1/<name>/`. Names are the operator's choice; the guide uses those of the lab's proxy ([`scripts/client-lab/proxy.yaml`](../scripts/client-lab/proxy.yaml)). |
 | A token, if access control is on | `<token>` | Your **proxy** token — never a registry's. The proxy holds the upstream credentials. |
 | The CA certificate, if it is a private one | `/etc/ssl/corp-ca.pem` | Only when the proxy's certificate is not issued by a public CA. |
 
 [`ptctl config`](client-cli.md) asks the proxy for its upstreams and prints a
-configuration for each, and `ptctl selftest` tells a network problem from a
-rejected token.
+configuration for each of them as a starting point (where it differs from this
+guide, the guide is the one that was executed), and `ptctl selftest` tells a
+network problem from a rejected token.
 
 ## Every ecosystem
 
@@ -47,7 +48,7 @@ rejected token.
 | [Go](clients/go.md) | go | `GOPROXY` | ✔ |
 | [.NET](clients/nuget.md) | dotnet (NuGet) | `NuGet.config` | ✘ |
 | [JVM](clients/maven.md) | Maven, Gradle | a mirror in `settings.xml`; an init script | ✔ |
-| [Container images](clients/docker.md) | Docker Engine, containerd, Podman, skopeo | an image reference, or a registry mirror | containerd only |
+| [Container images](clients/docker.md) | Docker Engine, containerd, Podman, skopeo | an image reference, or a registry mirror | containerd and skopeo only |
 | [Helm](clients/helm.md) | helm | `helm repo add`, or `oci://` | classic repositories only |
 | [Ruby](clients/rubygems.md) | Bundler, gem | a Bundler mirror | ✔ |
 | [PHP](clients/composer.md) | Composer | repositories in `config.json` | ✔ |
@@ -95,8 +96,8 @@ one in any of these places:
 
 | Form | Sent by |
 |---|---|
-| `Authorization: Bearer <token>` (also `token <token>`) | npm, Yarn, pnpm, Bun, Composer, Maven and Gradle (as a configured header), containerd, Git (as a configured header), Julia, Deno, dart pub, Hugging Face, ansible-galaxy, r10k, puppet |
-| HTTP Basic, the token as the **password** (any user name) | pip, uv, Poetry, PDM, go, Bundler, gem, apt, dnf, Helm, cpanm, conda, Nix, Bazel, R, cabal (through curl), Homebrew (through curl) |
+| `Authorization: Bearer <token>` (also `token <token>`) | npm, Yarn, pnpm, Bun, Composer, Maven and Gradle (as a configured header), containerd, skopeo, Git (as a configured header), Julia, Deno, dart pub, Hugging Face, ansible-galaxy, r10k, puppet |
+| HTTP Basic, the token as the **password** (any user name) | pip, uv, Poetry, PDM, go, Bundler, gem, apt, dnf, Helm, cpanm, conda, Nix, Bazel, R, cabal (through curl), Homebrew (through curl), Git (a credential helper, sent proactively) |
 | HTTP Basic, the token as the user name | accepted, for tools that put a token there |
 | `X-Api-Token: <token>` or `X-Auth-Token: <token>` | scripts and CI steps |
 
@@ -112,12 +113,12 @@ service, never gets to send them.
 |---|---|---|
 | cargo | sends its token for crate downloads only when the registry declares `auth-required`, which the proxy's `config.json` does not | [cargo](clients/cargo.md#authenticate) |
 | NuGet | sends source credentials only in answer to a `Basic` challenge | [NuGet](clients/nuget.md#authenticate) |
-| Docker Engine, Podman, Buildah, CRI-O, skopeo, Helm (OCI) | read the `Bearer` challenge as a token service to log in to | [Docker](clients/docker.md#authenticate), [Helm](clients/helm.md#authenticate) |
+| Docker Engine, Podman, Buildah, CRI-O, Helm (OCI) | read the `Bearer` challenge as a token service to log in to (skopeo, of the same family, takes a token on its command line) | [Docker](clients/docker.md#authenticate), [Helm](clients/helm.md#authenticate) |
 | Terraform, OpenTofu (providers) | fetch checksums, signature and package without the token they send to the registry API | [Terraform](clients/terraform.md#authenticate) |
 | Conan | gets its token from a login endpoint the proxy does not serve | [Conan](clients/conan.md#authenticate) |
-| mix (Hex) | Mix has no credential setting for downloading Hex; Hex sends none to a mirror | [Hex](clients/hex.md#authenticate) |
+| mix (Hex) | Mix has no credential setting for downloading Hex; Hex hands its key to hex.pm, not to a mirror | [Hex](clients/hex.md#authenticate) |
 | ovsx | has a token only for publishing | [Open VSX](clients/openvsx.md#authenticate) |
-| Git with a credential helper or a token in the URL | presents a stored credential only in answer to a `Basic` challenge — the header form works | [Git](clients/git.md#authenticate) |
+| Git with a credential helper or a token in the URL | presents such a credential only in answer to a `Basic` challenge — the header form works, and so does a credential helper once Git (2.46 or later) is told to send it proactively | [Git](clients/git.md#authenticate) |
 | Maven with `<username>`/`<password>` | the same — a header, or preemptive authentication, works | [Maven](clients/maven.md#authenticate) |
 
 For the first seven there is no client-side setting that helps. Where access
@@ -178,9 +179,10 @@ question is *which* setting a tool reads:
 
 Two results from the lab worth knowing before you debug one:
 
-- **Mix does not fail without the CA — it stops verifying.** `mix local.hex`
-  prints a warning and downloads over an unverified connection
-  ([Hex](clients/hex.md#trust-a-private-ca)).
+- **Mix stops verifying where there is no system trust store at all** — a slim
+  container image, say. `mix local.hex` prints a warning and downloads over an
+  unverified connection. With a trust store that merely lacks the CA it fails,
+  as it should ([Hex](clients/hex.md#trust-a-private-ca)).
 - **Homebrew falls back to the public API** when it cannot verify the proxy's
   certificate ([Homebrew](clients/homebrew.md#trust-a-private-ca)).
 
@@ -232,12 +234,14 @@ was found.
 | Julia | clones a package's Git repository when the Pkg server does not serve it | deny the route to the forges ([Julia](clients/julia.md#good-to-know)) |
 | go with `,direct` | fetches from the version-control host what the proxy answers `404` for | leave `,direct` off ([Go](clients/go.md#configure)) |
 | Homebrew | reads the formula index from `formulae.brew.sh` when the proxy is unreachable or its certificate is not trusted | set the CA ([Homebrew](clients/homebrew.md)) |
-| pip, uv, Poetry with a second index | take a package from whichever index has the better version | configure one index ([pip](clients/pip.md#good-to-know)) |
+| pip, uv, Poetry with a second index | take packages from that index too — pip the best version of either, uv from the first index that has the package | configure one index ([pip](clients/pip.md#good-to-know)) |
 | Terraform, OpenTofu | clone a module's Git source with `git` | route Git through the proxy ([Terraform](clients/terraform.md#configure)) |
 | Composer `--prefer-source`, cargo `git =` dependencies, Bazel `git_repository`, pip `git+https://` | clone from the forge | the same ([Git](clients/git.md)) |
 | NuGet | asks the signing CAs' revocation servers (`crl3.digicert.com`, `ocsp.digicert.com`) while verifying package signatures | `NUGET_CERT_REVOCATION_MODE=offline`, or allow those hosts ([NuGet](clients/nuget.md#good-to-know)) |
 | `hf` (Hugging Face CLI) | asks pypi.org whether a newer release of itself exists | `HF_HUB_DISABLE_UPDATE_CHECK=1` ([Hugging Face](clients/huggingface.md#good-to-know)) |
 | Terraform | asks `checkpoint-api.hashicorp.com` for new versions of itself | `disable_checkpoint = true` ([Terraform](clients/terraform.md#good-to-know)) |
+| dotnet | reports usage to `dc.services.visualstudio.com` | `DOTNET_CLI_TELEMETRY_OPTOUT=1` ([NuGet](clients/nuget.md#good-to-know)) |
+| Homebrew | updates itself from `github.com` (and asks `api.github.com`) before an install | `HOMEBREW_NO_AUTO_UPDATE=1`, or route Git through the proxy ([Homebrew](clients/homebrew.md#good-to-know)) |
 | Docker Engine | looks up `docker.io` in DNS on a mirrored pull | nothing — the image comes from the mirror |
 | cabal | looks up `_mirrors.<proxy host>` in DNS | nothing — it stays on the proxy |
 
@@ -248,8 +252,10 @@ the registries is closed.
 ## Lock files
 
 Some lock files record *where* a package came from. Those are tied to the
-proxy's address: regenerate them when you move a project onto the proxy, and
-keep the address stable. The lab asserts each line of this table.
+proxy's address: keep the address stable, and see
+[below](#moving-an-existing-project-onto-the-proxy) for what each client does
+with a lock file written before the proxy. The lab asserts each line of this
+table.
 
 | Records the proxy's address | Does not |
 |---|---|
@@ -280,8 +286,11 @@ around the proxy:
 | `pubspec.lock` naming `pub.dev` | pub refuses (`--enforce-lockfile`) | `dart pub get` ([Dart](clients/dart.md#good-to-know)) |
 | `poetry.lock` without a source | installed from the proxy | nothing ([pip](clients/pip.md#good-to-know)) |
 
-The lock files in the right-hand column of the first table need nothing: they
-name no host.
+The lock files in the right-hand column of the first table need nothing: none
+of them names the proxy. They record names, versions and hashes — or keep
+naming the public registry (`Cargo.lock`, `.terraform.lock.hcl`, a
+`Gemfile.lock` written with a mirror), which is the address the client's
+redirection setting replaces.
 
 ## CI jobs and container images
 
@@ -316,16 +325,21 @@ and prefer the forms that keep a token out of project files (`~/.npmrc`,
 
 - **In CI, on every push** — the [ecosystem tests](ecosystem-tests.md): the
   real client of each of 30 ecosystems installs a package through the real
-  proxy, re-installs it from the cache, and is refused a blocked one. Their
-  scripts are in the [reference](ecosystem-tests-reference.md).
+  proxy, re-installs it from the cache, and is refused a blocked one (Git, which
+  has no package to refuse, is cloned). Their scripts are in the
+  [reference](ecosystem-tests-reference.md).
 - **In the client lab** — [client-lab.md](client-lab.md): the scripts in
   [`scripts/client-lab/clients`](../scripts/client-lab/clients), each run with
   the proxy behind a private CA and, where the client can, with a required
   token. Its last results, with the version of every client, are on that page.
 - **By test** — every fenced block in this guide carries a marker that names
   the scripts it is in, and `go test ./internal/clientguide/` fails when a
-  line of a block is in none of them, when an upstream type has no page, when
-  a page leaves the common structure or when a link does not resolve.
+  line of a block is not a whole line one of them executes, when the lines are
+  in another order than the script's, when an upstream type has no page, when
+  a page leaves the common structure or when a link does not resolve. The test
+  cannot tell whether a block is complete: a block may show part of a file.
 - **Not tested, and marked so**: Swift (no public registry implements its
-  protocol), the proxy's SSH endpoint for Git and containerd's CRI plugin
-  (covered elsewhere), and the clients each page lists as not tested.
+  protocol); the proxy's SSH endpoint for Git; containerd's CRI plugin (the
+  lab reads the same `hosts.toml` files through `ctr`); Podman, Buildah and
+  CRI-O (skopeo stands in for the library they share); and the clients each
+  page lists as not tested.

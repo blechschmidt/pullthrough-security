@@ -35,4 +35,4 @@ node -e "require('is-number')"
 # yarn.lock names the package and a checksum, not a URL: it is the same file
 # whichever registry served the package.
 grep -q 'resolution: "is-number@npm:7.0.0"' yarn.lock
-! grep -q 'proxy.example.com' yarn.lock
+if grep -q 'proxy.example.com' yarn.lock; then echo "yarn.lock names the proxy"; exit 1; fi

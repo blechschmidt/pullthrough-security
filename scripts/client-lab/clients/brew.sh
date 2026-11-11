@@ -5,7 +5,12 @@
 # Homebrew with its formula API and its bottle downloads on the proxy.
 set -eu
 echo "LAB_CLIENT_VERSION=$(brew --version | awk 'NR==1 {print $2}')"
-export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALL_CLEANUP=1
+# brew updates itself from github.com (and asks api.github.com) before an
+# install unless told not to — the lab saw both lookups without this line.
+export HOMEBREW_NO_AUTO_UPDATE=1
+# Usage reports go to Homebrew's analytics service, not to the proxy.
+export HOMEBREW_NO_ANALYTICS=1
+export HOMEBREW_NO_ENV_HINTS=1 HOMEBREW_NO_INSTALL_CLEANUP=1
 
 # Both are required: the formula index is signed and cannot be rewritten, so it
 # is brew itself that sends bottle downloads to the artifact domain.

@@ -28,4 +28,4 @@ EOF
 bundle config set --local path vendor/bundle
 bundle install
 grep -q "remote: https://proxy.example.com/v1/rubygems/" Gemfile.lock
-! grep -q "${PROXY_TOKEN:-no-token-in-the-lock-file}" Gemfile.lock
+if grep -q "${PROXY_TOKEN:-no-token-in-the-lock-file}" Gemfile.lock; then echo "the token is in Gemfile.lock"; exit 1; fi

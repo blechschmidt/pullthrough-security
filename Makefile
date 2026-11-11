@@ -103,11 +103,14 @@ test-ecosystems-list: ## List the ecosystems the real-package-manager suite cove
 #   make client-lab                          # everything (takes a while)
 #   make client-lab CLIENTS="npm yarn pnpm"  # a selection
 #   make client-lab-report                   # write the result table into docs/client-lab.md
+#                                            # (refused while a script is missing, failing
+#                                            # or changed since it ran)
 #   make client-lab-down
 #
 # `go test ./internal/clientguide/` (part of `make test`) holds the guide to
-# these scripts: a snippet marked as verified must be, line for line, in the
-# script it names.
+# these scripts: every line of a snippet marked as verified must be a line the
+# script it names executes — and the result table to the scripts as they are: a
+# script that was edited has to be run again.
 CLIENTS ?=
 CLIENT_LAB := scripts/client-lab/lab.sh
 
