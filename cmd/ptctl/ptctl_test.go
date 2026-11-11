@@ -108,7 +108,8 @@ func TestSnippetsMountAndToken(t *testing.T) {
 			`"providers.v1" = "https://proxy.example.com/v1/x/v1/providers/"`,
 			`"modules.v1"   = "https://proxy.example.com/v1/x/v1/modules/"`,
 			`credentials "registry.terraform.io"`, "secret-tok"}, true},
-		{"conan", []string{"conan remote add x https://proxy.example.com/v1/x", "secret-tok"}, true},
+		// Conan cannot present a proxy token (see TestConanSnippetCarriesNoToken).
+		{"conan", []string{"conan remote add x https://proxy.example.com/v1/x", "auth.anonymousRoles"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.typ, func(t *testing.T) {
@@ -123,6 +124,29 @@ func TestSnippetsMountAndToken(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestConanSnippetCarriesNoToken pins that the Conan snippet never suggests
+// `conan remote login` and never embeds the caller's token. A Conan client gets
+// the token it presents from the remote's login endpoint, which the proxy
+// refuses (forwarding it would hand out a session for the proxy's upstream
+// account), so a token in the snippet could not work and would only be exposed.
+func TestConanSnippetCarriesNoToken(t *testing.T) {
+	for _, token := range []string{"secret-tok", ""} {
+		snips := snippetsFor(ctxFor(token), backend{Name: "x", Type: "conan"})
+		if len(snips) != 1 {
+			t.Fatalf("conan snippets = %d, want 1", len(snips))
+		}
+		blob := snips[0].Body + strings.Join(snips[0].Notes, "\n")
+		if strings.Contains(snips[0].Body, "remote login") {
+			t.Errorf("conan snippet suggests a login the proxy refuses:\n%s", snips[0].Body)
+		}
+		for _, leaked := range []string{"secret-tok", "${PULLTHROUGH_TOKEN}"} {
+			if strings.Contains(blob, leaked) {
+				t.Errorf("conan snippet (token=%q) contains %q:\n%s", token, leaked, blob)
+			}
+		}
 	}
 }
 

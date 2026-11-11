@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -34,8 +35,6 @@ func TestClassify(t *testing.T) {
 	}{
 		{"/v1/ping", kindPing}, // the capability probe a real Conan 2.x client sends
 		{"/v2/ping", kindPing},
-		{"/v2/users/authenticate", kindUsers},
-		{"/v2/users/check_credentials", kindUsers},
 		{"/v2/conans/search", kindSearch},
 		{"/v2/conans/zlib/1.2.13/_/_/latest", kindRecipeLatest},
 		{"/v2/conans/zlib/1.2.13/_/_/revisions", kindRecipeRevisions},
@@ -64,6 +63,8 @@ func TestClassify(t *testing.T) {
 		"", "/", "////",
 		"/v3/ping",                                         // wrong API version
 		"/v2/ping/extra",                                   // ping takes no suffix
+		"/v2/users/authenticate",                           // logins are never forwarded
+		"/v2/users/check_credentials",                      // (see TestLoginEndpointsAreNeverForwarded)
 		"/v2/users/logout",                                 // unknown user endpoint
 		"/v2/conans/zlib",                                  // incomplete reference
 		"/v2/conans/zlib/1.2.13/_",                         // incomplete reference
@@ -595,6 +596,66 @@ func TestV1OnlyServesThePing(t *testing.T) {
 		if !errors.Is(err, backends.ErrNotSupported) {
 			t.Errorf("Resolve(%q) error = %v, want ErrNotSupported", p, err)
 		}
+	}
+}
+
+// TestLoginEndpointsAreNeverForwarded is the regression test for a credential
+// leak. The backend attaches the proxy's upstream credentials to every request
+// it forwards; the Conan login endpoint answers such a request with a session
+// token for the authenticated account. Forwarding it therefore handed a token
+// for the proxy's own upstream account to any client that asked — whatever user
+// name and password the client sent, or none at all. The endpoints must be
+// refused before a single request reaches the upstream.
+func TestLoginEndpointsAreNeverForwarded(t *testing.T) {
+	const upstreamToken = "session-token-minted-for-the-proxy-account"
+	var (
+		mu   sync.Mutex
+		seen []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		// A real remote (Artifactory, conan_server) mints a token for whoever the
+		// Authorization header authenticates — here, the proxy's service account.
+		if user, pass, ok := r.BasicAuth(); ok && user == "svc-proxy" && pass == "upstream-password" {
+			_, _ = io.WriteString(w, upstreamToken)
+			return
+		}
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	b, err := New(Options{
+		Name:        "private",
+		UpstreamURL: srv.URL,
+		Client:      upstream.NewWithHTTPClient(srv.Client(), "test/1"),
+		Credentials: upstream.Credentials{Username: "svc-proxy", Password: "upstream-password"},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	clientAuth := []http.Header{
+		{}, // anonymous
+		{"Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte("mallory:guess"))}},
+		{"Authorization": {"Bearer unset"}}, // what `conan remote auth` sends without a token
+	}
+	for _, path := range []string{"/v2/users/authenticate", "/v2/users/check_credentials"} {
+		for _, hdr := range clientAuth {
+			res, err := b.Resolve(context.Background(), &backends.Request{
+				Method: http.MethodGet, Path: path, Query: url.Values{}, Header: hdr,
+			})
+			if !errors.Is(err, backends.ErrNotSupported) {
+				t.Errorf("Resolve(%q, auth=%q) = %+v, %v; want ErrNotSupported", path, hdr.Get("Authorization"), res, err)
+			}
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 0 {
+		t.Errorf("the upstream was contacted for a login endpoint: %q", seen)
 	}
 }
 

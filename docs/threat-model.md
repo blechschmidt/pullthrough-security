@@ -69,7 +69,16 @@ Upstream tokens and API keys leak from config or are sent to the wrong party.
 **Mitigation:** clients authenticate to the *proxy*, never to upstreams; the proxy
 injects upstream credentials server-side. Secrets support `${ENV}` and
 `enc:v1:` (AES-256-GCM) at-rest encryption, and are kept out of ConfigMaps/images
-in the deployment manifests.
+in the deployment manifests. The proxy does not forward an upstream's login or
+token endpoints: such a request would be answered for the proxy's own account
+and the minted credential relayed to the client. The Conan login endpoints
+(`/v2/users/authenticate`, `/v2/users/check_credentials`) and everything under a
+registry's `/v2/` that is not a pull endpoint (which is where Artifactory, Nexus
+and Quay host their token service) are refused for that reason. Package and
+registry backends are served over `GET` and `HEAD` only — any other method is
+answered with `405` before a backend sees it — so nothing can be published,
+changed or revoked with the proxy's credentials. See the limitation on
+[upstream credentials](#limitations-and-non-goals) for what remains.
 
 ### T6 — Tampering with accountability records
 An attacker covers tracks by editing the audit trail. **Mitigation:** the audit
@@ -100,6 +109,22 @@ This is a side benefit, not a high-availability guarantee.
 
 - **Pull-only.** The proxy never publishes upstream; it does not protect *your*
   publishing pipeline or registries you push to.
+- **Upstream credentials authorize every read the proxy forwards.** A client
+  that may use an upstream reads through it as the proxy's upstream account.
+  Most backends have a protocol route table and forward only that protocol's
+  read endpoints: bazel, composer, conan, conda, cpan, cran, dart, docker,
+  hackage, helm, hex, huggingface, jsr, julia, maven, nix, rubygems and
+  terraform refuse an account or token path outright. **npm, pip, cargo, go,
+  nuget, ansible, puppet, apt and yum** do not: they forward any `GET` beneath
+  the configured upstream `url` (openvsx and homebrew do so for paths under
+  `/api/`). That includes whatever account-information or credential-helper
+  endpoint the upstream serves there — npm's `/-/whoami`, a repository
+  manager's per-repository `auth` helper — answered for the proxy's account.
+  Until those backends have route tables of their own, give each credentialed
+  upstream a dedicated **read-only** account scoped to the repositories it
+  fronts — never a personal or administrative one — prefer a revocable token
+  over a password, and point `url` at the repository rather than at the host
+  root.
 - **Probabilistic scanning.** LLM commit analysis can produce false negatives
   (missed malice) and false positives. It is a strong signal, not a proof; tune
   `failOn`/`blockAtRiskScore` to your risk tolerance and keep humans in the loop
@@ -134,6 +159,9 @@ This is a side benefit, not a high-availability guarantee.
   deployment; keep the admin API behind `adminToken` and/or network policy.
 - Set stable keys: `git.ssh.hostKeyFile`, `audit.hmacKey`, `secrets` master key.
 - Keep upstream TLS verification on; pin CAs for private mirrors.
+- Give every credentialed upstream its own read-only, repository-scoped service
+  account and token (see [Limitations](#limitations-and-non-goals)): whoever may
+  pull through an upstream reads with those credentials.
 - Periodically run `-verify-audit` (see [runbook.md](runbook.md)).
 - Treat the proxy host as a high-value target: minimal surface, patched,
   monitored, with restricted access to `/var/lib/pullthrough`.

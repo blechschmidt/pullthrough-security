@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -272,6 +274,109 @@ func TestNonV2PathNotSupported(t *testing.T) {
 	_, err := b.Resolve(context.Background(), &backends.Request{Method: http.MethodGet, Path: "/not-a-registry-path"})
 	if !errors.Is(err, backends.ErrNotSupported) {
 		t.Fatalf("error = %v, want ErrNotSupported", err)
+	}
+}
+
+// TestTokenEndpointsAreNeverForwarded is the regression test for a credential
+// leak. The backend answers an upstream's authentication challenge with the
+// proxy's own credentials, and it used to forward every path under /v2/. Several
+// registries host their token endpoint there (Artifactory and Nexus /v2/token,
+// Quay /v2/auth), so a client could ask the proxy for that endpoint with a scope
+// of its choosing, have the proxy authenticate as itself, and read the minted
+// token — push and delete rights included — from the relayed response. Only the
+// read endpoints of the distribution API may reach the upstream.
+func TestTokenEndpointsAreNeverForwarded(t *testing.T) {
+	const minted = `{"token":"registry-token-for-the-proxy-account"}`
+	var (
+		mu   sync.Mutex
+		seen []string
+	)
+	record := func(r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, r.Method+" "+r.URL.Path)
+	}
+	requests := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+	// A registry that challenges anonymous requests with Basic (as Artifactory and
+	// Nexus do) and, once the caller authenticates, mints a token on any path that
+	// is not a pull endpoint.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		if user, pass, ok := r.BasicAuth(); !ok || user != "svc-proxy" || pass != "upstream-password" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="registry"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v2/":
+			_, _ = io.WriteString(w, `{}`)
+		case "/v2/_catalog":
+			_, _ = io.WriteString(w, `{"repositories":["team/app"]}`)
+		case "/v2/team/app/tags/list":
+			_, _ = io.WriteString(w, `{"name":"team/app","tags":["1.0"]}`)
+		default:
+			_, _ = io.WriteString(w, minted)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	b, err := New(Options{
+		Name:        "private",
+		UpstreamURL: srv.URL,
+		Client:      upstream.NewWithHTTPClient(srv.Client(), "test/1"),
+		Credentials: upstream.Credentials{Username: "svc-proxy", Password: "upstream-password"},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	scope := url.Values{"service": {"registry"}, "scope": {"repository:team/app:pull,push,delete"}}
+	for _, path := range []string{
+		"/v2/token",                      // Artifactory, Nexus
+		"/v2/auth",                       // Quay
+		"/v2/users/login",                // anything else that is not a pull endpoint
+		"/v2/team/app/blobs/uploads/",    // push-only
+		"/v2/team/app/blobs/uploads/abc", // push-only
+		"/v2/_catalog/token",
+	} {
+		res, err := b.Resolve(context.Background(), &backends.Request{
+			Method: http.MethodGet, Path: path, Query: scope, Header: http.Header{},
+		})
+		if !errors.Is(err, backends.ErrNotSupported) {
+			t.Errorf("Resolve(%q) = %+v, %v; want ErrNotSupported", path, res, err)
+		}
+	}
+	if got := requests(); len(got) != 0 {
+		t.Fatalf("the upstream was contacted for a non-pull endpoint: %q", got)
+	}
+
+	// The read endpoints still work against the same registry, authenticated with
+	// the proxy's credentials.
+	for path, want := range map[string]string{
+		"/v2/":                   `{}`,
+		"/v2/_catalog":           `{"repositories":["team/app"]}`,
+		"/v2/team/app/tags/list": `{"name":"team/app","tags":["1.0"]}`,
+	} {
+		res, err := b.Resolve(context.Background(), &backends.Request{
+			Method: http.MethodGet, Path: path, Query: url.Values{}, Header: http.Header{},
+		})
+		if err != nil {
+			t.Fatalf("Resolve(%q): %v", path, err)
+		}
+		fres, err := b.Fetch(context.Background(), res)
+		if err != nil {
+			t.Fatalf("Fetch(%q): %v", path, err)
+		}
+		body, _ := io.ReadAll(fres.Content)
+		_ = fres.Content.Close()
+		if string(body) != want {
+			t.Errorf("Fetch(%q) = %q, want %q", path, body, want)
+		}
 	}
 }
 

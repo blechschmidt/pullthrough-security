@@ -15,7 +15,6 @@ import "strings"
 //
 //	GET /v1/ping                                            server capability probe (the one clients send)
 //	GET /v2/ping                                            server capability probe (v2 spelling)
-//	GET /v2/users/authenticate | /v2/users/check_credentials   auth
 //	GET /v2/conans/search                                   recipe search
 //	GET /v2/conans/{n}/{v}/{u}/{c}/latest                   latest recipe revision (mutable)
 //	GET /v2/conans/{n}/{v}/{u}/{c}/revisions                recipe revision list (mutable)
@@ -33,6 +32,14 @@ import "strings"
 // revision is immutable and content-addressable — the proxy caches it
 // indefinitely. The mutable discovery endpoints (latest, revision lists, search,
 // ping) are revalidated rather than cached.
+//
+// The login endpoints (GET /v2/users/authenticate and /v2/users/check_credentials)
+// are deliberately not part of the table. The proxy attaches its own upstream
+// credentials to everything it forwards, so forwarding a login would have the
+// upstream mint a session token for the proxy's account and hand it to whichever
+// client asked — with any user name and password, or none. The proxy
+// authenticates to the upstream itself, so a client never needs such a token;
+// the endpoints are refused before anything is sent upstream.
 //
 // The recipe content files are conanfile.py, conanmanifest.txt,
 // conan_export.tgz, and conan_sources.tgz; the package content files are
@@ -58,8 +65,6 @@ const (
 	// GET /v2/ping. Served live so the upstream's X-Conan-Server-Capabilities
 	// header is relayed.
 	kindPing resourceKind = iota
-	// kindUsers is an authentication endpoint (authenticate / check_credentials).
-	kindUsers
 	// kindSearch is a recipe or package search query (mutable, served live).
 	kindSearch
 	// kindRecipeLatest is the latest-recipe-revision pointer (mutable).
@@ -150,9 +155,9 @@ func classify(path string) (resource, bool) {
 		}
 		return resource{}, false
 	case "users":
-		if len(rest) == 2 && (rest[1] == "authenticate" || rest[1] == "check_credentials") {
-			return resource{kind: kindUsers}, true
-		}
+		// Login endpoints are never forwarded: see the header comment. Refusing
+		// them here keeps the proxy's upstream credentials out of a request whose
+		// response is a credential.
 		return resource{}, false
 	case "conans":
 		return classifyConans(rest[1:])
@@ -349,8 +354,6 @@ func (r resource) kindLabel() string {
 	switch r.kind {
 	case kindPing:
 		return "ping"
-	case kindUsers:
-		return "users"
 	case kindSearch:
 		return "search"
 	case kindRecipeLatest:

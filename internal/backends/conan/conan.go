@@ -11,7 +11,6 @@
 // Protocol mapping (Conan v2, see path.go for the full route table):
 //
 //	GET /v1/ping | /v2/ping                                     server capabilities (live)
-//	GET /v2/users/authenticate | check_credentials              auth passthrough (live)
 //	GET /v2/conans/search | .../search                          search (live)
 //	GET .../latest | .../revisions                              revision pointers/lists (revalidated)
 //	GET .../revisions/{rrev}/files[/{file}]                     recipe files (immutable, verified)
@@ -33,6 +32,12 @@
 // so the conan_export.tgz / conan_sources.tgz / conan_package.tgz archives are
 // never in it; those are verified against the X-Checksum-Md5 header that
 // Artifactory-based remotes (ConanCenter included) send with every file.
+//
+// The proxy authenticates to the upstream with its own credentials, so a client
+// never logs in to the upstream through it: the Conan login endpoints
+// (/v2/users/authenticate, /v2/users/check_credentials) are refused rather than
+// forwarded, because the upstream would answer them with a session token for
+// the proxy's account (see path.go).
 //
 // Client configuration points the Conan remote at "<publicBase>/v1/<name>"
 // (see docs/clients.md): `conan remote add proxy <publicBase>/v1/<name>`.
@@ -427,7 +432,7 @@ func (b *Backend) recordKindMetric(resolved *backends.Resolved) {
 	case "recipe-files", "package-files":
 		b.metrics.incFileListingServed()
 	case "recipe-latest", "recipe-revisions", "package-latest", "package-revisions",
-		"search", "ping", "users":
+		"search", "ping":
 		b.metrics.incMetadataServed()
 	}
 }

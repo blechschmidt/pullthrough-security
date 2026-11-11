@@ -549,10 +549,14 @@ upstreams:
     url: https://registry-1.docker.io
 ```
 
-the backend is mounted under `/v1/dockerhub/`, where it serves the v2 API
-(`/v2/`, `/v2/<name>/manifests/<ref>`, `/v2/<name>/blobs/<digest>`,
-`/v2/<name>/tags/list`). Blobs and manifests requested by digest are cached
-immutably and digest-verified; manifests by tag are revalidated live.
+the backend is mounted under `/v1/dockerhub/`, where it serves the read
+endpoints of the v2 API (`/v2/`, `/v2/<name>/manifests/<ref>`,
+`/v2/<name>/blobs/<digest>`, `/v2/<name>/referrers/<digest>`,
+`/v2/<name>/tags/list`, `/v2/_catalog`). Blobs and manifests requested by digest
+are cached immutably and digest-verified; manifests by tag are revalidated live.
+Any other path under `/v2/` is refused with `501`: the proxy logs in to the
+upstream itself, so a registry-hosted token endpoint (`/v2/token`, `/v2/auth`)
+is never forwarded — it would hand the client a token for the proxy's account.
 
 Container clients — the Docker Engine, containerd, podman, skopeo, the Helm OCI
 client — always insert `/v2/` immediately after the registry host, so none of
@@ -769,14 +773,17 @@ conan install --requires=zlib/1.3.1 -r proxy
 conan download zlib/1.3.1 -r proxy --only-recipe
 ```
 
-> **Authentication.** A Conan client can only obtain credentials for a remote
-> through `GET /v2/users/authenticate`, which the proxy forwards to the upstream
-> instead of answering itself. ConanCenter does not implement that endpoint, so
-> `conan remote login` fails against it ("Invalid server response") and Conan
-> cannot present a proxy token. If the proxy enforces authentication, admit
-> anonymous reads for the Conan upstream (`auth.allowAnonymous` with an
-> `auth.anonymousRoles` role scoped to that upstream); the other upstreams keep
-> requiring a token.
+> **Authentication.** The proxy authenticates to a private remote with the
+> `credentials` configured on the upstream; a client never logs in to the
+> upstream through it. The Conan login endpoints (`GET /v2/users/authenticate`
+> and `/v2/users/check_credentials`) are therefore refused with `501` rather
+> than forwarded — the upstream would answer them with a session token for the
+> proxy's own account — so `conan remote login` and `conan remote auth` fail
+> against a proxy remote ("Invalid server response"). That endpoint is also the
+> only way a Conan client obtains a token to present, so Conan cannot send a
+> proxy token. If the proxy enforces authentication, admit anonymous reads for
+> the Conan upstream (`auth.allowAnonymous` with an `auth.anonymousRoles` role
+> scoped to that upstream); the other upstreams keep requiring a token.
 
 ---
 

@@ -11,7 +11,7 @@ const (
 	refManifest          // /v2/<name>/manifests/<reference>
 	refBlob              // /v2/<name>/blobs/<digest>
 	refReferrers         // /v2/<name>/referrers/<digest> (OCI Distribution v1.1 Referrers API)
-	refOther             // other v2 endpoints (e.g. /v2/<name>/tags/list)
+	refOther             // the read-only listings: /v2/_catalog and /v2/<name>/tags/list
 )
 
 // reference is a parsed Registry v2 request.
@@ -32,11 +32,11 @@ func (r reference) scope() string {
 }
 
 // parseReference parses a path of the Registry v2 API (with the backend route
-// prefix already stripped). It returns ok=false when the path is not a v2 API
-// path at all. The repository name may contain slashes, so manifest/blob and
-// referrers paths are split on the last "/manifests/", "/blobs/", or
-// "/referrers/" separator; the trailing reference must be a single path segment
-// (which rules out push-only paths such as "/blobs/uploads/<uuid>").
+// prefix already stripped). It returns ok=false when the path is not one of the
+// read endpoints this backend serves. The repository name may contain slashes,
+// so manifest/blob and referrers paths are split on the last "/manifests/",
+// "/blobs/", or "/referrers/" separator; the trailing reference must be a single
+// path segment (which rules out push-only paths such as "/blobs/uploads/<uuid>").
 func parseReference(path string) (reference, bool) {
 	p := strings.TrimPrefix(path, "/")
 	if p == "v2" || p == "v2/" {
@@ -72,11 +72,23 @@ func parseReference(path string) (reference, bool) {
 		}, true
 	}
 
-	// Other v2 endpoints. Recover the repository name for tag listings so the
-	// token handshake can request the right scope.
-	r := reference{kind: refOther}
-	if name := strings.TrimSuffix(rest, "/tags/list"); name != rest && name != "" {
-		r.name = name
+	// The remaining read endpoints of the distribution API: the registry catalog
+	// and a repository's tag list (whose repository name is recovered so the token
+	// handshake requests the right scope).
+	if rest == "_catalog" {
+		return reference{kind: refOther}, true
 	}
-	return r, true
+	if name := strings.TrimSuffix(rest, "/tags/list"); name != rest && name != "" {
+		return reference{kind: refOther, name: name}, true
+	}
+
+	// Everything else under /v2/ is refused rather than forwarded. The backend
+	// answers an upstream's authentication challenge with the proxy's own
+	// credentials, and several registries host their token endpoint under /v2/ on
+	// the registry itself (Artifactory and Nexus "/v2/token", Quay "/v2/auth").
+	// Forwarding an arbitrary /v2/ path therefore let a client ask that endpoint —
+	// through the proxy, authenticated as the proxy — for a token of any scope it
+	// liked, push and delete included, and read it from the relayed response.
+	// Push-only paths ("/blobs/uploads/<uuid>") end up here as well.
+	return reference{}, false
 }

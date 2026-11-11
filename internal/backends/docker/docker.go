@@ -5,7 +5,15 @@
 //	GET/HEAD /v2/                         API version / auth probe
 //	GET/HEAD /v2/<name>/manifests/<ref>   image manifest or manifest list (multi-arch index)
 //	GET/HEAD /v2/<name>/blobs/<digest>    config and layer blobs
+//	GET      /v2/<name>/referrers/<digest> OCI referrers (signatures, SBOMs, attestations)
 //	GET      /v2/<name>/tags/list         tag listing
+//	GET      /v2/_catalog                 repository listing
+//
+// Nothing else under /v2/ is forwarded. The proxy answers the upstream's
+// authentication challenges with its own credentials, so an open-ended /v2/
+// pass-through would also reach a registry-hosted token endpoint (Artifactory
+// and Nexus /v2/token, Quay /v2/auth) and relay a token minted for the proxy's
+// account to the client (see parseReference).
 //
 // It performs the registry bearer-token handshake against the upstream
 // (see auth.go), caches immutable, digest-addressed content in the shared

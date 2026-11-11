@@ -373,20 +373,25 @@ func yumSnippet(ctx Context, b Backend) Snippet {
 	}
 }
 
+// conanSnippet registers the proxy as a Conan remote. It deliberately carries no
+// token and no `conan remote login`: a Conan client obtains the token it presents
+// from the remote's own login endpoint, and the proxy does not serve that
+// endpoint (forwarding it would hand out a session for the proxy's upstream
+// account). A proxy token therefore cannot be configured for Conan, and printing
+// one into the snippet would only leak it into a file that cannot use it.
 func conanSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "conan remote add %s %s\n", b.Name, mount)
-	if ctx.Token != "" {
-		fmt.Fprintf(&sb, "conan remote login %s pullthrough -p %s\n", b.Name, ctx.Token)
-	}
 	return Snippet{
 		Title: fmt.Sprintf("Conan — %s", b.Name),
 		File:  "conan-remote.sh",
 		Lang:  "bash",
-		Body:  sb.String(),
-		Notes: append(ctx.authNote(),
-			"Conan 2.x only (the revisions API). The proxy serves the /v2/... endpoints under "+mount+"."),
+		Body:  fmt.Sprintf("conan remote add %s %s\n", b.Name, mount),
+		Notes: []string{
+			"Conan 2.x only (the revisions API). The proxy serves the /v2/... endpoints under " + mount + ".",
+			"Conan cannot present a proxy token: `conan remote login` is not supported against the proxy, which authenticates to the upstream itself. " +
+				"If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
+				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
+		},
 	}
 }
 

@@ -75,11 +75,38 @@ func TestParseReference(t *testing.T) {
 			scope:  "repository:library/nginx:pull",
 		},
 		{
-			name:   "blob upload path is not a pull resource",
-			path:   "/v2/library/nginx/blobs/uploads/uuid-1234",
+			name:   "catalog",
+			path:   "/v2/_catalog",
 			wantOK: true,
 			kind:   refOther,
 		},
+		{
+			name:   "a repository may be called like a token endpoint",
+			path:   "/v2/token/tags/list",
+			wantOK: true,
+			kind:   refOther,
+			repo:   "token",
+			scope:  "repository:token:pull",
+		},
+		{
+			name:   "blob upload path is not a pull resource",
+			path:   "/v2/library/nginx/blobs/uploads/uuid-1234",
+			wantOK: false,
+		},
+		{
+			name:   "blob upload session start is not a pull resource",
+			path:   "/v2/library/nginx/blobs/uploads/",
+			wantOK: false,
+		},
+		// Registry-hosted token endpoints, and anything else that is not a read
+		// endpoint of the distribution API, are refused (see
+		// TestTokenEndpointsAreNeverForwarded).
+		{name: "artifactory/nexus token endpoint", path: "/v2/token", wantOK: false},
+		{name: "quay token endpoint", path: "/v2/auth", wantOK: false},
+		{name: "unknown registry-level endpoint", path: "/v2/users/login", wantOK: false},
+		{name: "catalog with a suffix", path: "/v2/_catalog/extra", wantOK: false},
+		{name: "bare repository", path: "/v2/library/nginx", wantOK: false},
+		{name: "tag list without a repository", path: "/v2/tags/list", wantOK: false},
 		{
 			name:   "non-v2 path rejected",
 			path:   "/v1/something",
