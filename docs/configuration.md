@@ -104,7 +104,7 @@ make config-reference-check   # CI staleness gate
 | `writeTimeout` | `5m` | Max time to write a response (large artifacts need headroom). |
 | `shutdownTimeout` | `30s` | Grace period for in-flight requests on shutdown. |
 | `registry.enabled` | `true` | Also serve the Docker/OCI Registry v2 API at the host root (`/v2/...`). Container clients put `/v2/` directly after the registry host and cannot address the path-prefixed `/v1/<upstream>/v2/` mount; the alias maps each request onto it, through the same access control and admission gates. No effect without a registry upstream (type `docker`, or `helm` with `oci: "true"`). |
-| `registry.defaultUpstream` | _(empty)_ | Registry upstream that serves **un-prefixed** repositories, i.e. registry-mirror mode (`"registry-mirrors": ["https://proxy.example.com"]`). When empty, only `<proxy>/<upstream>/<repository>` references and containerd `?ns=`-hinted requests are served. See [clients.md](clients.md#docker--oci-images). |
+| `registry.defaultUpstream` | _(empty)_ | Registry upstream that serves **un-prefixed** repositories, i.e. registry-mirror mode (`"registry-mirrors": ["https://proxy.example.com"]`). When empty, only `<proxy>/<upstream>/<repository>` references and containerd `?ns=`-hinted requests are served. See [clients/docker.md](clients/docker.md). |
 | `trustedProxies` | _(none)_ | Reverse proxies (load balancers, ingress controllers) in front of this listener, as IP addresses or CIDR prefixes. For a request arriving **from one of them** the client address is taken from its `X-Forwarded-For` header (the right-most entry that is not itself a trusted proxy) instead of the TCP connection, so the [download log](download-log.md), the audit log and anomaly detection attribute traffic to the real client. From any other peer — and with the list empty — the header is never read. List only infrastructure that writes the header itself, never a network clients are on. See [download-log.md](download-log.md#the-client-address-and-reverse-proxies). |
 
 ## `logging`
@@ -172,7 +172,9 @@ effective TLS policy also share a connection pool. All fields optional.
 ## `upstreams`
 
 A map of `<name> → upstream`. Each upstream is exposed under `/v1/<name>/...`.
-See [clients.md](clients.md) for repointing each ecosystem's tooling.
+See [clients.md](clients.md) for repointing each ecosystem's tooling (one page per
+ecosystem), and [backends.md](backends.md) for what each upstream type serves,
+rewrites and verifies.
 
 | Field | Description |
 |-------|-------------|

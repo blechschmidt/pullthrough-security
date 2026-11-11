@@ -8,7 +8,9 @@ pull-through proxy focused on software supply-chain security.
 | If you want to… | Read |
 |-----------------|------|
 | Understand how the proxy works end to end | [architecture.md](architecture.md) |
-| Point your tooling at the proxy (pip, npm, cargo, go, nuget, docker, git) | [clients.md](clients.md) |
+| Point your tooling at the proxy — one page per package manager (npm, pip, cargo, go, Maven, Docker, … 32 ecosystems), with tokens and private CAs, every snippet executed | [clients.md](clients.md) |
+| See what the proxy serves, rewrites, verifies and caches for each upstream type | [backends.md](backends.md) |
+| Run the client guide's configurations yourself: real clients, a private CA, access control, and a record of every host a client tries to reach | [client-lab.md](client-lab.md) |
 | Onboard an ecosystem with no dedicated backend (declarative YAML, no code) | [generic-backend.md](generic-backend.md) |
 | Choose explicit sources vs. transparent TLS interception (MITM forward proxy) | [intercept-mode.md](intercept-mode.md) |
 | Serve big artifacts with Range/resumable downloads & bounded memory | [range-streaming.md](range-streaming.md) |
@@ -70,9 +72,9 @@ pull-through proxy focused on software supply-chain security.
 ## By audience
 
 **Developers / CI consumers** — you just need to fetch packages through the
-proxy: [clients.md](clients.md). For one-command onboarding (generate your
-config, self-test connectivity, inspect an artifact's verdict), use the client
-CLI: [client-cli.md](client-cli.md).
+proxy: [clients.md](clients.md), then the page of your package manager. For
+one-command onboarding (generate your config, self-test connectivity, inspect an
+artifact's verdict), use the client CLI: [client-cli.md](client-cli.md).
 
 **Platform / security operators** — you run and secure the proxy:
 [architecture.md](architecture.md) → [configuration.md](configuration.md) →

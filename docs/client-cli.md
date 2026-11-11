@@ -2,8 +2,9 @@
 
 `ptctl` is a standalone command-line tool that streamlines onboarding a
 developer (or a CI job) against a running pull-through proxy. Where
-[clients.md](clients.md) documents the config snippets by hand, `ptctl`
-**generates** them for your proxy, **tests** that your connectivity and token
+[clients.md](clients.md) and its per-ecosystem pages document each client's
+configuration (verified with the real clients), `ptctl`
+**generates** a starting point for your proxy, **tests** that your connectivity and token
 work, and lets you **inspect** the supply-chain verdict and **attestation** for
 any artifact — all over HTTP, with no access to the proxy's config file or host.
 

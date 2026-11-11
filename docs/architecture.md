@@ -118,6 +118,7 @@ scanning, provenance resolution) feeding the admission decision.
 - [configuration.md](configuration.md) — full configuration reference.
 - [security-model.md](security-model.md) — scanning, provenance, and policy.
 - [threat-model.md](threat-model.md) — what the proxy defends against (and not).
-- [clients.md](clients.md) — per-ecosystem client setup.
+- [clients.md](clients.md) — per-ecosystem client setup (one page per ecosystem under `clients/`).
+- [backends.md](backends.md) — what each backend serves, rewrites, verifies and caches.
 - [runbook.md](runbook.md) — operations and incident response.
 - [../deploy/README.md](../deploy/README.md) — containerization and deployment.

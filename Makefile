@@ -90,6 +90,44 @@ test-ecosystems-list: ## List the ecosystems the real-package-manager suite cove
 	@CGO_ENABLED=0 $(GO) test -tags ecosystem -c -o $(BIN_DIR)/ecotest.test ./internal/ecotest && \
 		ECOTEST_LIST=1 $(BIN_DIR)/ecotest.test
 
+# --- Client lab: the client guide, executed (Task 171) -------------------------
+#
+# Every client configuration docs/clients/ prints is run by a script in
+# scripts/client-lab/clients with the REAL client against the real proxy, served
+# as https://proxy.example.com with a private CA — without access control, with a
+# required token, and with an anonymous role — on a network where the proxy is
+# the only host the client can reach and every name it looks up is recorded (a
+# client that tries to go around the proxy fails its run). Needs Docker, openssl
+# and network access. See docs/client-lab.md.
+#
+#   make client-lab                          # everything (takes a while)
+#   make client-lab CLIENTS="npm yarn pnpm"  # a selection
+#   make client-lab-report                   # write the result table into docs/client-lab.md
+#   make client-lab-down
+#
+# `go test ./internal/clientguide/` (part of `make test`) holds the guide to
+# these scripts: a snippet marked as verified must be, line for line, in the
+# script it names.
+CLIENTS ?=
+CLIENT_LAB := scripts/client-lab/lab.sh
+
+.PHONY: client-lab
+client-lab: ## Run the client guide's configurations with the real clients (needs Docker); CLIENTS="npm pip" selects
+	$(CLIENT_LAB) up
+	@if [ -n "$(CLIENTS)" ]; then \
+		rc=0; for c in $(CLIENTS); do $(CLIENT_LAB) run "$$c" || rc=1; done; exit $$rc; \
+	else \
+		$(CLIENT_LAB) all; \
+	fi
+
+.PHONY: client-lab-report
+client-lab-report: ## Write the client lab's result table into docs/client-lab.md
+	@$(CLIENT_LAB) document
+
+.PHONY: client-lab-down
+client-lab-down: ## Stop the client lab's proxies and remove its networks
+	$(CLIENT_LAB) down
+
 # --- Coverage guard (Task 117) ----------------------------------------------
 #
 # `covguard` runs the suite with coverage, aggregates per-package + total

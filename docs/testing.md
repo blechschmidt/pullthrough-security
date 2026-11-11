@@ -8,6 +8,7 @@ default developer loop stays fast and deterministic.
 | Unit + component | _(none)_ | `make test` | every PR, locally |
 | Integration | `integration` | `make test-integration` | on demand (needs Git/MinIO fixtures); the hermetic per-ecosystem suites in `internal/e2e` run on every PR (`integration` job) |
 | Ecosystem (real package managers) | `ecosystem` | `make test-ecosystems` | every PR and nightly, one CI job per ecosystem (needs Docker + network) |
+| Client lab (the client guide, executed) | _(scripts)_ | `make client-lab` | nightly, on demand, and when the lab or the guide changes, one CI job per client image (needs Docker + network) |
 | Fuzz | `fuzz` | `make fuzz` / `make fuzz-seed` | seed corpora on every PR; extended nightly |
 | Red-team gate-efficacy | _(none)_ | `make redteam` / `ptctl redteam` | every PR (regression gate) |
 | Chaos / fault-injection | _(none)_ | `make chaos` | every PR (resilience gate) |
@@ -29,6 +30,18 @@ reaches the proxy from its own address, and the log must attribute the served
 and the refused package to the right ones. See
 [ecosystem-tests.md](ecosystem-tests.md); the verified client configurations are
 published in [ecosystem-tests-reference.md](ecosystem-tests-reference.md).
+
+The **client lab** (`scripts/client-lab`, Task 171) runs every configuration the
+[client guide](clients.md) prints — some sixty scripts: the other clients of an
+ecosystem (Yarn, pnpm, uv, Poetry, Gradle, containerd, skopeo, OpenTofu, …), a
+private CA to trust, a token to present — with the real clients against the
+real proxy, served as `https://proxy.example.com`, in three access-control
+modes. Its network has no way out *and* a name server that records every name
+a client looks up, so a client that quietly tries the public registry fails its
+run instead of passing unnoticed. `go test ./internal/clientguide/` (part of
+`make test`) holds the guide to those scripts: every fenced block of the guide
+names the scripts that execute it, and a line that is in none of them fails the
+test. See [client-lab.md](client-lab.md).
 
 The hermetic **per-ecosystem integration suites** (`internal/e2e`, Tasks 144 and
 168) drive an in-process gateway over a recorded upstream for every ecosystem:

@@ -49,7 +49,11 @@ cp ca.crt /usr/local/share/ca-certificates/pullthrough.crt && update-ca-certific
 
 Many tools also honor their own CA settings (`NODE_EXTRA_CA_CERTS`,
 `PIP_CERT`/`REQUESTS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, `GIT_SSL_CAINFO`, Docker's
-`/etc/docker/certs.d/`), which avoids touching the system trust store.
+`/etc/docker/certs.d/`), which avoids touching the system trust store. The
+client guide lists the setting each package manager reads
+([clients.md](clients.md#private-ca-settings-at-a-glance)); those were verified
+with the real clients against a proxy with a private CA in explicit mode, and
+the same settings name the CA here.
 
 ### Configuration
 

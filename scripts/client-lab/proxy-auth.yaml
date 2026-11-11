@@ -1,0 +1,14 @@
+
+# --- appended in "auth" mode: access control on -------------------------------
+# Every request needs the token.
+auth:
+  enabled: true
+  roles:
+    - name: all-reader
+      ecosystems: ["*"]
+      upstreams: ["*"]
+  tokens:
+    - name: alice
+      team: platform
+      roles: ["all-reader"]
+      token: "@TOKEN@"

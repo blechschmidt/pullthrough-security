@@ -110,7 +110,8 @@ outbound:
     minVersion: "1.2"             # 1.0 | 1.1 | 1.2 | 1.3
 
 # Each upstream is exposed under /v1/<name>/... by the gateway. See
-# docs/clients.md for how to point each package manager at the proxy.
+# docs/clients.md (one page per ecosystem under docs/clients/) for how to point
+# each package manager at the proxy.
 upstreams:
   npm:
     type: npm
@@ -309,8 +310,9 @@ upstreams:
     # proxy mount is the channel root: per-subdir repodata.json indices and the
     # .conda/.tar.bz2 packages beneath each subdir (noarch, linux-64, osx-arm64,
     # ...) are proxied; a package is verified against the SHA-256 its subdir's
-    # repodata.json declares (MD5 fallback) before it is cached. Add the mount as
-    # a channel in ~/.condarc (see docs/clients.md).
+    # repodata.json declares (MD5 fallback) before it is cached. Name the upstream
+    # after the channel: a client's `channel_alias: <proxy>/v1` then resolves the
+    # channel name to this mount (see docs/clients/conda.md).
     type: conda
     url: https://conda.anaconda.org/conda-forge
   cran:
@@ -327,7 +329,8 @@ upstreams:
     # protobuf resources and the /tarballs/<name>-<version>.tar artifacts are
     # proxied; a tarball is verified against the outer_checksum (SHA-256) its
     # /packages resource declares before it is cached. Point mix/hex at the
-    # mount with HEX_MIRROR or `mix hex.repo add` (see docs/clients.md).
+    # mount with HEX_MIRROR — never `mix hex.repo add`: the registry is signed
+    # for the repository name hexpm (see docs/clients/hex.md).
     type: hex
     url: https://repo.hex.pm
   bazel:
@@ -353,7 +356,8 @@ upstreams:
     # index, TUF metadata, .cabal descriptions and the sdist tarballs; a tarball
     # is verified against the SHA-256 its sibling package.json TUF target metadata
     # declares, where available, before it is cached. Point cabal at the mount
-    # with a remote-repo entry in ~/.cabal/config (see docs/clients.md).
+    # with a `repository hackage.haskell.org` stanza (`secure: True`) in its
+    # config (see docs/clients/hackage.md).
     type: hackage
     url: https://hackage.haskell.org
   ansible:
@@ -375,6 +379,49 @@ upstreams:
     # docs/clients.md).
     type: puppet
     url: https://forgeapi.puppet.com
+  conancenter:
+    # Conan (C/C++) pull-through, Conan 2.x revisions API. Files beneath a recipe
+    # or package revision are content-addressed and verified by MD5 against the
+    # revision's manifest or the upstream's checksum header. A Conan client
+    # cannot present a proxy token: with auth enabled, admit anonymous reads for
+    # this upstream (see docs/clients/conan.md).
+    type: conan
+    url: https://center2.conan.io
+  julia:
+    # Julia Pkg server pull-through. Registry, package and artifact tarballs are
+    # addressed by their git-tree-sha1, which the proxy recomputes before caching.
+    # Point Julia at the mount with JULIA_PKG_SERVER (see docs/clients/julia.md).
+    type: julia
+    url: https://pkg.julialang.org
+  cpan:
+    # CPAN (Perl) mirror pull-through. A distribution is verified against the
+    # SHA-256 its author directory's CHECKSUMS file records before it is cached.
+    # Point cpanm at the mount with --mirror <mount> --mirror-only (see
+    # docs/clients/cpan.md).
+    type: cpan
+    url: https://www.cpan.org
+  openvsx:
+    # Open VSX (VS Code extension) registry pull-through. A .vsix is verified
+    # against the registry's .sha256 sidecar and passes the install-script /
+    # activation checks before it is served (see docs/clients/openvsx.md).
+    type: openvsx
+    url: https://open-vsx.org
+  nix:
+    # Nix binary-cache pull-through. Each narinfo's signature is verified against
+    # trustedPublicKeys (nix.conf form) and each NAR against its content address.
+    # Clients keep the upstream cache's key in trusted-public-keys and name the
+    # mount as their substituter (see docs/clients/nix.md).
+    type: nix
+    url: https://cache.nixos.org
+    settings:
+      trustedPublicKeys: "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+  homebrew:
+    # Homebrew pull-through: the signed formula API (passed through byte-exact)
+    # and the bottles, which are OCI blobs on ghcr.io verified against the
+    # SHA-256 in their URL. Clients set HOMEBREW_API_DOMAIN=<mount>/api and
+    # HOMEBREW_ARTIFACT_DOMAIN=<mount> — both (see docs/clients/homebrew.md).
+    type: homebrew
+    url: https://formulae.brew.sh
   github:
     type: git
     url: https://github.com

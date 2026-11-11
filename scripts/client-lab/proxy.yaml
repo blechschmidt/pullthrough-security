@@ -1,0 +1,76 @@
+# The lab proxy (scripts/client-lab/lab.sh): every ecosystem, served as
+# https://proxy.example.com with a certificate from the lab's private CA.
+# The upstream names are the ones docs/clients/ uses in its examples.
+server:
+  httpAddr: ":443"
+  publicUrl: https://proxy.example.com
+  tlsCertFile: /lab/pki/server.crt
+  tlsKeyFile: /lab/pki/server.key
+  registry:
+    # Un-prefixed image names (a registry mirror) are Docker Hub's.
+    defaultUpstream: dockerhub
+logging:
+  level: debug # one "request" record per request; lab.sh reads them
+  format: json
+cache:
+  backend: filesystem
+  dir: /state/cache
+observability:
+  metrics: true
+  admin: true
+audit:
+  enabled: true
+  file: /state/audit/audit.log
+  hmacKey: client-lab-audit-hmac-key
+policy:
+  enabled: true
+  default:
+    onMissingProvenance: allow
+    onMissingScan: allow
+    # What a refusal looks like in each client (clients/refused-*.sh). Nothing is
+    # wrong with these packages.
+    denylist:
+      - left-pad # npm
+      - itsdangerous # pip
+      - itoa # cargo
+      - github.com/pkg/errors # go
+upstreams:
+  npm: { type: npm, url: https://registry.npmjs.org }
+  npm-jsr: { type: npm, url: https://npm.jsr.io }
+  pypi: { type: pip, url: https://pypi.org }
+  crates: { type: cargo, url: https://index.crates.io }
+  goproxy: { type: go, url: https://proxy.golang.org }
+  nuget: { type: nuget, url: https://api.nuget.org }
+  maven: { type: maven, url: https://repo1.maven.org/maven2 }
+  gradle-plugins: { type: maven, url: https://plugins.gradle.org/m2 }
+  rubygems: { type: rubygems, url: https://rubygems.org }
+  packagist: { type: composer, url: https://repo.packagist.org }
+  podinfo: { type: helm, url: https://stefanprodan.github.io/podinfo }
+  helm-oci: { type: helm, url: https://ghcr.io, settings: { oci: "true" } }
+  debian: { type: apt, url: https://deb.debian.org/debian }
+  rocky: { type: yum, url: https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os }
+  dockerhub: { type: docker, url: https://registry-1.docker.io }
+  ghcr: { type: docker, url: https://ghcr.io }
+  terraform: { type: terraform, url: https://registry.terraform.io }
+  opentofu: { type: terraform, url: https://registry.opentofu.org }
+  conancenter: { type: conan, url: https://center2.conan.io }
+  conda-forge: { type: conda, url: https://conda.anaconda.org/conda-forge }
+  cran: { type: cran, url: https://cloud.r-project.org }
+  hex: { type: hex, url: https://repo.hex.pm }
+  bazel: { type: bazel, url: https://bcr.bazel.build }
+  julia: { type: julia, url: https://pkg.julialang.org }
+  cpan: { type: cpan, url: https://www.cpan.org }
+  pub: { type: dart, url: https://pub.dev }
+  huggingface: { type: huggingface, url: https://huggingface.co }
+  openvsx: { type: openvsx, url: https://open-vsx.org }
+  nix:
+    type: nix
+    url: https://cache.nixos.org
+    settings:
+      trustedPublicKeys: "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+  homebrew: { type: homebrew, url: https://formulae.brew.sh }
+  ansible: { type: ansible, url: https://galaxy.ansible.com }
+  puppet: { type: puppet, url: https://forgeapi.puppet.com }
+  jsr: { type: jsr, url: https://jsr.io }
+  hackage: { type: hackage, url: https://hackage.haskell.org }
+  github: { type: git, url: https://github.com }

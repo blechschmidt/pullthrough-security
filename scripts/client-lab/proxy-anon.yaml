@@ -1,0 +1,23 @@
+
+# --- appended in "anon" mode: access control on, one upstream open -------------
+# Every request needs the token — except to the upstream of a client that has no
+# way to present one (Conan, see docs/clients/conan.md): an anonymous role scoped
+# to exactly that upstream admits it. A request without a token to any other
+# upstream is answered 403 (not 401): it is an anonymous caller without a role
+# for that upstream.
+auth:
+  enabled: true
+  allowAnonymous: true
+  anonymousRoles: ["conan-anonymous"]
+  roles:
+    - name: all-reader
+      ecosystems: ["*"]
+      upstreams: ["*"]
+    - name: conan-anonymous
+      ecosystems: ["conan"]
+      upstreams: ["conancenter"]
+  tokens:
+    - name: alice
+      team: platform
+      roles: ["all-reader"]
+      token: "@TOKEN@"

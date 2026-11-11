@@ -1,0 +1,194 @@
+name: Client lab
+
+# The client lab (scripts/client-lab, docs/client-lab.md): every client
+# configuration the client guide (docs/clients/) prints is run with the real
+# client against the real proxy — served over HTTPS with a private CA, with and
+# without access control — on a network where the proxy is the only host a
+# client can reach and every name it looks up is recorded.
+#
+# The CI workflow's ecosystem jobs prove on every push that each ecosystem's
+# client installs through the proxy. This workflow covers what a deployment adds
+# (a CA to trust, a token to present) and the other clients of an ecosystem. It
+# pulls thirty client images and talks to the public registries, so it runs
+# nightly, on demand, and when the lab or the guide changes — not on every push.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/client-lab/**"
+      - "docs/clients/**"
+      - "docs/clients.md"
+      - "docs/client-lab.md"
+      - "internal/clientguide/**"
+      - ".github/workflows/client-lab.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/client-lab/**"
+      - "docs/clients/**"
+      - "docs/clients.md"
+      - "docs/client-lab.md"
+      - "internal/clientguide/**"
+      - ".github/workflows/client-lab.yml"
+  schedule:
+    # Nightly (04:41 UTC): a canary for client releases and registry changes.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24.1"
+
+concurrency:
+  group: client-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Client lab · build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # The guide's own tests first: a snippet that is in no script, a page
+      # that left the template, a broken link.
+      - name: Check the guide against the scripts
+        run: go test ./internal/clientguide/ ./scripts/client-lab/...
+
+      # Static binaries: both run in a minimal container next to the clients.
+      - name: Build the proxy and the lab's name server
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p lab-bin
+          go build -o lab-bin/pullthrough ./cmd/pullthrough
+          go build -o lab-bin/dnslog ./scripts/client-lab/dnslog
+
+      # One job per client image, derived from the scripts themselves: a new
+      # script gets its run without touching this workflow.
+      - name: Derive the job matrix from the client scripts
+        id: matrix
+        run: |
+          matrix="$(scripts/client-lab/lab.sh matrix)"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "${matrix}"
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-lab-bin
+          path: lab-bin
+          retention-days: 1
+
+  lab:
+    name: Lab · ${{ matrix.group.name }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.build.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: client-lab-bin
+          path: lab-bin
+
+      - name: Start the lab
+        run: |
+          chmod +x lab-bin/pullthrough lab-bin/dnslog
+          echo "CLIENT_LAB_DIR=$RUNNER_TEMP/client-lab" >> "$GITHUB_ENV"
+          CLIENT_LAB_DIR="$RUNNER_TEMP/client-lab" \
+          CLIENT_LAB_PROXY_BIN="$PWD/lab-bin/pullthrough" \
+          CLIENT_LAB_DNSLOG_BIN="$PWD/lab-bin/dnslog" \
+            scripts/client-lab/lab.sh up
+
+      - name: Run the clients of ${{ matrix.group.image }}
+        env:
+          CLIENTS: ${{ matrix.group.clients }}
+        run: |
+          rc=0
+          for client in $CLIENTS; do
+            scripts/client-lab/lab.sh run "$client" || rc=1
+          done
+          exit "$rc"
+
+      - name: Show the logs of failed runs
+        if: failure()
+        run: |
+          for result in "$CLIENT_LAB_DIR"/results/*.tsv; do
+            [ -s "$result" ] || continue
+            if [ "$(cut -f3 "$result")" != 0 ]; then
+              echo "::group::$(cut -f2 "$result")/$(cut -f1 "$result")"
+              scripts/client-lab/lab.sh logs "$(cut -f1 "$result")" "$(cut -f2 "$result")" || true
+              echo "::endgroup::"
+            fi
+          done
+
+      # The result rows; the report job assembles them.
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-lab-results-${{ matrix.group.name }}
+          path: ${{ runner.temp }}/client-lab/results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  report:
+    name: Client lab · report
+    needs: lab
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: client-lab-results-*
+          path: ${{ runner.temp }}/client-lab/results
+          merge-multiple: true
+
+      # The table of docs/client-lab.md, for this run.
+      - name: Publish the result table
+        env:
+          CLIENT_LAB_DIR: ${{ runner.temp }}/client-lab
+        run: |
+          {
+            echo "## Client lab"
+            echo
+            scripts/client-lab/lab.sh report
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the result table
+        env:
+          CLIENT_LAB_DIR: ${{ runner.temp }}/client-lab
+        run: scripts/client-lab/lab.sh report > client-lab-report.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-lab-report
+          path: client-lab-report.md
+          retention-days: 30
+
+      # A script that never ran is as red as one that failed.
+      - name: Every script passed in every mode it is for
+        env:
+          CLIENT_LAB_DIR: ${{ runner.temp }}/client-lab
+        run: scripts/client-lab/lab.sh check

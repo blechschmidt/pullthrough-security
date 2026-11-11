@@ -28,7 +28,9 @@ metrics plus an admin dashboard.
 > [threat model](docs/threat-model.md), and the [admin runbook](docs/runbook.md).
 > For a screenshot tour of the admin dashboard, see the
 > [admin UI walkthrough](docs/admin-ui-walkthrough.md).
-> To point tooling at the proxy, start with [docs/clients.md](docs/clients.md).
+> To point tooling at the proxy, start with [docs/clients.md](docs/clients.md):
+> one page per package manager — what to configure, how to hand it a token and
+> a private CA, how to check it works, and what it does to your lock files.
 >
 > **Every ecosystem is tested with its real package manager.** On each push, CI
 > runs the real `npm`, `pip`, `cargo`, `go`, `dotnet`, `mvn`, Docker Engine,
@@ -42,6 +44,16 @@ metrics plus an admin dashboard.
 > [docs/ecosystem-tests.md](docs/ecosystem-tests.md); the verified client
 > configuration for each ecosystem is in
 > [docs/ecosystem-tests-reference.md](docs/ecosystem-tests-reference.md).
+>
+> **The client guide is executed, too.** Every configuration snippet in
+> [docs/clients/](docs/clients.md) is, line for line, in a script that the real
+> client runs — in the ecosystem tests, or in the
+> [client lab](docs/client-lab.md), which serves the proxy over HTTPS with a
+> private CA, with and without a required token, to some sixty client
+> configurations (Yarn, pnpm, Bun, uv, Poetry, Gradle, containerd, skopeo,
+> OpenTofu, micromamba, …) on a network where the proxy is the only reachable
+> host and every name a client looks up is recorded. A test fails when a
+> snippet and its script drift apart.
 >
 > **Who pulled what.** The admin console's Downloads tab (and
 > `GET /admin/api/downloads`, `ptctl downloads`) lists every package download
@@ -80,7 +92,8 @@ For a deeper walkthrough see [docs/architecture.md](docs/architecture.md).
 | `internal/proxy`         | Core gateway: routing, request lifecycle, graceful shutdown.          |
 | `internal/backends`      | `Backend` interface (`Resolve`/`Fetch`) and the backend `Registry`.   |
 | `internal/backends/httpbackend` | Generic HTTP pull-through engine: routing, conditional fetch, credential injection, index-document rewriting. |
-| `internal/backends/pkgmgr` | Per-ecosystem backends (pip, npm, cargo, Go modules, NuGet) built on the HTTP engine. See [docs/clients.md](docs/clients.md). |
+| `internal/backends/pkgmgr` | Per-ecosystem backends (pip, npm, cargo, Go modules, NuGet) built on the HTTP engine. See [docs/backends.md](docs/backends.md). |
+| `internal/clientguide`   | Keeps the client guide honest: every fenced block of `docs/clients.md` and `docs/clients/*.md` carries a marker naming the scripts that execute it (an ecosystem test script, or a client-lab script under `scripts/client-lab`), and tests fail when a line of a block is in none of them, when an upstream type has no page, or when a link does not resolve. |
 | `internal/cache`         | `Cache` interface + in-memory and content-addressable filesystem stores (LRU + TTL, single-flight, metrics). |
 | `internal/scan`          | `Scanner` interface and finding/severity model.                       |
 | `internal/vulnscan`      | CycloneDX SBOM generation + pluggable vulnerability scanning (OSV.dev by default), result caching by digest, and the CVSS/severity admission gate. |

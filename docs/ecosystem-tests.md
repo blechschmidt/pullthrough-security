@@ -27,6 +27,12 @@ The verified client configuration for each ecosystem — the exact script CI run
 — is published in **[ecosystem-tests-reference.md](ecosystem-tests-reference.md)**
 (generated from the test catalog, so it cannot drift from what is tested).
 
+These tests run the proxy on loopback, over plain HTTP and without access
+control, with one client per ecosystem. What a deployment adds — a private CA
+to trust, a token to present — and the other clients of an ecosystem are
+covered by the **[client lab](client-lab.md)**, and both stand behind the
+[client guide](clients.md).
+
 ## What is asserted
 
 Each ecosystem runs the same five checks — the Rust and Go ecosystems a sixth —
@@ -241,8 +247,13 @@ Running real clients surfaced behaviour that matters when deploying the proxy:
   (`X-Repo-Commit`, `X-Linked-Etag`) and rejects a response without them, so the
   proxy persists those headers with the cached file and replays them on a hit.
 - **Composer keeps consulting packagist.org** unless the default repository is
-  replaced or switched off; listing the proxy as an additional repository is not
-  enough.
+  switched off (`"packagist.org": false`). Listing the proxy as an additional
+  repository is not enough — and neither is redefining `packagist`, which this
+  suite used to do: Composer 2.11 then installs from the proxy and still asks
+  `repo.packagist.org`. A client container has no network, so the install
+  passed regardless; the [client lab](client-lab.md), which records the names a
+  client looks up, showed it. The script now switches packagist.org off and
+  runs `composer audit`, which fails when a repository it asks is unreachable.
 - **The first pull of a large package can outlast a client's timeout.** The
   proxy scans an artifact before it serves the first byte, so the time to first
   byte includes the upstream download and the content scan. `pip`'s default read
