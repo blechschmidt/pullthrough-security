@@ -2,7 +2,9 @@ package continuity
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -271,4 +273,73 @@ func TestNamespaceForDerivation(t *testing.T) {
 			t.Errorf("namespaceFor(%q,%q)=%q want %q", c.eco, c.name, got, c.want)
 		}
 	}
+}
+
+// Check is called from every request's goroutine, and the first thing it does
+// is count the request for its ecosystem — before it takes the roster lock.
+// That counter lives in a map; unguarded, two first requests for an ecosystem
+// write it at once, and the Go runtime kills the process for that ("fatal
+// error: concurrent map writes"). It took the real-client Go suite down in CI:
+// a module download starts with requests in parallel.
+//
+// Run under -race this fails on the first unsynchronized access; without it,
+// the unguarded code dies in the runtime within a few rounds.
+func TestCheckIsSafeForConcurrentRequests(t *testing.T) {
+	res := resolverFunc(func(_ context.Context, c Coordinate) (Identity, bool, error) {
+		if c.Name == "known" {
+			return Identity{Maintainers: []string{"alice"}}, true, nil
+		}
+		return Identity{}, false, nil
+	})
+	const ecosystems, perEcosystem = 24, 12
+	for round := 0; round < 20; round++ {
+		// A fresh service each round: the fatal write is the first one for a key.
+		svc, _, _ := newService(t, Config{Resolver: res, Cooldown: time.Hour, DefaultDisposition: DispositionBlock})
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for e := 0; e < ecosystems; e++ {
+			eco := fmt.Sprintf("eco%02d", e)
+			for i := 0; i < perEcosystem; i++ {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					<-start
+					// Every path through Check that counts: no name (returns after
+					// the first count), an unknown publisher, first use and repeat.
+					switch i % 4 {
+					case 0:
+						svc.Check(context.Background(), "t", Coordinate{Ecosystem: eco}, Identity{})
+					case 1:
+						svc.Check(context.Background(), "t", Coordinate{Ecosystem: eco, Name: "nobody-knows", Version: "1"}, Identity{})
+					default:
+						svc.Check(context.Background(), "t", Coordinate{Ecosystem: eco, Name: "known", Version: fmt.Sprint(i)}, Identity{})
+					}
+					_ = svc.Metrics() // a metrics scrape reads the same counters
+				}(i)
+			}
+		}
+		close(start)
+		wg.Wait()
+
+		snap := svc.Metrics()
+		if want := uint64(ecosystems * perEcosystem); snap.Checks != want {
+			t.Fatalf("round %d: %d checks counted, want %d", round, snap.Checks, want)
+		}
+		if len(snap.ChecksByEco) != ecosystems {
+			t.Fatalf("round %d: %d ecosystems counted, want %d", round, len(snap.ChecksByEco), ecosystems)
+		}
+		for eco, n := range snap.ChecksByEco {
+			if n != perEcosystem {
+				t.Fatalf("round %d: %s counted %d checks, want %d — a lost update", round, eco, n, perEcosystem)
+			}
+		}
+	}
+}
+
+// resolverFunc is a stateless PublisherResolver, safe to call from any number
+// of goroutines (stubResolver counts its calls without a lock).
+type resolverFunc func(context.Context, Coordinate) (Identity, bool, error)
+
+func (f resolverFunc) Publishers(ctx context.Context, c Coordinate) (Identity, bool, error) {
+	return f(ctx, c)
 }

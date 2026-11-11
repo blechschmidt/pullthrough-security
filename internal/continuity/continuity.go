@@ -307,7 +307,13 @@ type Service struct {
 	records map[string]*record // (eco\x00name) -> known-maintainer set
 	idCache map[string]idEntry // (eco\x00name\x00version) -> resolved identity
 	idOrder []string           // FIFO of id-cache keys for bounded eviction
-	byEco   map[string]*ecoCounters
+
+	// ecoMu guards byEco and the counters in it. It is a lock of its own because
+	// the counters are advanced from both sides of mu: Check counts a request
+	// before it takes mu and again while it holds it. Where both locks are held,
+	// mu is taken first; nothing takes mu while holding ecoMu.
+	ecoMu sync.Mutex
+	byEco map[string]*ecoCounters
 }
 
 // New constructs a Service from cfg, applying defaults for any unset bound and
@@ -697,7 +703,17 @@ func (s *Service) storeID(key string, e idEntry) {
 	s.idCache[key] = e
 }
 
+// incEco applies a mutation to the per-ecosystem counters, under their lock.
+// It is called with and without mu held (see ecoMu).
+//
+// It used to touch the map with no lock at all on the paths that run before mu
+// is taken — the first thing every Check does. Two first requests for an
+// ecosystem arriving together then wrote the map concurrently, which the Go
+// runtime answers by killing the process ("fatal error: concurrent map
+// writes"): any two clients could take the proxy down.
 func (s *Service) incEco(eco string, f func(*ecoCounters)) {
+	s.ecoMu.Lock()
+	defer s.ecoMu.Unlock()
 	e := s.byEco[eco]
 	if e == nil {
 		e = &ecoCounters{}

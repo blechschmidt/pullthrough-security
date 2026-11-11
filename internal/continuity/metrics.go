@@ -49,12 +49,14 @@ func (s *Service) Metrics() Snapshot {
 			snap.PendingNow++
 		}
 	}
+	s.mu.Unlock()
+	s.ecoMu.Lock()
 	for eco, c := range s.byEco {
 		snap.ChecksByEco[eco] = c.checks
 		snap.DriftsByEco[eco] = c.drift
 		snap.BlocksByEco[eco] = c.blocked
 	}
-	s.mu.Unlock()
+	s.ecoMu.Unlock()
 	return snap
 }
 
