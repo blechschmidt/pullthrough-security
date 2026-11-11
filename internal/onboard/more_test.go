@@ -138,7 +138,7 @@ func TestGoSnippetHasNoDirectFallback(t *testing.T) {
 // Git sends a token in the URL only in answer to a Basic challenge, which the
 // proxy does not send: the token is a request header instead, and no URL the
 // snippet prints carries it.
-func TestGitSnippetKeepsTheTokenOutOfURLs(t *testing.T) {
+func TestGitSnippetSendsTheTokenAsAHeader(t *testing.T) {
 	snip := single(t, ctx("tok"), Backend{Name: "x", Type: "git", URL: "https://github.com"})
 	want := "git config --global http.https://proxy.example.com/.extraHeader \"Authorization: Bearer tok\"\n"
 	if !strings.Contains(snip.Body, want) {
