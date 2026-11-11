@@ -65,6 +65,11 @@ type Resolved struct {
 	// Metadata carries backend-specific attributes to persist with the cache
 	// entry.
 	Metadata map[string]string
+	// Artifact classifies the resource for the content gates: an installable
+	// payload, a metadata document, or — the zero value — a resource the backend
+	// cannot name, which a gate judges from its bytes. Every backend sets it for
+	// every path its protocol grammar identifies (see ArtifactClass).
+	Artifact Artifact
 }
 
 // ResponseHeaderMetaPrefix marks a Resolved.Metadata key whose value is a

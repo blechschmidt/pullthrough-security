@@ -1,6 +1,10 @@
 package cpan
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A CPAN mirror (and every CPAN-compatible mirror — a local minicpan, an
 // Artifactory CPAN repository, the MetaCPAN-fronted www.cpan.org CDN) is a
@@ -68,6 +72,9 @@ type resource struct {
 	// coordinate, so such a file is still verified against CHECKSUMS.
 	name    string
 	version string
+	// masterIndex marks a file that sits directly in the modules/ directory
+	// ("modules/<file>"), where a mirror keeps its master indices.
+	masterIndex bool
 }
 
 // classify parses an inbound path into a resource. It returns ok=false for paths
@@ -101,7 +108,7 @@ func classify(path string) (resource, bool) {
 			return resource{kind: kindDistribution, filename: filename, name: name, version: version}, true
 		}
 	}
-	return resource{kind: kindIndex, filename: filename}, true
+	return resource{kind: kindIndex, filename: filename, masterIndex: top == "modules" && len(segs) == 2}, true
 }
 
 // parseDistFilename decodes a CPAN distribution filename into its coordinate. A
@@ -175,6 +182,46 @@ func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 // CHECKSUMS, and sidecar documents are mutable and revalidated live.
 func (r resource) cacheable() bool {
 	return r.kind == kindDistribution
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A distribution archive is what a CPAN client
+// unpacks, builds and installs, running its Makefile.PL or Build.PL: the
+// payload.
+//
+// kindIndex is not one class. classify gives it to every accepted path that is
+// not a recognized distribution in the author tree, so of those only the ones
+// the mirror layout positively identifies as documents are called metadata:
+//
+//   - a CHECKSUMS file, and a distribution's .meta and .readme sidecars, by
+//     name, wherever they are served from;
+//   - a file directly in modules/, where a mirror keeps its master indices
+//     (02packages.details.txt.gz, 03modlist.data.gz, 06perms.txt.gz).
+//
+// Everything else is left unclassified, for a gate to judge from the bytes:
+//
+//   - any other file in the author tree. An author directory holds whatever
+//     its owner uploaded, including archives in a format distExtensions does
+//     not list (.tar, .tar.Z, a gzipped single module);
+//   - anything deeper under modules/. The by-module/, by-category/ and
+//     by-authors/ trees there are views of the author directories and serve
+//     the very same distribution archives, which classify recognizes only
+//     under authors/.
+//
+// A name parseDistFilename accepts is never called metadata, whatever
+// directory it is in.
+func (r resource) artifact() backends.Artifact {
+	if r.kind == kindDistribution {
+		return backends.Payload()
+	}
+	if _, _, isDist := parseDistFilename(r.filename); isDist {
+		return backends.Artifact{}
+	}
+	if r.masterIndex || r.filename == checksumsFile ||
+		strings.HasSuffix(r.filename, ".meta") || strings.HasSuffix(r.filename, ".readme") {
+		return backends.Metadata()
+	}
+	return backends.Artifact{}
 }
 
 // verifiableFile reports whether the resource is a distribution the backend

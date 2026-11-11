@@ -11,7 +11,10 @@
 //     documents;
 //   - an index-document Rewriter that rewrites embedded artifact URLs so clients
 //     fetch dependent content back through the proxy rather than going direct to
-//     the upstream.
+//     the upstream;
+//   - a Classifier that tells the content gates which paths are installable
+//     payloads and which are metadata documents, and says nothing about a path
+//     the registry protocol does not define.
 //
 // Construct a backend with Build (dispatching on the ecosystem type) or with the
 // per-ecosystem constructors (NewNPM, NewPyPI, NewCargo, NewGoProxy, NewNuGet).
@@ -117,6 +120,74 @@ func (o Options) validate() error {
 		return fmt.Errorf("pkgmgr %q: upstream client is required", o.Name)
 	}
 	return nil
+}
+
+// plainSegments splits a request path into its segments for the classifiers
+// (npmClassify and its siblings) that decide whether the path names a metadata
+// document. It reports ok=false unless the path is plain: a leading slash, then
+// non-empty segments written only in the characters of package names, versions
+// and the registries' fixed path elements.
+//
+// A resource classified as metadata is served without being examined, so the
+// claim has to hold for the bytes the upstream actually answers with. The
+// generic engine forwards a request path as written, and the gateway hands it
+// over percent-decoded, so a client can send what no package manager would: "."
+// and ".." segments, a doubled slash, a backslash, a ";" path parameter, a
+// second layer of percent-encoding. Upstream servers resolve each of these in
+// their own way — to a path other than the one the classifier read. Such a path
+// names nothing a registry protocol defines: it is left unclassified, and a gate
+// judges the response from its bytes.
+func plainSegments(p string) (segs []string, ok bool) {
+	if !strings.HasPrefix(p, "/") {
+		return nil, false
+	}
+	segs = strings.Split(p[1:], "/")
+	for _, s := range segs {
+		if !plainSegment(s) {
+			return nil, false
+		}
+	}
+	return segs, true
+}
+
+// plainSegment reports whether s is a plain path segment: not empty, not a dot
+// segment, and written only in plain path bytes.
+func plainSegment(s string) bool {
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !plainPathByte(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// plainPathByte reports whether c may appear in a plain path segment: letters,
+// digits, and the punctuation names and versions are written with — "." "_" "-"
+// "~", "+" (version build metadata), "!" (Go's case escape, a PEP 440 epoch) and
+// "@" (an npm scope, the GOPROXY "@v" and "@latest" elements).
+func plainPathByte(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	switch c {
+	case '.', '_', '-', '~', '+', '!', '@':
+		return true
+	}
+	return false
+}
+
+// hasAnySuffix reports whether s ends with one of suffixes.
+func hasAnySuffix(s string, suffixes []string) bool {
+	for _, sfx := range suffixes {
+		if strings.HasSuffix(s, sfx) {
+			return true
+		}
+	}
+	return false
 }
 
 // rewriteRule maps an absolute upstream URL prefix onto a proxy prefix.

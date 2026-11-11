@@ -191,6 +191,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			"backend": b.name,
 			metaKind:  res.kindLabel(),
 		},
+		Artifact: res.artifact(),
 	}
 
 	// Attach the package coordinate (pool artifacts only) so nameguard, policy,

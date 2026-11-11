@@ -63,6 +63,7 @@ func buildLLMPkgScan(cfg *config.Config, auditLog *audit.Logger, notifier *notif
 		Thinking:            thinking,
 		Action:              llmpkgscan.Action(strings.ToLower(strings.TrimSpace(lc.Action))),
 		FailMode:            failMode,
+		Oversize:            llmpkgscan.Oversize(strings.ToLower(strings.TrimSpace(lc.Oversize))),
 		MaliciousThreshold:  lc.MaliciousThreshold,
 		SuspiciousThreshold: lc.SuspiciousThreshold,
 		Timeout:             lc.Timeout,
@@ -121,7 +122,7 @@ func buildLLMPkgScan(cfg *config.Config, auditLog *audit.Logger, notifier *notif
 	st := svc.Status()
 	logger.Info("LLM package-content scan gate enabled",
 		"provider", st.Provider, "model", st.Model, "toolUse", st.ToolUse, "thinking", st.Thinking,
-		"action", st.Action, "failMode", st.FailMode, "ecosystems", st.Ecosystems, "excludedUpstreams", st.ExcludedUpstreams,
+		"action", st.Action, "failMode", st.FailMode, "oversize", st.Oversize, "ecosystems", st.Ecosystems, "excludedUpstreams", st.ExcludedUpstreams,
 		"timeout", lc.Timeout, "budget", lc.Budget.Enabled, "persistent", store != nil)
 	if !lc.Budget.Enabled || (lc.Budget.GlobalCeilingUSD <= 0 && lc.Budget.TenantCeilingUSD <= 0 && len(lc.Budget.TenantCeilingsUSD) == 0) {
 		logger.Warn("LLM package-content scan has no cost ceiling (llmPackageScan.budget): every distinct artifact a client pulls is a paid scan, so spend is bounded only by what clients request")

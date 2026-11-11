@@ -165,6 +165,8 @@ var signalRules = []signalRule{
 		"child_process", "execSync", "spawnSync", "os.system(", "subprocess.", "popen(", "Runtime.getRuntime",
 		"ProcessBuilder", "shell_exec(", "passthru(", "proc_open(", "Process.Start", "IO.popen", "Command::new",
 		"std::process", "Start-Process", "os/exec", "WScript.Shell", "ShellExecute",
+		"local-exec", "remote-exec", "repository_ctx.execute", "ctx.execute(", "System.cmd(", "os:cmd(", ":os.cmd(",
+		"run(`", "system2(", "posix.system", "nt.system", "posix.popen", "subprocess.Popen", "builtins.exec", "builtins.eval",
 	}},
 	{name: "eval", boost: 15, needles: []string{
 		"new Function(", "exec(compile(", "__import__(", "importlib.import_module", "marshal.loads", "pickle.loads",
@@ -196,6 +198,12 @@ var signalRules = []signalRule{
 		"LaunchDaemons", "schtasks", "HKEY_", `CurrentVersion\Run`, `CurrentVersion\\Run`, "authorized_keys", "/etc/rc.local",
 		".config/autostart",
 	}},
+	// A container or cluster workload that asks for the host: the things a
+	// malicious image config, Helm chart or manifest reaches for.
+	{name: "host-access", boost: 15, needles: []string{
+		"helm.sh/hook", "privileged: true", "hostPID: true", "hostNetwork: true", "hostIPC: true", "/var/run/docker.sock",
+		"hostPath:", "cluster-admin", "nsenter ", "--privileged", "CAP_SYS_ADMIN", "chroot /host", "LD_PRELOAD",
+	}},
 	{name: "obfuscation", boost: 15, match: looksObfuscated},
 }
 
@@ -224,11 +232,15 @@ func containsWord(data []byte, needle string) bool {
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 // hasIPPort reports a literal "a.b.c.d:port" — a hard-coded address to talk to.
-func hasIPPort(data []byte) bool {
+func hasIPPort(data []byte) bool { return indexIPPort(data) >= 0 }
+
+// indexIPPort returns the offset of the colon of the first literal
+// "a.b.c.d:port" in data, or -1.
+func indexIPPort(data []byte) int {
 	for off := 0; off < len(data); {
 		i := bytes.IndexByte(data[off:], ':')
 		if i < 0 {
-			return false
+			return -1
 		}
 		colon := off + i
 		off = colon + 1
@@ -260,10 +272,10 @@ func hasIPPort(data []byte) bool {
 			}
 		}
 		if groups == 4 && (q == 0 || (!isDigit(data[q-1]) && data[q-1] != '.')) {
-			return true
+			return colon
 		}
 	}
-	return false
+	return -1
 }
 
 // looksObfuscated reports the textures of packed or encoded code: a very long
@@ -332,11 +344,31 @@ func isHexByte(c byte) bool {
 	return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
+// Score bands for binaries. A binary's strings rank below ordinary source
+// unless they say something: the signal pass lifts the ones that do.
+const (
+	scoreBinary     = 6  // any binary with a strings view
+	scoreExecutable = 12 // machine code, or a member marked executable
+)
+
 // rankFiles scores every file in the tree.
 func rankFiles(t *Tree) {
 	referenced := npmScriptReferences(t)
 	for _, f := range t.Files {
-		f.Score, f.Role = baseScore(f.Path)
+		// A file is ranked by where it sits in its own container: for a file of
+		// an image layer that is its path in the layer's root filesystem, not the
+		// directory the tree files the layer under.
+		rel := f.Path
+		if _, inLayer, ok := layerRelative(f.Path); ok {
+			rel = inLayer
+		}
+		f.Score, f.Role = baseScore(rel)
+		if r, ok := matchPathRule(rel); ok {
+			if r.score > f.Score {
+				f.Score = r.score
+			}
+			f.Role = r.role
+		}
 		if ref, ok := referenced[f.Path]; ok {
 			if f.Score < ref.score {
 				f.Score = ref.score
@@ -344,9 +376,39 @@ func rankFiles(t *Tree) {
 			f.Role = ref.role
 		}
 		if f.Binary {
-			// A binary cannot be read, so it should not crowd out text; it still
-			// appears in the listing, described.
-			f.Score = 0
+			if !f.Strings {
+				// Nothing of it can be shown, so it must not crowd out what can; it
+				// still appears in the listing, described.
+				f.Score = 0
+				continue
+			}
+			// The path says what it is for (a set-uid helper, an entrypoint); the
+			// strings say what is in it.
+			base := scoreBinary
+			if f.Exec || executableKind(f.Kind) {
+				base = scoreExecutable
+			}
+			if strings.HasPrefix(f.Kind, kindPickle) {
+				// A pickle is a program: loading it runs what it imports.
+				base = scoreEntry
+				if f.Role == "" {
+					f.Role = "Python pickle: unpickling it calls what it imports"
+				}
+			}
+			if f.SetID {
+				base += 10
+				if f.Role == "" {
+					f.Role = "set-uid/set-gid executable: runs with its owner's privileges"
+				}
+			}
+			var boosted int
+			f.Signals, boosted = applySignalsTo(f.Data, base, false)
+			if boosted > f.Score || f.Role == "" {
+				f.Score = boosted
+			}
+			if f.Score < 1 {
+				f.Score = 1
+			}
 			continue
 		}
 		if f.Readable() && !docExt[strings.ToLower(path.Ext(f.Path))] {
@@ -359,6 +421,216 @@ func rankFiles(t *Tree) {
 			f.Score = 1
 		}
 	}
+}
+
+// pathRule scores a file by where it sits. It is how the files that a package
+// manager, an init system or a shell runs by itself are recognized in formats
+// whose install-time code is identified by location rather than by name: a
+// Debian maintainer script, an RPM scriptlet, a conda link script, a cron job
+// in an image layer.
+//
+// A rule matches when every field that is set agrees. Paths are lower-cased and
+// relative to the root of the container the file is in.
+type pathRule struct {
+	dir     string // the parent directory, exactly
+	dirPre  string // the path starts with this directory
+	dirSuf  string // the parent directory ends with this path
+	base    string // the file name, exactly
+	basePre string // the file name starts with this
+	baseSuf string // the file name ends with this
+	rule    nameRule
+}
+
+func (r pathRule) matches(dir, base string) bool {
+	if r.base != "" && base != r.base {
+		return false
+	}
+	if r.basePre != "" && !strings.HasPrefix(base, r.basePre) {
+		return false
+	}
+	if r.baseSuf != "" && !strings.HasSuffix(base, r.baseSuf) {
+		return false
+	}
+	if r.dir != "" && dir != r.dir {
+		return false
+	}
+	if r.dirPre != "" && dir != r.dirPre && !strings.HasPrefix(dir, r.dirPre+"/") {
+		return false
+	}
+	if r.dirSuf != "" && dir != r.dirSuf && !strings.HasSuffix(dir, "/"+r.dirSuf) {
+		return false
+	}
+	return true
+}
+
+// Shorthands for the roles that recur.
+const (
+	roleDebScript  = "Debian maintainer script: run as root by dpkg when the package is installed, upgraded or removed"
+	roleRPMScript  = "RPM scriptlet (from the package header): run as root by rpm when the package is installed, upgraded or removed"
+	roleRPMTrigger = "RPM trigger script (from the package header): run as root by rpm when the packages or files it names change"
+	roleCron       = "cron job: run periodically, as root unless it names another user"
+	roleShellInit  = "shell start-up file: sourced by login or interactive shells"
+	roleSystemd    = "systemd unit: starts a service, timer or socket"
+	roleEntrypoint = "container entrypoint script"
+	rolePkgMgrConf = "package-manager configuration: can add repositories and hooks that run on every install"
+)
+
+// pathRules is the table, first match wins.
+var pathRules = []pathRule{
+	// --- Debian packages (control members are filed under DEBIAN/) ---
+	{dir: "debian", base: "preinst", rule: nameRule{scoreAutoExec, roleDebScript}},
+	{dir: "debian", base: "postinst", rule: nameRule{scoreAutoExec, roleDebScript}},
+	{dir: "debian", base: "prerm", rule: nameRule{scoreAutoExec, roleDebScript}},
+	{dir: "debian", base: "postrm", rule: nameRule{scoreAutoExec, roleDebScript}},
+	{dir: "debian", base: "config", rule: nameRule{scoreAutoExec, "Debian debconf script: run as root by dpkg before the package is unpacked"}},
+	{dir: "debian", base: "control", rule: nameRule{scoreManifest, "Debian control file: the package's name, version and dependencies"}},
+	{dir: "debian", base: "triggers", rule: nameRule{scoreConfig + 10, "Debian triggers file: names what re-runs the maintainer scripts"}},
+	{dir: "debian", rule: nameRule{scoreConfig, "Debian control member"}},
+
+	// --- RPM packages (composed from the header by the proxy) ---
+	{dir: "rpm/scriptlets", rule: nameRule{scoreAutoExec, roleRPMScript}},
+	{dir: "rpm/triggers", rule: nameRule{scoreAutoExec - 5, roleRPMTrigger}},
+	{dir: "rpm/filetriggers", rule: nameRule{scoreAutoExec - 5, roleRPMTrigger}},
+	{dir: "rpm/transfiletriggers", rule: nameRule{scoreAutoExec - 5, roleRPMTrigger}},
+	{dir: "rpm", base: "header.txt", rule: nameRule{scoreManifest, "RPM header summary: name, version, dependencies (composed by the proxy)"}},
+	{dir: "rpm", base: "files.txt", rule: nameRule{scoreConfig + 10, "the files the RPM header lists (the payload itself was not fully read)"}},
+
+	// --- conda packages ---
+	{baseSuf: "-post-link.sh", rule: nameRule{scoreAutoExec, "conda post-link script: run at install"}},
+	{baseSuf: "-pre-link.sh", rule: nameRule{scoreAutoExec, "conda pre-link script: run at install"}},
+	{baseSuf: "-pre-unlink.sh", rule: nameRule{scoreAutoExec, "conda pre-unlink script: run at removal"}},
+	{baseSuf: "-post-link.bat", rule: nameRule{scoreAutoExec, "conda post-link script: run at install"}},
+	{baseSuf: "-pre-link.bat", rule: nameRule{scoreAutoExec, "conda pre-link script: run at install"}},
+	{baseSuf: "-pre-unlink.bat", rule: nameRule{scoreAutoExec, "conda pre-unlink script: run at removal"}},
+	{dirSuf: "etc/conda/activate.d", rule: nameRule{scoreAutoExec - 5, "conda activation script: sourced whenever the environment is activated"}},
+	{dirSuf: "etc/conda/deactivate.d", rule: nameRule{scoreAutoExec - 10, "conda deactivation script"}},
+	{dir: "info/recipe", base: "meta.yaml", rule: nameRule{scoreManifest, "conda recipe: how the package was built"}},
+	{dir: "info", base: "index.json", rule: nameRule{scoreManifest, "conda package metadata"}},
+	{dir: "info/recipe", rule: nameRule{scoreBuild, "conda recipe file"}},
+
+	// --- a root filesystem: OS packages, Nix archives, image layers ---
+	{dir: "etc", base: "ld.so.preload", rule: nameRule{scoreAutoExec, "ld.so.preload: libraries loaded into every dynamically linked process"}},
+	{dir: "etc", base: "crontab", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dir: "etc/cron.d", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dir: "etc/cron.hourly", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dir: "etc/cron.daily", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dir: "etc/cron.weekly", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dir: "etc/cron.monthly", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dirPre: "var/spool/cron", rule: nameRule{scoreAutoExec - 10, roleCron}},
+	{dir: "etc", base: "profile", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{dir: "etc", base: "bash.bashrc", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{dir: "etc", base: "environment", rule: nameRule{scoreScript, "system-wide environment"}},
+	{dir: "etc/profile.d", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{base: ".bashrc", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{base: ".bash_profile", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{base: ".profile", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{base: ".zshrc", rule: nameRule{scoreAutoExec - 10, roleShellInit}},
+	{base: "authorized_keys", rule: nameRule{scoreManifest + 5, "SSH authorized keys: who may log in"}},
+	{dir: "etc", base: "rc.local", rule: nameRule{scoreAutoExec - 10, "rc.local: run at boot"}},
+	{dir: "etc/init.d", rule: nameRule{scoreScript + 10, "init script: run at boot"}},
+	{dir: "etc", base: "sudoers", rule: nameRule{scoreManifest, "sudo policy"}},
+	{dir: "etc/sudoers.d", rule: nameRule{scoreManifest, "sudo policy"}},
+	{dir: "etc", base: "passwd", rule: nameRule{scoreConfig + 15, "account database"}},
+	{dir: "etc", base: "shadow", rule: nameRule{scoreConfig + 15, "password database"}},
+	{dirPre: "etc/apt", rule: nameRule{scoreScript, rolePkgMgrConf}},
+	{dir: "etc/yum.repos.d", rule: nameRule{scoreScript, rolePkgMgrConf}},
+	{dirPre: "etc/dnf", rule: nameRule{scoreScript, rolePkgMgrConf}},
+	{dir: "etc/pip.conf", rule: nameRule{scoreScript, rolePkgMgrConf}},
+	{dirPre: "etc/udev/rules.d", rule: nameRule{scoreScript, "udev rule: can run a program when a device appears"}},
+	{dirPre: "etc/pam.d", rule: nameRule{scoreConfig + 15, "PAM configuration: decides how logins are authenticated"}},
+	{dirSuf: "systemd/system", baseSuf: ".service", rule: nameRule{scoreScript + 10, roleSystemd}},
+	{dirSuf: "systemd/system", baseSuf: ".timer", rule: nameRule{scoreScript + 10, roleSystemd}},
+	{dirSuf: "systemd/system", baseSuf: ".socket", rule: nameRule{scoreScript + 10, roleSystemd}},
+	{dirSuf: "systemd/user", baseSuf: ".service", rule: nameRule{scoreScript + 10, roleSystemd}},
+	{base: "docker-entrypoint.sh", rule: nameRule{scoreAutoExec - 10, roleEntrypoint}},
+	{base: "entrypoint.sh", rule: nameRule{scoreAutoExec - 10, roleEntrypoint}},
+	{dirSuf: "docker-entrypoint.d", rule: nameRule{scoreAutoExec - 10, roleEntrypoint}},
+	{dirSuf: "nix-support", base: "setup-hook", rule: nameRule{scoreAutoExec - 10, "Nix setup hook: sourced by every build that depends on this store path"}},
+	{dirSuf: "nix-support", rule: nameRule{scoreConfig + 10, "Nix support file"}},
+
+	// --- Java ---
+	{dir: "meta-inf", base: "manifest.mf", rule: nameRule{scoreManifest, "JAR manifest: Main-Class, Premain-Class / Agent-Class, Class-Path"}},
+	{dir: "meta-inf/services", rule: nameRule{scoreEntry, "Java ServiceLoader registration: names a class the JVM loads by itself"}},
+	{dirSuf: "meta-inf/maven", base: "plugin.xml", rule: nameRule{scoreManifest, "Maven plugin descriptor: the goals the plugin runs in a build"}},
+	{dir: ".mvn", base: "extensions.xml", rule: nameRule{scoreAutoExec - 5, "Maven core extensions: loaded into every build of the project"}},
+	{dirSuf: "gradle/wrapper", base: "gradle-wrapper.properties", rule: nameRule{scoreManifest, "Gradle wrapper configuration: the distribution URL the wrapper downloads and runs"}},
+	{dirSuf: ".mvn/wrapper", base: "maven-wrapper.properties", rule: nameRule{scoreManifest, "Maven wrapper configuration: the distribution URL the wrapper downloads and runs"}},
+	{base: "settings.gradle", rule: nameRule{scoreBuild, "Gradle settings script"}},
+	{base: "settings.gradle.kts", rule: nameRule{scoreBuild, "Gradle settings script"}},
+	{base: "init.gradle", rule: nameRule{scoreAutoExec - 5, "Gradle init script: run before every build"}},
+
+	// --- Helm charts, Terraform, Ansible, Puppet ---
+	{base: "chart.yaml", rule: nameRule{scoreManifest, "Helm chart metadata"}},
+	{base: "values.yaml", rule: nameRule{scoreConfig + 15, "Helm chart default values"}},
+	{dirSuf: "templates", baseSuf: ".yaml", rule: nameRule{scoreSource + 15, "Helm template: rendered into the Kubernetes objects the chart creates"}},
+	{dirSuf: "templates", baseSuf: ".yml", rule: nameRule{scoreSource + 15, "Helm template: rendered into the Kubernetes objects the chart creates"}},
+	{dirSuf: "templates", baseSuf: ".tpl", rule: nameRule{scoreSource + 10, "Helm template helpers"}},
+	{baseSuf: ".tf", rule: nameRule{scoreSource + 20, "Terraform configuration: provisioners and external data sources run commands"}},
+	{baseSuf: ".tf.json", rule: nameRule{scoreSource + 20, "Terraform configuration"}},
+	{base: "galaxy.yml", rule: nameRule{scoreManifest, "Ansible collection metadata"}},
+	{dir: "meta", base: "runtime.yml", rule: nameRule{scoreManifest, "Ansible collection runtime metadata"}},
+	{dirPre: "plugins", baseSuf: ".py", rule: nameRule{scoreSource + 15, "Ansible plugin: Python run on the control node"}},
+	{dirSuf: "tasks", baseSuf: ".yml", rule: nameRule{scoreSource + 10, "Ansible tasks"}},
+	{dirSuf: "handlers", baseSuf: ".yml", rule: nameRule{scoreSource + 10, "Ansible handlers"}},
+	{dirSuf: "lib/facter", baseSuf: ".rb", rule: nameRule{scoreEntry, "Puppet custom fact: Ruby run on every agent run"}},
+	{dirPre: "manifests", baseSuf: ".pp", rule: nameRule{scoreSource + 15, "Puppet manifest"}},
+	{dirPre: "lib/puppet", baseSuf: ".rb", rule: nameRule{scoreSource + 10, "Puppet Ruby extension: loaded by the agent or the server"}},
+
+	// --- R, Perl, Haskell, Elixir/Erlang, Julia, Dart, Swift, Deno, Bazel ---
+	{dir: "", base: "configure.win", rule: nameRule{scoreAutoExec, "R package configure script: run at install"}},
+	{base: "cleanup", rule: nameRule{scoreBuild + 10, "R package cleanup script: run at install"}},
+	{dirSuf: "src", basePre: "makevars", rule: nameRule{scoreBuild + 10, "R Makevars: make fragments run by R CMD INSTALL"}},
+	{dirSuf: "r", base: "zzz.r", rule: nameRule{scoreEntry, "R load hooks (.onLoad / .onAttach): run when the package is loaded"}},
+	{base: "install.libs.r", rule: nameRule{scoreAutoExec, "R install script: run at install"}},
+	{base: "description", rule: nameRule{scoreManifest, "R package description"}},
+	{base: "makefile.pl", rule: nameRule{scoreAutoExec, "Perl Makefile.PL: executed at install"}},
+	{base: "build.pl", rule: nameRule{scoreAutoExec, "Perl Build.PL: executed at install"}},
+	{base: "setup.hs", rule: nameRule{scoreAutoExec - 5, "Cabal Setup script: compiled and run at build when the package's build-type is Custom"}},
+	{base: "setup.lhs", rule: nameRule{scoreAutoExec - 5, "Cabal Setup script: compiled and run at build when the package's build-type is Custom"}},
+	{baseSuf: ".cabal", rule: nameRule{scoreManifest, "Cabal package description"}},
+	{base: "mix.exs", rule: nameRule{scoreAutoExec, "Mix project file: Elixir code evaluated whenever the dependency is fetched or compiled"}},
+	{base: "rebar.config.script", rule: nameRule{scoreAutoExec, "rebar3 config script: Erlang code evaluated at build"}},
+	{base: "rebar.config", rule: nameRule{scoreManifest, "rebar3 configuration: may declare pre/post hooks"}},
+	{base: "metadata.config", rule: nameRule{scoreManifest, "Hex package metadata"}},
+	{dir: "deps", base: "build.jl", rule: nameRule{scoreAutoExec, "Julia build script: run by Pkg.build at install"}},
+	{base: "project.toml", rule: nameRule{scoreManifest, "Julia project file"}},
+	{base: "artifacts.toml", rule: nameRule{scoreManifest, "Julia artifacts file: binaries downloaded at install"}},
+	{dir: "hook", base: "build.dart", rule: nameRule{scoreAutoExec, "Dart build hook: run when the package is built"}},
+	{dir: "hook", base: "link.dart", rule: nameRule{scoreAutoExec, "Dart link hook: run when the package is built"}},
+	{base: "pubspec.yaml", rule: nameRule{scoreManifest, "Dart package manifest"}},
+	{base: "package.swift", rule: nameRule{scoreAutoExec, "Swift package manifest: compiled and executed by SwiftPM when the package is resolved"}},
+	{basePre: "package@swift-", baseSuf: ".swift", rule: nameRule{scoreAutoExec, "Swift package manifest: compiled and executed by SwiftPM when the package is resolved"}},
+	{base: "deno.json", rule: nameRule{scoreManifest, "Deno / JSR package configuration"}},
+	{base: "deno.jsonc", rule: nameRule{scoreManifest, "Deno / JSR package configuration"}},
+	{base: "jsr.json", rule: nameRule{scoreManifest, "JSR package configuration"}},
+	{base: "module.bazel", rule: nameRule{scoreManifest, "Bazel module file: names dependencies, module extensions and repository rules"}},
+	{base: "workspace", rule: nameRule{scoreManifest, "Bazel workspace file"}},
+	{base: "workspace.bazel", rule: nameRule{scoreManifest, "Bazel workspace file"}},
+	{baseSuf: ".bzl", rule: nameRule{scoreBuild + 10, "Starlark extension: repository rules in it can execute commands"}},
+	{baseSuf: ".patch", rule: nameRule{scoreSource + 15, "patch: changes the source it is applied to"}},
+	{baseSuf: ".diff", rule: nameRule{scoreSource + 15, "patch: changes the source it is applied to"}},
+
+	// --- Homebrew bottles, editor extensions, wheels ---
+	{dirSuf: ".brew", baseSuf: ".rb", rule: nameRule{scoreManifest + 5, "Homebrew formula: its install and post_install blocks are Ruby run by brew"}},
+	{base: "install_receipt.json", rule: nameRule{scoreConfig + 10, "Homebrew install receipt"}},
+	{base: "extension.vsixmanifest", rule: nameRule{scoreManifest, "VS Code extension manifest"}},
+	{dirSuf: ".data/scripts", rule: nameRule{scoreEntry, "wheel script: installed onto PATH"}},
+	{base: "conanfile.txt", rule: nameRule{scoreManifest, "Conan requirements file"}},
+	{base: "handler.py", rule: nameRule{scoreEntry, "Hugging Face inference handler: run by the inference runtime"}},
+}
+
+// matchPathRule returns the first path rule that matches a container-relative
+// path.
+func matchPathRule(p string) (nameRule, bool) {
+	lower := strings.ToLower(p)
+	dir, base := path.Split(lower)
+	dir = strings.TrimSuffix(dir, "/")
+	for _, r := range pathRules {
+		if r.matches(dir, base) {
+			return r.rule, true
+		}
+	}
+	return nameRule{}, false
 }
 
 // baseScore scores a file from its path alone.
@@ -445,6 +717,12 @@ func (r signalRule) matches(data []byte) bool {
 // applySignals runs the signal pass over a file's content and returns the hits
 // and the boosted score.
 func applySignals(data []byte, score int) ([]string, int) {
+	return applySignalsTo(data, score, true)
+}
+
+// applySignalsTo is applySignals with the obfuscation rule optional: it looks
+// for long unbroken runs, which describes most strings of a binary.
+func applySignalsTo(data []byte, score int, obfuscation bool) ([]string, int) {
 	sample := data
 	if len(sample) > signalScanCap {
 		sample = sample[:signalScanCap]
@@ -452,6 +730,9 @@ func applySignals(data []byte, score int) ([]string, int) {
 	var hits []string
 	boost := 0
 	for _, r := range signalRules {
+		if !obfuscation && r.name == "obfuscation" {
+			continue
+		}
 		if r.matches(sample) {
 			hits = append(hits, r.name)
 			boost += r.boost

@@ -1,6 +1,10 @@
 package julia
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A Julia Pkg Server (https://pkgdocs.julialang.org/dev/protocol/) is a small,
 // fully content-addressed HTTP tree. The proxy mounts a server at its route root
@@ -174,6 +178,32 @@ func isLowerHex(c byte) bool {
 // revalidated live.
 func (r resource) cacheable() bool {
 	return r.kind == kindRegistry || r.kind == kindPackage || r.kind == kindArtifact
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A package tarball is source Julia loads and runs,
+// and an artifact tarball is what a package unpacks and uses (commonly prebuilt
+// binaries): both are payloads. The /registries listing is an index, and so is
+// a registry tarball — an archive like the other two, but one that holds only
+// the registry's TOML index files, which Pkg reads to resolve versions and
+// never executes. Cacheability does not separate them: all three tarballs are
+// cached alike.
+//
+// No file name is stated: a Pkg Server resource has none (its URL ends in the
+// tree hash), so a gate identifies the format from the bytes.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindPackage, kindArtifact:
+		return backends.Payload()
+	case kindRegistry:
+		// A registry is served as a tarball of TOML files: an index that is an
+		// archive, fetched by Pkg at a path of this fixed form.
+		return backends.MetadataArchive()
+	case kindRegistries:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
 }
 
 // verifiable reports whether the backend should recompute and check the tarball

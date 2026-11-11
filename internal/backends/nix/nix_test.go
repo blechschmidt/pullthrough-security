@@ -361,6 +361,113 @@ func TestNarInfoNoKeysServedUnverified(t *testing.T) {
 	}
 }
 
+// The URL is the one field of a narinfo its signature does not cover, and Nix
+// fetches an absolute URL there as it stands. A cache — hostile, or compromised
+// — can therefore sign a store path and locate its NAR anywhere, and the client
+// would download it without the bytes ever passing through the proxy: no cache,
+// no content verification, no gate. Such a narinfo is not served.
+func TestNarInfoLocatingItsNarOffTheProxyIsNotServed(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("keygen: %v", err)
+	}
+	keyName := "test-cache-1"
+	trusted := keyName + ":" + base64.StdEncoding.EncodeToString(pub)
+
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{"an absolute URL on another host, outside nar/", "https://attacker.example/store/1abc.nar.xz"},
+		{"plain http", "http://attacker.example/x.nar.xz"},
+		{"a file URL", "file:///tmp/1abc.nar.xz"},
+		{"another host, with a traversal the rewrite will not touch", "https://attacker.example/nar/../1abc.nar.xz"},
+		{"a scheme in upper case", "HTTPS://attacker.example/store/1abc.nar.xz"},
+		{"a scheme-relative reference", "//attacker.example/store/1abc.nar.xz"},
+		{"a scheme the proxy does not know", "s3://bucket/1abc.nar.xz"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, keys := range [][]string{{trusted}, nil} { // signed and trusted, or unverified: refused either way
+				fc := newFakeCache(t)
+				doc, storeHash := buildSignedNarInfo(t, keyName, priv, tc.url)
+				niPath := "/" + storeHash + ".narinfo"
+				fc.files[niPath] = []byte(doc)
+				m := &Metrics{}
+				b := newTestBackend(t, fc, keys, m)
+
+				_, body, rerr := resolveFetch(t, b, niPath)
+				var le *LocationError
+				if !errors.As(rerr, &le) {
+					t.Fatalf("trusted keys %v: error = %v (body %q), want *LocationError", keys != nil, rerr, body)
+				}
+				if st := m.Stats(); st.NarInfoLocationRefused != 1 || st.NarInfoServed != 0 || st.NarInfoRewritten != 0 {
+					t.Errorf("metrics = %+v, want one refusal and nothing served", st)
+				}
+			}
+		})
+	}
+}
+
+// What is not refused: a location the proxy routes through itself, and a
+// relative one outside nar/, which the client asks the proxy for — where the
+// path is refused, because it is outside the layout.
+func TestNarInfoLocationsThatStayOnTheProxy(t *testing.T) {
+	_, priv, _ := ed25519.GenerateKey(nil)
+	for _, tc := range []struct {
+		name, url, served string
+	}{
+		{"relative, under nar/", "nar/1abc.nar.xz", "URL: https://proxy.example/v1/nix/nar/1abc.nar.xz"},
+		{"absolute, under /nar/: rewritten to the proxy's own upstream", "https://attacker.example/nar/1abc.nar.xz", "URL: https://proxy.example/v1/nix/nar/1abc.nar.xz"},
+		{"relative, outside nar/: passed on, and refused when asked for", "store/1abc.nar.xz", "URL: store/1abc.nar.xz"},
+		{"an absolute path: still relative to the cache the client talks to", "/store/1abc.nar.xz", "URL: /store/1abc.nar.xz"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fc := newFakeCache(t)
+			doc, storeHash := buildSignedNarInfo(t, "whatever-1", priv, tc.url)
+			niPath := "/" + storeHash + ".narinfo"
+			fc.files[niPath] = []byte(doc)
+			m := &Metrics{}
+			b := newTestBackend(t, fc, nil, m)
+			_, body, rerr := resolveFetch(t, b, niPath)
+			if rerr != nil {
+				t.Fatalf("read narinfo: %v", rerr)
+			}
+			if !strings.Contains(string(body), tc.served+"\n") {
+				t.Errorf("served narinfo does not carry %q:\n%s", tc.served, body)
+			}
+			if st := m.Stats(); st.NarInfoLocationRefused != 0 {
+				t.Errorf("refusals = %v, want none", st.NarInfoLocationRefused)
+			}
+		})
+	}
+	// The relative location outside nar/ is not a path this backend serves.
+	if _, ok := classify("/store/1abc.nar.xz"); ok {
+		t.Error("a NAR path outside nar/ is accepted by classify")
+	}
+}
+
+func TestNarURLLeavesProxy(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"":                                 false,
+		"nar/1abc.nar.xz":                  false,
+		"store/1abc.nar.xz":                false,
+		"/store/1abc.nar.xz":               false,
+		"  nar/1abc.nar.xz  ":              false,
+		"https://cache.example/x.nar":      true,
+		"http://cache.example/x.nar":       true,
+		"file:///x.nar":                    true,
+		"FTP://cache.example/x.nar":        true,
+		"//cache.example/x.nar":            true,
+		"javascript:alert(1)":              true,
+		"nar/x.nar?next=https://elsewhere": true, // conservative: it names another location
+		"http://[::1":                      true, // does not parse
+	} {
+		if got := narURLLeavesProxy(raw); got != want {
+			t.Errorf("narURLLeavesProxy(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}
+
 func TestNarInfoFingerprintMatchesNixFormat(t *testing.T) {
 	ni := &narInfo{
 		StorePath:  "/nix/store/" + strings.Repeat("b", storeHashLen) + "-hello",

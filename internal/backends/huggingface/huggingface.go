@@ -167,8 +167,9 @@ func (b *Backend) Name() string { return b.name }
 
 // Resolve implements backends.Backend. It classifies the inbound path against the
 // Hub layout, derives the upstream URL and cache key, attaches the repository
-// coordinate for the admission gates, and decides cacheability (only a resolve
-// pinned to an immutable commit SHA is cached).
+// coordinate for the admission gates, decides cacheability (only a resolve
+// pinned to an immutable commit SHA is cached), and states whether the resource
+// is a payload or a document (see resource.artifact).
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -197,6 +198,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			MetaRepoType: res.repoType.label(),
 			MetaRepoID:   res.repoID,
 		},
+		Artifact: res.artifact(),
 	}
 	if res.revision != "" {
 		resolved.Metadata[MetaRevision] = res.revision

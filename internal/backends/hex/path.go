@@ -1,6 +1,10 @@
 package hex
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A Hex repository (the Elixir/Erlang package registry, hex.pm, served from
 // repo.hex.pm) is a small static HTTP tree of signed registry resources and the
@@ -310,6 +314,34 @@ func parseTarballFilename(name string) (pkg, version string, ok bool) {
 // whole (see kindInstall).
 func (r resource) cacheable() bool {
 	return r.kind == kindTarball
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A release tarball is what Mix unpacks and compiles;
+// the three signed registry resources are indexes a client only reads.
+//
+// The /installs/ tree holds both classes. A builds list and its detached
+// signature are documents; a build is a Mix archive or an escript the client
+// installs and then runs, so it is a payload even though it is served live and
+// never cached (cacheable() is false for it). Only a name that is positively a
+// list — a single segment directly below /installs/ that isInstallList accepts
+// — is called metadata: everything else the tree serves is a build.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindTarball:
+		return backends.Payload()
+	case kindNames, kindVersions, kindPackageIndex:
+		return backends.Metadata()
+	case kindInstall:
+		if !strings.Contains(r.filename, "/") && isInstallList(r.filename) {
+			return backends.Metadata()
+		}
+		// A Hex or rebar3 build: an escript or a Mix archive, one file the client
+		// installs and runs.
+		return backends.PayloadFile()
+	default:
+		return backends.Artifact{}
+	}
 }
 
 // verifiableFile reports whether the resource is a tarball the backend should

@@ -174,6 +174,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaKind:     res.kindLabel(),
 			metaFilename: res.filename,
 		},
+		Artifact: res.artifact(),
 	}
 
 	// Attach the best available coordinate so nameguard, policy, provenance, and

@@ -170,14 +170,21 @@ VEX suppression: `pullthrough_vex_suppressed_total`,
   cache), `negative_cache_hits_total`, `coalesced_total`.
 - **Scans:** `scans_total`, `scan_errors_total`,
   `unscanned_total{code}` (why a scan produced no verdict),
-  `scans_by_ecosystem_total{ecosystem}`, `in_flight` and `queued` (gauges),
+  `scans_by_ecosystem_total{ecosystem}`,
+  `scans_by_kind_total{kind}` (archive\|file\|oci-image: how the artifact was
+  read), `in_flight` and `queued` (gauges),
   `breaker_open` (gauge, 1 while scans are paused after provider failures).
 - **What the model said:** `verdicts_total{verdict}`
   (malicious\|suspicious\|benign), `injection_detected_total`,
-  `truncated_total` (verdicts resting on an incomplete view).
+  `truncated_total` (verdicts resting on an incomplete view),
+  `metadata_only_total` (verdicts on an artifact above the size limit, under
+  `oversize: metadata-only`).
 - **What the gate did:** `blocked_total`, `quarantined_total`,
   `annotated_total`, `failed_open_total`, `failed_closed_total`,
-  `budget_exhausted_total{scope}` (tenant\|global).
+  `budget_exhausted_total{scope}` (tenant\|global),
+  `stored_verdict_enforced_total{path}` (blob\|peer: a refusal made from a
+  verdict already on record, on a path that scans nothing — a blob of a refused
+  image, an entry asked for by a sibling proxy).
 - **What it cost:** `provider_calls_total`, `provider_errors_total`,
   `tokens_total{kind}` (input\|output\|cache_read), `turns_total`,
   `tool_calls_total{tool}` (list_files\|read_file\|grep), `cost_usd_total`,

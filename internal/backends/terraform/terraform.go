@@ -190,6 +190,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaKind:  res.kindLabel(),
 			metaPath:  req.Path,
 		},
+		Artifact: res.artifact(),
 	}
 	if cn := res.coordinateName(); cn != "" {
 		resolved.Coordinate = backends.Coordinate{Name: cn, Version: res.version}

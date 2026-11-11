@@ -669,18 +669,3 @@ func TestRecordLLMPkgScanSignal(t *testing.T) {
 	recordLLMPkgScanSignal(context.Background(), svc, report)
 	recordLLMPkgScanSignal(ctx, svc, nil)
 }
-
-func TestUpstreamFilename(t *testing.T) {
-	for raw, want := range map[string]string{
-		"https://registry.npmjs.org/demo/-/demo-1.0.0.tgz":           "demo-1.0.0.tgz",
-		"https://files.example/packages/demo-1.0.0.whl?sig=abc#frag": "demo-1.0.0.whl",
-		"https://crates.io/api/v1/crates/demo/1.0.0/download":        "download",
-		"https://host/":   "",
-		"":                "",
-		"::not a url::/x": "x",
-	} {
-		if got := upstreamFilename(raw); got != want {
-			t.Errorf("upstreamFilename(%q) = %q, want %q", raw, got, want)
-		}
-	}
-}

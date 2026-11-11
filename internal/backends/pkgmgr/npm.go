@@ -37,6 +37,7 @@ func NewNPM(opts Options) (backends.Backend, error) {
 		Credentials:   opts.Credentials,
 		Cacheable:     npmCacheable,
 		Coordinator:   npmCoordinate,
+		Classify:      npmClassify,
 		Index:         npmIsIndex,
 		ForwardAccept: true,
 		Rewrite: func(body []byte, _ string) ([]byte, error) {
@@ -61,4 +62,44 @@ func npmIsIndex(req *backends.Request) bool {
 	}
 	p := strings.TrimSpace(req.Path)
 	return p != "" && p != "/" && !npmIsTarball(p)
+}
+
+// npmArchiveSuffixes are file-name endings a packument or version manifest
+// never has. A short path that ends in one is not called a document.
+var npmArchiveSuffixes = []string{".tgz", ".tar.gz", ".tar", ".zip", ".gz"}
+
+// npmClassify classifies an npm registry path for the content gates.
+//
+//   - A tarball, "/<pkg>/-/<file>.tgz" (the path npmCoordinate parses), is the
+//     payload.
+//   - A packument ("/<pkg>", "/@<scope>/<pkg>") or a version manifest (the same
+//     followed by a version or dist-tag) is metadata.
+//   - Everything else is left unclassified: the registry's own API under "/-/"
+//     ("/-/v1/search", "/-/npm/v1/keys"), and every shape the registry protocol
+//     does not define — which is where a registry with a tarball layout of its
+//     own serves its tarballs ("/download/@<scope>/<pkg>/<version>/<sha>" on
+//     GitHub Packages).
+func npmClassify(req *backends.Request) backends.Artifact {
+	p := req.Path
+	if npmIsTarball(p) {
+		if _, ok := npmCoordinate(req); ok && strings.HasSuffix(p, ".tgz") {
+			return backends.Payload()
+		}
+		return backends.Artifact{}
+	}
+	segs, ok := plainSegments(strings.TrimSuffix(p, "/"))
+	if !ok {
+		return backends.Artifact{}
+	}
+	// A name is one segment, or two when scoped; a version or tag may follow.
+	name := 1
+	if strings.HasPrefix(segs[0], "@") {
+		name = 2
+	}
+	last := segs[len(segs)-1]
+	if len(segs) < name || len(segs) > name+1 || last == "-" ||
+		hasAnySuffix(strings.ToLower(last), npmArchiveSuffixes) {
+		return backends.Artifact{}
+	}
+	return backends.Metadata()
 }

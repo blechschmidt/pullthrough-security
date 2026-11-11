@@ -392,3 +392,83 @@ func TestAbsoluteRouterRejectsBadScheme(t *testing.T) {
 		t.Error("expected error for non-http(s) absolute URL")
 	}
 }
+
+// Resolve reports what the Classify callback says the request addresses. The
+// callback sees the inbound request — not the routed upstream path — and is
+// consulted for absolutely routed requests too.
+func TestResolveClassify(t *testing.T) {
+	var seen []string
+	b := newBackend(t, Options{
+		Name:    "eco",
+		BaseURL: "https://index.example.com",
+		Router: func(req *backends.Request) (string, url.Values) {
+			return "/routed" + req.Path, nil
+		},
+		AbsoluteRouter: func(req *backends.Request) (string, bool) {
+			if strings.HasPrefix(req.Path, "/dl/") {
+				return "https://cdn.example.com/blob", true
+			}
+			return "", false
+		},
+		Classify: func(req *backends.Request) backends.Artifact {
+			seen = append(seen, req.Path)
+			switch {
+			case strings.HasSuffix(req.Path, ".tgz"):
+				return backends.Payload()
+			case strings.HasSuffix(req.Path, "/download"):
+				return backends.PayloadNamed("pkg-1.0.0.crate")
+			case strings.HasSuffix(req.Path, ".json"):
+				return backends.Metadata()
+			}
+			return backends.Artifact{}
+		},
+	})
+
+	cases := []struct {
+		path     string
+		want     backends.Artifact
+		wantURL  string
+		wantFile string // what the gates take as the artifact's file name
+	}{
+		{"/pkg/-/pkg-1.0.0.tgz", backends.Payload(), "https://index.example.com/routed/pkg/-/pkg-1.0.0.tgz", "pkg-1.0.0.tgz"},
+		{"/dl/pkg/1.0.0/download", backends.PayloadNamed("pkg-1.0.0.crate"), "https://cdn.example.com/blob", "pkg-1.0.0.crate"},
+		{"/pkg/index.json", backends.Metadata(), "https://index.example.com/routed/pkg/index.json", "index.json"},
+		{"/-/v1/search", backends.Artifact{}, "https://index.example.com/routed/-/v1/search", "search"},
+	}
+	for _, c := range cases {
+		res, err := b.Resolve(context.Background(), &backends.Request{Method: http.MethodGet, Path: c.path})
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", c.path, err)
+		}
+		if res.Artifact != c.want {
+			t.Errorf("Resolve(%s).Artifact = %+v, want %+v", c.path, res.Artifact, c.want)
+		}
+		if res.UpstreamURL != c.wantURL {
+			t.Errorf("Resolve(%s).UpstreamURL = %q, want %q", c.path, res.UpstreamURL, c.wantURL)
+		}
+		if got := res.ArtifactFilename(); got != c.wantFile {
+			t.Errorf("Resolve(%s).ArtifactFilename() = %q, want %q", c.path, got, c.wantFile)
+		}
+	}
+	if want := []string{"/pkg/-/pkg-1.0.0.tgz", "/dl/pkg/1.0.0/download", "/pkg/index.json", "/-/v1/search"}; strings.Join(seen, " ") != strings.Join(want, " ") {
+		t.Errorf("Classify saw %q, want the inbound paths %q", seen, want)
+	}
+}
+
+// Without a Classify callback the engine makes no statement about any resource:
+// a metadata claim must come from an ecosystem's grammar, never from a default.
+func TestResolveWithoutClassifyLeavesUnclassified(t *testing.T) {
+	b := newBackend(t, Options{Name: "npm", BaseURL: "https://registry.npmjs.org"})
+	for _, path := range []string{"/lodash/-/lodash-4.17.21.tgz", "/lodash", "/index.json", "/"} {
+		res, err := b.Resolve(context.Background(), &backends.Request{Method: http.MethodGet, Path: path})
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", path, err)
+		}
+		if res.Artifact != (backends.Artifact{}) {
+			t.Errorf("Resolve(%s).Artifact = %+v, want the zero value", path, res.Artifact)
+		}
+		if res.Artifact.Class != backends.ArtifactUnclassified {
+			t.Errorf("Resolve(%s) class = %s, want unclassified", path, res.Artifact.Class)
+		}
+	}
+}

@@ -1,6 +1,10 @@
 package ansible
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // Ansible Galaxy (galaxy.ansible.com) exposes a v3 REST API. A collection is
 // addressed by a namespace and a name (its fully-qualified name is
@@ -64,6 +68,11 @@ type resource struct {
 	// ".../collections", from which the sibling version-detail document URL is
 	// built for an artifact digest lookup. Set for kindArtifact.
 	indexBase string
+	// document reports that a kindMetadata path is one the Galaxy grammar
+	// positively names as an API document (see isDocumentPath). kindMetadata is
+	// also the pass-through for every path the backend does not recognize, so
+	// the kind alone does not say what is served there (see artifact).
+	document bool
 }
 
 // classify parses an inbound path into a resource. A path that does not fit the
@@ -104,7 +113,7 @@ func classify(path string) (resource, bool) {
 
 	// Best-effort coordinate extraction from a collection index path:
 	// ".../collections/index/<ns>/<name>[/versions[/<version>]]".
-	res := resource{kind: kindMetadata}
+	res := resource{kind: kindMetadata, document: isDocumentPath(path, segs)}
 	if j := indexSegment(segs); j >= 0 && len(segs) > j+2 {
 		res.namespace = segs[j+1]
 		res.name = segs[j+2]
@@ -139,6 +148,64 @@ func indexSegment(segs []string) int {
 		}
 	}
 	return -1
+}
+
+// isDocumentPath reports whether a path classify did not take for a collection
+// artifact is positively an API document, as opposed to one the backend merely
+// forwards. path is the request path as received (its trailing slash is
+// significant); segs are its segments, of which there is at least one. A
+// document is a path of plain segments (see isPlainSegment) that is
+//
+//   - any path through a ".../collections/index/..." tree — the collection
+//     index, a collection, its versions list, a version detail;
+//   - an API root or listing: a path ending in "/" whose last segment carries no
+//     file extension ("/api/", "/api/v3/", "/api/v1/roles/"). Galaxy spells its
+//     API endpoints with the trailing slash, and a download is a file name;
+//   - a path ending in ".json".
+//
+// A segment with a "." in it counts as carrying an extension, so a listing
+// addressed by version through a short alias (".../versions/8.0.0/") is not
+// claimed here; the canonical ".../collections/index/..." form of it is.
+func isDocumentPath(path string, segs []string) bool {
+	for _, s := range segs {
+		if !isPlainSegment(s) {
+			return false
+		}
+	}
+	if indexSegment(segs) >= 0 {
+		return true
+	}
+	if strings.HasSuffix(path, ".json") {
+		return true
+	}
+	return strings.HasSuffix(path, "/") && !strings.Contains(segs[len(segs)-1], ".")
+}
+
+// isPlainSegment reports whether s is made only of ASCII letters, digits and
+// ".", "_", "-", "+": the characters Galaxy's own paths are spelled in, which
+// every server reads the same way.
+//
+// The shape of a path is evidence of what it serves only if the upstream sees
+// the path this backend saw. Other characters break that. A servlet container
+// drops a ";name=value" path parameter before it routes a request, so to it
+// ".../collections/index/..;/artifacts/x.tar.gz" is the artifact and
+// "/download/x.tar.gz;.json" is the tarball, while both look like documents
+// here. Rather than list the characters with such a meaning, a path with any
+// segment outside this alphabet is never called a document.
+func isPlainSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == '-' || c == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // parseArtifactFile decomposes a collection artifact filename
@@ -206,6 +273,29 @@ func validVersion(s string) bool {
 // artifact is immutable (its filename pins the version); metadata is served
 // live and rewritten.
 func (r resource) cacheable() bool { return r.kind == kindArtifact }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A collection artifact is the tarball ansible-galaxy
+// unpacks and installs: the payload.
+//
+// kindMetadata is not a statement that a path serves a document. It is also
+// where every path the backend does not recognize ends up, forwarded to the
+// upstream as it is — including a tarball under "collections/artifacts/" whose
+// name does not decompose, the registry's web root, and download endpoints of
+// other layouts ("/download/<file>.tar.gz", the content tree an artifact URL
+// redirects into). So only a path the API grammar positively names as a
+// document is called metadata; the rest is left unclassified, and a gate judges
+// it from its bytes.
+func (r resource) artifact() backends.Artifact {
+	switch {
+	case r.kind == kindArtifact:
+		return backends.Payload()
+	case r.document:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // coordinateName returns the fully-qualified collection name ("namespace.name")
 // used to address the artifact in the admission gates, or "" when the namespace

@@ -124,7 +124,8 @@ func (b *Backend) Name() string { return b.name }
 
 // Resolve implements backends.Backend. It classifies the distribution-API
 // request, derives the upstream URL, the cache key, the expected digest (for
-// content-addressed resources), and the cacheability policy.
+// content-addressed resources), and the cacheability policy, and states whether
+// the resource is an image payload or a document (see reference.artifact).
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -147,6 +148,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 		Coordinate:  backends.Coordinate{Name: ref.name, Version: ref.reference},
 		UpstreamURL: abs.String(),
 		Metadata:    map[string]string{"backend": b.name},
+		Artifact:    ref.artifact(),
 	}
 	if scope := ref.scope(); scope != "" {
 		resolved.Metadata[metaScope] = scope

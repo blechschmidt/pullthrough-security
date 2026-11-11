@@ -209,8 +209,18 @@ func FuzzBuildTree(f *testing.F) {
 			if int64(len(file.Data)) > lim.MaxFileBytes*4 { // UTF-16 decoding may expand
 				t.Fatalf("file %q retains %d bytes", file.Path, len(file.Data))
 			}
-			if file.Binary && file.Data != nil {
-				t.Fatalf("binary file %q retains content", file.Path)
+			// A binary member keeps none of its content. What it may keep is the
+			// proxy's strings view of it, which is bounded on its own account and
+			// marked as such.
+			switch {
+			case file.Strings && !file.Binary:
+				t.Fatalf("text file %q is marked as a strings view", file.Path)
+			case file.Binary && file.Data != nil && !file.Strings:
+				t.Fatalf("binary file %q retains content that is not a strings view", file.Path)
+			case file.Strings && len(file.Data) > 4*maxStringsBytes:
+				t.Fatalf("the strings view of %q is %d bytes", file.Path, len(file.Data))
+			case file.Strings && !utf8.Valid(file.Data):
+				t.Fatalf("the strings view of %q is not valid UTF-8", file.Path)
 			}
 			retained += int64(len(file.Data))
 		}

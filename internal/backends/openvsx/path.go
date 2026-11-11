@@ -1,6 +1,10 @@
 package openvsx
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // An OpenVSX registry (the vendor-neutral VS Code extension marketplace,
 // open-vsx.org, and API-compatible self-hosted deployments) exposes a small HTTP
@@ -135,6 +139,24 @@ func indexOf(segs []string, want string) int {
 // mutable and revalidated live, and the small /file/ sidecars are proxied live.
 func (r resource) cacheable() bool {
 	return r.kind == kindVsix
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A .vsix beneath an /api/.../file/ path is the
+// extension an editor installs and runs: a payload.
+//
+// Nothing else is called metadata, although most of it is. The backend forwards
+// the whole /api and /vscode trees rather than a list of known documents, and
+// those trees serve the extension itself under other names: the gallery
+// protocol's ".../Microsoft.VisualStudio.Services.VSIXPackage" asset is the
+// .vsix. A path outside the one archive form classify recognizes therefore says
+// nothing about what its bytes are, so everything but the archive is left
+// unclassified and a gate judges it from its content.
+func (r resource) artifact() backends.Artifact {
+	if r.kind == kindVsix {
+		return backends.Payload()
+	}
+	return backends.Artifact{}
 }
 
 // verifiableFile reports whether the resource is a .vsix archive the backend

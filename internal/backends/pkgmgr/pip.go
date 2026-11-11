@@ -76,6 +76,9 @@ func NewPyPI(opts Options) (backends.Backend, error) {
 		AbsoluteRouter: func(req *backends.Request) (string, bool) {
 			return pipArtifactURL(req.Path, allowed)
 		},
+		Classify: func(req *backends.Request) backends.Artifact {
+			return pipClassify(req.Path, allowed)
+		},
 		Rewrite: func(body []byte, _ string) ([]byte, error) {
 			return applyRules(body, rules), nil
 		},
@@ -115,4 +118,81 @@ func pipIsIndex(req *backends.Request) bool {
 		return false
 	}
 	return !strings.HasPrefix(req.Path, pipFilesPrefix)
+}
+
+// pipPayloadSuffixes are the file-name endings of the distributions an index
+// lists for installation: wheels, sdists, and the legacy egg and Windows
+// installer formats.
+var pipPayloadSuffixes = []string{".whl", ".tar.gz", ".tgz", ".zip", ".tar.bz2", ".tar.xz", ".tar", ".egg", ".exe", ".msi"}
+
+// pipSidecarSuffixes are the endings of the documents an index publishes next
+// to a distribution, at the distribution's own URL plus the suffix: its core
+// metadata (PEP 658), a detached signature, its provenance and attestations
+// (PEP 740).
+var pipSidecarSuffixes = []string{".metadata", ".asc", ".sig", ".provenance", ".attestation"}
+
+// pipClassify classifies a PyPI path for the content gates. allowed is the
+// artifact-host allowlist of the files route.
+//
+// Under the files route ("/files/<scheme>/<host>/<path>") the file name decides:
+//   - a distribution file is the payload;
+//   - a sidecar of one, fetched from an allowlisted host, is metadata;
+//   - any other file is left unclassified.
+//
+// On the index host three API families are metadata, each matched in full:
+//   - the Simple API (PEP 503/691): "/simple/" and "/simple/<project>/";
+//   - the JSON API: "/pypi/<project>/json", "/pypi/<project>/<version>/json";
+//   - the Integrity API (PEP 740):
+//     "/integrity/<project>/<version>/<file>/provenance".
+//
+// Everything else is left unclassified. That includes whatever lies below a
+// project page: an index that links its files relatively (a static index keeps
+// them beside the page, as "/simple/<project>/<file>") has pip fetch them from
+// exactly there. A project page is therefore one segment, and one that does not
+// read as a file name — a normalized project name (PEP 503) has no dot.
+func pipClassify(path string, allowed map[string]bool) backends.Artifact {
+	if strings.HasPrefix(path, pipFilesPrefix) {
+		file := strings.ToLower(path[strings.LastIndex(path, "/")+1:])
+		switch {
+		case hasAnySuffix(file, pipPayloadSuffixes):
+			if strings.HasSuffix(file, ".exe") || strings.HasSuffix(file, ".msi") {
+				// A legacy Windows installer is one executable, not an archive.
+				return backends.PayloadFile()
+			}
+			return backends.Payload()
+		case hasAnySuffix(file, pipSidecarSuffixes):
+			// The allowlist vouches for the host; the path on it has to be plain.
+			if _, routed := pipArtifactURL(path, allowed); routed {
+				if parts := strings.SplitN(path, "/", 5); len(parts) == 5 {
+					if _, plain := plainSegments("/" + parts[4]); plain {
+						return backends.Metadata()
+					}
+				}
+			}
+		}
+		return backends.Artifact{}
+	}
+
+	// The Simple API's URLs end in a slash; the others do not, but an index
+	// answers both spellings alike.
+	segs, ok := plainSegments(strings.TrimSuffix(path, "/"))
+	if !ok {
+		return backends.Artifact{}
+	}
+	n := len(segs)
+	switch segs[0] {
+	case "simple":
+		if n == 1 || (n == 2 && !strings.Contains(segs[1], ".")) {
+			return backends.Metadata()
+		}
+	case "pypi":
+		if (n == 3 || n == 4) && segs[n-1] == "json" {
+			return backends.Metadata()
+		}
+	case "integrity":
+		if n == 5 && segs[4] == "provenance" {
+			return backends.Metadata()
+		}
+	}
+	return backends.Artifact{}
 }

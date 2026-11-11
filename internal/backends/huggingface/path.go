@@ -1,6 +1,10 @@
 package huggingface
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // The Hugging Face Hub exposes two request families the proxy fronts:
 //
@@ -75,6 +79,11 @@ type resource struct {
 	revision string
 	// filepath is the repository-relative path of a resolved blob.
 	filepath string
+	// infoDocument reports that an /api path is positively a repository-info
+	// document: "/api/{type}/{repo}" or "/api/{type}/{repo}/revision/{rev}", with
+	// nothing else after it. classifyAPI accepts the whole /api/{type}/ subtree
+	// under the same three kinds, so the kind alone does not say this.
+	infoDocument bool
 }
 
 // classify parses an inbound path into a resource. It returns ok=false for paths
@@ -182,11 +191,18 @@ func classifyAPI(segs []string) (resource, bool) {
 	if len(repoSegs) == 0 {
 		return resource{}, false
 	}
+	// The repository-info document itself is a repo id of one or two segments
+	// ("gpt2", "owner/name"), either alone or followed by exactly
+	// "revision/{rev}". Every other path this function accepts is some other
+	// sub-resource of the /api/{type}/ subtree.
+	bare := len(rest) == len(repoSegs)
+	pinned := revision != "" && len(rest) == len(repoSegs)+2
 	return resource{
-		kind:     kind,
-		repoType: rt,
-		repoID:   strings.Join(repoSegs, "/"),
-		revision: revision,
+		kind:         kind,
+		repoType:     rt,
+		repoID:       strings.Join(repoSegs, "/"),
+		revision:     revision,
+		infoDocument: len(repoSegs) <= 2 && (bare || pinned),
 	}, true
 }
 
@@ -221,6 +237,36 @@ func (r resource) cacheable() bool {
 
 // isResolve reports whether the resource is a blob download.
 func (r resource) isResolve() bool { return r.kind == kindResolve }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass).
+//
+// A resolved repository file is a payload when its name says a client will load
+// or run it: a model-weight file (weightFormat), or a file with a code-bearing
+// or archive extension (codeBearing). Any other resolved file — a JSON config,
+// a README, an image, a Parquet shard — is left unclassified rather than called
+// metadata: a repository holds whatever its owner committed, under any name, so
+// a gate still judges such a file from its bytes.
+//
+// A repository-info document is metadata, but only where the path is positively
+// one (resource.infoDocument). classifyAPI gives the same three kinds to every
+// path beneath /api/{models,datasets,spaces}/, and that subtree is not documents
+// alone: "/api/datasets/{repo}/parquet/{config}/{split}/{n}.parquet" serves a
+// data file. The other sub-resources are left unclassified.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindResolve:
+		if name := r.baseFilename(); weightFormat(name) != formatOther || codeBearing(name) {
+			// A repository serves its files one by one: a weight file, a script.
+			return backends.PayloadFile()
+		}
+	case kindModelInfo, kindDatasetInfo, kindSpaceInfo:
+		if r.infoDocument {
+			return backends.Metadata()
+		}
+	}
+	return backends.Artifact{}
+}
 
 // kindLabel returns a stable diagnostic label for a resource kind.
 func (r resource) kindLabel() string {
@@ -299,4 +345,42 @@ func weightFormat(name string) string {
 	default:
 		return formatOther
 	}
+}
+
+// codeBearingExts are the file-name extensions of repository files that are
+// code, or may hold it: scripts and modules a loader imports or a user runs
+// (custom model code, a dataset loading script, a Space's app, a notebook),
+// native and bytecode libraries, serialized-model formats that are not weight
+// files to weightFormat but can execute code when loaded, and archives of any of
+// these.
+var codeBearingExts = []string{
+	// Scripts, modules and notebooks.
+	".py", ".pyc", ".pyw", ".ipynb",
+	".sh", ".bash", ".ps1", ".bat", ".cmd",
+	".js", ".mjs", ".cjs", ".ts",
+	".rb", ".pl", ".lua",
+	// Compiled code.
+	".jar", ".so", ".dll", ".dylib", ".exe", ".wasm",
+	// Serialized models and graphs.
+	".joblib", ".dill", ".keras", ".pb", ".tflite", ".mlmodel",
+	// Archives.
+	".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".gz", ".7z", ".whl",
+}
+
+// codeBearing reports whether a resolved file's name, compared without regard
+// to letter case, ends in one of the codeBearingExts.
+//
+// It decides only which files are ALWAYS examined, whatever their bytes look
+// like. It is not a list of what is safe to skip: a file it does not name is
+// left unclassified, not called metadata, so the content gates still sniff its
+// bytes and examine it when they turn out to be an archive, an executable or a
+// script. A name outside the set therefore costs nothing but the certainty.
+func codeBearing(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range codeBearingExts {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
 }

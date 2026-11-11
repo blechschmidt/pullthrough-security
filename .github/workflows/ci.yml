@@ -107,6 +107,15 @@ jobs:
         if: matrix.arch == 'amd64'
         run: make ecosystem-reference-check
 
+      # The LLM-scan coverage table is generated from a catalog
+      # (internal/scancoverage) that the test suite checks against the real
+      # backends: which request paths of every upstream type carry installable
+      # content, in which format, over which serve path. Fail if the committed
+      # document no longer matches the catalog.
+      - name: Check LLM scan coverage table is up to date
+        if: matrix.arch == 'amd64'
+        run: make llmscan-coverage-check
+
       - name: Test (race + coverage)
         run: go test -race -covermode=atomic -coverprofile=coverage-${{ matrix.arch }}.out ./...
 

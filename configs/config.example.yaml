@@ -1232,6 +1232,10 @@ llmPackageScan:
                              # block (refuse + evict a malicious artifact; serve a suspicious one with an advisory)
                              # quarantine (as block, and also hold a suspicious artifact for break-glass review)
   failMode: open             # when no verdict could be obtained: open (serve unscanned) | closed (refuse, 403)
+  oversize: fail             # an artifact (or image layer) above limits.maxArtifactBytes:
+                             # fail (no verdict; failMode decides)
+                             # metadata-only (judge the inventory, the scripts within the limit and an image's
+                             #   config; the verdict is recorded as partial and never passes for a full one)
   maliciousThreshold: 0.7    # minimum confidence for a "malicious" verdict to be acted on as malicious
   suspiciousThreshold: 0.5   # minimum confidence for a "suspicious" verdict to be flagged
 
@@ -1239,8 +1243,11 @@ llmPackageScan:
   maxConcurrent: 4           # scans in flight (each holds one unpacked package in memory)
   maxRetries: 1              # extra attempts after a transient provider error
 
-  include: []                # [] = built-in set: npm, pip, cargo, rubygems, composer, nuget
-  exclude: []                # ecosystems never scanned (wins over include)
+  include: []                # [] = every ecosystem the proxy fronts (each package backend, docker, huggingface,
+                             # generic) plus git-lfs. "git" is not a key here: the commits of a clone or fetch
+                             # are the commit scan's (scanning.*), which does not refuse a clone.
+                             # See docs/llm-package-scan-coverage.md.
+  exclude: []                # ecosystems never scanned (wins over include), e.g. [docker, git-lfs]
   excludeUpstreams: []       # upstream names never scanned, e.g. [corp-npm] — keep private code off the provider
 
   storeDir: ""               # persist verdicts here; empty = memory only (re-scanned after a restart)
@@ -1249,7 +1256,7 @@ llmPackageScan:
 
   # Bounds on one scan. Every quantity is controlled by the package's publisher.
   limits:
-    maxArtifactBytes: 67108864     # 64 MiB compressed; a larger artifact is not scanned (failMode applies)
+    maxArtifactBytes: 67108864     # 64 MiB compressed (per layer for an image); above it `oversize` decides
     maxUnpackedBytes: 268435456    # 256 MiB decompressed
     maxFileBytes: 1048576          # 1 MiB retained per file
     maxFiles: 5000                 # archive members examined

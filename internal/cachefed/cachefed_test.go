@@ -132,8 +132,9 @@ func TestFetchMissNoPeerHasKey(t *testing.T) {
 	if !errors.Is(err, ErrNoPeer) {
 		t.Fatalf("err = %v, want ErrNoPeer", err)
 	}
-	if snap := fed.Metrics().Snapshot(); snap.Misses != 1 || snap.PeerErrors != 1 {
-		t.Errorf("misses/peerErrors = %d/%d, want 1/1", snap.Misses, snap.PeerErrors)
+	// A peer that does not hold the key is a miss, not a peer error: it answered.
+	if snap := fed.Metrics().Snapshot(); snap.Misses != 1 || snap.PeerErrors != 0 {
+		t.Errorf("misses/peerErrors = %d/%d, want 1/0", snap.Misses, snap.PeerErrors)
 	}
 }
 

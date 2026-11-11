@@ -74,9 +74,40 @@ type Verdict struct {
 	ToolCalls int    `json:"toolCalls,omitempty"`
 
 	// What the model could see.
-	Format        string `json:"format,omitempty"`
-	Files         int    `json:"files"`
-	UnpackedBytes int64  `json:"unpackedBytes"`
+	Format string `json:"format,omitempty"`
+	// Kind says how the artifact was read: "archive", "file" (a payload that is
+	// one file) or "oci-image" (an image assembled from its manifest, config and
+	// layers; Digest is then the manifest's).
+	Kind string `json:"kind,omitempty"`
+	// Scope is empty for a scan of the whole artifact and "metadata-only" when
+	// the artifact is larger than the scan limit and only what lies within the
+	// limit was read (llmPackageScan.oversize: metadata-only). Such a verdict is
+	// evidence about what was read; it says nothing about the rest.
+	Scope string `json:"scope,omitempty"`
+	// RootFS reports that the artifact was read as a piece of a root filesystem:
+	// an image layer pulled on its own. Links are judged differently there (an
+	// absolute target is how links are written in a root filesystem), so such a
+	// reading is stored under a key of its own and never stands in for a reading
+	// of the same bytes as a package.
+	RootFS bool `json:"rootfs,omitempty"`
+	// What an image verdict says about the image's blobs (see blobs.go). Blobs
+	// lists the digests of its config and layers. Config is the config's digest
+	// when it reads as an image config. Unexamined lists the layers the scan read
+	// less of than a scan of the layer alone would — the image's shared budget was
+	// spent on the layers above or ran out inside it, part of it could not be
+	// opened, or the registry does not hold it: this verdict does not cover them,
+	// and each is examined on its own when it is pulled. (A layer cut short only
+	// by the size limit, under oversize: metadata-only, is not among them: a scan
+	// of its own would stop at the same byte.)
+	// Implicated lists the blobs the verdict holds something against — the
+	// config, and the layers its evidence cites. While the verdict is refused,
+	// those blobs are refused too.
+	Blobs         []string `json:"blobs,omitempty"`
+	Config        string   `json:"config,omitempty"`
+	Unexamined    []string `json:"unexamined,omitempty"`
+	Implicated    []string `json:"implicated,omitempty"`
+	Files         int      `json:"files"`
+	UnpackedBytes int64    `json:"unpackedBytes"`
 	// Truncated reports that the verdict rests on an incomplete view of the
 	// package; Coverage says, in sentences, what was missing.
 	Truncated bool     `json:"truncated,omitempty"`
@@ -112,8 +143,14 @@ func (v *Verdict) clone() *Verdict {
 	cp.Injection = append([]InjectionHit(nil), v.Injection...)
 	cp.Anomalies = append([]string(nil), v.Anomalies...)
 	cp.Coverage = append([]string(nil), v.Coverage...)
+	cp.Blobs = append([]string(nil), v.Blobs...)
+	cp.Unexamined = append([]string(nil), v.Unexamined...)
+	cp.Implicated = append([]string(nil), v.Implicated...)
 	return &cp
 }
+
+// ScopeMetadataOnly is Verdict.Scope for a metadata-only reading.
+const ScopeMetadataOnly = "metadata-only"
 
 // Bounds applied to a parsed verdict. The model's text is derived from package
 // content, so its size is the publisher's to choose unless it is capped here.

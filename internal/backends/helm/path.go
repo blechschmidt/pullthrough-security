@@ -4,6 +4,8 @@ import (
 	"path"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 )
 
 // The classic Helm chart-repository protocol addresses three families of
@@ -238,6 +240,38 @@ func (r resource) cacheable() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A chart archive is what Helm unpacks and renders
+// into the manifests it applies to a cluster: the payload, by either path form.
+// A provenance file is a PGP-signed record of the archive's digest, and the
+// repository index lists what the repository offers; a client reads both and
+// installs neither.
+//
+// An index-resolved resource states its file name. Its upstream URL is the
+// repository index with the entry it names as the fragment (the real location
+// is only looked up at fetch time), so the URL's path ends in "index.yaml", not
+// in the name of the archive or of its provenance file. The name stated is the
+// final segment of the request — the one the rewritten index handed out, which
+// never ends in ".prov" for an archive (see archiveFile).
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindChart:
+		if r.indexed {
+			return backends.PayloadNamed(r.filename)
+		}
+		return backends.Payload()
+	case kindProvenance:
+		if r.indexed {
+			return backends.Artifact{Class: backends.ArtifactMetadata, Filename: r.filename + provExt}
+		}
+		return backends.Metadata()
+	case kindIndex:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
 	}
 }
 

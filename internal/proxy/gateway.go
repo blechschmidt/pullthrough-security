@@ -626,7 +626,10 @@ func (g *Gateway) routes() http.Handler {
 	// disabled or no secret is configured), so it sits outside the /v1 client
 	// envelope — sibling proxies authenticate as peers, not as package clients.
 	if g.deps.CacheFed.Enabled() {
-		mux.Handle(cachefed.BasePath, g.deps.CacheFed.Handler(g.deps.Cache))
+		// A peer is served the cache by key, with no admission gate in between:
+		// the guard keeps this proxy from handing out bytes it has itself judged
+		// malicious (see PeerServeGuard).
+		mux.Handle(cachefed.BasePath, g.deps.CacheFed.Handler(g.deps.Cache, g.PeerServeGuard))
 	}
 	if g.deps.AdminHandler != nil && g.opts.AdminPrefix != "" {
 		prefix := strings.TrimRight(g.opts.AdminPrefix, "/")
@@ -756,6 +759,18 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 	backend, found := g.deps.Backends.Get(name)
 	if !found {
 		http.Error(w, fmt.Sprintf("unknown backend %q", name), http.StatusNotFound)
+		return
+	}
+
+	// A "." or ".." path segment never reaches a backend. No client sends one —
+	// it arrives only in an encoded spelling, which the mux does not canonicalize
+	// — and the upstream would resolve it into a different path than the one the
+	// backend parsed, classified and gated: an endpoint the backend refuses to
+	// forward (a registry's token endpoint), a payload under a path that reads as
+	// an index. The request is sent upstream with the proxy's credentials, so
+	// this is refused here, for every backend, rather than left to each one.
+	if backends.HasDotSegment(rest) {
+		http.Error(w, `invalid request path: "." and ".." segments are not accepted`, http.StatusBadRequest)
 		return
 	}
 
@@ -1330,6 +1345,19 @@ func (g *Gateway) serveDirect(w http.ResponseWriter, r *http.Request, name strin
 	}
 	defer result.Content.Close()
 
+	// Sandboxed LLM package-content scan gate (Tasks 173, 174) on the response
+	// that is not cached. A resource a backend does not cache is not thereby
+	// harmless — a snapshot jar, an image manifest pulled by tag, a script on a
+	// moving branch, an installer on a path the adapter does not know — and a
+	// gate that only saw cached artifacts would have a hole exactly that shape.
+	// The first bytes decide whether there is anything to examine; if there is,
+	// the response is held until the verdict exists and only then written.
+	body, ok := g.gateTraceDirect(w, r, name, resolved, result)
+	if !ok {
+		return
+	}
+	defer body.cleanup()
+
 	h := w.Header()
 	if result.Header != nil {
 		upstream.PropagateResponseHeaders(h, result.Header)
@@ -1337,8 +1365,8 @@ func (g *Gateway) serveDirect(w http.ResponseWriter, r *http.Request, name strin
 	if result.MediaType != "" {
 		h.Set("Content-Type", result.MediaType)
 	}
-	if result.Size >= 0 {
-		h.Set("Content-Length", strconv.FormatInt(result.Size, 10))
+	if body.size >= 0 {
+		h.Set("Content-Length", strconv.FormatInt(body.size, 10))
 	}
 	if etag := result.Header.Get("ETag"); etag != "" {
 		h.Set("ETag", etag)
@@ -1349,13 +1377,25 @@ func (g *Gateway) serveDirect(w http.ResponseWriter, r *http.Request, name strin
 	if r.Method == http.MethodHead {
 		return
 	}
-	n, err := io.Copy(w, result.Content)
+	n, err := io.Copy(w, body.content)
 	if err != nil {
 		g.deps.Logger.Warn("streaming upstream response failed",
 			"backend", name, "upstream", resolved.UpstreamURL, "error", err)
 	}
 	// A non-cacheable resource is always streamed live from upstream (Task 84).
 	g.meterTraffic(r, n, false)
+}
+
+// gateTraceDirect runs the LLM package-scan gate on a non-cacheable response
+// under a gate span, like gateTrace does for the cached path.
+func (g *Gateway) gateTraceDirect(w http.ResponseWriter, r *http.Request, name string, resolved *backends.Resolved, result *backends.FetchResult) (directBody, bool) {
+	var body directBody
+	ok := g.gateTrace(r, "llmpkgscan", func(rr *http.Request) bool {
+		var allowed bool
+		body, allowed = g.gateLLMPkgScanDirect(w, rr, name, g.ecosystemFor(name), resolved, result.Content, result.Size)
+		return allowed
+	})
+	return body, ok
 }
 
 // serveEntry writes a cache entry to the client, applying conditional-request

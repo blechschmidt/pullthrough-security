@@ -1,6 +1,10 @@
 package puppet
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // Puppet Forge (forgeapi.puppet.com) exposes a v3 REST API. A module is
 // addressed by an owner (the publishing user) and a module name; its canonical
@@ -61,6 +65,11 @@ type resource struct {
 	// built correctly when the API is served under a sub-path. Set for
 	// kindArtifact.
 	basePrefix string
+	// document reports that a kindMetadata path is one the Forge grammar
+	// positively names as an API document (see isDocumentPath). kindMetadata is
+	// also the pass-through for every path the backend does not recognize, so
+	// the kind alone does not say what is served there (see artifact).
+	document bool
 }
 
 // classify parses an inbound path into a resource. A path that does not fit the
@@ -104,7 +113,7 @@ func classify(path string) (resource, bool) {
 
 	// Best-effort coordinate extraction from a module or release metadata path:
 	// "<prefix>/v3/modules/<owner>-<name>" or "<prefix>/v3/releases/<slug>".
-	res := resource{kind: kindMetadata}
+	res := resource{kind: kindMetadata, document: isDocumentPath(segs)}
 	if v := v3Index(segs); v >= 0 && len(segs) == v+3 {
 		switch segs[v+1] {
 		case "modules":
@@ -143,6 +152,73 @@ func v3Index(segs []string) int {
 		}
 	}
 	return -1
+}
+
+// documentCollections are the Forge v3 collections that serve only JSON
+// documents: a listing (or search) at the collection itself, a single document
+// below it. "files", the one collection that serves downloads, is not among
+// them.
+var documentCollections = map[string]bool{
+	"modules":  true,
+	"releases": true,
+	"users":    true,
+	"search":   true,
+}
+
+// archiveSuffixes are the file-name endings that mark a path as a download
+// rather than a document, compared case-insensitively.
+var archiveSuffixes = []string{".tar.gz", ".tgz", ".zip", ".tar"}
+
+// isDocumentPath reports whether a path classify did not take for a release
+// tarball is positively an API document, as opposed to one the backend merely
+// forwards: a path of plain segments (see isPlainSegment) whose first segment
+// after "<prefix>/v3" is one of the documentCollections, with no "files"
+// segment anywhere in it (in any letter case) and no archive suffix on its last
+// segment. segs are the path's segments.
+func isDocumentPath(segs []string) bool {
+	v := v3Index(segs)
+	if v < 0 || v+1 >= len(segs) || !documentCollections[segs[v+1]] {
+		return false
+	}
+	for _, s := range segs {
+		if !isPlainSegment(s) || strings.EqualFold(s, "files") {
+			return false
+		}
+	}
+	last := strings.ToLower(segs[len(segs)-1])
+	for _, suffix := range archiveSuffixes {
+		if strings.HasSuffix(last, suffix) {
+			return false
+		}
+	}
+	return true
+}
+
+// isPlainSegment reports whether s is made only of ASCII letters, digits and
+// ".", "_", "-", "+": the characters the Forge's own slugs and versions are
+// spelled in, which every server reads the same way.
+//
+// The shape of a path is evidence of what it serves only if the upstream sees
+// the path this backend saw. Other characters break that. A servlet container
+// drops a ";name=value" path parameter before it routes a request, so to it
+// "/v3/modules/..;/files;a/owner-mod-1.0.0.tar.gz;.json" is the release
+// tarball, while here it has no "files" segment and no archive suffix. Rather
+// than list the characters with such a meaning, a path with any segment outside
+// this alphabet is never called a document.
+func isPlainSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == '-' || c == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // parseReleaseFile decomposes a release tarball filename
@@ -247,6 +323,27 @@ func validVersion(s string) bool {
 // is immutable (its filename pins the version); metadata is served live and
 // rewritten.
 func (r resource) cacheable() bool { return r.kind == kindArtifact }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A release tarball is the module the Puppet tooling
+// unpacks and installs: the payload.
+//
+// kindMetadata is not a statement that a path serves a document. It is also
+// where every path the backend does not recognize ends up, forwarded to the
+// upstream as it is — including a file under "/v3/files/" whose name does not
+// decompose into a release. So only a path the API grammar positively names as
+// a document is called metadata; the rest is left unclassified, and a gate
+// judges it from its bytes.
+func (r resource) artifact() backends.Artifact {
+	switch {
+	case r.kind == kindArtifact:
+		return backends.Payload()
+	case r.document:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // coordinateName returns the canonical module slug ("owner-name") used to
 // address the artifact in the admission gates, or "" when the owner and name

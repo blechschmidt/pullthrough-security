@@ -1,6 +1,10 @@
 package conda
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A Conda channel is a static HTTP tree addressed by subdir (platform) and
 // filename. The reference channels (conda.anaconda.org/<channel>, the
@@ -203,6 +207,23 @@ func parsePackageFilename(name string) (pkg, version, build string, ok bool) {
 // channeldata documents are mutable and revalidated live.
 func (r resource) cacheable() bool {
 	return r.kind == kindPackage
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A package archive (.conda or .tar.bz2) is what Conda
+// unpacks into an environment and whose link scripts it runs: the payload. The
+// per-subdir repodata documents and the channel's channeldata.json are indexes
+// a client reads to solve an environment; both are recognized by their exact
+// file names, in every encoding they are published in.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindPackage:
+		return backends.Payload()
+	case kindRepodata, kindChannelData:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
 }
 
 // verifiableFile reports whether the resource is a package the backend should

@@ -19,6 +19,11 @@ func TestLLMPackageScanDefaults(t *testing.T) {
 	if l.Action != "block" || l.FailMode != "open" || l.Mode != "auto" {
 		t.Errorf("defaults = action %q failMode %q mode %q", l.Action, l.FailMode, l.Mode)
 	}
+	// An artifact above the size limit gets no verdict unless the operator
+	// chooses the metadata-only reading: a partial verdict is opt-in.
+	if l.Oversize != "fail" {
+		t.Errorf("oversize default = %q, want fail", l.Oversize)
+	}
 	if l.MaliciousThreshold != 0.7 || l.SuspiciousThreshold != 0.5 {
 		t.Errorf("thresholds = %v / %v", l.MaliciousThreshold, l.SuspiciousThreshold)
 	}
@@ -225,6 +230,8 @@ func TestValidateLLMPackageScan(t *testing.T) {
 		{"mode", func(l *LLMPackageScanConfig) { l.Mode = "agentic" }, "mode must be"},
 		{"action", func(l *LLMPackageScanConfig) { l.Action = "warn" }, "action must be"},
 		{"failMode", func(l *LLMPackageScanConfig) { l.FailMode = "soft" }, "failMode must be"},
+		{"oversize", func(l *LLMPackageScanConfig) { l.Oversize = "skip" }, "oversize must be"},
+		{"oversize is not a fail mode", func(l *LLMPackageScanConfig) { l.Oversize = "open" }, "oversize must be"},
 		{"malicious threshold high", func(l *LLMPackageScanConfig) { l.MaliciousThreshold = 1.01 }, "maliciousThreshold"},
 		{"malicious threshold negative", func(l *LLMPackageScanConfig) { l.MaliciousThreshold = -0.1 }, "maliciousThreshold"},
 		{"suspicious threshold high", func(l *LLMPackageScanConfig) { l.SuspiciousThreshold = 7 }, "suspiciousThreshold"},
@@ -288,8 +295,60 @@ func TestValidateLLMPackageScan(t *testing.T) {
 	ok.LLMPackageScan.Action = "Quarantine"
 	ok.LLMPackageScan.FailMode = "CLOSED"
 	ok.LLMPackageScan.Mode = "Bundle"
+	ok.LLMPackageScan.Oversize = "Metadata-Only"
 	if err := ok.validateLLMPackageScan(); err != nil {
 		t.Errorf("aliases / case: %v", err)
+	}
+
+	// Every upstream type can be scoped, under either of its names, and so can
+	// Git LFS — which is an ecosystem of this gate without being an upstream type.
+	for _, e := range []string{"deb", "apt", "rpm", "yum", "pub", "dart", "oci", "docker", "git-lfs", "lfs", "huggingface", "generic", "nix"} {
+		c := enabled()
+		c.LLMPackageScan.Include = []string{e}
+		if err := c.validateLLMPackageScan(); err != nil {
+			t.Errorf("include %q: %v", e, err)
+		}
+		c = enabled()
+		c.LLMPackageScan.Exclude = []string{e}
+		if err := c.validateLLMPackageScan(); err != nil {
+			t.Errorf("exclude %q: %v", e, err)
+		}
+	}
+}
+
+// The configuration layer's copy of the default ecosystem set has to cover
+// every upstream type the proxy accepts: a type missing from it would be a
+// backend that an operator who enabled the gate believes is scanned and is not.
+// "git" is the one deliberate exception — its clones and fetches are gated by
+// the commit scan — and Git LFS is covered under its own key.
+func TestLLMPackageScanDefaultEcosystemsCoverEveryUpstreamType(t *testing.T) {
+	covered := map[string]bool{}
+	for _, e := range LLMPackageScanDefaultEcosystems() {
+		if ce := canonLLMEcosystem(e); ce != e {
+			t.Errorf("default ecosystem %q is an alias of %q: the set must hold canonical names", e, ce)
+		}
+		if covered[e] {
+			t.Errorf("default ecosystem %q is listed twice", e)
+		}
+		covered[e] = true
+		if !knownEcosystem(e) {
+			t.Errorf("default ecosystem %q is not one the configuration accepts", e)
+		}
+	}
+	for typ := range validUpstreamTypes {
+		eco := canonLLMEcosystem(typ)
+		if eco == "git" {
+			if covered["git"] {
+				t.Error(`"git" is in the default set: clones and fetches belong to the commit scan`)
+			}
+			continue
+		}
+		if !covered[eco] {
+			t.Errorf("upstream type %q (ecosystem %q) is not in the LLM package scan's default set", typ, eco)
+		}
+	}
+	if !covered[llmEcosystemGitLFS] {
+		t.Error("Git LFS objects are not in the default set")
 	}
 }
 
@@ -381,16 +440,84 @@ func TestCheckLLMPackageScanWarnings(t *testing.T) {
 	if hasIssue(exposed, SeverityWarning, "llmPackageScan.excludeUpstreams", `"npmjs"`) {
 		t.Error("an unauthenticated public upstream must not be flagged")
 	}
-	if hasIssue(exposed, SeverityWarning, "llmPackageScan.excludeUpstreams", `"corp-docker"`) {
+	// The default scope is every ecosystem, images included: a private registry's
+	// images are sent to the provider just like a private registry's packages.
+	if !hasIssue(exposed, SeverityWarning, "llmPackageScan.excludeUpstreams", `"corp-docker"`) {
+		t.Errorf("an authenticated docker upstream is scanned by default and should be flagged: %+v", exposed.Issues)
+	}
+	narrowed := checkWith("llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n  include: [npm]\n")
+	if hasIssue(narrowed, SeverityWarning, "llmPackageScan.excludeUpstreams", `"corp-docker"`) {
 		t.Error("an upstream whose ecosystem is not scanned must not be flagged")
 	}
-	decided := checkWith("llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n  excludeUpstreams: [corp-npm]\n")
+	decided := checkWith("llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n  excludeUpstreams: [corp-npm, corp-docker]\n")
 	if hasIssue(decided, SeverityWarning, "llmPackageScan.excludeUpstreams", "") {
 		t.Errorf("an excluded upstream is still flagged: %+v", decided.Issues)
 	}
-	ecoOff := checkWith("llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n  exclude: [npm]\n")
+	ecoOff := checkWith("llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n  exclude: [npm, oci]\n")
 	if hasIssue(ecoOff, SeverityWarning, "llmPackageScan.excludeUpstreams", "") {
 		t.Errorf("an upstream of an excluded ecosystem is flagged: %+v", ecoOff.Issues)
+	}
+
+	// Artifacts above the size limit are the rule for images. Under the default
+	// handling each one is an artifact without a verdict; say so once.
+	if !hasIssue(exposed, SeverityWarning, "llmPackageScan.oversize", "corp-docker") {
+		t.Errorf("an image upstream under oversize \"fail\" should be pointed at metadata-only: %+v", exposed.Issues)
+	}
+	if hasIssue(narrowed, SeverityWarning, "llmPackageScan.oversize", "") {
+		t.Error("no large-artifact upstream is in scope: nothing to say about oversize")
+	}
+	partial := checkWith("llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n  oversize: metadata-only\n")
+	if hasIssue(partial, SeverityWarning, "llmPackageScan.oversize", "") {
+		t.Error("oversize is already metadata-only: nothing to say")
+	}
+
+	// Git. A clone is the commit scan's; this gate sees a git upstream through
+	// its LFS objects only, and only when LFS proxying is on.
+	const gitUpstreams = `upstreams:
+  npmjs: {type: npm, url: "https://registry.npmjs.org"}
+  corp-git:
+    type: git
+    url: "https://git.corp.example"
+    credentials: {token: "t"}
+`
+	checkGit := func(doc string) *Report {
+		t.Helper()
+		r := CheckBytes([]byte("server:\n  httpAddr: \":8080\"\n" + gitUpstreams + doc))
+		if r.Errors != 0 {
+			t.Fatalf("unexpected errors: %+v", r.Issues)
+		}
+		return r
+	}
+	const gate = "llmPackageScan:\n  enabled: true\n  provider: claude\n  apiKey: k\n"
+	noLFS := checkGit(gate)
+	if hasIssue(noLFS, SeverityWarning, "llmPackageScan.excludeUpstreams", `"corp-git"`) {
+		t.Error("a git upstream without LFS proxying sends nothing to the provider through this gate")
+	}
+	withLFS := checkGit("git:\n  lfs: {enabled: true}\n" + gate)
+	if !hasIssue(withLFS, SeverityWarning, "llmPackageScan.excludeUpstreams", `"corp-git"`) {
+		t.Errorf("a private git upstream's LFS objects are scanned by default and should be flagged: %+v", withLFS.Issues)
+	}
+	lfsOff := checkGit("git:\n  lfs: {enabled: true}\n" + gate + "  exclude: [git-lfs]\n")
+	if hasIssue(lfsOff, SeverityWarning, "llmPackageScan.excludeUpstreams", `"corp-git"`) {
+		t.Error("git-lfs is excluded: the git upstream must not be flagged")
+	}
+	// Naming git-lfs with nothing to serve it, and naming git at all.
+	lonely := checkGit(gate + "  include: [npm, git-lfs]\n")
+	if !hasIssue(lonely, SeverityWarning, "llmPackageScan.include", "git.lfs.enabled") {
+		t.Errorf("include git-lfs without LFS proxying should be flagged: %+v", lonely.Issues)
+	}
+	served := checkGit("git:\n  lfs: {enabled: true}\n" + gate + "  include: [npm, git-lfs]\n")
+	if hasIssue(served, SeverityWarning, "llmPackageScan.include", "") {
+		t.Errorf("include git-lfs with LFS proxying on is fine: %+v", served.Issues)
+	}
+	for _, list := range []string{"include", "exclude"} {
+		r := checkGit(gate + "  " + list + ": [npm, git]\n")
+		if !hasIssue(r, SeverityWarning, "llmPackageScan."+list, "commit scan") {
+			t.Errorf("%s: [git] should be explained, not silently accepted: %+v", list, r.Issues)
+		}
+		if hasIssue(r, SeverityWarning, "llmPackageScan."+list, "no enabled upstream has that type") {
+			t.Errorf("%s: [git] got the generic \"no upstream\" warning, which is wrong for it: %+v", list, r.Issues)
+		}
 	}
 
 	// A budget that is enabled but has no ceiling bounds nothing.

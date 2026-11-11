@@ -27,6 +27,14 @@ type ImportOptions struct {
 	// store. By default an entry whose key and size already match is skipped,
 	// which makes a re-run of an interrupted import resume cheaply.
 	Overwrite bool
+	// Verdicts is the optional sink for the content-gate verdicts the bundle
+	// carries (see ScanVerdict). Verdicts are handed to it only when
+	// ExpectedManifestDigest was given and matched: a verdict is acted on by the
+	// importing instance, so it is accepted only from a bundle whose manifest was
+	// verified against a value obtained out of band. When nil, or when the
+	// manifest was not verified, the bundle's verdicts are not imported, and the
+	// importing instance decides about each artifact itself.
+	Verdicts VerdictSink
 }
 
 // ImportResult summarizes a completed import.
@@ -41,6 +49,15 @@ type ImportResult struct {
 	ProvenanceLinks int
 	// TotalBytes is the sum of imported blob sizes.
 	TotalBytes int64
+	// ScanVerdicts is the number of content-gate verdicts stored;
+	// ScanVerdictsSkipped the number the sink left out (already present, or of a
+	// gate it does not handle).
+	ScanVerdicts        int
+	ScanVerdictsSkipped int
+	// ScanVerdictsUntrusted is the number of verdicts the bundle carries that
+	// were NOT imported because its manifest digest was not verified
+	// (ExpectedManifestDigest empty) or no sink was given.
+	ScanVerdictsUntrusted int
 }
 
 // Importer loads a bundle into a content-addressable cache store (and optionally
@@ -138,7 +155,49 @@ func (im *Importer) Import(ctx context.Context, r io.Reader, opts ImportOptions)
 	}
 	result.ProvenanceLinks = links
 
+	if err := im.importVerdicts(ctx, manifest, opts, result); err != nil {
+		return nil, err
+	}
+
 	return result, nil
+}
+
+// importVerdicts hands the bundle's content-gate verdicts to the sink — but
+// only from a bundle whose manifest was verified against an out-of-band digest,
+// and only verdicts about a blob the bundle itself carries.
+//
+// It runs last, after every blob has been written and verified: a verdict is
+// never stored for content that did not arrive.
+func (im *Importer) importVerdicts(ctx context.Context, manifest *BundleManifest, opts ImportOptions, result *ImportResult) error {
+	if len(manifest.ScanVerdicts) == 0 {
+		return nil
+	}
+	if opts.Verdicts == nil || opts.ExpectedManifestDigest == "" {
+		result.ScanVerdictsUntrusted = len(manifest.ScanVerdicts)
+		return nil
+	}
+	carried := make(map[string]bool, len(manifest.CacheEntries))
+	for _, entry := range manifest.CacheEntries {
+		carried[entry.Digest] = true
+	}
+	for _, v := range manifest.ScanVerdicts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !carried[v.Digest] {
+			return fmt.Errorf("mirror: bundle carries a %s verdict for %s, which is not the digest of any blob in it", v.Gate, v.Digest)
+		}
+		imported, err := opts.Verdicts.ImportVerdict(ctx, v)
+		if err != nil {
+			return fmt.Errorf("mirror: importing %s verdict for %s: %w", v.Gate, v.Digest, err)
+		}
+		if imported {
+			result.ScanVerdicts++
+		} else {
+			result.ScanVerdictsSkipped++
+		}
+	}
+	return nil
 }
 
 // importEntry streams one blob member into the store, verifying its digest. It

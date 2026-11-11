@@ -45,6 +45,25 @@ const (
 	FailClosed FailMode = "closed"
 )
 
+// Oversize is what the gate does with an artifact larger than
+// Limits.MaxArtifactBytes.
+type Oversize string
+
+const (
+	// OversizeFail does not scan such an artifact at all: it is reported
+	// "oversized" and the fail mode decides. A verdict is then always a verdict
+	// on every byte that is served. The default.
+	OversizeFail Oversize = "fail"
+	// OversizeMetadataOnly examines what can be established within the scan
+	// limits — the artifact's inventory, the install-time scripts and manifests
+	// found in its first MaxArtifactBytes, and for an OCI image the image config
+	// and the inventory of every layer that fits — and has the model judge that.
+	// The verdict is recorded with scope "metadata-only", flagged truncated, and
+	// carries a finding saying the artifact was only partially examined: it is
+	// evidence about what was read, not a statement about what was not.
+	OversizeMetadataOnly Oversize = "metadata-only"
+)
+
 // Mode selects how the model is shown the package.
 type Mode string
 
@@ -93,10 +112,13 @@ const (
 
 // Limits bounds one scan.
 type Limits struct {
-	// MaxArtifactBytes is the largest (compressed) artifact the gate will scan. A
-	// larger artifact is not scanned at all — it is reported "oversized" and
-	// handled by the fail mode — because a verdict on a prefix would be a verdict
-	// on something other than what is served.
+	// MaxArtifactBytes is the largest (compressed) artifact the gate will scan
+	// whole. What happens to a larger one is Config.Oversize: by default it is
+	// not scanned at all — it is reported "oversized" and handled by the fail
+	// mode — because a verdict on a prefix would be a verdict on something other
+	// than what is served; under "metadata-only" its inventory and the scripts
+	// within this many bytes are examined and the verdict says so. For an OCI
+	// image the bound applies to each layer.
 	MaxArtifactBytes int64
 	// MaxUnpackedBytes caps the decompressed bytes produced while unpacking.
 	MaxUnpackedBytes int64
@@ -259,6 +281,9 @@ type Config struct {
 	Action Action
 	// FailMode is applied when no verdict could be obtained. Default open.
 	FailMode FailMode
+	// Oversize is applied to an artifact larger than Limits.MaxArtifactBytes.
+	// Default fail (the fail mode decides).
+	Oversize Oversize
 	// MaliciousThreshold is the minimum confidence at which a "malicious" verdict
 	// is acted on as malicious; below it the artifact is treated as suspicious.
 	// SuspiciousThreshold is the minimum confidence at which a "suspicious"
@@ -317,14 +342,42 @@ type Config struct {
 	Now func() time.Time
 }
 
-// DefaultEcosystems is the set scanned when Include is empty: the ecosystems
-// whose published artifact is an archive the unpacker understands and whose
-// install step can run package-supplied code.
-var DefaultEcosystems = []string{"npm", "pip", "cargo", "rubygems", "composer", "nuget"}
+// EcosystemGitLFS is the ecosystem key of Git LFS objects. Git clones and
+// fetches are not this gate's: their commits are the LLM commit-scan pipeline's
+// (internal/scan/commit). The large objects an LFS pointer stands for never
+// appear in a commit's diff, so they are examined here, under a key of their
+// own that can be included or excluded independently.
+const EcosystemGitLFS = "git-lfs"
+
+// DefaultEcosystems is the set scanned when Include is empty: every ecosystem
+// the proxy fronts whose artifacts reach a client through this gate. The gate
+// is off unless enabled; once on, an ecosystem is left out only by naming it in
+// Exclude — a backend added later is covered without anyone remembering to opt
+// it in.
+var DefaultEcosystems = []string{
+	"npm", "pip", "cargo", "go", "nuget", "maven", "rubygems", "composer",
+	"helm", "apt", "yum", "terraform", "conan", "conda", "cran", "cpan",
+	"hex", "bazel", "julia", "jsr", "hackage", "nix", "homebrew", "ansible",
+	"puppet", "swift", "dart", "openvsx", "huggingface", "docker", "generic",
+	EcosystemGitLFS,
+}
 
 // CanonEcosystem normalizes an ecosystem alias to the key used for matching.
+// The aliases include the alternative upstream type names ("deb", "rpm",
+// "pub"), which is what the gateway reports as the ecosystem of an upstream
+// configured under them.
 func CanonEcosystem(eco string) string {
 	switch e := strings.ToLower(strings.TrimSpace(eco)); e {
+	case "deb":
+		return "apt"
+	case "rpm":
+		return "yum"
+	case "pub":
+		return "dart"
+	case "oci":
+		return "docker"
+	case "lfs", "gitlfs":
+		return EcosystemGitLFS
 	case "pypi", "python":
 		return "pip"
 	case "gem", "gems", "ruby":
@@ -403,6 +456,10 @@ func (c Config) withDefaults() Config {
 	if c.FailMode == "" {
 		c.FailMode = FailOpen
 	}
+	c.Oversize = Oversize(strings.ToLower(strings.TrimSpace(string(c.Oversize))))
+	if c.Oversize == "" {
+		c.Oversize = OversizeFail
+	}
 	if c.MaliciousThreshold == 0 {
 		c.MaliciousThreshold = DefaultMaliciousThreshold
 	}
@@ -476,6 +533,11 @@ func (c Config) validate() error {
 	case FailOpen, FailClosed:
 	default:
 		return fmt.Errorf("llmpkgscan: invalid failMode %q (want open|closed)", c.FailMode)
+	}
+	switch c.Oversize {
+	case OversizeFail, OversizeMetadataOnly:
+	default:
+		return fmt.Errorf("llmpkgscan: invalid oversize %q (want fail|metadata-only)", c.Oversize)
 	}
 	if c.MaliciousThreshold <= 0 || c.MaliciousThreshold > 1 {
 		return fmt.Errorf("llmpkgscan: maliciousThreshold must be within (0,1], got %g", c.MaliciousThreshold)

@@ -1,6 +1,11 @@
 package swift
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // The Swift Package Registry speaks a small REST API (SE-0292 / the reference
 // "Swift Package Registry Service" specification) that addresses a package by a
@@ -160,6 +165,58 @@ func (r resource) coordinateName() string {
 
 // isArchive reports whether the resource is a source-archive download.
 func (r resource) isArchive() bool { return r.kind == kindArchive }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass).
+//
+// The source archive is what SwiftPM unpacks and builds. A package manifest is a
+// payload as well, although it is a single small file: Package.swift is a Swift
+// program, and SwiftPM compiles and runs it during dependency resolution, before
+// it downloads the archive. The release list and the identifier lookup are JSON
+// documents a client only reads.
+//
+// So is the release-metadata document, but only where the path really names
+// one. classify takes every third segment that does not end in ".zip" for a
+// version, so "1.1.1.ZIP" and "1.1.1.zip;a=b" arrive here as releases, and a
+// registry that matches paths without regard to case, or one that strips
+// ";name=value" path parameters, can answer them with the archive. Only a
+// segment that is positively a version is called metadata (see
+// isReleaseVersion); any other is left unclassified, and a gate judges the
+// response from its content.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindArchive:
+		return backends.Payload()
+	case kindManifest:
+		// Package.swift is one Swift source file, compiled and run by SwiftPM.
+		return backends.PayloadFile()
+	case kindReleases, kindIdentifiers:
+		return backends.Metadata()
+	case kindRelease:
+		if isReleaseVersion(r.version) {
+			return backends.Metadata()
+		}
+	}
+	return backends.Artifact{}
+}
+
+// semverPattern matches a semantic version: three numeric components, then
+// optional pre-release and build identifiers. It is the only form a release
+// version takes in the registry protocol.
+var semverPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+
+// isReleaseVersion reports whether the {version} segment of a release-metadata
+// path is positively a version: a semantic version, optionally followed by the
+// ".json" extension the protocol lets a client append. A pre-release identifier
+// may itself spell "zip" ("1.0.0-rc.ZIP" is a well-formed version), so a segment
+// that ends in the archive suffix in any letter case is not accepted either.
+func isReleaseVersion(segment string) bool {
+	version := strings.TrimSuffix(segment, ".json")
+	if strings.HasSuffix(strings.ToLower(version), archiveExt) {
+		return false
+	}
+	return semverPattern.MatchString(version)
+}
 
 // cacheable reports whether the resource may be cached. Only resources pinned
 // beneath a concrete release version are immutable and cacheable; the release

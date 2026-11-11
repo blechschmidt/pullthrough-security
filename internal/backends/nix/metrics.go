@@ -10,6 +10,7 @@ import "sync/atomic"
 type Metrics struct {
 	narsServed        atomic.Uint64 // NAR archives served
 	narsVerified      atomic.Uint64 // NARs whose SHA-256 verified against the URL content address
+	narsByContent     atomic.Uint64 // of those, NARs named by the hash of their uncompressed content
 	fileHashMismatch  atomic.Uint64 // NARs whose content failed verification and were refused
 	fileHashMissing   atomic.Uint64 // NARs served without a verifiable SHA-256 content address
 	narInfoServed     atomic.Uint64 // narinfo documents served
@@ -17,6 +18,7 @@ type Metrics struct {
 	narInfoSigInvalid atomic.Uint64 // narinfos rejected for lacking a valid trusted signature
 	narInfoUnverified atomic.Uint64 // narinfos served without signature verification (no keys configured)
 	narInfoRewritten  atomic.Uint64 // narinfos whose URL field was rewritten through the proxy
+	narInfoLocRefused atomic.Uint64 // narinfos refused because their NAR location would bypass the proxy
 	cacheInfoServed   atomic.Uint64 // /nix-cache-info descriptors served
 }
 
@@ -31,7 +33,15 @@ type Snapshot struct {
 	NarInfoSigInvalid float64
 	NarInfoUnverified float64
 	NarInfoRewritten  float64
-	CacheInfoServed   float64
+	// NarInfoLocationRefused counts narinfos that were not served because the
+	// NAR location they name could not be routed through the proxy and would
+	// have sent the client to another host.
+	NarInfoLocationRefused float64
+	// NarsVerifiedByContent counts the verified NARs whose name is the SHA-256
+	// of their uncompressed content (the narinfo's NarHash) rather than of the
+	// file as stored.
+	NarsVerifiedByContent float64
+	CacheInfoServed       float64
 }
 
 // Stats returns the current counter values.
@@ -47,6 +57,9 @@ func (m *Metrics) Stats() Snapshot {
 		NarInfoUnverified: float64(m.narInfoUnverified.Load()),
 		NarInfoRewritten:  float64(m.narInfoRewritten.Load()),
 		CacheInfoServed:   float64(m.cacheInfoServed.Load()),
+
+		NarInfoLocationRefused: float64(m.narInfoLocRefused.Load()),
+		NarsVerifiedByContent:  float64(m.narsByContent.Load()),
 	}
 }
 
@@ -59,4 +72,8 @@ func (m *Metrics) incNarInfoSigValid()   { m.narInfoSigValid.Add(1) }
 func (m *Metrics) incNarInfoSigInvalid() { m.narInfoSigInvalid.Add(1) }
 func (m *Metrics) incNarInfoUnverified() { m.narInfoUnverified.Add(1) }
 func (m *Metrics) incNarInfoRewritten()  { m.narInfoRewritten.Add(1) }
-func (m *Metrics) incCacheInfoServed()   { m.cacheInfoServed.Add(1) }
+func (m *Metrics) incNarInfoLocationRefused() {
+	m.narInfoLocRefused.Add(1)
+}
+func (m *Metrics) incNarsVerifiedByContent() { m.narsByContent.Add(1) }
+func (m *Metrics) incCacheInfoServed()       { m.cacheInfoServed.Add(1) }

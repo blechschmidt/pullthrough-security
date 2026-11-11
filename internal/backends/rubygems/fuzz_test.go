@@ -14,7 +14,11 @@
 //	go test -tags fuzz -run=^$ -fuzz=FuzzParseInfo ./internal/backends/rubygems/
 package rubygems
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 func FuzzClassify(f *testing.F) {
 	seeds := []string{
@@ -47,6 +51,12 @@ func FuzzClassify(f *testing.F) {
 		_ = res.coordinateName()
 		if res.verifiableArtifact() && (res.name == "" || res.version == "") {
 			t.Fatalf("verifiable gem with empty name/version: %q", path)
+		}
+		// The .gem, and nothing else, is what the content gates examine as a
+		// payload; no accepted path is left without a classification.
+		a := res.artifact()
+		if (a == backends.Payload()) != res.verifiableArtifact() || (a != backends.Payload() && a != backends.Metadata()) {
+			t.Fatalf("artifact of %q (%s) = %+v", path, res.kindLabel(), a)
 		}
 	})
 }

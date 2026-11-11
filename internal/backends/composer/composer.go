@@ -208,7 +208,9 @@ func (b *Backend) Name() string { return b.name }
 // and the version, so its coordinate is complete here — before the gates run and
 // before anything is fetched. For a dist request the upstream URL is the
 // package's v2 metadata document, from which Fetch derives the real download URL
-// and verification shasum.
+// and verification shasum. Resolve also states for the content gates whether the
+// resource is the installable dist archive or a metadata document
+// (resource.artifact).
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -252,6 +254,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaReference: res.reference,
 			metaDistExt:   res.ext,
 		},
+		Artifact: res.artifact(),
 	}
 
 	if cn := res.coordinateName(); cn != "" {

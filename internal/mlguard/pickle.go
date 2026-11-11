@@ -335,3 +335,51 @@ func readSized(data []byte, offset, lenBytes int) ([]byte, int, bool) {
 	}
 	return data[start:headEnd], end, true
 }
+
+// PickleSummary is what a static walk of one pickle opcode stream shows: the
+// callables it imports and whether it invokes anything. It is the read-only
+// view other gates use to describe a pickle to a reviewer without unpickling
+// it (the LLM package-content scan renders it for the model).
+type PickleSummary struct {
+	// Imports are the "module.name" callables referenced by GLOBAL, INST and
+	// STACK_GLOBAL opcodes, in stream order, without duplicates.
+	Imports []string
+	// Flagged are the imports among them that this gate's own rules classify as
+	// a process, network, code-execution or dynamic-import primitive (see
+	// classifyGlobal), in stream order. A stream names its imports in whatever
+	// order its author likes, so a reader that shows only the first so many of
+	// Imports must show these first: one os.system behind two hundred harmless
+	// names is otherwise the import that gets cut.
+	Flagged []string
+	// Reduce, Build, Inst and NewObj report the opcodes that call an imported
+	// callable: REDUCE, BUILD, INST/OBJ and NEWOBJ.
+	Reduce, Build, Inst, NewObj bool
+	// Opcodes is the number of opcodes walked.
+	Opcodes int
+	// Truncated reports that the walk stopped early — at the opcode budget, an
+	// unknown opcode or a malformed argument — so the summary is partial.
+	Truncated bool
+}
+
+// SummarizePickle statically walks data as a pickle opcode stream and returns
+// what it imports and invokes. Nothing is unpickled or executed. The caller
+// decides whether data is a pickle at all; a walk of something else stops at
+// the first byte that is not an opcode and returns an empty, truncated summary.
+func SummarizePickle(data []byte) PickleSummary {
+	sc := scanPickle(data)
+	out := PickleSummary{
+		Reduce: sc.HasReduce, Build: sc.HasBuild, Inst: sc.HasInst, NewObj: sc.HasNewObj,
+		Opcodes: sc.OpcodeCount, Truncated: sc.Truncated,
+	}
+	seen := make(map[string]bool, len(sc.Globals))
+	for _, g := range sc.Globals {
+		if q := g.qualified(); q != "" && !seen[q] {
+			seen[q] = true
+			out.Imports = append(out.Imports, q)
+			if _, _, flagged := classifyGlobal(g); flagged {
+				out.Flagged = append(out.Flagged, q)
+			}
+		}
+	}
+	return out
+}

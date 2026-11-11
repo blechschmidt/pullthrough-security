@@ -8,6 +8,7 @@ require (
 	github.com/cloudflare/circl v1.6.3
 	github.com/klauspost/compress v1.19.2
 	github.com/tetratelabs/wazero v1.9.0
+	github.com/ulikunitz/xz v0.5.17
 	golang.org/x/crypto v0.40.0
 	golang.org/x/sync v0.16.0
 	google.golang.org/protobuf v1.36.11

@@ -648,6 +648,7 @@
         dossierKV("Action", l.action || "—"),
         dossierKV("Judged by", `${l.provider || "—"} / ${l.model || "—"} · prompt v${l.promptVersion || 0} · ${l.mode || "—"}`),
         dossierKV("Scanned", `${fmtTime(l.scannedAt)} · ${l.filesScanned || 0} files`),
+        (l.format || l.readAs) ? dossierKV("Format", (l.format || "—") + (l.readAs ? ` — read as: ${l.readAs}` : "")) : null,
         l.digest ? dossierKV("Digest", shortSha(l.digest)) : null,
         l.artifacts > 1 ? dossierKV("Artifacts", `${l.artifacts} scanned / ${l.flagged} flagged`) : null,
         l.promptInjection ? dossierKV("Prompt injection", el("span.bad", { text: (l.injectionRules || []).join(", ") || "yes" })) : null,

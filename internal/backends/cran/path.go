@@ -1,6 +1,10 @@
 package cran
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A CRAN (R) repository is a static HTTP tree of per-area PACKAGES indices and
 // the package tarballs they describe. The canonical CRAN mirror and every
@@ -132,6 +136,22 @@ func parsePackageFilename(name string) (pkg, version string, ok bool) {
 // mutable and revalidated live.
 func (r resource) cacheable() bool {
 	return r.kind == kindPackage
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A package — a source tarball R builds and installs,
+// or a prebuilt Windows or macOS binary — is the payload. A PACKAGES index, in
+// any of its encodings, is what a client reads to see which versions exist; it
+// is recognized by its exact file name.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindPackage:
+		return backends.Payload()
+	case kindIndex:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
 }
 
 // verifiableFile reports whether the resource is a package the backend should

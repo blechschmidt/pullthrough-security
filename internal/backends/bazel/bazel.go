@@ -194,6 +194,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			"backend": b.name,
 			metaKind:  res.kindLabel(),
 		},
+		Artifact: res.artifact(),
 	}
 
 	// The upstream URL depends on the resource. The synthetic archive endpoint

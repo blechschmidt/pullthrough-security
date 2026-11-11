@@ -40,6 +40,11 @@ const (
 	// TriggerServe runs in serveCacheable after the artifact bytes are fetched,
 	// on the content.
 	TriggerServe Trigger = "serveCacheable (post-fetch)"
+	// TriggerEveryServePath runs wherever fetched content is about to reach a
+	// client: in serveCacheable like TriggerServe, and also on the response a
+	// backend does not cache, on an OCI image at its manifest and on its blobs,
+	// and on Git LFS objects.
+	TriggerEveryServePath Trigger = "every serve path (post-fetch)"
 	// TriggerCommit runs in the Git commit-scan pipeline (webhook/polling driven),
 	// not on the pull path.
 	TriggerCommit Trigger = "commit pipeline"
@@ -199,10 +204,10 @@ var catalog = []Gate{
 		Summary: "ClamAV/antivirus byte-level content scanning of fetched artifact payloads.",
 	},
 	{
-		Name: "llmpkgscan", Package: "internal/llmpkgscan", Trigger: TriggerServe,
+		Name: "llmpkgscan", Package: "internal/llmpkgscan", Trigger: TriggerEveryServePath,
 		Actions: []string{"annotate", "block", "quarantine", "fail-open | fail-closed (when unscanned)"}, ConfigPath: "llmPackageScan",
 		MetricPrefix: "pullthrough_llmpkgscan_", FindingsGate: findings.GateLLMPkgScan,
-		Summary: "Sandboxed LLM review of the unpacked package contents (read-only tools, no execution); verdict cached per sha256 digest + model + prompt version.",
+		Summary: "Sandboxed LLM review of the unpacked artifact (read-only tools, no execution) for every upstream type and on every serve path — cached and non-cacheable responses, OCI images judged at the manifest with their blobs following the verdict, Git LFS objects; verdict cached per sha256 digest + model + prompt version. Per-backend coverage: docs/llm-package-scan-coverage.md.",
 	},
 	{
 		Name: "reposcore", Package: "internal/reposcore", Trigger: TriggerServe,
@@ -304,9 +309,12 @@ staleness gate (` + "`make gate-reference-check`" + `) fails if this file drifts
 from the catalog, and a consistency test ties every SARIF-emitting gate and
 every documented config path back to the code.
 
-Gates run in a fixed pipeline order across three trigger points: **pull
+Gates run in a fixed pipeline order across these trigger points: **pull
 admission (pre-fetch)** gates inspect the coordinate before the artifact is
-fetched; **serveCacheable (post-fetch)** gates inspect the fetched content; and
+fetched; **serveCacheable (post-fetch)** gates inspect fetched content that is
+cached; a gate marked **every serve path (post-fetch)** additionally inspects
+content a backend does not cache, OCI images and their blobs, and Git LFS
+objects (see [llm-package-scan-coverage.md](llm-package-scan-coverage.md)); and
 **commit pipeline** gates run in the separate Git commit-scanning subsystem.
 Each gate folds its verdict into the shared admission signal set, which the
 policy engine and risk-scoring engine then evaluate.

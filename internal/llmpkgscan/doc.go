@@ -1,7 +1,9 @@
 // Package llmpkgscan implements the sandboxed LLM package-content scan gate
-// (Task 173): an admission gate that has a language model read the contents of
-// a downloaded package and return a malicious / suspicious / benign verdict
-// before the artifact is served to a client.
+// (Tasks 173, 174): an admission gate that has a language model read the
+// contents of a downloaded artifact and return a malicious / suspicious /
+// benign verdict before the artifact is served to a client. It covers every
+// upstream type the proxy fronts, in the format each ships, on every path the
+// bytes take to a client; internal/scancoverage is the checked record of that.
 //
 // The LLM commit scanner (internal/scan/commit) judges the source commit a
 // package is believed to come from. This gate judges the artifact itself — the
@@ -63,15 +65,56 @@
 // own context, not the first requester's: a client that gives up does not
 // throw away work the next client would have to pay for again.
 //
-// # What counts as a package
+// # What is examined
 //
-// The gate is asked about every versioned resource of an ecosystem in scope,
-// and some of those are not packages: a wheel's METADATA sidecar, a .nuspec, a
-// gemspec. A resource that carries no archive or compression signature and is
-// not named like an installable archive is left alone (Assess returns no
-// report). Anything that starts like an archive but cannot be unpacked, and
-// anything named like a package that turns out not to be one, is a package that
-// went unexamined — "unsupported-format", never a silent pass (tree.go).
+// The gate is asked about every resource of an ecosystem in scope, and most of
+// those are not packages: indexes, listings, checksum sidecars. Which is which
+// is first of all the backend's to say — each classifies what it resolves as a
+// payload, as metadata, or not at all (Artifact.Class) — and then a matter of
+// the bytes (applicable.go):
+//
+//   - a payload is always examined;
+//   - metadata is left alone only once its first bytes have shown it is not a
+//     package archive, an executable, a script or a pickle after all: in
+//     several protocols a repository's own index names each package's download
+//     path, so a path that reads as an index proves nothing;
+//   - an unclassified resource is examined when its bytes are something a
+//     machine unpacks or runs, or it is named like a package archive;
+//   - a compressed stream that will not show what it holds is examined under
+//     every class.
+//
+// A payload that does not unpack is a package that went unexamined —
+// "unsupported-format", never a harmless single file — unless a single file is
+// what it may honestly be (singleFileOK in tree.go). Extractors are more
+// forgiving than a careful parser, and "the scanner could not open it" must
+// never mean "nobody will".
+//
+// # Formats, images, binaries
+//
+// The shared unpack layer (internal/contentscan) opens every container format
+// in use — tar under five compressions, zip, .deb, .rpm, cpio, ar, NAR, the
+// package formats that nest an archive, archives inside archives — and reads a
+// file both ways when it is two archives at once. An OCI image is examined as a
+// whole when its manifest is pulled (image.go): what it runs, how it says it
+// was built, and the files of every layer, top-most first; its blobs then
+// follow the image's verdict (blobs.go) — the ones the scan read in full. A
+// layer its budget did not reach is examined on its own when it is pulled, as
+// the piece of a root filesystem it is (Artifact.RootFS), under a verdict of
+// its own. A binary member is shown to the model as a description of its
+// header and a view of its strings (binary.go).
+//
+// An artifact above the size limit is either not scanned at all, or — under
+// OversizeMetadataOnly — judged on its inventory and the scripts within the
+// limit, with a verdict stored as a variant of its own so that it can never be
+// served as a verdict on the whole (Verdict.Scope).
+//
+// # Verdicts enforced without a scan
+//
+// A verdict is keyed by the digest of the bytes, so it can be enforced wherever
+// those bytes turn up: on a blob of a refused image, on an entry a sibling
+// proxy asks for (StoredVerdict, BlobStatus, ReportFor), and on an instance
+// that cannot reach a provider at all — verdicts are exported with the
+// artifacts of an air-gap bundle and imported on the other side (bundle.go).
 //
 // # Who may read a verdict
 //

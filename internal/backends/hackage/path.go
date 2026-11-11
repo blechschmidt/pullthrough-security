@@ -1,6 +1,10 @@
 package hackage
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A Hackage repository is a static HTTP tree of the incremental package index,
 // TUF security metadata, per-package .cabal descriptions, and the immutable
@@ -229,6 +233,28 @@ func validCabalFilename(file, name string) bool {
 // immutable (their filename pins the version); everything else is revalidated
 // live.
 func (r resource) cacheable() bool { return r.kind == kindSdist }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). The sdist tarball — in either spelling of its path —
+// is the source cabal unpacks and builds: the payload. Everything else the
+// layout names is a document a client reads to decide what to fetch: the
+// package index (an archive, but one that holds only .cabal descriptions and
+// TUF target metadata), the TUF security documents, a package's target
+// metadata, its .cabal description and its landing page.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindSdist:
+		return backends.Payload()
+	case kindIndex:
+		// 01-index.tar(.gz) is a tar of every package's .cabal file: an index that
+		// is an archive, fetched by cabal at this one fixed path.
+		return backends.MetadataArchive()
+	case kindTUFMetadata, kindTargetMetadata, kindCabal, kindPackagePage:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // verifiableFile reports whether the resource is an sdist the backend should
 // verify against the sibling package.json TUF target metadata.

@@ -21,6 +21,13 @@ tarball carries an extra `postinstall` script is exactly what this gate is for.
 - Off by default: it needs an LLM provider and costs money per distinct artifact.
 - Reuses the commit scanner's provider abstraction (Claude, OpenAI / Codex-compatible).
   No second LLM client exists in the code base.
+- Covers **every upstream type the proxy fronts** — each package backend, OCI
+  images, Hugging Face repositories, generic upstreams and Git LFS objects — in
+  the format that ecosystem ships and on every path bytes take to a client. The
+  per-backend record is generated from the code and checked against it:
+  [llm-package-scan-coverage.md](llm-package-scan-coverage.md). The commits of
+  a Git clone or fetch are the [commit scan](commit-watch.md)'s to examine; no
+  gate refuses the clone itself (see [Git and Git LFS](#git-and-git-lfs)).
 
 ## Quick start
 
@@ -31,6 +38,7 @@ llmPackageScan:
   apiKey: env://ANTHROPIC_API_KEY  # secretRef, ${ENV}, enc:v1: — like every credential
   action: block                    # annotate | block | quarantine
   failMode: open                   # open | closed
+  oversize: fail                   # fail | metadata-only (artifacts above limits.maxArtifactBytes)
   storeDir: /var/lib/pullthrough/llm-verdicts
   budget:
     enabled: true
@@ -44,52 +52,336 @@ enough: the provider, key, endpoint and deep model are inherited from
 `scanning.*`. Run `pullthrough verify-config -config <file>` (or
 `ptctl doctor --config <file>`) and read the warnings — they cover a missing
 budget, the in-memory verdict store, the `timeout` / `server.writeTimeout`
-relation, an enforcing action that fails open, and authenticated upstreams whose
-packages would be sent to the provider.
+relation, an enforcing action that fails open, authenticated upstreams whose
+packages would be sent to the provider, and image or model upstreams whose
+artifacts will mostly exceed the size limit under `oversize: fail`.
 
 Every key is documented in the generated
 [configuration reference](configuration-reference.md#llmpackagescan).
 
 ## What happens on a pull
 
-The gate runs in `serveCacheable`, after the artifact is in the cache and after
-the deterministic content gates (`contentscan`, `mlguard`, `avscan`), and before
-the aggregating `policyengine` / `riskscore` gates, which consume its signal. It
-is deliberately the last content gate: the cheap gates go first, and anything
-they refuse never costs a model call.
+The gate sits on every path an artifact's bytes take to a client, after the
+deterministic content gates (`contentscan`, `mlguard`, `avscan`) and before the
+aggregating `policyengine` / `riskscore` gates, which consume its signal. It is
+deliberately the last content gate: the cheap gates go first, and anything they
+refuse never costs a model call.
 
-1. **Scope.** The upstream must not be in `excludeUpstreams`, the ecosystem must
-   be in scope (`include` / `exclude`; default `npm, pip, cargo, rubygems,
-   composer, nuget`), and the resource must carry a versioned coordinate.
-2. **Verdict lookup.** The verdict cache is consulted under the key
+1. **Scope.** The upstream must not be in `excludeUpstreams` and its ecosystem
+   must be in scope. With `include` empty that is every ecosystem the proxy
+   fronts plus `git-lfs`; `exclude` removes one. (`git` is not a key of this
+   gate: commits are the commit scan's — see [Git and Git LFS](#git-and-git-lfs).)
+2. **Is there anything to examine?** The backend says what the request is — a
+   payload, a document, or nothing in particular — and the first bytes are
+   looked at. See [What is examined](#what-is-examined).
+3. **Verdict lookup.** The verdict cache is consulted under the key
    `sha256(artifact) + model + prompt version`. A hit — including every pull of an
    artifact already in the content cache — costs no model call.
-3. **Scan** (cache miss). The artifact is unpacked and shown to the model; see
+4. **Scan** (no verdict yet). The artifact is unpacked and shown to the model; see
    below. Concurrent pulls of the same digest share one scan.
-4. **Decision.** The verdict, the configured thresholds and action, and two
+5. **Decision.** The verdict, the configured thresholds and action, and the
    deterministic cross-checks decide whether the response is the artifact or a
    `403`.
 
-The response is held until step 4. Nothing is streamed while the scan runs.
+The response is held until step 5. Nothing is streamed while the scan runs —
+which is also what makes a `Range` request safe: a range is cut from an artifact
+only after the gate has passed it.
 
-### What counts as a package
+### Where the gate runs
 
-Some versioned resources are not packages: a wheel's `METADATA` sidecar, a
-`.nuspec`, a gemspec. The gate decides by content, not by a list of names:
+| Path to the client | Where the gate sits |
+|--------------------|---------------------|
+| Cacheable artifact (miss or hit) | on the cache entry, before any byte is written; a refused artifact is evicted |
+| Non-cacheable response — a snapshot build, an image manifest pulled by tag, a file on a moving branch, a path the adapter does not know | the response is held in a spool file until the verdict exists and is served from the spool |
+| OCI image | examined as a whole when its manifest is pulled; its blobs follow the image's verdict |
+| Git LFS object | the Git backend's serve gate: every object request, hit or miss, whole or ranged |
+| Cache-federation peer endpoint | nothing is scanned; a stored refusing verdict is enforced (403) |
+| A miss filled from a sibling proxy, a pre-warm, an imported or restored cache entry | the same pipeline as a client pull: the gate runs when the entry is served |
 
-- A resource with **no archive or compression signature** that is **not named
-  like an installable archive** is left alone. No package manager installs code
-  from it. It is served without `X-LLMPkgScan-*` headers and counted in
-  `pullthrough_llmpkgscan_not_package_total`.
-- A resource that **starts like an archive the scanner cannot unpack** (zstd, xz,
-  7z, rar, a corrupt gzip, …), or that **is named like a package** (`.tgz`,
-  `.whl`, `.gem`, `.crate`, `.nupkg`, …) but is not an archive, is a package that
-  went unexamined: `unsupported-format`, handled by `failMode`, and reported as a
-  finding. It is never passed in silence.
+The complete list, with what each path does on `HEAD`, on `Range` and above the
+size limit, is in the [coverage record](llm-package-scan-coverage.md#serve-paths).
 
-The decision is made per request, not per digest: the same bytes requested under
-a metadata name and under a package name each get the answer their own name
-calls for.
+### What is examined
+
+Whether a response holds something to examine is not decided by its name, and
+not by whether it is cached. Each backend classifies what it resolves, and the
+gate acts on that statement **and on the bytes**:
+
+| The backend says | The gate |
+|------------------|----------|
+| **payload** — something a client installs, unpacks, builds, imports or executes | always examines it |
+| **metadata** — an index, a listing, a checksum or signature sidecar | leaves it alone, once its first bytes have shown that it is not a package archive, an executable, a script or a pickle after all |
+| nothing (**unclassified** — a pass-through path) | judges it from its bytes: an archive, an executable, a script or a pickle is examined, and so is content named like a package archive |
+
+Four rules keep that from becoming a way around the gate:
+
+- **"Metadata" is a statement about the path, and the path proves nothing.** In
+  several protocols the repository's own index tells the client where to fetch
+  each package (an APT `Filename:`, a yum `location`, a PyPI simple-page link).
+  A hostile repository can therefore route a package through a path that reads
+  as an index. So metadata is never skipped unseen: a `.deb` served at an index
+  path is examined as the `.deb` it is. (The one kind of metadata that
+  legitimately *is* an archive — Hackage's `01-index.tar.gz`, a Julia registry
+  tarball — is declared as such by its backend, and a tar there is left alone; a
+  zip, an OS package or an executable there is not.)
+- **A pickle is recognized by what it does, not by its header.** The two-byte
+  protocol header is optional to an unpickler: a protocol-0 pickle is plain
+  ASCII and runs a command on load all the same. A stream whose opcodes import
+  a callable is a pickle here, header or not.
+- **"Cannot tell" is never "nothing there".** A compressed response is looked
+  into (gzip, bzip2, xz, zstd, lzma) to see whether it holds text or an archive.
+  One that will not show what it holds — corrupt, cut off, demanding too much
+  decoder memory — is examined under every class.
+- **A payload that does not unpack is unscanned, not a harmless file.**
+  Extractors are more forgiving than a careful parser, so "the scanner could not
+  open it" never means "the installer will not". Such an artifact is reported
+  `unsupported-format` and handled by `failMode`. The exception is a payload
+  that may honestly be one file: its backend says so (a POM, a `Package.swift`,
+  a `conanfile.py`, a model weight file, an installer on a generic route), or it
+  starts like an executable, a script or a pickle and is not named like an
+  archive. That one is examined as the single file it is.
+
+A document the gate leaves alone is served without `X-LLMPkgScan-*` headers and
+counted in `pullthrough_llmpkgscan_not_package_total`. The decision is made per
+request, not per digest: the same bytes requested under two paths each get the
+answer their own path calls for — but a verdict already on record for those
+bytes is enforced wherever they turn up.
+
+### Every ecosystem's format
+
+The unpacker (`internal/contentscan`, shared with the deterministic content
+gate) recognizes formats by signature, never by file name, and opens what each
+ecosystem ships:
+
+- **tar** under gzip, bzip2, xz, zstd or lzma — npm, sdists, `.crate`, Helm
+  charts, conda `.tar.bz2`, CRAN, CPAN, Hackage, pub, Conan, Bazel, Julia,
+  Ansible, Puppet, Homebrew bottles, Terraform modules, OCI layers;
+- **zip** — wheels, Go modules, `.nupkg`, jars, `.vsix`, Composer, Terraform
+  providers, Swift archives — including a zip behind a prefix (a zipapp, an
+  executable jar, a self-extractor), which installers unpack like any other;
+- **package formats that nest an archive** — a `.gem` (`data.tar.gz`), a Hex
+  package (`contents.tar.gz`), a `.conda` (`info-*.tar.zst`, `pkg-*.tar.zst`);
+- **`.deb`** — the maintainer scripts and control files appear under `DEBIAN/`,
+  as `dpkg-deb --raw-extract` lays them out, followed by the data files;
+- **`.rpm`** (RPM 4 and RPM 6) — the scriptlets and triggers live in the header,
+  not in the payload, and are shown as `RPM/scriptlets/*` and `RPM/triggers/*`
+  next to a header summary and the cpio payload's files;
+- **cpio**, **ar** and **NAR** (Nix);
+- an **archive inside an archive**, two levels down, under `<member>!/`;
+- a **single file**, plain or compressed.
+
+Maintainer scripts, scriptlets, lifecycle hooks, build scripts and what an
+image's entrypoint names are ranked first, per ecosystem. The unpackers are
+tested against archives written by the real tools (`dpkg-deb`, `rpmbuild`,
+`cpio`, `xz`, `zstd`, `nix-store`); the formats and what the model is shown for
+each are tabulated in the [coverage record](llm-package-scan-coverage.md#artifact-formats).
+
+Decoder memory is bounded independently of the size limits: an xz or lzma
+stream may ask for at most a 64 MiB dictionary, a zstd stream for a 128 MiB
+window. A stream that asks for more is refused before anything is allocated.
+
+### Binary files
+
+Most of what a bottle, a NAR, an OS package, a jar or a model weight file holds
+is not text. A model cannot review machine code, but a binary is not opaque
+either. For every binary member the model gets:
+
+- a **description** from its header — ELF / PE / Mach-O with class, machine and
+  type; JVM class; WebAssembly; pickle; safetensors; GGUF; HDF5; NumPy — and a
+  note when it is packed (UPX) or has the entropy of encrypted data;
+- a **strings view** it can read and search like a text file: the printable
+  ASCII and UTF-16 strings, with the ones that matter first — URLs, hosts and
+  IP addresses, shell commands, credential paths, the names of process and
+  network functions;
+- for a **pickle**, a summary written by the proxy of what it imports and calls
+  when loaded (`os.system`, `subprocess.Popen`, `builtins.eval`, …), and for a
+  **safetensors** file its header. These lines are marked `[proxy]`; a string
+  inside the file that imitates the marker is rewritten, so the file cannot
+  forge a statement by the proxy. The same holds for what the proxy quotes on
+  its own lines: the imports the model-file rules flag are listed first (the
+  file's author chooses their order, and two hundred harmless names in front of
+  `os.system` must not push it off the list), and an imported "name" that is
+  not an identifier — a sentence, the marker itself — is shown as a quoted
+  literal and called out as the file's text.
+
+Nothing is disassembled, loaded or executed. `avscan` and `mlguard` remain the
+gates for signatures and for model-format rules; this is what lets the model
+give a meaningful verdict on an artifact that is mostly binary.
+
+### OCI images
+
+An image is not one artifact: it is a manifest naming a config blob and layer
+blobs, each fetched separately. What a container runs is spread across them, so
+the gate examines the **image as a whole, when its manifest is pulled** (by tag
+or by digest):
+
+- `image/run.txt` — what a container started from the image executes: user,
+  entrypoint, command, working directory, shell, healthcheck, `ONBUILD`
+  triggers, environment, ports, volumes, labels;
+- `image/history.txt` — the build steps the config records (the image's own
+  claim about how it was built), numbered like the layers;
+- `image/config.json`, `image/manifest.json`;
+- every layer's files under `layers/NNN-<digest>/`, **top-most layer first**.
+  The budgets are shared by the whole image; when they run out it is the base
+  layers — which thousands of images share — that the image scan does not get
+  to, and each one it did not read in full is named. The file an entrypoint or
+  command names is ranked first.
+
+Every blob is checked against the digest the manifest names for it. The verdict
+is stored under the **manifest digest** — which content-addresses everything
+else — as a variant of its own, so a reading of the manifest as a plain JSON
+file is never served as the image's verdict.
+
+The blobs then follow the image:
+
+- a blob a **refusing verdict implicates** — the image's config, and each layer
+  the verdict's evidence cites — is refused, whoever asks for it;
+- a blob an **image scan read in full** is served without a scan of its own
+  (under `oversize: metadata-only` that includes a layer cut short only by the
+  size limit: a scan of its own would stop at the same byte);
+- a blob **no image scan read** is examined by itself when it is pulled, with a
+  budget of its own, as the piece of a root filesystem a layer is. That is a
+  layer the image scan's budget did not reach — on a large image, the base
+  layers — as well as one pulled by a client that got its manifest elsewhere.
+  The verdict is stored under the layer's digest, so a base layer is examined
+  once, however many images are built on it.
+
+So no layer is served on the strength of an image verdict that never opened it:
+padding an image with enough files to exhaust the budget above a layer does not
+hide the layer, it only moves its examination to the moment it is pulled.
+
+Three rules keep blob refusal from being turned against images that did nothing
+wrong:
+
+- **Only the implicated blobs of a refused image are refused**, never all of
+  them. Images share base layers, and refusing those because one image built on
+  them is malicious would let anyone take a popular base image offline by
+  publishing malware on top of it.
+- **A layer is implicated by evidence the proxy confirmed** — the quoted text is
+  in the file the verdict cites. Unconfirmed citations count only when nothing
+  inside a layer could be confirmed, and then only for a file that exists.
+- **A config is refused as the config of a refused image, not as a digest.** A
+  manifest can name any blob of the registry as its config, so anyone can push a
+  throwaway image that names another image's config and carries something
+  blatant in a layer of its own. Such a blob is implicated as a config only if
+  it reads as an image config, and it is served for as long as an image the gate
+  currently serves has it as *its* config. (A config pins the content of its
+  layers — every runtime checks them against its diff IDs — so two images that
+  share one are the same image, or one of them is a forgery no runtime starts.)
+  The refused image stays refused where it matters: at its manifest, and at the
+  layers its verdict cites, for which there is no such exception.
+
+What remains is the limit of any verdict that rests on a model's citations: a
+model that is led to cite a file in a layer other images share gets that layer
+refused. A refusal names the image whose verdict caused it, and a break-glass
+grant for that image releases its blobs.
+
+A manifest list (image index) names other manifests and is served unexamined;
+the platform manifest a client selects from it is examined when it is pulled.
+An OCI artifact that is a signature, an attestation or an SBOM holds nothing to
+unpack or run and is left alone; one that carries a payload (a Helm chart, a
+WebAssembly module) is examined.
+
+### Artifacts above the size limit
+
+`limits.maxArtifactBytes` (64 MiB by default; for an image, per layer) bounds
+what is scanned whole. `llmPackageScan.oversize` says what happens above it:
+
+| `oversize` | What the gate does | What the verdict means |
+|------------|--------------------|------------------------|
+| `fail` (default) | nothing is read; the artifact is reported `oversized` and `failMode` decides | a verdict is always a verdict on every byte served |
+| `metadata-only` | the model judges what can be established within the limits: the file inventory, the install-time scripts and manifests in the first `maxArtifactBytes`, and for an image its config, history and the listing of every layer that fits. A zip is listed in full through random access — its directory is at its end — and its members read wherever they lie | the verdict is recorded with `scope: metadata-only`, flagged `truncated`, and carries a `scan-incomplete` finding and a non-zero risk even when it found nothing |
+
+A **malicious** metadata-only verdict is enforced like any other. A **benign**
+one is evidence about what was read, never a statement about the rest; policy
+can refuse it (`input.llmPackageScan.truncated`). The two are stored under
+different keys: raising the limit later leads to a full scan, not to the partial
+verdict being served as a complete one.
+
+A non-cacheable response above the limit cannot be held whole and has no digest
+to file a verdict under; it is always `oversized`.
+
+### Files built to be read differently by the scanner and the installer
+
+The gate judges what an installer will unpack. Its failure mode is therefore a
+disagreement: a file the scanner reads one way and the installer another. The
+unpacker closes the ones that are known:
+
+- **A file that is two archives at once.** A zip reader starts at the end of the
+  file, everything else at the beginning — so a tarball with a zip appended is a
+  tarball to npm and a wheel to pip. Whatever the first bytes say, the file is
+  also read as a zip from its end, and the members of that reading are listed
+  under `_same-file-read-as-zip!/`. The other direction — a zip whose first
+  block is also a valid tar header, which RubyGems, Hex or a container runtime
+  would unpack as a tar — is listed under `_same-file-read-as-tar!/` and is
+  held against the package regardless of what the model makes of its contents:
+  such a file does not come about by accident. Where the second reading cannot
+  be examined (an artifact over 16 MiB whose stream offers no random access),
+  that is a structural anomaly too, never a clean pass.
+- **A tar with a damaged header.** npm's extractor skips a header block that
+  fails its checksum and installs what follows; GNU tar does the same; Python's
+  and Go's stop. The unpacker reads on to the next valid header the way the
+  lenient ones do, so a lifecycle script placed behind a deliberately broken
+  header is in front of the model — and the damage itself is recorded as a
+  structural anomaly.
+- **A zip behind a prefix** is unpacked, and the prefix reported.
+- A zip member is a file unless its name ends in a slash, whatever its mode
+  bits claim; a tar member of any type that carries data is a file; duplicate
+  member names are kept apart; links are reported, never followed.
+
+### Git and Git LFS
+
+A clone or fetch is not examined by this gate, and the commit scan is not
+duplicated here. Commits are the [LLM commit scan](commit-watch.md)'s: it judges
+the commits of the repositories it watches (`scanning.watch`) and the commits
+packages were built from, and its verdicts raise findings, alert, and — through
+the admission policy — refuse the *packages* built from a flagged commit. Naming
+`git` in `include` has no effect, and preflight says so.
+
+> **A clone or fetch is not refused by any verdict.** Git smart-HTTP and SSH
+> traffic is served by the Git backend, which owns the connection and runs no
+> admission gate; a repository that is not watched is not scanned at all when it
+> is cloned through the proxy. If a `git clone` must not deliver a commit the
+> scan flagged, that has to be enforced where the clone is consumed (a policy on
+> the packages built from it, or a branch protection upstream) — the proxy does
+> not do it today.
+
+What a commit does not contain is the content behind a **Git LFS** pointer: the
+pointer is three lines of text, and the object it stands for is downloaded
+separately and lands in the checkout all the same. Those objects are examined
+here, under the scope key `git-lfs` (on by default when `git.lfs.enabled` is
+set). An LFS object is an opaque blob, so it is judged from its bytes: an
+archive, an executable, a script or a pickle is examined; an image, a video or a
+dataset is not, and costs nothing.
+
+### Generic upstreams
+
+A [generic upstream](generic-backend.md) serves what its operator declares.
+Add `llmPackageScan` to a route's `gates` to have what it serves examined — as
+an archive or as a single file (an installer script, a binary), cacheable or
+not. A route without it is unclassified, and is still examined when its bytes
+are an archive, an executable or a script.
+
+### Air-gapped instances
+
+The gate needs a provider, and behind an air gap there is none. Verdicts
+therefore travel with the content: `pullthrough export` carries the verdicts on
+record for the artifacts in the bundle, and `pullthrough import` files them in
+the importing instance's verdict store (`llmPackageScan.storeDir`). After that
+a pull behind the gap is answered from the store — a refusing verdict is
+enforced, a clean one admits the artifact — without a scan.
+
+- A verdict is something the importing instance acts on, so it is accepted only
+  from a bundle whose **manifest digest was verified** against a value obtained
+  out of band (`import -manifest-digest <digest or .sha256 file>`). The digest
+  covers the verdicts. Without it the artifacts are imported and the verdicts
+  are not; the import says so.
+- A verdict already on record is never replaced by an imported one.
+- The importing instance must be configured with the same `model` (a verdict's
+  key includes the model and the prompt version). An artifact without an
+  imported verdict is handled by `failMode`, as on any instance that cannot
+  reach its provider.
+- `export -no-verdicts` leaves them out.
 
 ## The sandbox
 
@@ -166,7 +458,7 @@ capped (`llmPackageScan.limits.*`, `timeout`, `maxConcurrent`):
 
 | Limit | Default | Guards against |
 |-------|---------|----------------|
-| `maxArtifactBytes` | 64 MiB | scanning a prefix of something larger (an oversized artifact is not scanned at all) |
+| `maxArtifactBytes` | 64 MiB | scanning a prefix of something larger; above it `oversize` decides (see [above](#artifacts-above-the-size-limit)). For an image the bound is per layer |
 | `maxUnpackedBytes` | 256 MiB | decompression bombs (bytes) |
 | `maxCompressionRatio` | 200 | decompression bombs (ratio) — also recorded as a structural anomaly |
 | `maxFiles` | 5000 | archive-member bombs; a zip whose directory declares far more is not unpacked |
@@ -278,15 +570,15 @@ later pull re-fetches the bytes and is refused again without another model call.
 
 | Code | Meaning | Caused by the artifact | Clears by itself |
 |------|---------|:---:|:---:|
-| `oversized` | larger than `limits.maxArtifactBytes` | ✓ | |
-| `unsupported-format` | not an archive the scanner can unpack | ✓ | |
+| `oversized` | larger than `limits.maxArtifactBytes` under `oversize: fail` (or a non-cacheable response too large to hold) | ✓ | |
+| `unsupported-format` | a payload that is not an archive the scanner can unpack, and not something that may be a single file; an image manifest that is not one | ✓ | |
 | `empty-archive` | an archive with no files | ✓ | |
 | `unpack-limit` | nothing could be unpacked within the limits | ✓ | |
 | `provider-refusal` | the provider's safety system declined to analyze it | ✓ | |
 | `malformed-output` | the answer was not a valid verdict | ✓ | |
 | `injection-suspected` | the answer disclosed the system prompt | ✓ | |
 | `token-limit` | the token cap was reached before a verdict | ✓ | |
-| `digest-mismatch` | the bytes read are not the bytes the cache recorded | | |
+| `digest-mismatch` | the bytes read are not the bytes the cache recorded; a blob of an image does not match the digest its manifest names | | |
 | `provider-error` | the provider call failed | | ✓ |
 | `provider-unavailable` | circuit breaker open after repeated failures | | ✓ |
 | `timeout` | the scan ran out of time | | ✓ |
@@ -347,12 +639,13 @@ artifacts. Set both ceilings.
 Served:
 
 ```
-X-LLMPkgScan-Decision: clean | annotate | degraded | break-glass
+X-LLMPkgScan-Decision: clean | annotate | degraded | break-glass | image
 X-LLMPkgScan-Verdict:  benign | suspicious | malicious | unscanned   # the gate's reading
 X-LLMPkgScan-Model-Verdict: benign | suspicious | malicious          # what the model answered
 X-LLMPkgScan-Confidence: 0.94        # the model's confidence in its own answer
 X-LLMPkgScan-Cached: true            # verdict came from the verdict cache
 X-LLMPkgScan-Truncated: true         # verdict rests on an incomplete view
+X-LLMPkgScan-Scope: metadata-only    # the artifact was above the size limit; see "oversize"
 X-LLMPkgScan-Code: provider-error    # unscanned only
 X-LLMPkgScan-Reason: …               # anything short of a clean verdict
 ```
@@ -369,6 +662,7 @@ X-Cache: BLOCKED
 ```json
 {
   "error": "artifact blocked by LLM package-content scan policy",
+  "message": "artifact blocked by LLM package-content scan policy: the model judged the package malicious (confidence 0.97)",
   "code": "malicious", "policyCode": "llm-package-malicious", "action": "block",
   "reason": "the model judged the package malicious (confidence 0.97)",
   "ecosystem": "npm", "package": "evil-pad", "version": "1.0.0",
@@ -377,6 +671,13 @@ X-Cache: BLOCKED
   "locations": [{"path": "package/scripts/setup.js", "line": 2}]
 }
 ```
+
+`X-LLMPkgScan-Decision: image` marks a blob served because an examined image
+covers it. `message` repeats the error and its reason under the key Git LFS
+clients print. For an image or one of its blobs, `digest` is the manifest
+digest and `locations` point into `layers/NNN-<digest>/…`. A request whose
+client gave up while the scan ran is answered `503` with `Retry-After`; the scan
+finishes and its verdict is waiting for the retry.
 
 `verdict` is the gate's reading; `modelVerdict` and `confidence` are what the
 model itself answered. They differ when a threshold or one of the deterministic
@@ -402,7 +703,9 @@ it is — opens a review in the [break-glass approval workflow](approvals.md)
 
 A grant is **scoped to the artifact digest**. It releases exactly the bytes the
 reviewer looked at and does not carry over to different bytes later served under
-the same coordinate. Passing faults (provider outage, timeout, exhausted budget)
+the same coordinate. For an image the review is opened for
+`<repository>@<manifest digest>` — the same coordinate for the manifest under
+every tag and for each of its blobs — so one grant releases the image whole. Passing faults (provider outage, timeout, exhausted budget)
 do not open reviews — they would open one per package pulled while the fault
 lasts.
 
@@ -478,9 +781,20 @@ keeps an upstream's artifacts from ever being opened for scanning, and preflight
 warns about every authenticated upstream that is not excluded. Alternatively
 point `baseUrl` at a provider endpoint you are entitled to send that code to.
 
-**It gates what the cache serves.** Like every content gate, it runs on cacheable
-artifacts in the serve path. A resource a backend passes through without caching
-is not inspected by any content gate, this one included.
+**It gates every serve path, not only the cache.** The deterministic content
+gates run on cacheable artifacts. This one also holds a non-cacheable response
+until its verdict exists, examines an image when its manifest is pulled, gates
+Git LFS objects, and enforces stored verdicts on the cache-federation endpoint
+(see [Where the gate runs](#where-the-gate-runs)). What remains outside it:
+whatever is excluded by `exclude` or `excludeUpstreams`, and Git clones and
+fetches — which no gate refuses: their commits are examined by the commit scan
+for the repositories it watches, and that is all
+(see [Git and Git LFS](#git-and-git-lfs)).
+
+**A request path never contains `.` or `..`.** No client sends one; it arrives
+only in an encoded spelling (`%2e%2e`), and the upstream would resolve it into a
+different path than the one the backend parsed, classified and gated. Such a
+request is refused with `400` for every backend, before it is resolved.
 
 **It is a static review, and it can be wrong.** A language model is a reviewer,
 not a proof. It can miss a well-hidden payload and it can flag a legitimate
@@ -488,16 +802,37 @@ package. That is why the default action serves suspicious packages with an
 advisory, why refusals can be released through review, and why this gate sits
 alongside the deterministic gates instead of replacing them. Specifically:
 
-- Binary members (native libraries, compiled objects, images) are listed with
-  their kind and size but not read. Use `avscan` and `contentscan` for those.
+- Binary members are shown as a description and a strings view, not reviewed as
+  code: logic that leaves no readable trace in a native binary is invisible to
+  it. Use `avscan` and `contentscan` alongside.
+- A layer or artifact above the size limit is unexamined under `oversize: fail`
+  and only partly examined under `metadata-only`; both are stated on the
+  verdict, never passed off as a clean bill.
 - A verdict marked `truncated` rests on part of the package. Policy can require
   full coverage (see above).
+- A large image is examined in pieces: the image scan covers the config and the
+  layers its budget reaches, and each remaining layer is examined on its own
+  when it is pulled — without the image's entrypoint next to it. Nothing is
+  served unopened, but behaviour that only shows when a base layer's file is
+  read together with the config of the image on top can be missed.
 - Bundle mode sees only what fits one prompt. Prefer a tool-capable provider.
-- Evasion by format is handled conservatively rather than cleverly: an archive
-  the scanner cannot unpack is *unscanned*, not *clean*, and the archive walker
-  treats every tar member that carries data as a file and reports links instead
-  of following them — so the scanner does not skip what an installer would
-  write.
+- A resource no backend classifies — a Git LFS object, a path an adapter does
+  not name — is judged from how it begins: an archive, an executable, a script
+  with an interpreter line, a pickle (with or without its protocol header) is
+  examined. Source code without an interpreter line is not recognized there, and
+  a pickle can be written to keep its first import out of the bytes that are
+  looked at. This is the net under what nobody classified; what a backend can
+  name it classifies as a payload, and a payload is examined whatever its bytes
+  look like.
+- Evasion by format is handled conservatively: an archive the scanner cannot
+  unpack is *unscanned*, not *clean*; a file that reads as two archives is read
+  both ways; a damaged tar is read the way the most tolerant extractor reads it;
+  and structure with no innocent explanation (a path or link escaping the root,
+  a decompression bomb, a zip that is also a tar, damage that makes extractors
+  disagree) holds the package as *suspicious* whatever the model says of its
+  contents. Under the default `block` action a suspicious package is served
+  with an advisory; use `quarantine`, or a policy rule on
+  `input.llmPackageScan.structuralRisk`, to refuse it.
 
 **A provider refusal is not a clean bill.** If the provider's safety system
 declines to analyze a package, the gate reports `provider-refusal` — a cause the
@@ -521,6 +856,12 @@ from the configuration fingerprint and never appears in the gate's status.
 - **Persist verdicts** (`storeDir`) and **set a budget** before enabling it for a
   busy ecosystem. The first install of a large dependency tree scans every
   artifact once; afterwards almost everything is a cache hit.
+- **Images cost one scan, plus one per layer the image scan did not reach.** The
+  first pull of an image scans it as a whole; every layer its budget left
+  unread is scanned when the client pulls that blob — once per distinct layer,
+  so a base layer shared by a hundred images is paid for once. Raise
+  `limits.maxFiles` / `maxUnpackedBytes` to have more of an image judged in one
+  piece, at the price of larger prompts.
 - **Expect latency on first pulls.** A new artifact waits for its verdict (seconds
   to tens of seconds, bounded by `timeout`). Raise `maxConcurrent` if scans queue
   (`pullthrough_llmpkgscan_queued`), within your provider's rate limits.
@@ -539,10 +880,39 @@ run unmodified against it. The gate's own tests, the gateway tests and the
 dossier/admin tests share it.
 
 ```sh
-go test ./internal/llmpkgscan/... ./internal/proxy/ ./internal/dossier/ ./internal/admin/
+go test ./internal/llmpkgscan/... ./internal/contentscan/ ./internal/proxy/ ./internal/dossier/ ./internal/admin/
+go test ./internal/scancoverage/ ./cmd/pullthrough/ -run 'LLMScanCoverage|EveryUpstreamType'
 go test -tags fuzz -run '^$' -fuzz '^FuzzParseVerdict$' -fuzztime 30s ./internal/llmpkgscan/
+go test -tags fuzz -run '^$' -fuzz '^FuzzWalkArtifact$' -fuzztime 30s ./internal/contentscan/
 ```
 
+What holds the coverage in place:
+
+- **Per format** — `TestEveryEcosystemArtifactFormatIsUnpackedAndJudged`
+  (`internal/llmpkgscan`) drives the whole gate over one artifact per ecosystem
+  in the format that ecosystem ships, the OS-package and Nix ones written by the
+  real tools; `TestEveryDefaultEcosystemHasAFormatCase` fails when an ecosystem
+  in the default scope has no such case.
+- **Per backend** — every backend's `artifact_class_test.go` pins what it
+  classifies as payload, metadata or neither; `TestLLMScanCoverageMatchesTheBackends`
+  (`cmd/pullthrough`) resolves every example path of the
+  [coverage record](llm-package-scan-coverage.md) against the real backend; and
+  `TestEveryUpstreamTypeHasAnLLMScanCoverageEntry` fails when an upstream type
+  the configuration accepts has no entry — a backend added later cannot opt out
+  of the scan by omission.
+- **Per serve path** — `internal/proxy/llmpkgscan_paths_test.go` covers the
+  non-cacheable path, images and their blobs, `Range`, Git LFS, the peer
+  endpoint, a peer-filled miss, a pre-warm and an imported cache entry.
+- **Per blob rule** — `internal/llmpkgscan/blobs_test.go` is written as the
+  attacks the blob index must withstand: a layer hidden under padding, another
+  image's config (or layer) named as the config of a throwaway malicious image,
+  an archive named as a config to have it marked examined, a layer's verdict
+  reused for the same bytes read as a package.
+- **Parser differentials** — `internal/contentscan/polyglot_test.go` and
+  `internal/llmpkgscan/polyglot_test.go` build the files meant to make scanner
+  and installer disagree.
+
 Fuzz targets: `FuzzParseVerdict` (the verdict parser), `FuzzSafePath` (member-name
-sanitization), `FuzzBuildTree` (the unpacker and tree builder) and
-`FuzzToolCalls` (tool-argument handling).
+sanitization), `FuzzBuildTree` (the unpacker and tree builder), `FuzzToolCalls`
+(tool-argument handling) and, in `internal/contentscan`, `FuzzWalkArtifact`
+(every container format).

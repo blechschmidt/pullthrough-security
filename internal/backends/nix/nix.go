@@ -8,7 +8,7 @@
 //
 //	GET /nix-cache-info             cache descriptor (StoreDir, Priority, ...)  (live)
 //	GET /<storehash>.narinfo        signed metadata for one store path         (live, sig-verified)
-//	GET /nar/<filehash>.nar[.ext]   the (compressed) NAR archive               (immutable, verified)
+//	GET /nar/<hash>.nar[.ext]       the (compressed) NAR archive               (immutable, verified)
 //
 // Two independent integrity controls protect a store path:
 //
@@ -20,17 +20,18 @@
 //     decompression. With no keys configured, narinfos are served unverified
 //     (annotated), matching how the apt/yum backends treat an absent GPG key.
 //
-//   - Content address. A NAR's file name is its own SHA-256: /nar/<filehash>.nar,
-//     where <filehash> is the Nix base-32 SHA-256 of the (compressed) file. On a
-//     cache miss the backend recomputes that SHA-256 as the file streams through
-//     and refuses to cache or serve bytes that do not match the hash in the URL,
-//     exactly as the Julia backend verifies a tarball against the git-tree-sha1
-//     in its URL. Verification is over the compressed bytes, so it is codec-
-//     independent and never buffers the archive.
+//   - Content address. A NAR's file name is a Nix base-32 SHA-256:
+//     /nar/<hash>.nar[.ext]. Caches differ in what it is the hash of — the file
+//     as stored (the narinfo's FileHash) or the NAR itself, uncompressed (its
+//     NarHash, which cache.nixos.org uses for the zstd NARs of current
+//     channels). On a cache miss the backend recomputes both as the file
+//     streams through and refuses to cache or serve bytes whose name is
+//     neither (see verify.go). Nothing is buffered.
 //
 // The narinfo "URL:" field is rewritten to route NAR downloads back through the
 // proxy. The signature does not cover the URL (or FileHash), so this rewrite
-// never invalidates it.
+// never invalidates it — and, for the same reason, a narinfo whose URL would
+// send the client to another host is refused rather than passed on.
 //
 // Nix store paths are addressed by an opaque truncated store hash and by the
 // NAR's SHA-256, never by an OSV package coordinate, so coordinate-based OSV
@@ -62,7 +63,7 @@ import (
 // data.
 const (
 	metaKind     = "_kind"     // resource-class label, for diagnostics/gates
-	metaVerify   = "_verify"   // "1" when the NAR must be file-hash-verified
+	metaVerify   = "_verify"   // "1" when the NAR's name is a SHA-256 to verify it against
 	metaFilename = "_filename" // final path component
 	metaFileHash = "_filehash" // expected Nix base-32 SHA-256 recorded in the NAR URL
 )
@@ -96,6 +97,40 @@ type SignatureError struct {
 
 func (e *SignatureError) Error() string {
 	return fmt.Sprintf("nix: narinfo for %s (%s) has no valid signature from a trusted public key", e.StorePath, e.URL)
+}
+
+// LocationError reports that a narinfo names a NAR location the proxy cannot
+// route through itself and that would send the client to another host. It is
+// surfaced in place of serving the document, so a client is never pointed at a
+// NAR that bypasses the proxy.
+type LocationError struct {
+	StorePath string
+	URL       string
+}
+
+func (e *LocationError) Error() string {
+	return fmt.Sprintf("nix: narinfo for %s (%s) locates its NAR outside this cache; it is not served, because the client would fetch the NAR without it passing through the proxy", e.StorePath, e.URL)
+}
+
+// narURLLeavesProxy reports whether a narinfo URL value the proxy could not
+// rewrite would be fetched from somewhere other than the proxy. Nix resolves a
+// value that begins with "http://", "https://" or "file://" as it stands and
+// every other value relative to the cache it is talking to — the proxy. Any
+// value that carries a scheme, or that does not parse at all, is treated as
+// leaving: what a client other than Nix makes of it is not knowable here.
+func narURLLeavesProxy(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return false
+	}
+	if strings.Contains(s, "://") {
+		return true
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return true
+	}
+	return u.Scheme != "" || u.Host != ""
 }
 
 // Options configures a Nix Backend.
@@ -224,6 +259,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaKind:     res.kindLabel(),
 			metaFilename: res.filename,
 		},
+		Artifact: res.artifact(),
 	}
 
 	// Attach the best available coordinate so nameguard, policy, provenance, and
@@ -310,11 +346,16 @@ func (b *Backend) fetchNar(ctx context.Context, resolved *backends.Resolved) (*b
 	if resolved.Metadata[metaVerify] == "1" {
 		expected := resolved.Metadata[metaFileHash]
 		resolved.Metadata[MetaFileHashVerified] = "sha256"
-		content = newFileHashVerifier(resp.Body, expected, resolved.Metadata[metaFilename], resolved.UpstreamURL, func(ok bool) {
-			if ok {
-				b.metrics.incNarsVerified()
-			} else {
+		_, ext, _ := parseNarName(resolved.Metadata[metaFilename])
+		content = newFileHashVerifier(resp.Body, expected, resolved.Metadata[metaFilename], resolved.UpstreamURL, ext, func(ok bool, how string) {
+			switch {
+			case !ok:
 				b.metrics.incFileHashMismatch()
+			case how == verifiedByContent:
+				b.metrics.incNarsVerified()
+				b.metrics.incNarsVerifiedByContent()
+			default:
+				b.metrics.incNarsVerified()
 			}
 		})
 		header.Set("X-Content-Hash-Verified", "sha256")
@@ -381,9 +422,22 @@ func (b *Backend) fetchNarInfo(ctx context.Context, resolved *backends.Resolved)
 
 	// Rewrite the NAR location so the client's download routes through the proxy.
 	// The signature covers neither URL nor FileHash, so this is sound.
+	//
+	// For the same reason the URL is the one field of a narinfo a cache can set
+	// to anything without invalidating its signature — and Nix honours an
+	// absolute "http(s)://" (or "file://") URL there, fetching the NAR from that
+	// location directly. A narinfo whose NAR location cannot be routed through
+	// the proxy and would take the client elsewhere is therefore not served: the
+	// NAR is this backend's only payload, and handing out a pointer to a copy of
+	// it that passes no cache, no content verification and no gate would undo
+	// every one of them. (A relative location outside nar/ stays on the proxy,
+	// which refuses the path: that one is passed on unchanged.)
 	if proxied, ok := b.proxiedNarURL(ni.URL); ok {
 		ni.rewriteURL(proxied)
 		b.metrics.incNarInfoRewritten()
+	} else if narURLLeavesProxy(ni.URL) {
+		b.metrics.incNarInfoLocationRefused()
+		return nil, &LocationError{StorePath: ni.StorePath, URL: resolved.UpstreamURL}
 	}
 	body := []byte(ni.reemit())
 
@@ -448,9 +502,11 @@ func (b *Backend) fetchPassthrough(ctx context.Context, resolved *backends.Resol
 
 // proxiedNarURL rewrites a narinfo URL value (relative "nar/<file>" or an
 // absolute URL) to route through the proxy's mount. It returns ok=false when the
-// value does not carry a "nar/" path component, in which case the caller leaves
-// the URL unchanged (fail-open), so a non-standard cache layout still reaches the
-// client.
+// value does not carry a "nar/" path component (or carries a ".."): the caller
+// then passes a relative value on unchanged — the client asks the proxy for it,
+// and the proxy refuses a path outside the layout — and refuses to serve the
+// narinfo when the value would take the client to another host (see
+// narURLLeavesProxy).
 func (b *Backend) proxiedNarURL(raw string) (string, bool) {
 	s := strings.TrimSpace(raw)
 	if s == "" {

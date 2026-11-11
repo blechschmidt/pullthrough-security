@@ -18,6 +18,7 @@
 package mirror
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -69,6 +70,51 @@ type BundleManifest struct {
 	ProvenanceLinks []*provenance.Link `json:"provenanceLinks,omitempty"`
 	// TotalBlobBytes is the sum of all cache blob sizes, for operator reporting.
 	TotalBlobBytes int64 `json:"totalBlobBytes"`
+	// ScanVerdicts carries the content-gate verdicts on record for the bundle's
+	// blobs (see ScanVerdict), sorted by gate and digest. Omitted when there are
+	// none, so a bundle without verdicts is byte-identical to one written before
+	// they existed and the format version is unchanged.
+	ScanVerdicts []ScanVerdict `json:"scanVerdicts,omitempty"`
+}
+
+// ScanVerdict is one content-gate verdict travelling with a bundle: which gate
+// reached it, the content digest of the bytes it is about, and the gate's own
+// record of it.
+//
+// A verdict is what lets an air-gapped instance enforce a decision it cannot
+// reach for itself: the LLM package scan needs a provider, and behind an air
+// gap there is none. Carried in the bundle, a "malicious" verdict reached on
+// the connected side is refused on the disconnected one, and a clean one is
+// served without the scan that could not run.
+//
+// That makes a verdict a statement the importer acts on, so it is only as good
+// as the bundle's provenance: Import hands verdicts to the sink only when the
+// bundle's manifest digest was verified against a value obtained out of band
+// (ImportOptions.ExpectedManifestDigest). The per-blob digests alone prove that
+// the blobs match the manifest — not that the manifest is the one the exporting
+// instance wrote.
+type ScanVerdict struct {
+	// Gate names the gate whose verdict this is (e.g. "llmpkgscan").
+	Gate string `json:"gate"`
+	// Digest is the "sha256:<hex>" content digest the verdict is about.
+	Digest string `json:"digest"`
+	// Record is the gate's own encoding of the verdict; it is opaque here.
+	Record json.RawMessage `json:"record"`
+}
+
+// VerdictSource yields the verdicts to carry in a bundle.
+type VerdictSource interface {
+	// ExportVerdicts returns the verdicts on record for the artifacts whose
+	// content digest ("sha256:<hex>") is in digests.
+	ExportVerdicts(ctx context.Context, digests map[string]bool) ([]ScanVerdict, error)
+}
+
+// VerdictSink receives the verdicts of an imported bundle.
+type VerdictSink interface {
+	// ImportVerdict validates one verdict and stores it. imported is false when
+	// it was left out for a reason that is not an error (the sink already holds
+	// a verdict for it, or it is for another gate).
+	ImportVerdict(ctx context.Context, v ScanVerdict) (imported bool, err error)
 }
 
 // CacheEntry indexes one cached blob within a bundle.
@@ -107,6 +153,16 @@ func (m *BundleManifest) sortManifest() {
 			return a.Version < b.Version
 		}
 		return a.Digest < b.Digest
+	})
+	sort.Slice(m.ScanVerdicts, func(i, j int) bool {
+		a, b := m.ScanVerdicts[i], m.ScanVerdicts[j]
+		if a.Gate != b.Gate {
+			return a.Gate < b.Gate
+		}
+		if a.Digest != b.Digest {
+			return a.Digest < b.Digest
+		}
+		return string(a.Record) < string(b.Record)
 	})
 }
 

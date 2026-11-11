@@ -1,6 +1,10 @@
 package terraform
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // The Terraform/OpenTofu registry exposes two protocols off a discovery
 // document. The route prefix "/v1/<name>" is stripped before classification, so
@@ -235,6 +239,61 @@ func (r resource) cacheable() bool {
 	default:
 		return false
 	}
+}
+
+// moduleArchiveName is the file name stated for a module source archive. The
+// archive endpoint has no file name of its own and the format of what it serves
+// is whatever the module's source URL produced (a gate reads it from the bytes),
+// so the name carries no extension.
+const moduleArchiveName = "module-archive"
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). The two proxy-synthetic artifact endpoints serve what
+// a client installs: the module source archive Terraform unpacks into the
+// configuration, and the provider ZIP whose plugin binary it executes. Both
+// state a file name, because the upstream URL of either is the registry
+// endpoint that locates the artifact (the module download endpoint, the provider
+// package descriptor), not the artifact.
+//
+// The endpoints the two registry protocols define are metadata: the discovery
+// document, the version lists, the module download response (an empty body
+// with an X-Terraform-Get header), the provider package descriptor, and the
+// SHASUMS manifest and its signature.
+//
+// kindModuleMeta and kindProviderMeta are left unclassified, for a gate to
+// judge from the bytes. They are not documents the grammar identifies but every
+// other path under the two API roots, forwarded as-is — and a registry may
+// serve artifacts there. Both protocols allow a relative artifact location,
+// resolved against the URL the client asked: a module download endpoint may
+// answer "X-Terraform-Get: ./source.tgz" (forwarded unchanged, since only an
+// absolute http(s) location is rewritten to the archive endpoint), and a
+// provider descriptor may carry a relative download_url (forwarded unchanged
+// when no public base URL is configured). The client then requests the archive
+// from a path below this mount, which falls into one of these two kinds.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindModuleArchive:
+		return backends.PayloadNamed(moduleArchiveName)
+	case kindProviderZip:
+		return backends.PayloadNamed(r.providerZipName())
+	case kindDiscovery, kindModuleVersions, kindModuleDownload,
+		kindProviderVersions, kindProviderDownload, kindProviderShasums, kindProviderShasumsSig:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
+
+// providerZipName is the file name of a provider release archive as registries
+// publish it: "terraform-provider-<type>_<version>_<os>_<arch>.zip". The real
+// name is only known once the package descriptor is fetched, so it is composed
+// from the coordinates in the request path, which the descriptor is looked up
+// by.
+func (r resource) providerZipName() string {
+	if r.name == "" || r.version == "" || r.os == "" || r.arch == "" {
+		return "terraform-provider.zip"
+	}
+	return "terraform-provider-" + r.name + "_" + r.version + "_" + r.os + "_" + r.arch + ".zip"
 }
 
 // kindLabel returns a stable diagnostic label for a resource kind.

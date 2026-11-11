@@ -132,8 +132,10 @@ func (b *Backend) Name() string { return b.name }
 
 // Resolve implements backends.Backend. It classifies the inbound path against the
 // RubyGems layout, derives the upstream URL and cache key, attaches the gem
-// coordinate for the admission gates, and decides cacheability (immutable .gem /
-// gemspec cached; mutable index documents revalidated).
+// coordinate for the admission gates, decides cacheability (immutable .gem /
+// gemspec cached; mutable index documents revalidated), and states for the
+// content gates whether the resource is the installable .gem or a metadata
+// document (resource.artifact).
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -163,6 +165,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaName:    res.name,
 			metaVersion: res.version,
 		},
+		Artifact: res.artifact(),
 	}
 
 	// Attach the gem coordinate so nameguard, policy, provenance, vulnscan,

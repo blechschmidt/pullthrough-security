@@ -27,17 +27,42 @@ const (
 	headerPeerSize    = "X-Cachefed-Size"
 )
 
+// ServeGuard decides whether a cache entry may be handed to a sibling. It is
+// given the entry's key and metadata, never its content, and returns nil to
+// allow. A non-nil error refuses the entry (the sibling is answered 403 and
+// falls back to the upstream).
+type ServeGuard func(ctx context.Context, key string, stat *cache.Stat) error
+
 // Handler returns the HTTP handler a proxy mounts at BasePath to answer sibling
 // HEAD/GET requests from its local content cache. It only ever serves bytes that
-// are already present in the local cache — and the local cache, by construction,
-// holds only artifacts that passed this proxy's admission gates (a blocked or
-// quarantined artifact is evicted) — so federation never leaks ungated content
-// between peers.
+// are already present in the local cache.
+//
+// The cache is not a set of admitted artifacts. An artifact is in it from the
+// moment it is fetched until a gate that refuses it evicts it — for a scan that
+// takes time, that is a while — and a gate in an observe-only mode leaves a
+// flagged artifact there for good. The receiving proxy runs its own admission
+// gates over whatever it is handed, which is the real defense; the guards are
+// this proxy declining to hand out what it has itself refused. Every guard is
+// consulted for HEAD and GET alike, before any byte is written.
 //
 // When serving is disabled (federation off, Serve false, or no auth token
 // configured) the handler rejects every request so a misconfiguration fails
 // closed rather than exposing an unauthenticated cache endpoint.
-func (f *Federation) Handler(c cache.Cache) http.Handler {
+func (f *Federation) Handler(c cache.Cache, guards ...ServeGuard) http.Handler {
+	refused := func(w http.ResponseWriter, r *http.Request, key string, stat *cache.Stat) bool {
+		for _, guard := range guards {
+			if guard == nil {
+				continue
+			}
+			if err := guard(r.Context(), key, stat); err != nil {
+				f.metrics.recordServedRefused()
+				w.Header().Set("X-Policy-Decision", "block")
+				http.Error(w, "refused: "+err.Error(), http.StatusForbidden)
+				return true
+			}
+		}
+		return false
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !f.servingEnabled() || c == nil {
 			http.Error(w, "cache federation serving is disabled", http.StatusServiceUnavailable)
@@ -72,6 +97,9 @@ func (f *Federation) Handler(c cache.Cache) http.Handler {
 				http.Error(w, "cache error", http.StatusInternalServerError)
 				return
 			}
+			if refused(w, r, key, stat) {
+				return
+			}
 			writeBlobHeaders(w, stat)
 			f.metrics.recordServed()
 			w.WriteHeader(http.StatusOK)
@@ -90,6 +118,9 @@ func (f *Federation) Handler(c cache.Cache) http.Handler {
 			return
 		}
 		defer entry.Content.Close()
+		if refused(w, r, key, &entry.Stat) {
+			return
+		}
 		writeBlobHeaders(w, &entry.Stat)
 		f.metrics.recordServed()
 		w.WriteHeader(http.StatusOK)
@@ -171,4 +202,16 @@ type peerStatusError struct{ status int }
 
 func (e *peerStatusError) Error() string {
 	return "cachefed: peer returned HTTP " + strconv.Itoa(e.status)
+}
+
+// peerDeclined reports whether a peer request failed because the peer, working
+// as intended, had nothing to give: it does not hold the key (404) or declines
+// to serve it (403: a ServeGuard refused the entry). An authentication failure
+// (401) is not among them — that is a misconfiguration worth a tripped breaker.
+func peerDeclined(err error) bool {
+	var se *peerStatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.status == http.StatusNotFound || se.status == http.StatusForbidden
 }

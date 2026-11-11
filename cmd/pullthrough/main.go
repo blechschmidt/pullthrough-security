@@ -977,6 +977,12 @@ func run() error {
 	// serve counters (Task 75) are bound here, once both exist.
 	bindServeMetrics(obs.collector, gateway)
 
+	// Git LFS objects are served by the Git backend itself, not through the
+	// gateway's cached-artifact path, so the LLM package-content scan (Task 174)
+	// is handed to it as a serve gate: every object request — hit, miss, Range —
+	// passes it before a byte is written.
+	wireLFSServeGate(registry, gateway, llmPkgScanSvc)
+
 	// Now that the gateway exists, give the pre-warmer its fetcher (which drives
 	// the gateway's full gated pull pipeline), gate periodic pre-warm cycles on HA
 	// leadership (Task 56) so only one node pre-warms, and refuse to pre-warm while

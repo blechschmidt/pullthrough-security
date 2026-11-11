@@ -1,6 +1,10 @@
 package conan
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // Conan 2.x speaks the "revisions" REST API that JFrog Artifactory (and thus
 // ConanCenter, https://center2.conan.io) and the reference conan_server both
@@ -94,6 +98,16 @@ const manifestFile = "conanmanifest.txt"
 // conaninfoFile records a binary package's resolved settings/options/requires;
 // its contents determine the package_id. It is surfaced to the admission gates.
 const conaninfoFile = "conaninfo.txt"
+
+// The files of a revision that a client executes, builds or installs: the
+// recipe itself, the archive of files exported with it, the archive of the
+// sources it builds from, and the archive holding a binary package.
+const (
+	recipeFile     = "conanfile.py"
+	exportArchive  = "conan_export.tgz"
+	sourcesArchive = "conan_sources.tgz"
+	packageArchive = "conan_package.tgz"
+)
 
 // resource is the parsed classification of an inbound Conan v2 request path.
 type resource struct {
@@ -347,6 +361,54 @@ func (r resource) cacheable() bool {
 	default:
 		return false
 	}
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). The discovery endpoints — the capability probe,
+// searches, revision pointers and lists, and the JSON file list of a revision —
+// are documents a client reads to find what to download.
+//
+// A file download is classified by its name, because cacheability and the
+// coordinate do not tell the files of a revision apart. The recipe
+// (conanfile.py, Python the client executes), the exported recipe files, the
+// sources and the binary package archive are what Conan runs, builds and
+// installs. conanmanifest.txt (a digest list) and conaninfo.txt (the settings a
+// binary was built with) are records the client only reads.
+//
+// Any other name is left unclassified, for a gate to judge from the bytes. A
+// revision can hold files beyond these six (the metadata/ folder, whatever a
+// server lists), and a file this table does not name is not known to be
+// harmless.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindPing, kindSearch,
+		kindRecipeLatest, kindRecipeRevisions, kindRecipeFiles,
+		kindPackageLatest, kindPackageRevisions, kindPackageFiles:
+		return backends.Metadata()
+	case kindRecipeFile, kindPackageFile:
+		name := r.baseFilename()
+		// A payload is recognized as written and as a server built on a servlet
+		// container may read it: such a server drops a ";name=value" path
+		// parameter, so "conanfile.py;x" is the recipe to it. Metadata is claimed
+		// for the exact name only.
+		bare, _, _ := strings.Cut(name, ";")
+		switch {
+		case name == recipeFile || bare == recipeFile:
+			// conanfile.py is one Python file, executed by the Conan client.
+			return backends.PayloadFile()
+		case isConanArchive(name) || isConanArchive(bare):
+			return backends.Payload()
+		case name == manifestFile || name == conaninfoFile:
+			return backends.Metadata()
+		}
+	}
+	return backends.Artifact{}
+}
+
+// isConanArchive reports whether name is one of the three archives of a
+// revision: the exported recipe files, the sources, the binary package.
+func isConanArchive(name string) bool {
+	return name == exportArchive || name == sourcesArchive || name == packageArchive
 }
 
 // kindLabel returns a stable diagnostic label for a resource kind.

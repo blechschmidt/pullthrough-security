@@ -13,6 +13,7 @@ import (
 
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/config"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/logging"
 	"github.com/blechschmidt/pullthrough-security/internal/mirror"
 	"github.com/blechschmidt/pullthrough-security/internal/provenance"
@@ -71,12 +72,71 @@ func openLinkStore(cfg *config.Config, create bool) (provenance.LinkStore, error
 	return provenance.NewFileLinkStore(dir)
 }
 
+// llmVerdictBundle adapts the LLM package-scan verdict store to the bundle's
+// verdict source and sink, so the verdicts reached on a connected instance are
+// carried with the artifacts they are about and enforced on an air-gapped one
+// (Task 174).
+type llmVerdictBundle struct {
+	store llmpkgscan.VerdictStore
+}
+
+// openLLMVerdictStore opens the verdict store the LLM package scan persists to
+// (llmPackageScan.storeDir). It returns (nil, nil) when none is configured —
+// verdicts are then kept in memory only and there is nothing to carry or to
+// import into. With create false a directory that does not exist yet is treated
+// as "no verdicts".
+func openLLMVerdictStore(cfg *config.Config, create bool) (*llmVerdictBundle, error) {
+	dir := cfg.LLMPackageScan.StoreDir
+	if dir == "" {
+		return nil, nil
+	}
+	if !create {
+		if _, err := os.Stat(dir); err != nil {
+			return nil, nil
+		}
+	}
+	store, err := llmpkgscan.NewFileStore(dir)
+	if err != nil {
+		return nil, fmt.Errorf("opening llmPackageScan.storeDir: %w", err)
+	}
+	return &llmVerdictBundle{store: store}, nil
+}
+
+func (b *llmVerdictBundle) Close() error { return b.store.Close() }
+
+// ExportVerdicts implements mirror.VerdictSource.
+func (b *llmVerdictBundle) ExportVerdicts(ctx context.Context, digests map[string]bool) ([]mirror.ScanVerdict, error) {
+	verdicts, err := llmpkgscan.ExportVerdicts(ctx, b.store, digests)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mirror.ScanVerdict, 0, len(verdicts))
+	for _, v := range verdicts {
+		out = append(out, mirror.ScanVerdict{Gate: llmpkgscan.BundleGate, Digest: v.Digest, Record: v.Record})
+	}
+	return out, nil
+}
+
+// ImportVerdict implements mirror.VerdictSink. A verdict of another gate is
+// left out; one this instance already holds is kept as it is.
+func (b *llmVerdictBundle) ImportVerdict(ctx context.Context, v mirror.ScanVerdict) (bool, error) {
+	if v.Gate != llmpkgscan.BundleGate {
+		return false, nil
+	}
+	_, err := llmpkgscan.ImportVerdict(ctx, b.store, v.Digest, v.Record)
+	if errors.Is(err, llmpkgscan.ErrVerdictPresent) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // runExport serializes the cache (and provenance links) into a portable bundle.
 func runExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ContinueOnError)
 	configPath := fs.String("config", "", "path to YAML configuration file")
 	out := fs.String("out", "", "path to write the bundle tarball (required)")
 	noProvenance := fs.Bool("no-provenance", false, "exclude provenance links from the bundle")
+	noVerdicts := fs.Bool("no-verdicts", false, "exclude LLM package-scan verdicts from the bundle")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -113,6 +173,20 @@ func runExport(args []string) error {
 		if links != nil {
 			defer links.Close()
 			opts.Links = links
+		}
+	}
+	if !*noVerdicts {
+		// The verdicts the LLM package scan reached on the artifacts being
+		// exported travel with them, so the importing instance — which, behind an
+		// air gap, cannot reach a provider — enforces them instead of deciding by
+		// its fail mode.
+		verdicts, verr := openLLMVerdictStore(cfg, false)
+		if verr != nil {
+			return verr
+		}
+		if verdicts != nil {
+			defer verdicts.Close()
+			opts.Verdicts = verdicts
 		}
 	}
 
@@ -163,9 +237,14 @@ func runExport(args []string) error {
 	fmt.Printf("exported bundle %s\n", *out)
 	fmt.Printf("  cache entries:   %d\n", result.CacheEntries)
 	fmt.Printf("  provenance links: %d\n", result.ProvenanceLinks)
+	fmt.Printf("  scan verdicts:    %d\n", result.ScanVerdicts)
 	fmt.Printf("  total blob bytes: %d\n", result.TotalBlobBytes)
 	fmt.Printf("  manifest digest:  %s\n", result.ManifestDigest)
 	fmt.Printf("  digest written:   %s\n", digestPath)
+	if result.ScanVerdicts > 0 {
+		fmt.Printf("  note: the bundle carries LLM package-scan verdicts. They are imported only when the\n")
+		fmt.Printf("        import is given this manifest digest (-manifest-digest), transferred out of band.\n")
+	}
 	return nil
 }
 
@@ -223,14 +302,27 @@ func runImport(args []string) error {
 	}
 	defer f.Close()
 
-	ctx, cancel := signalContext()
-	defer cancel()
-
-	result, err := importer.Import(ctx, bufio.NewReader(f), mirror.ImportOptions{
+	opts := mirror.ImportOptions{
 		Links:                  links,
 		ExpectedManifestDigest: expectedDigest,
 		Overwrite:              *overwrite,
-	})
+	}
+	// LLM package-scan verdicts carried by the bundle are filed in this
+	// instance's verdict store — when it has one, and (decided by the importer)
+	// only when the manifest digest was verified.
+	verdicts, err := openLLMVerdictStore(cfg, true)
+	if err != nil {
+		return err
+	}
+	if verdicts != nil {
+		defer verdicts.Close()
+		opts.Verdicts = verdicts
+	}
+
+	ctx, cancel := signalContext()
+	defer cancel()
+
+	result, err := importer.Import(ctx, bufio.NewReader(f), opts)
 	if err != nil {
 		return err
 	}
@@ -240,7 +332,20 @@ func runImport(args []string) error {
 	fmt.Printf("  imported entries: %d\n", result.Imported)
 	fmt.Printf("  skipped (present): %d\n", result.Skipped)
 	fmt.Printf("  provenance links: %d\n", result.ProvenanceLinks)
+	fmt.Printf("  scan verdicts:    %d imported, %d already present or not applicable\n", result.ScanVerdicts, result.ScanVerdictsSkipped)
 	fmt.Printf("  imported bytes:   %d\n", result.TotalBytes)
+	if n := result.ScanVerdictsUntrusted; n > 0 {
+		switch {
+		case expectedDigest == "":
+			fmt.Printf("  note: %d LLM package-scan verdict(s) in the bundle were NOT imported: a verdict is\n", n)
+			fmt.Printf("        accepted only from a bundle whose manifest digest was verified. Re-run with\n")
+			fmt.Printf("        -manifest-digest <digest or .sha256 file obtained out of band> to import them.\n")
+			fmt.Printf("        Until then this instance decides about each artifact itself (scan, or failMode).\n")
+		default:
+			fmt.Printf("  note: %d LLM package-scan verdict(s) in the bundle were NOT imported: llmPackageScan.storeDir\n", n)
+			fmt.Printf("        is not set, so this instance has no persistent verdict store to file them in.\n")
+		}
+	}
 	return nil
 }
 

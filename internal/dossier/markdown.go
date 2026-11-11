@@ -177,6 +177,14 @@ func (d *Dossier) Markdown() string {
 			scanned = l.ScannedAt.UTC().Format("2006-01-02 15:04:05 UTC")
 		}
 		mdKV(&b, "Scanned", fmt.Sprintf("%s · %d files · %s", scanned, l.FilesScanned, orDash(l.Digest)))
+		if l.Format != "" || l.ReadAs != "" {
+			// Both are enumerated values the proxy wrote, not package content.
+			readAs := orDash(l.Format)
+			if l.ReadAs != "" {
+				readAs += " — read as: " + l.ReadAs
+			}
+			mdKV(&b, "Format", readAs)
+		}
 		if l.Artifacts > 1 {
 			mdKV(&b, "Artifacts under this coordinate", fmt.Sprintf("%d scanned, %d flagged (the worst is shown)", l.Artifacts, l.Flagged))
 		}

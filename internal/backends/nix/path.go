@@ -1,6 +1,10 @@
 package nix
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A Nix binary cache (https://cache.nixos.org and any HTTP binary cache built by
 // `nix copy --to`) is a small, mostly content-addressed HTTP tree. The proxy
@@ -52,9 +56,10 @@ const narInfoSuffix = ".narinfo"
 const narSuffix = ".nar"
 
 // knownCompressionExts are the compression suffixes a NAR file may carry. The
-// uncompressed form carries none. The FileHash content-address check (sha256 of
-// the fetched, still-compressed bytes) is independent of the codec, so every one
-// of these is verifiable without decompression.
+// uncompressed form carries none. A name that is the SHA-256 of the file as
+// stored is verifiable under every one of them without a codec; a name that is
+// the SHA-256 of the uncompressed NAR is verifiable under the ones the backend
+// decodes (see decodableExts in verify.go).
 var knownCompressionExts = []string{".xz", ".zst", ".zstd", ".bz2", ".br", ".lzip", ".gz"}
 
 // resource is the parsed classification of an inbound binary-cache request.
@@ -137,6 +142,22 @@ func parseNarName(name string) (hash, ext string, ok bool) {
 // live (so the narinfo signature is re-verified and its URL re-rewritten).
 func (r resource) cacheable() bool {
 	return r.kind == kindNar
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A NAR is the store path itself — the files Nix
+// unpacks into /nix/store and that are then run or linked against — so it is
+// the payload, compressed or not. The narinfo that describes a store path and
+// the nix-cache-info descriptor are small text documents a client only reads.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindNar:
+		return backends.Payload()
+	case kindNarInfo, kindCacheInfo:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
 }
 
 // verifiable reports whether the backend should recompute and check the NAR

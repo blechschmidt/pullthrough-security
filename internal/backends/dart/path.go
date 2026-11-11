@@ -1,6 +1,10 @@
 package dart
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // The Dart "pub" client speaks the Hosted Pub Repository API (repository-spec
 // v2) that pub.dev and self-hosted pub servers implement. A package is
@@ -133,6 +137,26 @@ func (r resource) coordinateName() string { return r.name }
 
 // isArchive reports whether the resource is a package-archive download.
 func (r resource) isArchive() bool { return r.kind == kindArchive }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). The archive is what pub unpacks into the package
+// cache and builds; the list-versions and advisories documents are JSON a client
+// only reads.
+//
+// An archive is fetched by way of the list-versions document, so that document
+// is what Resolved.UpstreamURL names, and its last segment is the package name.
+// The classification therefore carries the archive's own file name, for a gate
+// that tells a format by its name.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindArchive:
+		return backends.PayloadNamed(r.name + "-" + r.version + archiveExt)
+	case kindVersions, kindAdvisories:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // isVersions reports whether the resource is the list-versions document (whose
 // archive_url fields the backend rewrites through the proxy).

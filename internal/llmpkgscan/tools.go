@@ -58,7 +58,7 @@ func toolSpecs() []commit.ToolSpec {
 	return []commit.ToolSpec{
 		{
 			Name: toolListFiles,
-			Description: "List the files of the unpacked package, sorted by path: path, size, kind (text or binary), and any role/signal labels. " +
+			Description: "List the files of the unpacked artifact, sorted by path: path, size, kind (text or binary), and any role/signal labels. " +
 				"Use it to see files the first message did not list, or to page through a directory.",
 			Parameters: commit.ToolParameters{Properties: map[string]any{
 				"prefix": map[string]any{"type": "string", "description": "Only list paths that start with this prefix, e.g. \"package/lib/\". Omit to list everything."},
@@ -67,8 +67,8 @@ func toolSpecs() []commit.ToolSpec {
 		},
 		{
 			Name: toolReadFile,
-			Description: "Read a range of lines from one text file of the unpacked package, with line numbers. " +
-				"Binary files cannot be read; their kind is reported instead. Long lines are cut — use grep to find text inside them.",
+			Description: "Read a range of lines from one file of the unpacked artifact, with line numbers. " +
+				"A binary file cannot be shown: for one whose listing entry says \"extracted strings\" this returns those strings, otherwise only its kind. Long lines are cut — use grep to find text inside them.",
 			Parameters: commit.ToolParameters{
 				Properties: map[string]any{
 					"path":       map[string]any{"type": "string", "description": "File path exactly as it appears in the listing."},
@@ -80,8 +80,8 @@ func toolSpecs() []commit.ToolSpec {
 		},
 		{
 			Name: toolGrep,
-			Description: "Search the text files of the unpacked package with a regular expression (RE2 syntax) and return matching lines as path:line: text. " +
-				"Use it to find where something is defined or used, or to look for network calls, process execution, decoding, or credential access across the whole package.",
+			Description: "Search the text files of the unpacked artifact, and the strings extracted from its binaries, with a regular expression (RE2 syntax) and return matching lines as path:line: text. " +
+				"Use it to find where something is defined or used, or to look for network calls, process execution, decoding, or credential access across the whole artifact.",
 			Parameters: commit.ToolParameters{
 				Properties: map[string]any{
 					"pattern":     map[string]any{"type": "string", "description": "RE2 regular expression. A pattern that does not compile is searched as literal text."},
@@ -294,8 +294,8 @@ func (tb *toolbox) readFile(p string, start, maxLines, budget int) (string, erro
 	}
 	name := neutralize(f.Path, tb.nonce)
 	switch {
-	case f.Binary:
-		fmt.Fprintf(&b, "(%s is a binary file: %s, %d bytes. Binary content is not shown.)\n", name, f.Kind, f.Size)
+	case f.Binary && !f.Strings:
+		fmt.Fprintf(&b, "(%s is a binary file: %s, %d bytes. Binary content is not shown, and no printable strings were extracted from it.)\n", name, f.Kind, f.Size)
 		return b.String(), nil
 	case f.Unretained:
 		fmt.Fprintf(&b, "(%s is a text file of %d bytes whose content was not retained: the scan's memory budget was spent.)\n", name, f.Size)
@@ -321,7 +321,11 @@ func (tb *toolbox) readFile(p string, start, maxLines, budget int) (string, erro
 	if end > f.Lines {
 		end = f.Lines
 	}
-	fmt.Fprintf(&b, "(%s — %d bytes, %d lines)\n", name, len(f.Data), f.Lines)
+	if f.Strings {
+		fmt.Fprintf(&b, "(%s — binary: %s, %d bytes; what follows are the %d lines of printable strings the proxy extracted from it, not the file itself)\n", name, f.Kind, f.Size, f.Lines)
+	} else {
+		fmt.Fprintf(&b, "(%s — %d bytes, %d lines)\n", name, len(f.Data), f.Lines)
+	}
 	last := renderLines(&b, f, start, end, budget-b.Len()-160, tb.nonce)
 	switch {
 	case last < start:

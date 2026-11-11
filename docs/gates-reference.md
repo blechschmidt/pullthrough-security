@@ -11,9 +11,12 @@ staleness gate (`make gate-reference-check`) fails if this file drifts
 from the catalog, and a consistency test ties every SARIF-emitting gate and
 every documented config path back to the code.
 
-Gates run in a fixed pipeline order across three trigger points: **pull
+Gates run in a fixed pipeline order across these trigger points: **pull
 admission (pre-fetch)** gates inspect the coordinate before the artifact is
-fetched; **serveCacheable (post-fetch)** gates inspect the fetched content; and
+fetched; **serveCacheable (post-fetch)** gates inspect fetched content that is
+cached; a gate marked **every serve path (post-fetch)** additionally inspects
+content a backend does not cache, OCI images and their blobs, and Git LFS
+objects (see [llm-package-scan-coverage.md](llm-package-scan-coverage.md)); and
 **commit pipeline** gates run in the separate Git commit-scanning subsystem.
 Each gate folds its verdict into the shared admission signal set, which the
 policy engine and risk-scoring engine then evaluate.
@@ -48,7 +51,7 @@ have no SARIF rule of their own. For finding remediation guidance see
 | `contentscan` | `internal/contentscan` | serveCacheable (post-fetch) | `annotate`, `downgrade`, `block` | `contentScan` | SuspiciousContent | `contentscan/suspicious-content` | `pullthrough_contentscan_*` |
 | `mlguard` | `internal/mlguard` | serveCacheable (post-fetch) | `warn`, `block` | `mlGuard` | unsafe ML-weight deserialization (pickle-*) findings (policy-engine signal, no SARIF rule) | — | `pullthrough_mlguard_*` |
 | `avscan` | `internal/avscan` | serveCacheable (post-fetch) | `annotate`, `quarantine`, `block` | `avScan` | MalwareDetected | `avscan/malware-detected` | `pullthrough_avscan_*` |
-| `llmpkgscan` | `internal/llmpkgscan` | serveCacheable (post-fetch) | `annotate`, `block`, `quarantine`, `fail-open \| fail-closed (when unscanned)` | `llmPackageScan` | LLMMaliciousPackage, LLMSuspiciousPackage, LLMScanIncomplete | `llmpkgscan/malicious-package`, `llmpkgscan/suspicious-package`, `llmpkgscan/scan-incomplete` | `pullthrough_llmpkgscan_*` |
+| `llmpkgscan` | `internal/llmpkgscan` | every serve path (post-fetch) | `annotate`, `block`, `quarantine`, `fail-open \| fail-closed (when unscanned)` | `llmPackageScan` | LLMMaliciousPackage, LLMSuspiciousPackage, LLMScanIncomplete | `llmpkgscan/malicious-package`, `llmpkgscan/suspicious-package`, `llmpkgscan/scan-incomplete` | `pullthrough_llmpkgscan_*` |
 | `reposcore` | `internal/reposcore` | serveCacheable (post-fetch) | `signal-only (never blocks)` | `repoScore` | source-repository health grade feeding riskscore/policyengine (no SARIF rule) | — | `pullthrough_reposcore_*` |
 | `provenance` | `internal/provenance` | serveCacheable (post-fetch) | `warn`, `block` | `provenance` | UnverifiedProvenance, MaliciousSourceCommit | `provenance/unverified`, `provenance/malicious-commit` | — (no dedicated family) |
 | `policyengine` | `internal/policyengine` | serveCacheable (post-fetch) | `allow`, `warn`, `deny`, `mode: enforce \| audit` | `policyEngine` | PolicyViolation | `policyengine/policy-violation` | `pullthrough_policyengine_*` |

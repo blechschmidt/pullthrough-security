@@ -1320,7 +1320,7 @@ A Nix binary cache (`type: nix`, e.g. `https://cache.nixos.org`, or any HTTP
 cache produced by `nix copy --to`) is proxied under `/v1/<name>`. The backend
 speaks the binary-cache protocol: the cache descriptor (`/nix-cache-info`), the
 per-store-path signed metadata (`/<storehash>.narinfo`), and the
-content-addressed NAR archives (`/nar/<filehash>.nar[.xz|.zst|…]`).
+content-addressed NAR archives (`/nar/<hash>.nar[.xz|.zst|…]`).
 
 Two independent integrity controls are enforced on the pull path:
 
@@ -1331,17 +1331,33 @@ Two independent integrity controls are enforced on the pull path:
   serving the narinfo; with keys configured, an unsigned or untrusted narinfo is
   refused. This is the trust anchor for the store path — it authenticates the
   `NarHash` the Nix client itself re-checks after decompressing the NAR.
-- **NAR content address.** A NAR's file name is its own SHA-256
-  (`/nar/<filehash>.nar.…`). On a cache miss the proxy recomputes that SHA-256 as
-  the (still-compressed) file streams through and refuses to cache or serve bytes
-  that do not match the hash in the URL — streaming, so a mismatch aborts the
-  cache write and the client stream. It records `X-Content-Hash-Verified: sha256`
-  on success.
+- **NAR content address.** A NAR's file name is a SHA-256
+  (`/nar/<hash>.nar.…`) — of the file as stored (the narinfo's `FileHash`; how
+  Nix's own cache layout names an xz NAR) or of the NAR itself, uncompressed
+  (the `NarHash`; how cache.nixos.org names the zstd NARs of current channels).
+  The request does not say which, so on a cache miss the proxy recomputes both
+  as the file streams through — the hash of the bytes as they arrive and, for
+  xz, zstd, bzip2 and gzip, the hash of what they decompress to (through a
+  decoder with bounded memory) — and refuses to cache or serve a NAR whose name
+  is neither. A mismatch aborts the cache write and the client stream. It
+  records `X-Content-Hash-Verified: sha256` on success;
+  `pullthrough_nix_nars_verified_by_content_total` counts the NARs named by
+  their content. (A brotli or lzip NAR is verified by its file hash only.)
 
 The narinfo `URL:` field is **rewritten** to the proxy's own `/nar/…` endpoint so
 a client's NAR download routes back **through the proxy** (and its content gate).
 The signature covers neither the `URL` nor the `FileHash`, so this rewrite never
 invalidates it.
+
+For the same reason a cache can put anything in that field without breaking its
+signature, and Nix fetches an absolute `http(s)://` or `file://` URL there as it
+stands. A narinfo whose NAR location the proxy cannot route through itself and
+that would send the client to another host is therefore **not served** (the
+request fails, and `pullthrough_nix_narinfo_location_refused_total` counts it):
+the NAR would otherwise reach the client past the cache, the content-address
+verification and every gate. A relative location outside `nar/` is passed on
+unchanged — the client asks the proxy for it, and the proxy does not serve a
+path outside the layout.
 
 > Nix store paths are **not** OSV-scanned by coordinate: a binary cache addresses
 > content by an opaque store hash and the NAR's SHA-256, never by a name/version.
@@ -1922,9 +1938,20 @@ cached artifact:
   applies (Task 89). Object-store CDN hosts (e.g. `github-cloud.*`) must be
   allowlisted.
 
-Freshly-fetched **textual** blobs under `git.lfs.scanMaxBytes` are run through the
-commit-scan secret detector; set `git.lfs.blockOnFindings: true` to refuse a blob
-that contains a detected secret rather than serving it with the finding recorded.
+**Textual** blobs under `git.lfs.scanMaxBytes` are run through the commit-scan
+secret detector; set `git.lfs.blockOnFindings: true` to refuse a blob that
+contains a detected secret rather than serving it with the finding recorded. The
+detector decides once per object, and a request is never served on the strength
+of a cache hit alone: an object is in the cache from the moment it is fetched,
+which is before the detector has looked at it, so a second request arriving in
+that window runs the detector itself rather than being served.
+
+With the [LLM package-content scan](llm-package-scan.md#git-and-git-lfs)
+enabled, every LFS object request — cache hit or miss, whole or ranged — also
+passes that gate before a byte is written (scope key `git-lfs`). An object that
+is an archive, an executable, a script or a pickle is examined; an image, a
+video or a dataset is not. A refused object is answered `403` with a `message`
+the `git lfs` client prints, and evicted.
 
 ```yaml
 git:
@@ -1938,7 +1965,8 @@ git:
 Clients need no special configuration — a normal `git lfs pull` / `git clone`
 through the proxy transparently fetches and caches LFS objects. Metrics are
 exported under `pullthrough_lfs_*` (batch requests, cache hits/misses, bytes
-fetched/served, OID/size mismatches, gate findings/blocks), labeled by backend.
+fetched/served, OID/size mismatches, gate findings/blocks, serve-gate refusals),
+labeled by backend.
 
 ---
 

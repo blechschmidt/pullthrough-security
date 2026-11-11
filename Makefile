@@ -164,6 +164,7 @@ FUZZ_TARGETS := \
 	internal/backends/pkgmgr:FuzzRewriteCargoConfig \
 	internal/backends/pkgmgr:FuzzMaybeGunzip \
 	internal/backends/pkgmgr:FuzzPipNameVersion \
+	internal/backends/pkgmgr:FuzzClassify \
 	internal/backends/docker:FuzzParseReference \
 	internal/backends/docker:FuzzParseDigest \
 	internal/backends/maven:FuzzClassify \
@@ -225,6 +226,7 @@ FUZZ_TARGETS := \
 	internal/actionpin:FuzzParseUsesValue \
 	internal/contentscan:FuzzAssess \
 	internal/contentscan:FuzzWalkArchive \
+	internal/contentscan:FuzzWalkArtifact \
 	internal/contentscan:FuzzObfuscatedJS \
 	internal/contentscan:FuzzScanExecLine \
 	internal/contentscan:FuzzSynthesizeAddedPatch \
@@ -419,6 +421,14 @@ ecosystem-reference-gen: ## Regenerate docs/ecosystem-tests-reference.md from th
 .PHONY: ecosystem-reference-check
 ecosystem-reference-check: ## Fail if docs/ecosystem-tests-reference.md is stale vs the ecosystem test catalog
 	$(GO) run ./cmd/gen-ecosystem-reference -check -o docs/ecosystem-tests-reference.md
+
+.PHONY: llmscan-coverage-gen
+llmscan-coverage-gen: ## Regenerate docs/llm-package-scan-coverage.md from the LLM-scan coverage catalog
+	$(GO) run ./cmd/gen-llmscan-coverage -o docs/llm-package-scan-coverage.md
+
+.PHONY: llmscan-coverage-check
+llmscan-coverage-check: ## Fail if docs/llm-package-scan-coverage.md is stale vs the coverage catalog
+	$(GO) run ./cmd/gen-llmscan-coverage -check -o docs/llm-package-scan-coverage.md
 
 .PHONY: config-validate
 config-validate: ## Validate a config file: make config-validate CONFIG=path/to/config.yaml

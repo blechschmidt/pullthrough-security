@@ -69,7 +69,19 @@ func signature(model string, promptVersion int) string {
 
 // CacheKey is the storage key for an artifact's verdict: "<sha256>-<signature>".
 func CacheKey(hexDigest, model string, promptVersion int) string {
-	return hexDigest + "-" + signature(model, promptVersion)
+	return CacheKeyVariant(hexDigest, model, promptVersion, variantFull)
+}
+
+// CacheKeyVariant is CacheKey for a verdict that is not a full scan of the
+// bytes behind the digest: a metadata-only reading of an artifact larger than
+// the scan limit, or the scan of the image a manifest describes. The variant is
+// folded into the signature, so each kind of verdict has a key of its own and
+// can never be returned where another kind is asked for.
+func CacheKeyVariant(hexDigest, model string, promptVersion int, variant string) string {
+	if variant == variantFull {
+		return hexDigest + "-" + signature(model, promptVersion)
+	}
+	return hexDigest + "-" + signature(model+"\x00variant="+variant, promptVersion)
 }
 
 // keyPattern validates a cache key before it is used to derive a file name.

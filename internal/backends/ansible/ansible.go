@@ -219,6 +219,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			"backend": b.name,
 			metaKind:  res.kindLabel(),
 		},
+		Artifact: res.artifact(),
 	}
 
 	if cn := res.coordinateName(); cn != "" {

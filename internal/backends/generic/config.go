@@ -57,7 +57,9 @@ type RouteConfig struct {
 	// upstream-base URL to the proxy's public base so nested artifact downloads
 	// route back through the proxy (and its gates). It is for metadata/index
 	// documents and is mutually exclusive with both Cacheable and Verify on the
-	// same route (an immutable artifact is never rewritten). Default false.
+	// same route (an immutable artifact is never rewritten). Because it declares
+	// the route a metadata document, the LLM package-content scan skips what the
+	// route serves, unless the route lists that gate in Gates. Default false.
 	Rewrite bool `yaml:"rewrite"`
 	// Verify, when set, enables verify-on-fetch content-address verification of the
 	// artifact this route serves: the fetched bytes are streamed through a hasher
@@ -70,6 +72,15 @@ type RouteConfig struct {
 	// for audit and telemetry; the globally-enabled gates still run over every
 	// cacheable artifact (a cacheable route is what subjects an artifact to the
 	// content-gate pipeline), so this documents intent rather than disabling gates.
+	//
+	// One identifier does more than document intent. A route that lists
+	// "llmpkgscan" (or "llmPackageScan") is classified as an installable payload
+	// for the LLM package-content scan: what it serves is examined even when the
+	// response is not an archive, and even when the route is not cacheable.
+	//
+	// "llmPackageScan" is that gate's configuration key, accepted here as an alias
+	// of its identifier. The alias is recorded as "llmpkgscan", once, however the
+	// route spelled it.
 	Gates []string `yaml:"gates"`
 	// MediaType overrides the Content-Type served for this route (e.g.
 	// "application/gzip"). Optional; the upstream content type is used otherwise.
@@ -123,10 +134,16 @@ var knownAlgorithms = map[string]bool{
 	"sha1":   true,
 }
 
+// gateLLMPackageScan is the identifier of the LLM package-content scan gate. A
+// route that lists it is classified as an installable payload (see
+// RouteConfig.Gates).
+const gateLLMPackageScan = "llmpkgscan"
+
 // knownGates is the set of content-gate identifiers a route may reference in its
 // Gates allowlist. They mirror the gate labels the proxy runs over a cacheable
 // artifact in serveCacheable; referencing an unknown gate is a config error so a
-// typo is caught at load time rather than silently ignored.
+// typo is caught at load time rather than silently ignored. A route may also
+// spell a gate by one of the gateAliases.
 var knownGates = map[string]bool{
 	"vulnscan":     true,
 	"license":      true,
@@ -144,8 +161,54 @@ var knownGates = map[string]bool{
 	"reposcore":    true,
 }
 
+// gateAliases maps an alternative spelling a route may use for a gate to the
+// gate's canonical identifier. The LLM package-content scan is configured under
+// the "llmPackageScan" key, so an operator who has just written that section
+// names the gate the same way in a route; both spellings mean the one gate.
+// Aliases are accepted by Validate and stored under the canonical identifier
+// (canonicalGates); they are not identifiers in their own right, so KnownGates
+// does not list them.
+var gateAliases = map[string]string{
+	"llmPackageScan": gateLLMPackageScan,
+}
+
+// canonicalGate returns the canonical identifier of a gate a route names, and
+// whether the name is a known gate or an alias of one. Names are case-sensitive.
+func canonicalGate(name string) (string, bool) {
+	if knownGates[name] {
+		return name, true
+	}
+	if canonical, ok := gateAliases[name]; ok {
+		return canonical, true
+	}
+	return "", false
+}
+
+// canonicalGates returns a route's gate list as canonical identifiers: every
+// alias is replaced by the gate it names and a gate named more than once (under
+// one spelling or several) is kept once, at its first position. A name
+// canonicalGate does not know is dropped; Validate has rejected it before a
+// route is compiled.
+func canonicalGates(gates []string) []string {
+	if len(gates) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(gates))
+	seen := make(map[string]bool, len(gates))
+	for _, g := range gates {
+		canonical, ok := canonicalGate(g)
+		if !ok || seen[canonical] {
+			continue
+		}
+		seen[canonical] = true
+		out = append(out, canonical)
+	}
+	return out
+}
+
 // KnownGates returns the sorted set of valid content-gate identifiers, for
-// documentation and error messages.
+// documentation and error messages. It lists canonical identifiers only: the
+// alternative spellings a route may also use (gateAliases) are not included.
 func KnownGates() []string {
 	out := make([]string, 0, len(knownGates))
 	for g := range knownGates {
@@ -198,7 +261,7 @@ func (c *BackendConfig) Validate(name string) error {
 			return fmt.Errorf("generic %q route %s: rewrite and verify are mutually exclusive", name, label)
 		}
 		for _, g := range r.Gates {
-			if !knownGates[g] {
+			if _, ok := canonicalGate(g); !ok {
 				return fmt.Errorf("generic %q route %s: unknown content gate %q (known: %s)", name, label, g, strings.Join(KnownGates(), ", "))
 			}
 		}

@@ -81,6 +81,19 @@ type IndexPredicate func(req *backends.Request) bool
 // which case no coordinate is attached.
 type Coordinator func(req *backends.Request) (coord backends.Coordinate, ok bool)
 
+// Classifier states what a request addresses, for the gates that examine what a
+// client is about to install: an installable payload, a metadata document, or —
+// the zero Artifact — a resource the ecosystem's path grammar does not name,
+// which a gate then judges from its bytes (see backends.ArtifactClass). It is
+// consulted during Resolve and sees the inbound request, as the Coordinator
+// does.
+//
+// SECURITY: a resource classified as metadata is served without being examined.
+// A Classifier therefore claims metadata only for a path its protocol positively
+// identifies as a document, and leaves everything it cannot name unclassified.
+// The engine forwards any path it is given, so "everything else" is most paths.
+type Classifier func(req *backends.Request) backends.Artifact
+
 // Rewriter transforms an index document body before it is served. It receives
 // the raw upstream bytes and the upstream media type and returns the
 // (possibly) transformed bytes. It is invoked only for resources an
@@ -114,6 +127,9 @@ type Options struct {
 	// admission-policy layer. Optional; when nil resolved artifacts carry no
 	// coordinate.
 	Coordinator Coordinator
+	// Classify classifies the resource for the content gates. Optional; nil
+	// leaves every resource unclassified.
+	Classify Classifier
 	// Index classifies a request as a rewritable index document. Optional; when
 	// nil no request is treated as an index document and Rewrite is never called.
 	Index IndexPredicate
@@ -137,6 +153,7 @@ type Backend struct {
 	absRouter     AbsoluteRouter
 	cacheable     Cacheability
 	coordinator   Coordinator
+	classify      Classifier
 	index         IndexPredicate
 	rewrite       Rewriter
 	forwardAccept bool
@@ -181,6 +198,7 @@ func New(opts Options) (*Backend, error) {
 		absRouter:     opts.AbsoluteRouter,
 		cacheable:     cacheable,
 		coordinator:   opts.Coordinator,
+		classify:      opts.Classify,
 		index:         opts.Index,
 		rewrite:       opts.Rewrite,
 		forwardAccept: opts.ForwardAccept,
@@ -268,6 +286,9 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 		if coord, ok := b.coordinator(req); ok {
 			resolved.Coordinate = coord
 		}
+	}
+	if b.classify != nil {
+		resolved.Artifact = b.classify(req)
 	}
 	return resolved, nil
 }

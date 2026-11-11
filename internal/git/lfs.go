@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
@@ -78,6 +79,22 @@ type LFSContentGate interface {
 	InspectLFSObject(ctx context.Context, info LFSObjectInfo, content []byte) (findings int, err error)
 }
 
+// LFSServeGate decides whether a Git LFS object that is in the cache may be
+// served to the requesting client.
+//
+// It differs from LFSContentGate in when it runs and in what it may do. The
+// content gate looks once at a freshly-fetched blob, bounded by ScanMaxBytes,
+// and fails open. A serve gate is consulted on every object request — a cache
+// hit as much as a fetch, a Range or HEAD request as much as a whole download —
+// after the object is in the cache under cacheKey and before the first response
+// byte is written, so a verdict reached on an earlier pull still stands on the
+// next one and a ranged read cannot slip past it.
+//
+// It returns true to serve. When it returns false it has written the refusal
+// to w itself; the backend writes nothing more. Implementations must be safe
+// for concurrent use.
+type LFSServeGate func(w http.ResponseWriter, r *http.Request, info LFSObjectInfo, cacheKey string) bool
+
 // lfsProxy holds the per-backend Git LFS state: size caps, the optional content
 // gate, and the metrics counters.
 type lfsProxy struct {
@@ -86,7 +103,38 @@ type lfsProxy struct {
 	scanMaxBytes    int64
 	blockOnFindings bool
 	gate            LFSContentGate
+	serveGate       LFSServeGate
 	metrics         lfsMetrics
+
+	// gated remembers the objects the content gate has decided on and let pass in
+	// this process. "It is in the cache" does not mean "it was gated": an object
+	// is in the cache from the moment it is fetched, which is before the gate has
+	// looked at it, and a request arriving in that window must not be served on
+	// the strength of a cache hit.
+	gatedMu sync.Mutex
+	gated   map[string]struct{}
+}
+
+// maxLFSGated bounds the remembered objects. Forgetting one costs a re-scan of
+// at most ScanMaxBytes on its next request, never a missed scan.
+const maxLFSGated = 100000
+
+// passedGate reports whether the content gate has already let oid pass.
+func (l *lfsProxy) passedGate(oid string) bool {
+	l.gatedMu.Lock()
+	defer l.gatedMu.Unlock()
+	_, ok := l.gated[oid]
+	return ok
+}
+
+// markGated records that the content gate decided on oid and let it pass.
+func (l *lfsProxy) markGated(oid string) {
+	l.gatedMu.Lock()
+	defer l.gatedMu.Unlock()
+	if l.gated == nil || len(l.gated) >= maxLFSGated {
+		l.gated = make(map[string]struct{})
+	}
+	l.gated[oid] = struct{}{}
 }
 
 func newLFSProxy(b *Backend, opts LFSOptions) *lfsProxy {
@@ -123,6 +171,7 @@ type lfsMetrics struct {
 	sizeMismatches atomic.Int64 // fetches rejected because length != declared size
 	gateFindings   atomic.Int64 // content-gate findings across all scanned blobs
 	gateBlocked    atomic.Int64 // objects refused because of a content-gate finding
+	serveRefused   atomic.Int64 // object requests refused by the serve gate
 	errors         atomic.Int64 // upstream/transport/other errors on the LFS path
 	rejectedUpload atomic.Int64 // batch "upload" operations rejected (read-only)
 }
@@ -140,6 +189,7 @@ type LFSSnapshot struct {
 	SizeMismatches int64
 	GateFindings   int64
 	GateBlocked    int64
+	ServeRefused   int64
 	Errors         int64
 	RejectedUpload int64
 }
@@ -157,6 +207,7 @@ func (m *lfsMetrics) snapshot() LFSSnapshot {
 		SizeMismatches: m.sizeMismatches.Load(),
 		GateFindings:   m.gateFindings.Load(),
 		GateBlocked:    m.gateBlocked.Load(),
+		ServeRefused:   m.serveRefused.Load(),
 		Errors:         m.errors.Load(),
 		RejectedUpload: m.rejectedUpload.Load(),
 	}
@@ -452,18 +503,66 @@ func (b *Backend) handleLFSObject(w http.ResponseWriter, r *http.Request, repo, 
 		lfs.metrics.cacheHits.Add(1)
 	} else {
 		lfs.metrics.cacheMisses.Add(1)
-		// Content gate runs once on the fetch path. A block evicts the object and
-		// refuses the request.
-		if blocked := b.lfsRunContentGate(ctx, repo, oid, entry.Stat.Size); blocked {
+	}
+
+	// The content gate decides once per object — not once per fetch. Whether this
+	// request found the object in the cache says nothing about whether the gate
+	// has looked at it: a second request arriving while the first one's scan is
+	// still running sees a cache hit, and used to be served on it. So every
+	// request for an object the gate has not yet passed runs the gate itself. A
+	// block evicts the object and refuses the request.
+	if lfs.gate != nil && !lfs.passedGate(oid) {
+		blocked, decided := b.lfsRunContentGate(ctx, repo, oid, entry.Stat.Size)
+		if blocked {
 			entry.Content.Close()
 			_ = b.cache.Delete(ctx, key)
 			b.writeLFSError(w, http.StatusForbidden, "lfs object rejected by content policy")
+			return
+		}
+		if decided {
+			lfs.markGated(oid)
+		}
+	}
+
+	// The serve gate runs on every request, hit or miss, before a single byte is
+	// written: a Range request is answered from the same entry, below this line.
+	if gate := lfs.serveGate; gate != nil {
+		info := LFSObjectInfo{OID: oid, Size: entry.Stat.Size, Repo: repo, Upstream: b.up.Name}
+		tracked := &wroteTracker{ResponseWriter: w}
+		if !gate(tracked, r, info, key) {
+			entry.Content.Close()
+			lfs.metrics.serveRefused.Add(1)
+			if !tracked.wrote {
+				// A gate that refuses says so itself. One that returned without
+				// writing must still not end in the implicit "200 OK" with an
+				// empty body a silent handler produces.
+				b.writeLFSError(w, http.StatusServiceUnavailable, "lfs object was not admitted")
+			}
 			return
 		}
 	}
 
 	b.serveLFSObject(w, r, oid, entry)
 }
+
+// wroteTracker notes whether anything was written to the response.
+type wroteTracker struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (t *wroteTracker) WriteHeader(code int) {
+	t.wrote = true
+	t.ResponseWriter.WriteHeader(code)
+}
+
+func (t *wroteTracker) Write(p []byte) (int, error) {
+	t.wrote = true
+	return t.ResponseWriter.Write(p)
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (t *wroteTracker) Unwrap() http.ResponseWriter { return t.ResponseWriter }
 
 // serveLFSObject writes the cached blob to the client with full HTTP range
 // support (delegating to http.ServeContent when the body is seekable, which it
@@ -593,22 +692,32 @@ func (b *Backend) lfsDownloadCreds(action lfsAction) upstream.Credentials {
 	return b.up.creds
 }
 
-// lfsRunContentGate inspects a freshly-fetched blob through the content gate,
-// bounded by ScanMaxBytes. It reports whether the object must be blocked (a
-// finding under the BlockOnFindings policy). Gate errors fail open.
-func (b *Backend) lfsRunContentGate(ctx context.Context, repo, oid string, size int64) bool {
+// lfsRunContentGate inspects a cached blob through the content gate, bounded by
+// ScanMaxBytes. blocked reports that the object must be refused (a finding
+// under the BlockOnFindings policy); decided reports that the gate reached a
+// decision on the object, as opposed to failing — a failure is fail-open for
+// the request at hand and is not remembered, so the next request tries again.
+func (b *Backend) lfsRunContentGate(ctx context.Context, repo, oid string, size int64) (blocked, decided bool) {
 	lfs := b.lfs
 	if lfs.gate == nil || size <= 0 || size > lfs.scanMaxBytes {
-		return false
+		// Nothing for the gate to look at: that is a decision too.
+		return false, true
 	}
 	entry, err := b.cache.Get(ctx, lfsCacheKey(oid))
 	if err != nil {
-		return false
+		if errors.Is(err, cache.ErrNotFound) && lfs.blockOnFindings {
+			// The object was in the cache a moment ago and is gone: evicted, or —
+			// what this guards against — removed by a concurrent request whose
+			// scan just refused it. This request still holds a handle on the
+			// bytes; it does not get to serve what the gate could not read.
+			return true, false
+		}
+		return false, false
 	}
 	content, err := io.ReadAll(io.LimitReader(entry.Content, lfs.scanMaxBytes))
 	entry.Content.Close()
 	if err != nil {
-		return false
+		return false, false
 	}
 	findings, gerr := lfs.gate.InspectLFSObject(ctx, LFSObjectInfo{
 		OID:      oid,
@@ -619,7 +728,7 @@ func (b *Backend) lfsRunContentGate(ctx context.Context, repo, oid string, size 
 	if gerr != nil {
 		b.logger.Warn("git lfs content gate failed (failing open)",
 			"upstream", b.up.Name, "repo", repo, "oid", oid, "error", gerr)
-		return false
+		return false, false
 	}
 	if findings > 0 {
 		lfs.metrics.gateFindings.Add(int64(findings))
@@ -628,10 +737,10 @@ func (b *Backend) lfsRunContentGate(ctx context.Context, repo, oid string, size 
 			"blocked", lfs.blockOnFindings)
 		if lfs.blockOnFindings {
 			lfs.metrics.gateBlocked.Add(1)
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
 
 // handleLFSLoadError maps a loader failure onto a client status, incrementing

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -2904,6 +2905,18 @@ type LLMPackageScanConfig struct {
 	// unpackable): "open" serves the artifact unscanned, "closed" refuses it.
 	// Default "open".
 	FailMode string `yaml:"failMode"`
+	// Oversize is applied to an artifact larger than limits.maxArtifactBytes (for
+	// an OCI image: to each layer larger than that). "fail" does not scan it at
+	// all: it is reported "oversized" and failMode decides, so a verdict is always
+	// a verdict on every byte served. "metadata-only" has the model judge what can
+	// be established within the limits — the file inventory, the install-time
+	// scripts and manifests in the first maxArtifactBytes, an image's config and
+	// history — and records the verdict with scope "metadata-only", flagged
+	// truncated, with a finding saying the artifact was only partly examined. A
+	// malicious metadata-only verdict is enforced like any other; a benign one is
+	// evidence about what was read, not a statement about the rest. Default
+	// "fail".
+	Oversize string `yaml:"oversize"`
 	// MaliciousThreshold is the minimum confidence (0..1] at which a "malicious"
 	// verdict is acted on as malicious; below it the artifact is treated as
 	// suspicious. Default 0.7.
@@ -2927,10 +2940,14 @@ type LLMPackageScanConfig struct {
 	// package in memory.
 	MaxConcurrent int `yaml:"maxConcurrent"`
 
-	// Include is the set of ecosystems scanned (upstream types, e.g. npm, pip).
-	// Empty selects the built-in set: npm, pip, cargo, rubygems, composer, nuget.
+	// Include is the set of ecosystems scanned (upstream types, e.g. npm, pip,
+	// docker). Empty selects the built-in set, which is every ecosystem the proxy
+	// fronts — each package backend, docker (OCI images), huggingface, generic —
+	// plus "git-lfs" for Git LFS objects. "git" is not an ecosystem of this gate:
+	// the commits of a clone or fetch are the LLM commit scan's (scanning.*).
 	Include []string `yaml:"include"`
-	// Exclude removes ecosystems from the scanned set; it always wins.
+	// Exclude removes ecosystems from the scanned set; it always wins. With an
+	// empty include this is how a single ecosystem is left out.
 	Exclude []string `yaml:"exclude"`
 	// ExcludeUpstreams names upstreams (keys of `upstreams`) whose artifacts are
 	// never scanned, whatever their ecosystem. A scan sends package contents to
@@ -3022,10 +3039,31 @@ var validUpstreamTypes = map[string]bool{
 	"ansible": true, "puppet": true,
 }
 
-// knownEcosystem reports whether e names an ecosystem the proxy fronts, by
-// upstream type or by one of the aliases the LLM package-scan gate accepts.
+// UpstreamTypes returns every upstream type the configuration accepts, aliases
+// included ("apt" and "deb"), sorted. It exists so that catalogs keyed by
+// upstream type — the LLM-scan coverage table, for one — can be held to the
+// full set by a test: a type added here without an entry there fails the build.
+func UpstreamTypes() []string {
+	out := make([]string, 0, len(validUpstreamTypes))
+	for t := range validUpstreamTypes {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// llmEcosystemGitLFS is the LLM package-scan gate's ecosystem key for Git LFS
+// objects (llmpkgscan.EcosystemGitLFS). It is not an upstream type: LFS objects
+// are served by "git" upstreams, whose clones and fetches belong to the commit
+// scan instead.
+const llmEcosystemGitLFS = "git-lfs"
+
+// knownEcosystem reports whether e names an ecosystem the LLM package-scan gate
+// can be scoped to: an upstream type, one of the aliases the gate accepts, or
+// "git-lfs".
 func knownEcosystem(e string) bool {
-	return validUpstreamTypes[canonLLMEcosystem(e)]
+	ce := canonLLMEcosystem(e)
+	return ce == llmEcosystemGitLFS || validUpstreamTypes[ce]
 }
 
 // llmPackageScanProviders is the set of provider identifiers the gate accepts.
@@ -3072,8 +3110,17 @@ func (c *Config) EffectiveLLMPackageScan() LLMPackageScanConfig {
 }
 
 // llmPackageScanDefaultEcosystems mirrors the gate's built-in ecosystem set
-// (llmpkgscan.DefaultEcosystems), used when llmPackageScan.include is empty.
-var llmPackageScanDefaultEcosystems = []string{"npm", "pip", "cargo", "rubygems", "composer", "nuget"}
+// (llmpkgscan.DefaultEcosystems), used when llmPackageScan.include is empty:
+// every ecosystem the proxy fronts whose artifacts reach a client through the
+// gate, plus Git LFS objects. "git" is deliberately absent — clones and fetches
+// are the LLM commit scan's to judge.
+var llmPackageScanDefaultEcosystems = []string{
+	"npm", "pip", "cargo", "go", "nuget", "maven", "rubygems", "composer",
+	"helm", "apt", "yum", "terraform", "conan", "conda", "cran", "cpan",
+	"hex", "bazel", "julia", "jsr", "hackage", "nix", "homebrew", "ansible",
+	"puppet", "swift", "dart", "openvsx", "huggingface", "docker", "generic",
+	llmEcosystemGitLFS,
+}
 
 // LLMPackageScanDefaultEcosystems returns the ecosystems the LLM package scan
 // covers when llmPackageScan.include is empty. It exists so the mirror above
@@ -3122,6 +3169,11 @@ func (c *Config) validateLLMPackageScan() error {
 	case "", "open", "closed":
 	default:
 		return fmt.Errorf("config: llmPackageScan.failMode must be open|closed, got %q", l.FailMode)
+	}
+	switch strings.ToLower(strings.TrimSpace(l.Oversize)) {
+	case "", "fail", "metadata-only":
+	default:
+		return fmt.Errorf("config: llmPackageScan.oversize must be fail|metadata-only, got %q", l.Oversize)
 	}
 	if l.MaliciousThreshold < 0 || l.MaliciousThreshold > 1 {
 		return fmt.Errorf("config: llmPackageScan.maliciousThreshold must be within (0,1], got %g", l.MaliciousThreshold)
@@ -4854,6 +4906,7 @@ func Default() Config {
 			Mode:                "auto",
 			Action:              "block",
 			FailMode:            "open",
+			Oversize:            "fail",
 			MaliciousThreshold:  0.7,
 			SuspiciousThreshold: 0.5,
 			Timeout:             2 * time.Minute,

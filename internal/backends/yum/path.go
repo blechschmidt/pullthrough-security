@@ -3,6 +3,8 @@ package yum
 import (
 	"path"
 	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 )
 
 // An RPM/YUM/DNF repository (the layout served by Fedora, RHEL/CentOS, openSUSE,
@@ -152,6 +154,31 @@ func (r resource) verifiableArtifact() bool { return r.kind == kindRpm }
 // cacheable reports whether the resource may be cached. Only the immutable .rpm
 // packages are cached; every repodata document is mutable and revalidated live.
 func (r resource) cacheable() bool { return r.kind == kindRpm }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A package is what rpm unpacks and whose scriptlets
+// it runs: the payload, wherever in the tree it is served from — an .rpm found
+// under repodata/ is still a package, because classify looks at the extension
+// first. repomd.xml, its signature and key, and the metadata files repomd.xml
+// lists (package lists, groups, update notices, module streams, catalogue data)
+// are what the client reads to decide what to fetch. The repository format sets
+// the top-level repodata/ directory aside for them, and that directory is what
+// identifies them: their names are free-form (a checksum prefix, and any type
+// an operator registers).
+//
+// A path outside the layout (kindOther) is left unclassified, for a gate to
+// judge from the bytes. That is where a repository tree serves what the layout
+// does not name: delta RPMs, installer and boot images, signing keys.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindRpm:
+		return backends.Payload()
+	case kindRepomd, kindRepomdSig, kindRepodata:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // kindLabel returns a stable diagnostic label for a resource kind.
 func (r resource) kindLabel() string {

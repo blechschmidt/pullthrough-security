@@ -327,3 +327,51 @@ func TestLLMPackageScanSectionFromTheRealGate(t *testing.T) {
 		t.Error("an organization-wide reader should see the verdict")
 	}
 }
+
+// How the artifact was read is on the card: a verdict reached on an image, on a
+// single file, or on the inventory of an artifact too large to read whole is
+// not presented as a full reading of an ordinary package.
+func TestLLMPackageScanSectionSaysHowTheArtifactWasRead(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(v *llmpkgscan.Verdict)
+		format string
+		readAs string
+	}{
+		{"an ordinary archive", func(v *llmpkgscan.Verdict) { v.Format, v.Kind = "tar.gz", llmpkgscan.KindArchive }, "tar.gz", ""},
+		{"an image", func(v *llmpkgscan.Verdict) { v.Format, v.Kind = llmpkgscan.KindImage, llmpkgscan.KindImage }, "oci-image", "image"},
+		{"a single file", func(v *llmpkgscan.Verdict) { v.Format, v.Kind = "file", llmpkgscan.KindFile }, "file", "single file"},
+		{"an image layer pulled on its own", func(v *llmpkgscan.Verdict) {
+			v.Format, v.Kind, v.RootFS = "tar.gz", llmpkgscan.KindArchive, true
+		}, "tar.gz", "image layer"},
+		{"metadata only", func(v *llmpkgscan.Verdict) {
+			v.Format, v.Kind, v.Scope, v.Truncated = "tar", llmpkgscan.KindArchive, llmpkgscan.ScopeMetadataOnly, true
+		}, "tar", "metadata only"},
+		{"an oversized image", func(v *llmpkgscan.Verdict) {
+			v.Format, v.Kind, v.Scope = llmpkgscan.KindImage, llmpkgscan.KindImage, llmpkgscan.ScopeMetadataOnly
+		}, "oci-image", "image, metadata only"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := llmVerdict("1.0.0", "benign", 0.9, testNow.Add(-time.Hour))
+			tc.mutate(v)
+			scan := &stubLLMScan{action: llmpkgscan.ActionBlock, byTenant: map[string][]*llmpkgscan.Verdict{"": {v}}}
+			d := buildTest(t, Providers{LLMPackageScan: scan}, Query{Ecosystem: "npm", Coordinate: "evil@1.0.0"})
+			l := d.LLMPackageScan
+			if l == nil {
+				t.Fatal("no LLM package-scan section")
+			}
+			if l.Format != tc.format || l.ReadAs != tc.readAs {
+				t.Errorf("format / read as = %q / %q, want %q / %q", l.Format, l.ReadAs, tc.format, tc.readAs)
+			}
+			md := d.Markdown()
+			want := "**Format:** " + tc.format
+			if tc.readAs != "" {
+				want += " — read as: " + tc.readAs
+			}
+			if !strings.Contains(md, tc.format) || (tc.readAs != "" && !strings.Contains(md, "read as: "+tc.readAs)) {
+				t.Errorf("the Markdown dossier does not say %q:\n%s", want, md)
+			}
+		})
+	}
+}

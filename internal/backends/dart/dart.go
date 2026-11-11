@@ -166,8 +166,9 @@ func (b *Backend) Name() string { return b.name }
 
 // Resolve implements backends.Backend. It classifies the inbound path against
 // the pub layout, derives the upstream URL and cache key, attaches the package
-// coordinate for the admission gates, and decides cacheability (only a concrete
-// version archive is cached).
+// coordinate for the admission gates, decides cacheability (only a concrete
+// version archive is cached), and states whether the resource is a payload or a
+// document (see resource.artifact).
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -204,6 +205,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			"backend": b.name,
 			metaKind:  res.kindLabel(),
 		},
+		Artifact: res.artifact(),
 	}
 
 	if cn := res.coordinateName(); cn != "" {

@@ -40,6 +40,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/blechschmidt/pullthrough-security/internal/backends"
@@ -67,7 +68,9 @@ const (
 	// MetaRoute records the matched route's name/ordinal.
 	MetaRoute = "generic.route"
 	// MetaContentGates records the operator-declared content-gate allowlist for the
-	// matched route (comma-separated), as audit/telemetry of intended coverage.
+	// matched route (comma-separated), as audit/telemetry of intended coverage. It
+	// holds canonical gate identifiers, each once: an alias a route used is
+	// recorded as the gate it names (see RouteConfig.Gates).
 	MetaContentGates = "generic.contentGates"
 )
 
@@ -112,8 +115,57 @@ type compiledRoute struct {
 	cacheable bool
 	rewrite   bool
 	verify    *VerifyConfig
-	gates     string // pre-joined for metadata
+	gates     string // canonical identifiers, each once, pre-joined for metadata
+	// payload reports that the route lists the LLM package-content scan gate:
+	// the operator's declaration that what it serves is an installable payload.
+	payload   bool
 	mediaType string
+}
+
+// artifact classifies what the route serves at path for the content gates (see
+// backends.ArtifactClass). The backend has no grammar of its own; the operator's
+// route declaration is all it knows:
+//
+//   - A route that lists the LLM package-content scan gate serves installable
+//     payloads. That holds whatever else the route declares: such a route is
+//     examined even when it is not cacheable, and even when it is a rewrite
+//     route.
+//   - Otherwise a rewrite route serves a metadata or index document; that is
+//     what rewriting is for.
+//   - Any other route says nothing about what it serves and is left
+//     unclassified, so a gate judges the response from its bytes.
+//
+// A rewrite route is metadata only for a path the upstream serves as written.
+// The upstream URL is the inbound path joined onto the base, and an upstream
+// resolves a dot segment (or redirects to the resolved path) before it serves
+// the request: "/index/../pkg/x.tar.gz" matches a route declared for "^/index/"
+// and is answered with the archive. What the route's expression matched is then
+// not what comes back, so a path with a dot segment is left unclassified.
+func (r compiledRoute) artifact(path string) backends.Artifact {
+	switch {
+	case r.payload:
+		// The operator said to examine it, not what it is: it may be an archive
+		// or a single file (an install script, a binary).
+		return backends.PayloadFile()
+	case r.rewrite && !hasDotSegment(path):
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
+
+// hasDotSegment reports whether path has a "." or ".." segment, which an
+// upstream removes (together with the segment before a "..") when it normalizes
+// the request path. A ";name=value" path parameter does not hide one: servlet
+// containers strip the parameter first, so "..;x" is a ".." to them.
+func hasDotSegment(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		segment, _, _ = strings.Cut(segment, ";")
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // Backend is a declarative, config-driven pull-through backend implementing
@@ -169,13 +221,17 @@ func New(opts Options) (*Backend, error) {
 		if label == "" {
 			label = fmt.Sprintf("route-%d", i)
 		}
+		// A gate may be listed under an alias; store canonical identifiers so the
+		// recorded metadata and the payload decision do not depend on the spelling.
+		gates := canonicalGates(rc.Gates)
 		routes = append(routes, compiledRoute{
 			label:     label,
 			match:     re,
 			cacheable: rc.Cacheable,
 			rewrite:   rc.Rewrite,
 			verify:    normalizeVerify(rc.Verify),
-			gates:     strings.Join(rc.Gates, ","),
+			gates:     strings.Join(gates, ","),
+			payload:   slices.Contains(gates, gateLLMPackageScan),
 			mediaType: rc.MediaType,
 		})
 	}
@@ -234,8 +290,10 @@ func (b *Backend) Metrics() *Metrics { return b.metrics }
 func (b *Backend) Name() string { return b.name }
 
 // Resolve implements backends.Backend. It matches the inbound path against the
-// ordered route allowlist, derives the upstream URL and cache key, and records
-// the per-route serving decisions. A path matching no route is not served.
+// ordered route allowlist, derives the upstream URL and cache key, records the
+// per-route serving decisions, and states what the route declares it serves (a
+// payload, a metadata document, or neither; see compiledRoute.artifact). A path
+// matching no route is not served.
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -266,6 +324,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaRoute: route.label,
 			MetaRoute: route.label,
 		},
+		Artifact: route.artifact(req.Path),
 	}
 	if route.gates != "" {
 		resolved.Metadata[MetaContentGates] = route.gates

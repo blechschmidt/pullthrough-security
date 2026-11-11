@@ -54,9 +54,11 @@ func (r *Result) Metadata() map[string]string {
 //
 // It queries up to MaxPeerFanout healthy peers with per-peer header deadlines
 // and optional hedging, returns the first verified 200 response's body, and
-// cancels the losing in-flight requests. Transport errors, non-200 statuses, and
-// verification failures all penalize the responsible peer's circuit breaker. It
-// returns ErrNoPeer when no peer could serve the key.
+// cancels the losing in-flight requests. Transport errors, error statuses and
+// verification failures penalize the responsible peer's circuit breaker; a peer
+// that simply does not hold the key (404), or declines to serve an entry it has
+// itself refused (403, see ServeGuard), is a healthy peer and is not penalized.
+// It returns ErrNoPeer when no peer could serve the key.
 func (f *Federation) Fetch(ctx context.Context, key, expectDigest string) (*Result, error) {
 	if !f.Enabled() {
 		return nil, ErrDisabled
@@ -161,8 +163,16 @@ func (f *Federation) attempt(ctx context.Context, i int, p *peerState, key strin
 	ttfb.Stop()
 	if err != nil {
 		reqCancel()
-		p.breaker.failure(isProbe, f.now().Sub(start).Seconds(), err.Error())
-		f.metrics.recordPeerError()
+		if peerDeclined(err) {
+			// The peer answered, and the answer was "no": it does not hold the key,
+			// or it declines to hand it out. That is a healthy peer. Counting it
+			// against the circuit breaker would take a sibling out of rotation for
+			// every key because it lacked — or had itself refused — a few.
+			p.breaker.success(isProbe, f.now().Sub(start).Seconds())
+		} else {
+			p.breaker.failure(isProbe, f.now().Sub(start).Seconds(), err.Error())
+			f.metrics.recordPeerError()
+		}
 		ch <- fetchOutcome{peer: p, probe: isProbe, err: err}
 		return
 	}

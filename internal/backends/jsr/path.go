@@ -1,6 +1,10 @@
 package jsr
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // A JSR package is addressed by a scope ("@<scope>") and a name, together with a
 // semver version. The proxy mounts the registry at its route root
@@ -159,6 +163,28 @@ func validVersion(s string) bool {
 // immutable (their path pins the version); the two metadata documents are served
 // live and rewritten.
 func (r resource) cacheable() bool { return r.kind == kindModuleFile }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A module file is source a runtime imports and
+// executes — a payload, served as a single file rather than an archive. The
+// package and version metadata documents are what a client reads to find those
+// files.
+//
+// The two are told apart by position, not by name: a metadata document sits
+// directly below the package ("/@scope/name/meta.json",
+// "/@scope/name/<version>_meta.json"), while everything below a version
+// directory is a module file — including one that is itself called "meta.json".
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindModuleFile:
+		// JSR serves a package one module file at a time; there is no archive.
+		return backends.PayloadFile()
+	case kindPackageMeta, kindVersionMeta:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // coordinateName returns the package name used to address the artifact in the
 // admission gates — the JSR-native "@scope/name".

@@ -14,7 +14,12 @@
 //	go test -tags fuzz -run=^$ -fuzz=FuzzParsePOM ./internal/backends/maven/
 package maven
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 func FuzzClassify(f *testing.F) {
 	seeds := []string{
@@ -22,6 +27,9 @@ func FuzzClassify(f *testing.F) {
 		"/com/google/guava/guava/31.1-jre/guava-31.1-jre.jar.sha256",
 		"/com/google/guava/guava/maven-metadata.xml",
 		"/com/example/lib/1.0-SNAPSHOT/lib-1.0-20231010.123456-7.jar",
+		"/com/example/lib/1.0/lib-1.0.module",
+		"/com/example/lib/1.0/lib-1.0-all.module",
+		"/com/example/lib/1.0/lib-1.0.jar;x=.sha1",
 		"/a/b/c/../../../etc/passwd",
 		"",
 		"/",
@@ -43,6 +51,26 @@ func FuzzClassify(f *testing.F) {
 		_ = res.coordinateName()
 		if res.verifiableArtifact() && res.ext == "" {
 			t.Fatalf("verifiable artifact with empty ext: %q", path)
+		}
+		// A resource classified as metadata is served unexamined: it must not be a
+		// primary artifact other than the module's own Gradle metadata, and its
+		// path must be written in plain layout characters only.
+		a := res.artifact(path)
+		if a.Filename != "" || a.Kind != "" {
+			t.Fatalf("artifact of %q carries more than a class: %+v", path, a)
+		}
+		file := strings.ToLower(strings.Trim(path, "/"))
+		if a.Class == backends.ArtifactMetadata {
+			if !plainPath(path) {
+				t.Fatalf("path %q is not plain but is classified as metadata", path)
+			}
+			if res.verifiableArtifact() && !strings.HasSuffix(file, ".module") {
+				t.Fatalf("primary artifact %q is classified as metadata", path)
+			}
+		}
+		if res.verifiableArtifact() && (strings.HasSuffix(file, ".jar") || strings.HasSuffix(file, ".pom")) &&
+			a.Class != backends.ArtifactPayload {
+			t.Fatalf("%q is classified as %s, want payload", path, a.Class)
 		}
 	})
 }

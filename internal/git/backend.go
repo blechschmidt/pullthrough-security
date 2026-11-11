@@ -127,6 +127,19 @@ func (b *Backend) SetLFSContentGate(gate LFSContentGate) {
 	}
 }
 
+// SetLFSServeGate installs (or replaces) the gate consulted before any Git LFS
+// object is served (see LFSServeGate). It is a no-op when LFS proxying is
+// disabled. Like SetLFSContentGate it is startup wiring and is not
+// synchronized.
+func (b *Backend) SetLFSServeGate(gate LFSServeGate) {
+	if b.lfs != nil {
+		b.lfs.serveGate = gate
+	}
+}
+
+// LFSEnabled reports whether this backend proxies Git LFS.
+func (b *Backend) LFSEnabled() bool { return b != nil && b.lfs != nil }
+
 // LFSMetrics returns a snapshot of the LFS pull-through counters, or the zero
 // snapshot when LFS proxying is disabled. It is safe for concurrent use.
 func (b *Backend) LFSMetrics() LFSSnapshot {

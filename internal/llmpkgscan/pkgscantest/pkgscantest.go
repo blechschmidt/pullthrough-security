@@ -213,8 +213,10 @@ func Material(msgs []commit.ToolMessage) string {
 }
 
 var (
-	fileHeader = regexp.MustCompile(`(?m)^--- FILE: (.+?) \(\d+ bytes, \d+ lines\)`)
-	readHeader = regexp.MustCompile(`(?m)^\((.+?) — \d+ bytes, \d+ lines\)$`)
+	// A text file is headed "(N bytes, M lines)", a binary's strings view
+	// "(binary: kind, N bytes; M lines of extracted strings)".
+	fileHeader = regexp.MustCompile(`(?m)^--- FILE: (.+?) \((?:\d+ bytes, \d+ lines|binary: [^\n]*?extracted strings)\)`)
+	readHeader = regexp.MustCompile(`(?m)^\((.+?) — (?:\d+ bytes, \d+ lines|binary: [^\n]*)\)$`)
 	gutter     = regexp.MustCompile(`^\s*(\d+)\| (.*)$`)
 	grepLine   = regexp.MustCompile(`^(.+?):(\d+): (.*)$`)
 )

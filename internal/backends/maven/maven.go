@@ -157,8 +157,10 @@ func (b *Backend) Name() string { return b.name }
 
 // Resolve implements backends.Backend. It classifies the inbound path against
 // the Maven layout, derives the upstream URL and cache key, attaches the GAV
-// coordinate for the admission gates, and decides cacheability (immutable
-// artifacts cached; mutable metadata and unresolved snapshots revalidated).
+// coordinate for the admission gates, decides cacheability (immutable
+// artifacts cached; mutable metadata and unresolved snapshots revalidated), and
+// states for the content gates whether the resource is an installable payload
+// or a metadata document (resource.artifact).
 func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends.Resolved, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -189,6 +191,10 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaArtifact: res.artifactID,
 			metaVersion:  res.version,
 		},
+		// Payload or metadata is a property of the resource, not of its
+		// cacheability: an unresolved snapshot jar is a payload that is never
+		// cached.
+		Artifact: res.artifact(req.Path),
 	}
 
 	// Attach the GAV coordinate so nameguard, policy, provenance, vulnscan,

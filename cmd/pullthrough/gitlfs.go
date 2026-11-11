@@ -2,11 +2,52 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/git"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
+	"github.com/blechschmidt/pullthrough-security/internal/proxy"
 	"github.com/blechschmidt/pullthrough-security/internal/secretscan"
 )
+
+// wireLFSServeGate installs the gateway's LLM package-content scan as the serve
+// gate of every Git backend that proxies LFS (Task 174). It returns how many
+// backends were wired.
+//
+// The commit-scan pipeline reads what a commit changes. An LFS pointer changes
+// three lines of text; the object it stands for is fetched separately and lands
+// in the checkout all the same. This gate is what reads that object — and the
+// only gate on the Git backend's traffic: clones and fetches themselves pass
+// none.
+//
+// It is wired whenever the scan service exists. Whether a given object is
+// examined is decided per request by the service's scope (the "git-lfs"
+// ecosystem, the upstream exclusions), so a later reload of that scope needs no
+// re-wiring.
+func wireLFSServeGate(registry *backends.Registry, gateway *proxy.Gateway, svc *llmpkgscan.Service) int {
+	if registry == nil || gateway == nil || !svc.Enabled() {
+		return 0
+	}
+	wired := 0
+	for _, name := range registry.Names() {
+		bk, ok := registry.Get(name)
+		if !ok {
+			continue
+		}
+		gb, ok := backends.Unwrap(bk).(*git.Backend)
+		if !ok || !gb.LFSEnabled() {
+			continue
+		}
+		upstream := name
+		gb.SetLFSServeGate(func(w http.ResponseWriter, r *http.Request, info git.LFSObjectInfo, cacheKey string) bool {
+			return gateway.GateLFSObject(w, r, upstream, info.Repo, info.OID, info.Size, cacheKey)
+		})
+		wired++
+	}
+	return wired
+}
 
 // lfsSecretGate adapts the deterministic secret detector to the Git LFS content
 // gate (Task 123). Git LFS blobs are opaque large objects, so they are scanned

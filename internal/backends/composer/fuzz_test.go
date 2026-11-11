@@ -30,6 +30,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
 )
 
@@ -63,11 +64,23 @@ func FuzzClassify(f *testing.F) {
 		_ = res.cacheable()
 		_ = res.kindLabel()
 		_ = res.coordinateName()
+		// The dist archive, and nothing else, is what the content gates examine as
+		// a payload; no accepted path is left without a classification.
+		a := res.artifact()
+		if (a.Class == backends.ArtifactPayload) != res.verifiableArtifact() ||
+			(a.Class != backends.ArtifactPayload && a != backends.Metadata()) {
+			t.Fatalf("artifact of %q (%s) = %+v", path, res.kindLabel(), a)
+		}
 		if !res.verifiableArtifact() {
 			if res.cacheable() {
 				t.Fatalf("a non-dist resource is cacheable: %q", path)
 			}
 			return
+		}
+		// A dist is resolved to its package's metadata document, so it names its
+		// archive itself — the same name for every spelling of the locator.
+		if a != backends.PayloadNamed(res.reference+"."+res.ext) || strings.ContainsAny(a.Filename, `/\`) {
+			t.Fatalf("dist %q is named %+v", path, a)
 		}
 		// A dist must carry the complete coordinate the admission gates need, and
 		// every element must be inert enough to build URLs and cache keys from.

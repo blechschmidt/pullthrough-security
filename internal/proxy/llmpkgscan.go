@@ -6,8 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
-	"path"
 	"strconv"
 
 	"github.com/blechschmidt/pullthrough-security/internal/audit"
@@ -24,19 +22,27 @@ import (
 // of time and is still finishing in the background).
 const llmPkgScanRetryAfter = 30
 
-// gateLLMPkgScan runs the sandboxed LLM package-content scan gate (Task 173) on
-// a cached package artifact: a language model reads the unpacked contents of the
-// package — through a bounded, read-only view; nothing is ever executed — and
-// returns a malicious / suspicious / benign verdict, which is stored under the
-// artifact's sha256 digest. A pull of bytes that already have a verdict (a cache
-// hit, or a re-fetch of an evicted artifact) consults the stored verdict and
-// costs no model call.
+// gateLLMPkgScan runs the sandboxed LLM package-content scan gate (Tasks 173,
+// 174) on a cached resource: a language model reads the unpacked contents of
+// the artifact — through a bounded, read-only view; nothing is ever executed —
+// and returns a malicious / suspicious / benign verdict, which is stored under
+// the artifact's sha256 digest. A pull of bytes that already have a verdict (a
+// cache hit, or a re-fetch of an evicted artifact) consults the stored verdict
+// and costs no model call.
+//
+// Which resources hold something to examine is the backend's to say: every
+// backend classifies what it resolves (backends.Artifact). A payload is always
+// examined; a metadata document or an unclassified resource is examined when
+// its bytes turn out to be something a machine unpacks or runs. An OCI image is
+// examined as a whole when its manifest is pulled, and its blobs follow the
+// image's verdict (see gateLLMImage, gateLLMBlob).
 //
 // It runs after the deterministic content gates (contentscan, mlguard, avscan:
 // they are cheap, and anything they refuse never reaches the model) and before
 // the aggregating policy / risk gates, so its signal feeds them. The response
 // is held until the verdict exists: not one byte of the artifact is written
-// before the gate has decided.
+// before the gate has decided — which is also what makes a Range request safe,
+// since the range is cut from the entry only after the gate has passed.
 //
 //   - malicious under block or quarantine: refused (403, X-Policy-Code) and the
 //     artifact is evicted from the cache.
@@ -51,41 +57,104 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 	svc := g.deps.LLMPkgScan
 	// Scope first, before anything is read: an excluded upstream's artifacts are
 	// never opened for scanning, let alone sent to the LLM provider.
-	if !svc.AppliesTo(ecosystem, name) {
+	if !svc.AppliesTo(ecosystem, name) || entry == nil {
 		return true
 	}
-	art, ok := llmPkgScanArtifactFor(ecosystem, name, resolved, entry)
-	if !ok {
-		return true
+	digest := entry.Stat.Metadata[cache.MetaDigest]
+	sub := llmScanSubject{
+		backend:   name,
+		ecosystem: ecosystem,
+		art:       llmPkgScanArtifactFor(ecosystem, name, resolved, digest, entry.Stat.Size),
+		open:      g.llmScanCacheOpener(resolved.CacheKey, digest),
+		evict:     func(ctx context.Context) { g.evictLLMPkgScan(ctx, resolved) },
 	}
+	switch resolved.Artifact.Kind {
+	case backends.KindOCIManifest:
+		return g.gateLLMImage(w, r, sub, resolved)
+	case backends.KindOCIBlob:
+		return g.gateLLMBlob(w, r, sub, resolved)
+	}
+	return g.admitLLMPkgScan(w, r, sub)
+}
+
+// llmScanSubject is one artifact put before the LLM package-scan gate, from
+// whichever serve path it arrives on.
+type llmScanSubject struct {
+	backend   string
+	ecosystem string
+	art       llmpkgscan.Artifact
+	// open yields a fresh stream of the artifact for the scan.
+	open func(ctx context.Context) (io.ReadCloser, error)
+	// image, when set, makes this the scan of an OCI image (art is its manifest).
+	image *llmpkgscan.ImageSource
+	// evict removes a refused artifact from wherever it is retained; nil when it
+	// is retained nowhere.
+	evict func(ctx context.Context)
+	// stored, when set, is a verdict already on record that this subject is
+	// judged by, instead of a scan: the verdict of the image a blob belongs to.
+	stored *llmpkgscan.Verdict
+	// reviewCoordinate and reviewDigest, when set, name the artifact a
+	// break-glass review is opened for: for a blob, the image it belongs to.
+	reviewCoordinate string
+}
+
+// llmScanCacheOpener returns the scan's way to read a cached artifact. The scan
+// reads its own stream of the cached bytes, on its own context: it outlives a
+// client that gives up, so the verdict is there for the retry.
+//
+// The verdict is bound to the digest the cache recorded for the entry being
+// served. A full scan re-hashes what it reads and refuses to file a verdict if
+// the two differ; a metadata-only scan does not read the artifact to its end,
+// so the entry is checked here: one that was replaced under the same key since
+// the request began is not the artifact the verdict would be filed under.
+func (g *Gateway) llmScanCacheOpener(key, digest string) func(ctx context.Context) (io.ReadCloser, error) {
+	return func(ctx context.Context) (io.ReadCloser, error) {
+		e, err := g.deps.Cache.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if got := e.Stat.Metadata[cache.MetaDigest]; digest != "" && got != "" && got != digest {
+			_ = e.Content.Close()
+			return nil, errors.New("the cache entry changed while it was being scanned")
+		}
+		return e.Content, nil
+	}
+}
+
+// admitLLMPkgScan puts one artifact before the gate and acts on the outcome. It
+// is the one place a verdict becomes a response, shared by every serve path:
+// the cache, a non-cacheable response, a Git LFS object, an image, a blob.
+//
+// It returns true when the artifact may be served (the gate's advisory headers
+// are then set on w) and false when a refusal was written or the client is
+// gone.
+func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub llmScanSubject) bool {
+	svc := g.deps.LLMPkgScan
+	name, ecosystem, art := sub.backend, sub.ecosystem, sub.art
 	tenant := ""
 	if p, ok := auth.FromContext(r.Context()); ok && p != nil {
 		tenant = p.Team
 	}
 
-	report, err := svc.Assess(r.Context(), llmpkgscan.Request{
-		Artifact: art,
-		Tenant:   tenant,
-		// The scan reads its own stream of the cached bytes, on its own context:
-		// it outlives a client that gives up, so the verdict is there for the retry.
-		// The verdict is bound to the digest the cache recorded for the entry being
-		// served; the scanner re-hashes what it reads and refuses to file a verdict
-		// if the two differ.
-		Open: func(ctx context.Context) (io.ReadCloser, error) {
-			e, err := g.deps.Cache.Get(ctx, resolved.CacheKey)
-			if err != nil {
-				return nil, err
-			}
-			return e.Content, nil
-		},
-	})
-	if err != nil {
-		// Assess fails only when this request's own context ended while it waited:
-		// the client is gone and there is no one to answer. Nothing is served.
-		return false
+	var report *llmpkgscan.Report
+	if sub.stored != nil {
+		report = svc.ReportFor(art, sub.stored)
+	} else {
+		var err error
+		report, err = svc.Assess(r.Context(), llmpkgscan.Request{Artifact: art, Tenant: tenant, Open: sub.open, Image: sub.image})
+		if err != nil {
+			// Assess fails only when this request's own context ended while it
+			// waited: as a rule the client is gone and there is no one to answer.
+			// Nothing is served — and the response is given a status of its own, so
+			// that whatever does still read it sees "not served", not the implicit
+			// "200 OK" with an empty body a handler that writes nothing produces.
+			w.Header().Set("Retry-After", strconv.Itoa(llmPkgScanRetryAfter))
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return false
+		}
 	}
 	if report == nil {
-		// Not a package archive (a metadata document under a package's coordinate).
+		// Nothing to examine: a metadata document, an index, an image index.
 		return true
 	}
 	if report.Scanned() && !report.Cached && !report.Shared {
@@ -95,6 +164,10 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 	recordLLMPkgScanSignal(r.Context(), svc, report)
 	decision := svc.Gate(report)
 	coordinate := art.Coordinate()
+	reviewCoordinate := coordinate
+	if sub.reviewCoordinate != "" {
+		reviewCoordinate = sub.reviewCoordinate
+	}
 
 	if !decision.Served() {
 		// Human-in-the-loop break-glass (Task 50). A grant is scoped to the exact
@@ -103,19 +176,21 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 		// is — never for a passing fault such as a provider outage, where it would
 		// open a review for every package pulled while the fault lasts.
 		if llmPkgScanReviewable(report) &&
-			g.breakGlass(w, r, approvalGateLLMPkgScan, name, ecosystem, coordinate, llmPkgScanApprovalReason(report)) {
+			g.breakGlass(w, r, approvalGateLLMPkgScan, name, ecosystem, reviewCoordinate, llmPkgScanApprovalReason(report)) {
 			setLLMPkgScanHeaders(w.Header(), report, "break-glass")
 			return true
 		}
-		if decision.Evict {
-			g.evictLLMPkgScan(r.Context(), resolved)
+		if decision.Evict && sub.evict != nil {
+			// Evict even if the client has gone: a refused artifact must not linger
+			// because the request that found it was abandoned.
+			sub.evict(context.WithoutCancel(r.Context()))
 		}
 		g.auditLLMPkgScan(r, name, ecosystem, report, decision)
 		g.deps.Logger.Warn("LLM package-scan gate refused artifact",
 			"backend", name, "ecosystem", ecosystem, "artifact", coordinate, "digest", report.Artifact.Digest,
 			"disposition", string(report.Disposition), "code", decision.Code, "action", decision.Action,
-			"evicted", decision.Evict)
-		if report.Scanned() {
+			"evicted", decision.Evict && sub.evict != nil)
+		if report.Scanned() && sub.stored == nil {
 			g.notifyLLMPkgScan(r, name, ecosystem, report, decision)
 		}
 		writeLLMPkgScanBlock(w, report, decision)
@@ -151,41 +226,35 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 	return true
 }
 
-// llmPkgScanArtifactFor builds the scan artifact from a resolved resource,
-// returning ok=false for a resource with no versioned coordinate (an index, a
-// listing, a packument): those are documents, not packages.
-func llmPkgScanArtifactFor(ecosystem, upstream string, resolved *backends.Resolved, entry *cache.Entry) (llmpkgscan.Artifact, bool) {
-	c := resolved.Coordinate
-	if c.Name == "" || c.Version == "" || entry == nil {
-		return llmpkgscan.Artifact{}, false
-	}
-	// The digest the cache computed over the stored bytes when it wrote them: the
-	// identity of the entry opened for this response. An upstream-declared digest
-	// (resolved.Digest) is a claim about what should have been fetched and is not
-	// used here.
-	return llmpkgscan.Artifact{
+// llmPkgScanArtifactFor builds the scan artifact from a resolved resource: its
+// coordinate and file name, the digest and size of the bytes in hand, and the
+// backend's classification of what it is.
+//
+// The digest is the one computed over the bytes being served (by the cache when
+// it wrote them, or by the gateway while it held a non-cacheable response). An
+// upstream-declared digest (resolved.Digest) is a claim about what should have
+// been fetched and is not used here.
+func llmPkgScanArtifactFor(ecosystem, upstream string, resolved *backends.Resolved, digest string, size int64) llmpkgscan.Artifact {
+	art := llmpkgscan.Artifact{
 		Ecosystem: ecosystem,
 		Upstream:  upstream,
-		Name:      c.Name,
-		Version:   c.Version,
-		Filename:  upstreamFilename(resolved.UpstreamURL),
-		Digest:    entry.Stat.Metadata[cache.MetaDigest],
-		Size:      entry.Stat.Size,
-	}, true
-}
-
-// upstreamFilename returns the last path segment of an upstream URL, without
-// its query or fragment.
-func upstreamFilename(raw string) string {
-	p := raw
-	if u, err := url.Parse(raw); err == nil {
-		p = u.Path
+		Name:      resolved.Coordinate.Name,
+		Version:   resolved.Coordinate.Version,
+		Filename:  resolved.ArtifactFilename(),
+		Digest:    digest,
+		Size:      size,
 	}
-	base := path.Base(p)
-	if base == "." || base == "/" {
-		return ""
+	switch a := resolved.Artifact; a.Class {
+	case backends.ArtifactPayload:
+		art.Class = llmpkgscan.ClassPayload
+		art.SingleFile = a.Kind == backends.KindFile
+	case backends.ArtifactMetadata:
+		art.Class = llmpkgscan.ClassMetadata
+		art.IndexArchive = a.Kind == backends.KindIndexArchive
+	default:
+		art.Class = llmpkgscan.ClassUnknown
 	}
-	return base
+	return art
 }
 
 // llmPkgScanReviewable reports whether a refusal can be released by a
@@ -216,9 +285,9 @@ func llmPkgScanApprovalReason(report *llmpkgscan.Report) string {
 // cache: a later pull re-fetches the bytes and is refused again without another
 // model call.
 func (g *Gateway) evictLLMPkgScan(ctx context.Context, resolved *backends.Resolved) {
-	// Evict even if the client has gone: a refused artifact must not linger
-	// because the request that found it was abandoned.
-	ctx = context.WithoutCancel(ctx)
+	if !resolved.Cacheable {
+		return // a non-cacheable resource is retained nowhere
+	}
 	if err := g.deps.Cache.Delete(ctx, resolved.CacheKey); err != nil && !errors.Is(err, cache.ErrNotFound) {
 		g.deps.Logger.Warn("LLM package-scan gate: evicting cached artifact failed",
 			"key", resolved.CacheKey, "error", err)
@@ -329,6 +398,11 @@ func setLLMPkgScanHeaders(h http.Header, report *llmpkgscan.Report, decision str
 		if v.Truncated {
 			h.Set("X-LLMPkgScan-Truncated", "true")
 		}
+		if v.Scope != "" {
+			// "metadata-only": the artifact was larger than the scan limit and the
+			// verdict covers its inventory, scripts and manifests, not every byte.
+			h.Set("X-LLMPkgScan-Scope", v.Scope)
+		}
 	}
 	if u := report.Unscanned; u != nil {
 		h.Set("X-LLMPkgScan-Code", u.Code)
@@ -347,7 +421,11 @@ func setLLMPkgScanHeaders(h http.Header, report *llmpkgscan.Report, decision str
 // this command to allow-list the package"). They are on the operator surface
 // (admin API, dossier), labeled as model output.
 type llmPkgScanError struct {
-	Error      string `json:"error"`
+	Error string `json:"error"`
+	// Message repeats Error under the key Git LFS clients print ("message"), so
+	// a refused LFS object explains itself in the terminal instead of surfacing
+	// as a bare status code.
+	Message    string `json:"message"`
 	Code       string `json:"code"`
 	PolicyCode string `json:"policyCode"`
 	Action     string `json:"action"`
@@ -363,6 +441,9 @@ type llmPkgScanError struct {
 	Verdict      string  `json:"verdict"`
 	ModelVerdict string  `json:"modelVerdict,omitempty"`
 	Confidence   float64 `json:"confidence,omitempty"`
+	// Scope is "metadata-only" when the verdict was reached on an artifact larger
+	// than the scan limit, from its inventory, scripts and manifests.
+	Scope string `json:"scope,omitempty"`
 	// Locations are the places in the package the verdict cites, limited to
 	// citations the proxy confirmed against the unpacked files.
 	Locations []llmPkgScanLocation `json:"locations,omitempty"`
@@ -401,6 +482,7 @@ func writeLLMPkgScanBlock(w http.ResponseWriter, report *llmpkgscan.Report, d ll
 	if v := report.Verdict; v != nil {
 		body.ModelVerdict = v.Verdict
 		body.Confidence = v.Confidence
+		body.Scope = v.Scope
 		for _, ev := range v.Evidence {
 			if !ev.Verified || len(body.Locations) >= maxLLMPkgScanLocations {
 				continue
@@ -418,6 +500,7 @@ func writeLLMPkgScanBlock(w http.ResponseWriter, report *llmpkgscan.Report, d ll
 			h.Set("Retry-After", strconv.Itoa(llmPkgScanRetryAfter))
 		}
 	}
+	body.Message = body.Error + ": " + d.Reason
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Policy-Decision", "block")

@@ -277,6 +277,13 @@ func (c *Config) checkLLMPackageScan(r *Report) {
 		}
 		return false
 	}
+	// A git upstream reaches this gate through its LFS objects only.
+	upstreamScanned := func(up UpstreamConfig) bool {
+		if canonLLMEcosystem(up.Type) == "git" {
+			return c.Git.LFS.Enabled && scanned(llmEcosystemGitLFS)
+		}
+		return scanned(up.Type)
+	}
 	excluded := map[string]bool{}
 	for _, name := range l.ExcludeUpstreams {
 		excluded[strings.TrimSpace(name)] = true
@@ -284,7 +291,7 @@ func (c *Config) checkLLMPackageScan(r *Report) {
 	private := make([]string, 0, 2)
 	for name, up := range c.Upstreams {
 		cr := up.Credentials
-		if !up.IsEnabled() || excluded[name] || !scanned(up.Type) {
+		if !up.IsEnabled() || excluded[name] || !upstreamScanned(up) {
 			continue
 		}
 		if cr.Username != "" || cr.Password != "" || cr.Token != "" {
@@ -300,14 +307,64 @@ func (c *Config) checkLLMPackageScan(r *Report) {
 	if len(l.Include) > 0 {
 		served := map[string]bool{}
 		for _, up := range c.Upstreams {
-			if up.IsEnabled() {
-				served[canonLLMEcosystem(up.Type)] = true
+			if !up.IsEnabled() {
+				continue
 			}
+			eco := canonLLMEcosystem(up.Type)
+			if eco == "git" {
+				// A git upstream serves this gate's "git-lfs" ecosystem, and only
+				// with LFS proxying on.
+				if c.Git.LFS.Enabled {
+					served[llmEcosystemGitLFS] = true
+				}
+				continue
+			}
+			served[eco] = true
 		}
 		for _, e := range l.Include {
-			if ce := canonLLMEcosystem(e); !served[ce] {
+			ce := canonLLMEcosystem(e)
+			if ce == "git" {
+				continue // reported below, with what to do instead
+			}
+			if !served[ce] {
+				if ce == llmEcosystemGitLFS {
+					r.warnf("llmPackageScan.include", "llmPackageScan.include names %q but no enabled git upstream proxies Git LFS (git.lfs.enabled); no LFS object will be scanned", e)
+					continue
+				}
 				r.warnf("llmPackageScan.include", "llmPackageScan.include names ecosystem %q but no enabled upstream has that type; nothing will be scanned for it", e)
 			}
+		}
+	}
+	// "git" is a valid upstream type but not something this gate reads: a clone
+	// or fetch is commits, which are the LLM commit scan's to read. Naming it here
+	// suggests an expectation the gate does not meet.
+	for _, list := range []struct {
+		name string
+		ecos []string
+	}{{"include", l.Include}, {"exclude", l.Exclude}} {
+		for _, e := range list.ecos {
+			if canonLLMEcosystem(e) == "git" {
+				r.warnf("llmPackageScan."+list.name, "llmPackageScan.%s names %q, which this gate never scans: the commits of a Git clone or fetch are the LLM commit scan's (scanning.*), not this gate's. Use \"git-lfs\" to scope the scan of Git LFS objects", list.name, e)
+			}
+		}
+	}
+	// An oversized artifact under the default "fail" handling is an unscanned
+	// artifact, and under fail-open it is served. Images and model repositories
+	// are where artifacts above the limit are the rule rather than the exception.
+	if strings.TrimSpace(l.Oversize) == "" || strings.EqualFold(strings.TrimSpace(l.Oversize), "fail") {
+		large := make([]string, 0, 2)
+		for name, up := range c.Upstreams {
+			if !up.IsEnabled() || excluded[name] || !upstreamScanned(up) {
+				continue
+			}
+			switch canonLLMEcosystem(up.Type) {
+			case "docker", "huggingface", "nix", "homebrew":
+				large = append(large, name)
+			}
+		}
+		sort.Strings(large)
+		if len(large) > 0 {
+			r.warnf("llmPackageScan.oversize", "llmPackageScan.oversize is \"fail\" and upstream(s) %s serve artifacts that are routinely larger than limits.maxArtifactBytes (image layers, model weights, binary archives): each such artifact gets no verdict and failMode decides. Set oversize \"metadata-only\" to have the inventory, scripts and image config judged instead, or raise the limit", strings.Join(large, ", "))
 		}
 	}
 }
@@ -316,6 +373,16 @@ func (c *Config) checkLLMPackageScan(r *Report) {
 // accepts onto upstream type names.
 func canonLLMEcosystem(e string) string {
 	switch e = strings.ToLower(strings.TrimSpace(e)); e {
+	case "deb":
+		return "apt"
+	case "rpm":
+		return "yum"
+	case "pub":
+		return "dart"
+	case "oci":
+		return "docker"
+	case "lfs", "gitlfs":
+		return llmEcosystemGitLFS
 	case "pypi", "python":
 		return "pip"
 	case "gem", "gems", "ruby":

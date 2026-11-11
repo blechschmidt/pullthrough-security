@@ -181,6 +181,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			"backend": b.name,
 			metaKind:  res.kindLabel(),
 		},
+		Artifact: res.artifact(),
 	}
 
 	switch res.kind {

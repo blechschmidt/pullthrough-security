@@ -77,7 +77,7 @@ pullthrough export -config c.yaml -out bundle.tar
 The bundle is an ordinary **tar archive** with a deterministic layout:
 
 ```
-pullthrough-bundle.json          # manifest: format version, per-entry records + digests, provenance links
+pullthrough-bundle.json          # manifest: format version, per-entry records + digests, provenance links, scan verdicts
 blobs/<sha256-of-cache-key>      # one content blob per cache entry, in sorted order
 ```
 
@@ -92,6 +92,15 @@ blobs/<sha256-of-cache-key>      # one content blob per cache entry, in sorted o
 
 Pass `-no-provenance` to omit provenance links (cache content only). The export
 requires `cache.backend: filesystem`.
+
+* **Scan verdicts travel with the content.** When the
+  [LLM package-content scan](llm-package-scan.md) persists its verdicts
+  (`llmPackageScan.storeDir`), the manifest also carries the verdicts on record
+  for the artifacts in the bundle — and only for those. The gate needs an LLM
+  provider, which a sealed instance cannot reach; carried verdicts are what let
+  it refuse an artifact the connected instance judged malicious, and admit the
+  ones it judged clean, without a scan. They are part of the manifest and so
+  are covered by the manifest digest. Pass `-no-verdicts` to leave them out.
 
 ## 3. Importing a bundle
 
@@ -113,6 +122,24 @@ Import verifies integrity at two levels:
 **Resumable / idempotent.** Entries already present at the expected size are
 skipped, so re-running an interrupted import only transfers what is missing.
 Pass `-overwrite` to force re-importing every entry.
+
+**Scan verdicts need the manifest digest.** Imported content is gated when it
+is served, like anything else in the cache, so importing blobs from a bundle
+nobody vouched for adds no trust. A verdict is different: the importing
+instance *acts* on it — a "benign" verdict admits an artifact without a scan.
+Verdicts are therefore imported **only when `-manifest-digest` was given and
+matched**, i.e. when the bundle is known to be the one the exporting instance
+wrote. Without it the blobs are imported, the verdicts are not, and the import
+says how many were left out. In addition:
+
+* each verdict must be about a blob the bundle itself carries, and must be
+  filed under the key the gate derives from the artifact, model and prompt
+  version it names — a record cannot be placed under another artifact's key;
+* a verdict the importing instance already holds is never replaced;
+* the importing instance needs `llmPackageScan.storeDir` (where the verdicts are
+  filed) and the same `llmPackageScan.model` as the exporter (a verdict's key
+  includes the model). An artifact that arrives without a verdict is handled by
+  `llmPackageScan.failMode`, as on any instance that cannot reach its provider.
 
 ## 4. Sealed (offline) mode
 

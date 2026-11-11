@@ -338,6 +338,14 @@ type LLMPackageScanSection struct {
 	// package; Coverage says what was not examined.
 	Truncated bool     `json:"truncated,omitempty"`
 	Coverage  []string `json:"coverage,omitempty"`
+	// Format is the container format that was unpacked ("tar.gz", "deb",
+	// "oci-image", "file", …). ReadAs says how the artifact was read when that is
+	// not as an ordinary archive in full: "image", "single file", "image layer"
+	// (a layer pulled and examined on its own), "metadata only" (the artifact is
+	// larger than the scan limit and only its inventory and the content within
+	// the limit were judged).
+	Format string `json:"format,omitempty"`
+	ReadAs string `json:"readAs,omitempty"`
 	// Where the verdict came from.
 	Digest        string    `json:"digest,omitempty"`
 	Provider      string    `json:"provider,omitempty"`

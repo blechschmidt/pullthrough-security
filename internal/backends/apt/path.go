@@ -3,6 +3,8 @@ package apt
 import (
 	"path"
 	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 )
 
 // A Debian/Ubuntu APT repository (the "dists" layout served by deb.debian.org,
@@ -77,6 +79,13 @@ type resource struct {
 	// name and version are the parsed package coordinate, for kindDeb.
 	name    string
 	version string
+	// index marks a kindMeta path as a document the repository format itself
+	// names (see indexDocument). kindMeta is everything else under
+	// "dists/<suite>/", and real archives keep more than index documents there.
+	index bool
+	// iconSet marks the one index document that is a tar archive: an AppStream
+	// icon set (see iconSetDocument).
+	iconSet bool
 }
 
 // debExts are the binary-package extensions APT serves out of the pool.
@@ -132,7 +141,7 @@ func classify(p string) (resource, bool) {
 			}, true
 		}
 		// Any other dists/ document (Sources, Contents-*, Translation-*, by-hash/...).
-		return resource{kind: kindMeta, suite: suite}, true
+		return resource{kind: kindMeta, suite: suite, index: indexDocument(segs[2:]), iconSet: iconSetDocument(segs[2:])}, true
 	}
 
 	return resource{kind: kindOther}, true
@@ -157,6 +166,111 @@ func isPackagesIndex(filename string) bool {
 	default:
 		return false
 	}
+}
+
+// indexCompressions are the encodings a repository publishes an index file in.
+var indexCompressions = []string{".gz", ".bz2", ".xz", ".lzma", ".lz4", ".zst"}
+
+// indexDocument reports whether rel — a path below "dists/<suite>/" that
+// classify gives no kind of its own — is a document the repository format
+// defines: something APT reads to learn what the repository offers.
+//
+// It exists because "dists/<suite>/" is not an index-only tree. Archives keep
+// content there that a machine boots, unpacks or runs: Debian and Ubuntu publish
+// their installer images under "<comp>/installer-<arch>/", and Ubuntu its
+// release upgrader ("<comp>/dist-upgrader-all/current/<suite>.tar.gz", which
+// do-release-upgrade unpacks and executes) and signed boot loaders
+// ("<comp>/signed/", "<comp>/uefi/"). So a path counts as an index document only
+// when its name is one the format assigns, never because of where it sits:
+//
+//	InRelease, Release, Release.gpg   the copies kept per component and architecture
+//	Packages, Sources                 package indices
+//	Contents-<arch>                   file lists
+//	i18n/Translation-<lang>           package descriptions (and the legacy i18n/Index)
+//	dep11/Components-<arch>.yml       the AppStream catalogue,
+//	dep11/CID-Index-<arch>.json       its component index
+//	dep11/icons-<size>.tar            and its icon sets (archives, of images a client displays)
+//	cnf/Commands-<arch>               the command-not-found index
+//
+// each plain or in one of indexCompressions; the diffs of such an index
+// ("<index>.diff/Index" and the patches beside it); and an index file addressed
+// by its digest ("by-hash/<Hash>/<hex digest>").
+func indexDocument(rel []string) bool {
+	n := len(rel)
+	if n == 0 {
+		return false
+	}
+	name, dir, parent := rel[n-1], "", ""
+	if n >= 2 {
+		dir = rel[n-2]
+	}
+	if n >= 3 {
+		parent = rel[n-3]
+	}
+	switch {
+	case parent == "by-hash":
+		return byHashName(dir, name)
+	case strings.HasSuffix(dir, ".diff"):
+		return indexName(parent, strings.TrimSuffix(dir, ".diff"))
+	case name == "InRelease", name == "Release", name == "Release.gpg":
+		return true
+	}
+	for _, ext := range indexCompressions {
+		if stem, ok := strings.CutSuffix(name, ext); ok {
+			return indexName(dir, stem)
+		}
+	}
+	return indexName(dir, name)
+}
+
+// indexName reports whether name (uncompressed) is an index file of the
+// repository format, given the directory it is published in.
+func indexName(dir, name string) bool {
+	if name == "Packages" || name == "Sources" || tokenAfter(name, "Contents-") {
+		return true
+	}
+	switch dir {
+	case "i18n":
+		return name == "Index" || tokenAfter(name, "Translation-")
+	case "dep11":
+		for _, f := range []struct{ prefix, suffix string }{
+			{"Components-", ".yml"}, {"CID-Index-", ".json"}, {"icons-", ".tar"},
+		} {
+			if stem, ok := strings.CutSuffix(name, f.suffix); ok && tokenAfter(stem, f.prefix) {
+				return true
+			}
+		}
+	case "cnf":
+		return tokenAfter(name, "Commands-")
+	}
+	return false
+}
+
+// tokenAfter reports whether name is prefix followed by a single token — an
+// architecture, a language code, an icon size — none of which contains a dot.
+func tokenAfter(name, prefix string) bool {
+	token, ok := strings.CutPrefix(name, prefix)
+	return ok && token != "" && !strings.Contains(token, ".")
+}
+
+// byHashName reports whether hash/digest names an index file by its digest: one
+// of the hash fields a Release file declares, followed by a hex digest of that
+// hash's length.
+func byHashName(hash, digest string) bool {
+	var hexLen int
+	switch hash {
+	case "MD5Sum":
+		hexLen = 32
+	case "SHA1":
+		hexLen = 40
+	case "SHA256":
+		hexLen = sha256HexLen
+	case "SHA512":
+		hexLen = 128
+	default:
+		return false
+	}
+	return len(digest) == hexLen && isHex(digest)
 }
 
 // splitDebFilename derives the package name and version from a .deb basename of
@@ -191,6 +305,55 @@ func (r resource) verifiableArtifact() bool { return r.kind == kindDeb }
 // cacheable reports whether the resource may be cached. Only the immutable pool
 // artifacts are cached; every dists/ index is mutable and revalidated live.
 func (r resource) cacheable() bool { return r.kind == kindDeb }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). A binary package is what dpkg unpacks and whose
+// maintainer scripts it runs: the payload. The Release documents, their
+// signature and the indices are what APT reads to decide what to fetch.
+//
+// Everything else is left unclassified, for a gate to judge from the bytes: a
+// path outside the layout (kindOther) — which is where a source package's .dsc
+// and tarballs are served from — and a path under "dists/<suite>/" that the
+// repository format does not name (kindMeta without index). The latter is not
+// called metadata, because archives keep installable content there as well; see
+// indexDocument.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindDeb:
+		return backends.Payload()
+	case kindInRelease, kindRelease, kindReleaseSig, kindPackages:
+		return backends.Metadata()
+	case kindMeta:
+		switch {
+		case r.index && r.iconSet:
+			// An AppStream icon set is a tarball of images: an index that is an
+			// archive.
+			return backends.MetadataArchive()
+		case r.index:
+			return backends.Metadata()
+		}
+	}
+	return backends.Artifact{}
+}
+
+// iconSetDocument reports whether rel — a path below "dists/<suite>/" — is an
+// AppStream icon set ("dep11/icons-<size>.tar", plain or compressed): the one
+// index document of the format that is a tar archive.
+func iconSetDocument(rel []string) bool {
+	n := len(rel)
+	if n < 2 || rel[n-2] != "dep11" {
+		return false
+	}
+	name := rel[n-1]
+	for _, ext := range indexCompressions {
+		if stem, ok := strings.CutSuffix(name, ext); ok {
+			name = stem
+			break
+		}
+	}
+	stem, ok := strings.CutSuffix(name, ".tar")
+	return ok && tokenAfter(stem, "icons-")
+}
 
 // kindLabel returns a stable diagnostic label for a resource kind.
 func (r resource) kindLabel() string {

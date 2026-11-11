@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 )
 
 // The Composer/Packagist pull-through backend understands five families of
@@ -380,6 +382,27 @@ func (r resource) verifiableArtifact() bool { return r.kind == kindDist }
 // also how a Composer client treats it (without a reference it can neither detect
 // a change nor distinguish archives in its own download cache).
 func (r resource) cacheable() bool { return r.kind == kindDist }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). The dist archive is the one thing a client installs;
+// the repository root, the package metadata, the legacy provider documents and
+// the filter lists are documents it reads. The kinds are listed one by one, so
+// that a kind added later is unclassified until someone decides what it is.
+//
+// A dist's upstream URL is the package's metadata document, not the archive, so
+// the classification carries the archive's file name: "<reference>.<type>", the
+// last segment of the dist locator in its canonical spelling (see distKey) —
+// one name for every spelling of the locator, as there is one cache entry.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindDist:
+		return backends.PayloadNamed(r.reference + "." + r.ext)
+	case kindRoot, kindMetadata, kindProviderV1, kindFilterList:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // kindLabel returns a stable diagnostic label for a resource kind.
 func (r resource) kindLabel() string {

@@ -1,6 +1,10 @@
 package homebrew
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // Homebrew distributes two things the proxy fronts, from two different
 // upstreams:
@@ -122,6 +126,12 @@ type resource struct {
 	// registryNative reports that the request used the registry-native "/v2/..."
 	// layout rather than the synthetic "/bottle/..." endpoint.
 	registryNative bool
+	// jsonDocument reports that an "/api/..." path positively names a JSON
+	// document (see isJSONDocumentPath). The kind does not say so by itself:
+	// kindMetadata is the catch-all for every "/api/..." path the backend does
+	// not parse, and a formula document's name is taken from the request as it
+	// is (see artifact).
+	jsonDocument bool
 }
 
 // classify parses an inbound path into a resource. It returns ok=false for
@@ -159,21 +169,60 @@ func classify(path string) (resource, bool) {
 // must reach the client byte-exact for its signature to verify — is passed
 // through untouched.
 func classifyAPI(segs []string) (resource, bool) {
+	jsonDocument := isJSONDocumentPath(segs)
 	switch {
 	case len(segs) == 2 && segs[1] == "formula.json":
-		return resource{kind: kindIndex}, true
+		return resource{kind: kindIndex, jsonDocument: jsonDocument}, true
 	case len(segs) == 3 && segs[1] == "formula" && strings.HasSuffix(segs[2], ".json") &&
 		!strings.HasSuffix(segs[2], ".jws.json"):
 		name := strings.TrimSuffix(segs[2], ".json")
 		if name == "" {
 			return resource{}, false
 		}
-		return resource{kind: kindFormula, name: name}, true
+		return resource{kind: kindFormula, name: name, jsonDocument: jsonDocument}, true
 	default:
 		// Casks, JWS-signed variants, and any other /api/... document are proxied
 		// verbatim (no bottle-URL rewriting, so no need to parse them).
-		return resource{kind: kindMetadata}, true
+		return resource{kind: kindMetadata, jsonDocument: jsonDocument}, true
 	}
+}
+
+// isJSONDocumentPath reports whether the segments of an "/api/..." path
+// positively name a JSON document: the last one ends in ".json" and every one
+// of them is plain (see isPlainSegment).
+func isJSONDocumentPath(segs []string) bool {
+	for _, s := range segs {
+		if !isPlainSegment(s) {
+			return false
+		}
+	}
+	return strings.HasSuffix(segs[len(segs)-1], ".json")
+}
+
+// isPlainSegment reports whether s is made only of ASCII letters, digits and
+// ".", "_", "-", "+", "@": the characters formula and cask names and the API's
+// own paths are spelled in, which every server reads the same way.
+//
+// A path's name is evidence of what it serves only if the upstream sees the
+// path this backend saw. Other characters break that. A servlet container drops
+// a ";name=value" path parameter before it routes a request, so to it
+// "/api/..;/tools/x.tar.gz;.json" is the archive, while here it ends in
+// ".json". Rather than list the characters with such a meaning, a path with any
+// segment outside this alphabet is never called a document.
+func isPlainSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == '-' || c == '+' || c == '@':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // classifyBottle parses the segments that follow the "bottle/" prefix:
@@ -370,6 +419,43 @@ func parseSHA256Ref(ref string) (hexDigest string, ok bool) {
 // immutable and content-addressed; the metadata documents and manifests are
 // mutable and revalidated live.
 func (r resource) cacheable() bool { return r.kind == kindBottle }
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass).
+//
+// A bottle is the precompiled tarball brew unpacks into its cellar: the
+// payload, on the registry-native path and the synthetic endpoint alike. It is
+// an OCI blob and so has no file name; a gate identifies it from its bytes.
+//
+// An OCI manifest or image index is a document brew reads to find a bottle, and
+// its path is rebuilt from strictly validated components: metadata.
+//
+// The "/api/..." tree is the formulae API, and the JSON documents in it — the
+// formula index, a formula document, the JWS-signed indexes, cask documents,
+// analytics — are metadata. They are recognized by name (isJSONDocumentPath),
+// not by kind, because kindMetadata is not a parsed kind at all: it is the
+// pass-through for every "/api/..." path the backend does not parse, forwarded
+// to the upstream whatever it is called. Such a path that does not name a JSON
+// document is left unclassified, so a gate judges it from its bytes. The same
+// tree has served files a client evaluates (cask definitions as Ruby source
+// under "/api/cask-source/"), and an upstream other than formulae.brew.sh may
+// serve anything at all beneath "/api/"; calling a path metadata on the
+// strength of that prefix would exempt it from examination.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindBottle:
+		return backends.Payload()
+	case kindManifest:
+		return backends.Metadata()
+	case kindIndex, kindFormula, kindMetadata:
+		if r.jsonDocument {
+			return backends.Metadata()
+		}
+		return backends.Artifact{}
+	default:
+		return backends.Artifact{}
+	}
+}
 
 // isBottle reports whether the resource is a bottle blob download.
 func (r resource) isBottle() bool { return r.kind == kindBottle }

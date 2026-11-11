@@ -23,6 +23,7 @@ type Metrics struct {
 	// Server path (answering siblings).
 	served       atomic.Uint64 // sibling requests answered from the local cache
 	servedMisses atomic.Uint64 // sibling requests for a key we did not hold
+	servedRefuse atomic.Uint64 // sibling requests for an entry a serve guard refused
 	unauthorized atomic.Uint64 // sibling requests rejected for a bad/missing auth token
 }
 
@@ -71,6 +72,12 @@ func (m *Metrics) recordServedMiss() {
 	}
 }
 
+func (m *Metrics) recordServedRefused() {
+	if m != nil {
+		m.servedRefuse.Add(1)
+	}
+}
+
 func (m *Metrics) recordUnauthorized() {
 	if m != nil {
 		m.unauthorized.Add(1)
@@ -86,7 +93,10 @@ type Snapshot struct {
 	SkippedNoDigest uint64
 	Served          uint64
 	ServedMisses    uint64
-	Unauthorized    uint64
+	// ServedRefused counts sibling requests for an entry this proxy holds but a
+	// serve guard refused to hand out (an artifact it has a verdict against).
+	ServedRefused uint64
+	Unauthorized  uint64
 }
 
 // Snapshot reads the current counter values. A nil *Metrics reports zeros.
@@ -102,6 +112,7 @@ func (m *Metrics) Snapshot() Snapshot {
 		SkippedNoDigest: m.skippedNoDigest.Load(),
 		Served:          m.served.Load(),
 		ServedMisses:    m.servedMisses.Load(),
+		ServedRefused:   m.servedRefuse.Load(),
 		Unauthorized:    m.unauthorized.Load(),
 	}
 }

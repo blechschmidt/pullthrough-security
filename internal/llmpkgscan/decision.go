@@ -94,7 +94,7 @@ func (s *Service) classify(v *Verdict) (Disposition, string) {
 		case hasStrongInjection(v.Injection):
 			disp, reason = DispositionSuspicious, "the package contains text addressed to the scanner; a clean verdict is not accepted from content that tries to steer its own review"
 		case v.StructuralRisk:
-			disp, reason = DispositionSuspicious, "the archive is built to attack an extractor (a path or link escaping the package root, or a decompression bomb)"
+			disp, reason = DispositionSuspicious, "the archive is built to attack or evade an extractor (a path or link escaping the package root, a decompression bomb, a damaged structure that extractors unpack differently, or a file that is two archives at once)"
 		}
 	}
 	return disp, reason
@@ -106,8 +106,29 @@ func (s *Service) report(art Artifact, v *Verdict) *Report {
 	rep.Disposition, rep.Reason = s.classify(v)
 	rep.Risk = riskFor(rep.Disposition, v.Confidence)
 	rep.Findings = findingsFor(rep.Disposition, v)
+	if v.Scope == ScopeMetadataOnly {
+		// A metadata-only verdict is a verdict on what was read. Wherever findings
+		// are shown, an artifact that was only partly examined must not look like
+		// one that was examined whole and found clean.
+		if rep.Disposition == DispositionBenign {
+			rep.Risk = metadataOnlyRisk
+			rep.Reason = "nothing indicating harm in the part that was read: the artifact is larger than the scan limit and only its inventory and the content within the limit were examined"
+		}
+		rep.Findings = append(rep.Findings, Finding{
+			RuleID:   RuleScanIncomplete,
+			Category: CategoryScanIncomplete,
+			Severity: "low",
+			Title:    "Package was only partly examined by the LLM content scan (metadata-only: larger than the scan limit)",
+			Detail:   strings.Join(v.Coverage, " "),
+		})
+	}
 	return rep
 }
+
+// metadataOnlyRisk is the risk contribution of a metadata-only verdict that
+// found nothing: lower than an artifact that could not be examined at all, but
+// not zero.
+const metadataOnlyRisk = 15
 
 // unscanned builds the report for an artifact with no verdict. detail is the
 // diagnostic behind the failure; what the report says publicly is the fixed

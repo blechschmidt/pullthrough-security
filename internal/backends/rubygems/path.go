@@ -1,6 +1,10 @@
 package rubygems
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // The RubyGems pull-through backend understands three families of request, all
 // addressed off the gem-server root (the route prefix "/v1/<name>" is stripped
@@ -167,6 +171,23 @@ func (r resource) cacheable() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). The .gem is the one thing a client installs; every
+// other resource of the protocol is a document it reads to decide what to
+// install: the compact index, the legacy Marshal indexes and per-version
+// gemspecs, the dependency API. The kinds are listed one by one, so that a kind
+// added later is unclassified until someone decides what it is.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindGem:
+		return backends.Payload()
+	case kindQuickSpec, kindInfo, kindIndex, kindLegacyIndex, kindDependencyAPI:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
 	}
 }
 

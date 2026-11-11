@@ -167,7 +167,8 @@ recorded in the artifact's metadata (`generic.contentGates`) for audit and
 telemetry. Known gate identifiers:
 
 `vulnscan`, `license`, `sbomdiff`, `installhooks`, `contentscan`, `mlguard`,
-`avscan`, `llmpkgscan`, `sigverify`, `malfeed`, `maturity`, `nameguard`,
+`avscan`, `llmpkgscan` (also accepted under its configuration key,
+`llmPackageScan`), `sigverify`, `malfeed`, `maturity`, `nameguard`,
 `depfirewall`, `reposcore`.
 
 Note that some gates are inherently ecosystem-specific (for example `mlguard`
@@ -175,6 +176,36 @@ only acts on Hugging Face weight files, and coordinate-based OSV vulnerability
 lookup has no ecosystem mapping for an arbitrary generic source). Those gates
 simply no-op for a generic artifact they cannot interpret; the content-bytes
 gates (`contentscan`, `avscan`) apply to any cached artifact.
+
+### The LLM package scan on a generic route
+
+One identifier in `gates` does more than record intent. A route that lists
+`llmPackageScan` (or `llmpkgscan`) declares that what it serves is an
+**installable payload** for the [LLM package-content scan](llm-package-scan.md):
+
+```yaml
+routes:
+  - name: releases
+    match: '^/releases/v[0-9.]+/tool-[a-z0-9_-]+\.tar\.gz$'
+    cacheable: true
+    gates: [llmPackageScan, contentscan]
+  - name: installer            # a script on a moving path: not cacheable
+    match: '^/install\.sh$'
+    gates: [llmPackageScan]
+```
+
+- What such a route serves is **always examined**, as an archive or — an
+  installer script, a single binary — as the one file it is.
+- That holds **whether or not the route is cacheable**: a non-cacheable response
+  is held until its verdict exists and only then served.
+- The scope is the upstream's ecosystem key, `generic`; `llmPackageScan.exclude`
+  or `excludeUpstreams` still take a generic upstream out of the scan.
+
+A route that does not list it is not exempt. Its responses are unclassified,
+and the scan still examines one whose bytes are an archive, an executable, a
+script or a pickle; a `rewrite: true` route is treated as an index, which is
+left alone unless it turns out to serve a package. See
+[what is examined](llm-package-scan.md#what-is-examined).
 
 ## Top-level options
 

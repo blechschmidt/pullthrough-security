@@ -593,6 +593,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `llmPackageScan.thinking` | bool | — |
 | `llmPackageScan.action` | string | `block` |
 | `llmPackageScan.failMode` | string | `open` |
+| `llmPackageScan.oversize` | string | `fail` |
 | `llmPackageScan.maliciousThreshold` | float | 0.7 |
 | `llmPackageScan.suspiciousThreshold` | float | 0.5 |
 | `llmPackageScan.timeout` | duration | 2m0s |

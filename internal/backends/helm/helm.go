@@ -250,6 +250,11 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			}
 			resolved.Metadata[metaOCI] = "1"
 		}
+		// resolved.Artifact is the registry backend's classification of the
+		// manifest, blob or listing, and is returned exactly as delegated: a chart
+		// in a registry is an OCI artifact like any other, and the Registry v2
+		// grammar that tells its manifest and layers from a tag list is the docker
+		// backend's to state. Nothing here may overwrite or clear it.
 		return resolved, nil
 	}
 
@@ -266,6 +271,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaName:    res.name,
 			metaVersion: res.version,
 		},
+		Artifact: res.artifact(),
 	}
 
 	switch {

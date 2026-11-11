@@ -28,8 +28,18 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.Model != "m" || cfg.Pricing == nil || cfg.Logger == nil || cfg.Now == nil {
 		t.Error("model not trimmed or helpers not defaulted")
 	}
-	if strings.Join(cfg.Include, ",") != "cargo,composer,npm,nuget,pip,rubygems" {
+	// The default scope is every ecosystem the gate knows, in canonical order.
+	if strings.Join(cfg.Include, ",") != strings.Join(canonList(DefaultEcosystems), ",") || len(cfg.Include) != len(DefaultEcosystems) {
 		t.Errorf("default ecosystems = %v", cfg.Include)
+	}
+	for _, eco := range []string{"npm", "pip", "docker", "apt", "yum", "maven", "huggingface", "generic", EcosystemGitLFS} {
+		if !cfg.ecosystemAllowed(eco) {
+			t.Errorf("default scope leaves out %q", eco)
+		}
+	}
+	// Git itself is the commit scanner's, never this gate's.
+	if cfg.ecosystemAllowed("git") {
+		t.Error("default scope includes git clones, which the commit-scan pipeline gates")
 	}
 	// Enums are case- and space-insensitive.
 	norm := Config{Provider: &pkgscantest.Provider{}, Model: "m", Mode: " Bundle ", Action: "QUARANTINE", FailMode: " Closed"}.withDefaults()

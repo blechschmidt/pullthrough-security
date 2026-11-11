@@ -48,6 +48,7 @@ func NewCargo(opts Options) (backends.Backend, error) {
 		Credentials: opts.Credentials,
 		Cacheable:   cargoCacheable,
 		Coordinator: cargoCoordinate,
+		Classify:    cargoClassify,
 		Index:       cargoIsIndex,
 		AbsoluteRouter: func(req *backends.Request) (string, bool) {
 			if strings.HasPrefix(req.Path, cargoDownloadPrefix) {
@@ -76,6 +77,77 @@ func cargoCacheable(req *backends.Request) bool {
 // cargoIsIndex marks only config.json for rewriting; index files carry no URLs.
 func cargoIsIndex(req *backends.Request) bool {
 	return req.Path == "/config.json"
+}
+
+// cargoClassify classifies a cargo registry path for the content gates.
+//
+//   - A crate download, "/api/v1/crates/<name>/<version>/download", is the
+//     payload. Its URL does not end in the crate's file name, so the
+//     classification carries it: "<name>-<version>.crate".
+//   - config.json, a sparse-index file and the rest of the registry's web API
+//     below "/api/v1/crates" (JSON) are metadata.
+//   - Everything else is left unclassified — including an API path that ends in
+//     "download" without being the download path above, which an upstream might
+//     still answer with a crate.
+func cargoClassify(req *backends.Request) backends.Artifact {
+	if cargoCacheable(req) {
+		if coord, ok := cargoCoordinate(req); ok {
+			// The name is offered to the gates as a file name, so it is only built
+			// from a name and version that read as such.
+			if plainSegment(coord.Name) && plainSegment(coord.Version) {
+				return backends.PayloadNamed(coord.Name + "-" + coord.Version + ".crate")
+			}
+			return backends.Payload()
+		}
+	}
+	if cargoIsIndex(req) {
+		return backends.Metadata()
+	}
+	segs, ok := plainSegments(req.Path)
+	if !ok {
+		return backends.Artifact{}
+	}
+	if cargoIsAPIDocument(segs) || cargoIsIndexFile(segs) {
+		return backends.Metadata()
+	}
+	return backends.Artifact{}
+}
+
+// cargoIsAPIDocument reports whether segs spell a document of the registry web
+// API: "api/v1/crates" itself (search) or a path of up to three elements below
+// it ("<name>", "<name>/<version>", "<name>/<version>/dependencies", …) that
+// does not end in "download".
+func cargoIsAPIDocument(segs []string) bool {
+	n := len(segs)
+	if n < 3 || n > 6 || segs[0] != "api" || segs[1] != "v1" || segs[2] != "crates" {
+		return false
+	}
+	return !strings.EqualFold(segs[n-1], "download")
+}
+
+// cargoIsIndexFile reports whether segs spell a sparse-index file: the crate's
+// lowercased name below the directories cargo derives from it (RFC 2789) —
+// "1/<n>", "2/<nn>", "3/<n>/<nnn>", and "<nn>/<nn>/<name>" for longer names.
+func cargoIsIndexFile(segs []string) bool {
+	name := segs[len(segs)-1]
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	switch len(name) {
+	case 0:
+		return false
+	case 1:
+		return len(segs) == 2 && segs[0] == "1"
+	case 2:
+		return len(segs) == 2 && segs[0] == "2"
+	case 3:
+		return len(segs) == 3 && segs[0] == "3" && segs[1] == name[:1]
+	default:
+		return len(segs) == 3 && segs[0] == name[:2] && segs[1] == name[2:4]
+	}
 }
 
 // rewriteCargoConfig overrides the "dl" field of the sparse-index config.json so

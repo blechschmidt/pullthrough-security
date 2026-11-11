@@ -47,11 +47,21 @@ type Snapshot struct {
 	Queued   int64
 	// BreakerOpen reports whether the provider circuit breaker is open (a gauge).
 	BreakerOpen bool
+	// MetadataOnly counts verdicts on an artifact larger than the scan limit,
+	// reached from its metadata alone (a subset of Scans).
+	MetadataOnly uint64
 	// Breakdowns.
 	UnscannedByCode       map[string]uint64
 	ToolCallsByTool       map[string]uint64
 	ScansByEcosystem      map[string]uint64
 	BudgetExhaustedByKind map[string]uint64
+	// ScansByKind breaks Scans down by how the artifact was read: "archive",
+	// "file" or "oci-image".
+	ScansByKind map[string]uint64
+	// EnforcedByPath counts the times a stored verdict was enforced on a serve
+	// path that does not scan: "blob" (a blob of a refused image), "peer" (an
+	// artifact a sibling proxy asked for), "import" (an air-gap bundle).
+	EnforcedByPath map[string]uint64
 }
 
 // Metrics returns a consistent snapshot of the counters. Safe on a nil Service.
@@ -61,10 +71,13 @@ func (s *Service) Metrics() Snapshot {
 		ToolCallsByTool:       map[string]uint64{},
 		ScansByEcosystem:      map[string]uint64{},
 		BudgetExhaustedByKind: map[string]uint64{},
+		ScansByKind:           map[string]uint64{},
+		EnforcedByPath:        map[string]uint64{},
 	}
 	if s == nil {
 		return snap
 	}
+	snap.MetadataOnly = s.metadataOnly.Load()
 	snap.Assessed = s.assessed.Load()
 	snap.NotPackage = s.notPackage.Load()
 	snap.CacheHits = s.cacheHits.Load()
@@ -108,8 +121,25 @@ func (s *Service) Metrics() Snapshot {
 	for k, v := range s.byScope {
 		snap.BudgetExhaustedByKind[k] = v
 	}
+	for k, v := range s.byKind {
+		snap.ScansByKind[k] = v
+	}
+	for k, v := range s.byPath {
+		snap.EnforcedByPath[k] = v
+	}
 	s.mu.Unlock()
 	return snap
+}
+
+// NoteEnforced counts one enforcement of a stored verdict on a serve path that
+// does not scan (see Snapshot.EnforcedByPath). Safe on a nil receiver.
+func (s *Service) NoteEnforced(path string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.byPath[path]++
+	s.mu.Unlock()
 }
 
 // Status is the admin status DTO: the effective configuration (no secrets) plus
@@ -124,6 +154,7 @@ type Status struct {
 	PromptVersion       int      `json:"promptVersion"`
 	Action              Action   `json:"action"`
 	FailMode            FailMode `json:"failMode"`
+	Oversize            Oversize `json:"oversize"`
 	MaliciousThreshold  float64  `json:"maliciousThreshold"`
 	SuspiciousThreshold float64  `json:"suspiciousThreshold"`
 	TimeoutSeconds      float64  `json:"timeoutSeconds"`
@@ -144,6 +175,7 @@ type Status struct {
 	VerdictBenign     uint64            `json:"verdictBenign"`
 	InjectionDetected uint64            `json:"injectionDetected"`
 	Truncated         uint64            `json:"truncated"`
+	MetadataOnly      uint64            `json:"metadataOnly"`
 	Blocked           uint64            `json:"blocked"`
 	Quarantined       uint64            `json:"quarantined"`
 	Annotated         uint64            `json:"annotated"`
@@ -160,6 +192,8 @@ type Status struct {
 	MaxQueued         int               `json:"maxQueued"`
 	BreakerOpen       bool              `json:"breakerOpen"`
 	UnscannedByCode   map[string]uint64 `json:"unscannedByCode,omitempty"`
+	ScansByKind       map[string]uint64 `json:"scansByKind,omitempty"`
+	EnforcedByPath    map[string]uint64 `json:"enforcedByPath,omitempty"`
 	Budget            BudgetStatus      `json:"budget"`
 }
 
@@ -180,6 +214,7 @@ func (s *Service) Status() Status {
 		PromptVersion:       PromptVersion,
 		Action:              s.cfg.Action,
 		FailMode:            s.cfg.FailMode,
+		Oversize:            s.cfg.Oversize,
 		MaliciousThreshold:  s.cfg.MaliciousThreshold,
 		SuspiciousThreshold: s.cfg.SuspiciousThreshold,
 		TimeoutSeconds:      s.cfg.Timeout.Seconds(),
@@ -199,6 +234,7 @@ func (s *Service) Status() Status {
 		VerdictBenign:       snap.VerdictBenign,
 		InjectionDetected:   snap.InjectionDetected,
 		Truncated:           snap.Truncated,
+		MetadataOnly:        snap.MetadataOnly,
 		Blocked:             snap.Blocked,
 		Quarantined:         snap.Quarantined,
 		Annotated:           snap.Annotated,
@@ -215,6 +251,8 @@ func (s *Service) Status() Status {
 		MaxQueued:           s.queueLimit(),
 		BreakerOpen:         snap.BreakerOpen,
 		UnscannedByCode:     snap.UnscannedByCode,
+		ScansByKind:         snap.ScansByKind,
+		EnforcedByPath:      snap.EnforcedByPath,
 		Budget:              s.budget.status(),
 	}
 }

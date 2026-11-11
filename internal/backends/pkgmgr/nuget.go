@@ -48,6 +48,7 @@ func NewNuGet(opts Options) (backends.Backend, error) {
 		Credentials:   opts.Credentials,
 		Cacheable:     nugetCacheable,
 		Coordinator:   nugetCoordinate,
+		Classify:      nugetClassify,
 		Index:         nugetIsIndex,
 		ForwardAccept: true,
 		Rewrite: func(body []byte, _ string) ([]byte, error) {
@@ -107,4 +108,49 @@ func nugetIsIndex(req *backends.Request) bool {
 		return false
 	}
 	return strings.HasSuffix(strings.ToLower(req.Path), ".json")
+}
+
+// nugetClassify classifies a NuGet v3 path for the content gates.
+//
+//   - A package, any path ending in ".nupkg", is the payload.
+//   - The documents a restore reads are metadata, each recognized by its place
+//     in the v3 layout rather than by its extension:
+//     ".../index.json" (the service index, a package's version list, a
+//     registration index), ".../page/<lower>/<upper>.json" (a registration
+//     page) and ".../<id>/<version>/<id>.nuspec" (the manifest in the flat
+//     container).
+//   - Everything else is left unclassified, a symbol package (".snupkg") and
+//     every other ".json" or ".nuspec" path included.
+//
+// The extension alone does not make a document. A feed may serve a package from
+// a URL that ends in the package's id or version — the v2 download
+// ".../package/<id>/<version>" does, and a registration's packageContent is free
+// to — and that last segment is the publisher's to choose: "Newtonsoft.Json" is
+// an id and "1.0.0-rc.json" a valid version, and both end in ".json".
+func nugetClassify(req *backends.Request) backends.Artifact {
+	if nugetCacheable(req) {
+		return backends.Payload()
+	}
+	// Ids and versions are case-insensitive; the layout's own names are lowercase.
+	segs, ok := plainSegments(strings.ToLower(req.Path))
+	if !ok {
+		return backends.Artifact{}
+	}
+	n := len(segs)
+	last := segs[n-1]
+	switch {
+	case last == "index.json":
+		return backends.Metadata()
+	case n >= 4 && segs[n-3] == "page" && strings.HasSuffix(last, ".json") &&
+		startsWithDigit(segs[n-2]) && startsWithDigit(last):
+		return backends.Metadata()
+	case n >= 3 && last == segs[n-3]+".nuspec" && startsWithDigit(segs[n-2]):
+		return backends.Metadata()
+	}
+	return backends.Artifact{}
+}
+
+// startsWithDigit reports whether s begins as a NuGet version does.
+func startsWithDigit(s string) bool {
+	return s != "" && s[0] >= '0' && s[0] <= '9'
 }

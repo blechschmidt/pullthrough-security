@@ -180,6 +180,7 @@ func (b *Backend) Resolve(ctx context.Context, req *backends.Request) (*backends
 			metaKind:     res.kindLabel(),
 			metaFilename: res.filename,
 		},
+		Artifact: res.artifact(),
 	}
 
 	if cn := res.coordinateName(); cn != "" {

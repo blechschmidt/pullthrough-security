@@ -78,6 +78,7 @@ func NewGoProxy(opts Options) (backends.Backend, error) {
 		Credentials: opts.Credentials,
 		Cacheable:   goCacheable,
 		Coordinator: goCoordinate,
+		Classify:    goClassify,
 		AbsoluteRouter: func(req *backends.Request) (string, bool) {
 			return goSumDBURL(req.Path, sumdbs)
 		},
@@ -182,6 +183,9 @@ func (b *goBackend) Resolve(ctx context.Context, req *backends.Request) (*backen
 				Cacheable:   false,
 				MediaType:   "text/plain; charset=utf-8",
 				Metadata:    map[string]string{"backend": b.Name(), metaGoSumDBSupported: "1"},
+				// The proxy's own empty answer: a protocol document, like every
+				// other checksum-database path (see goClassify).
+				Artifact: backends.Metadata(),
 			}, nil
 		}
 	}
@@ -225,4 +229,71 @@ func goCacheable(req *backends.Request) bool {
 	return strings.HasSuffix(p, ".info") ||
 		strings.HasSuffix(p, ".mod") ||
 		strings.HasSuffix(p, ".zip")
+}
+
+// goClassify classifies a GOPROXY path for the content gates.
+//
+//   - The module zip, "/<module>/@v/<version>.zip", is the payload: the one
+//     resource of the protocol the go command unpacks and builds.
+//   - The documents it reads on the way there are metadata: "@v/list",
+//     "@latest", "@v/<version>.info", "@v/<version>.mod", and the checksum
+//     database below "/sumdb/<database>/" ("supported", "latest", "lookup/…",
+//     "tile/…").
+//   - Everything else is left unclassified.
+//
+// The zip is recognized first and loosely, the documents only in full, so no
+// spelling of a zip path can be read as one of the documents.
+func goClassify(req *backends.Request) backends.Artifact {
+	p := req.Path
+	if strings.Contains(p, "/@v/") && strings.HasSuffix(p, ".zip") {
+		return backends.Payload()
+	}
+	segs, ok := plainSegments(p)
+	if !ok {
+		return backends.Artifact{}
+	}
+	n := len(segs)
+	switch {
+	case strings.HasPrefix(p, goSumDBPrefix):
+		// "/sumdb/<database>/<path>", whether this backend proxies the database or
+		// the upstream proxy does.
+		if n < 3 {
+			break
+		}
+		switch segs[2] {
+		case "supported", "latest":
+			if n == 3 {
+				return backends.Metadata()
+			}
+		case "lookup", "tile":
+			if n > 3 {
+				return backends.Metadata()
+			}
+		}
+	case n >= 3 && segs[n-2] == "@v" && goIsModulePath(segs[:n-2]):
+		file := segs[n-1]
+		if file == "list" {
+			return backends.Metadata()
+		}
+		if strings.HasSuffix(file, ".info") || strings.HasSuffix(file, ".mod") {
+			if _, ok := goCoordinate(req); ok {
+				return backends.Metadata()
+			}
+		}
+	case n >= 2 && segs[n-1] == "@latest" && goIsModulePath(segs[:n-1]):
+		return backends.Metadata()
+	}
+	return backends.Artifact{}
+}
+
+// goIsModulePath reports whether segs can be the elements of a module path: at
+// least one, none of them a protocol element ("@v", "@latest" — a module path
+// has no "@").
+func goIsModulePath(segs []string) bool {
+	for _, s := range segs {
+		if strings.Contains(s, "@") {
+			return false
+		}
+	}
+	return len(segs) > 0
 }

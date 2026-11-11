@@ -1022,6 +1022,9 @@ func bindGitLFSMetrics(c *metrics.Collector, registry *backends.Registry) {
 	bridge("pullthrough_lfs_gate_blocked_total",
 		"Git LFS objects refused because of a content-gate finding, by backend.",
 		func(s git.LFSSnapshot) float64 { return float64(s.GateBlocked) })
+	bridge("pullthrough_lfs_serve_refused_total",
+		"Git LFS object requests refused by the serve gate (the LLM package-content scan), by backend.",
+		func(s git.LFSSnapshot) float64 { return float64(s.ServeRefused) })
 	bridge("pullthrough_lfs_errors_total",
 		"Git LFS pull-through errors (upstream/transport/oversize) on the object path, by backend.",
 		func(s git.LFSSnapshot) float64 { return float64(s.Errors) })
@@ -1942,6 +1945,12 @@ func bindNixMetrics(c *metrics.Collector, registry *backends.Registry) {
 	bridge("pullthrough_nix_narinfo_rewritten_total",
 		"Nix narinfos whose URL field was rewritten to route NAR downloads through the proxy, by backend.",
 		func(s nix.Snapshot) float64 { return s.NarInfoRewritten })
+	bridge("pullthrough_nix_nars_verified_by_content_total",
+		"Verified Nix NARs whose name is the SHA-256 of their uncompressed content (the narinfo's NarHash) rather than of the file as stored, by backend.",
+		func(s nix.Snapshot) float64 { return s.NarsVerifiedByContent })
+	bridge("pullthrough_nix_narinfo_location_refused_total",
+		"Nix narinfos not served because the NAR location they name would send the client to another host, past the proxy, by backend.",
+		func(s nix.Snapshot) float64 { return s.NarInfoLocationRefused })
 	bridge("pullthrough_nix_cache_info_served_total",
 		"Nix nix-cache-info descriptors served, by backend.",
 		func(s nix.Snapshot) float64 { return s.CacheInfoServed })
@@ -3228,6 +3237,31 @@ func bindLLMPkgScanMetrics(c *metrics.Collector, svc *llmpkgscan.Service) {
 			out := make([]metrics.LabeledValue, 0, len(snap.ScansByEcosystem))
 			for eco, n := range snap.ScansByEcosystem {
 				out = append(out, metrics.LabeledValue{Labels: []string{eco}, Value: float64(n)})
+			}
+			return out
+		})
+	c.BindCounterVec("pullthrough_llmpkgscan_scans_by_kind_total",
+		"Scans that produced a verdict, labeled by how the artifact was read (archive|file|oci-image).",
+		[]string{"kind"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.ScansByKind))
+			for kind, n := range snap.ScansByKind {
+				out = append(out, metrics.LabeledValue{Labels: []string{kind}, Value: float64(n)})
+			}
+			return out
+		})
+	c.BindCounter("pullthrough_llmpkgscan_metadata_only_total",
+		"Verdicts on an artifact larger than the scan limit, reached from its metadata alone (llmPackageScan.oversize: metadata-only).",
+		func() float64 { return float64(svc.Metrics().MetadataOnly) })
+	c.BindCounterVec("pullthrough_llmpkgscan_stored_verdict_enforced_total",
+		"Times a stored verdict was enforced on a serve path that does not scan, labeled by path (blob|peer|import).",
+		[]string{"path"},
+		func() []metrics.LabeledValue {
+			snap := svc.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.EnforcedByPath))
+			for path, n := range snap.EnforcedByPath {
+				out = append(out, metrics.LabeledValue{Labels: []string{path}, Value: float64(n)})
 			}
 			return out
 		})
@@ -4911,6 +4945,9 @@ func bindCacheFedMetrics(c *metrics.Collector, f *cachefed.Federation) {
 	c.BindCounter("pullthrough_cachefed_served_misses_total",
 		"Total sibling peer requests for a key this instance did not hold.",
 		func() float64 { return float64(m.Snapshot().ServedMisses) })
+	c.BindCounter("pullthrough_cachefed_served_refused_total",
+		"Sibling requests for a cached entry this proxy refused to hand out because it has a verdict against it.",
+		func() float64 { return float64(m.Snapshot().ServedRefused) })
 	c.BindCounter("pullthrough_cachefed_unauthorized_total",
 		"Total sibling peer requests rejected for a missing or invalid auth token.",
 		func() float64 { return float64(m.Snapshot().Unauthorized) })

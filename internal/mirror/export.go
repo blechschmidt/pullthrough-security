@@ -28,6 +28,9 @@ type ExportOptions struct {
 	// CreatedAt stamps the manifest. When zero, the caller-supplied clock (or
 	// time.Now) is used; tests pass a fixed value for byte-reproducible output.
 	CreatedAt time.Time
+	// Verdicts is the optional source of content-gate verdicts to carry for the
+	// bundle's blobs (see ScanVerdict). When nil the bundle carries none.
+	Verdicts VerdictSource
 }
 
 // ExportResult summarizes a completed export.
@@ -41,6 +44,8 @@ type ExportResult struct {
 	ProvenanceLinks int
 	// TotalBlobBytes is the sum of cache blob sizes written.
 	TotalBlobBytes int64
+	// ScanVerdicts is the number of content-gate verdicts carried.
+	ScanVerdicts int
 }
 
 // Exporter serializes a content-addressable cache store (and optionally a
@@ -102,6 +107,7 @@ func (e *Exporter) Export(ctx context.Context, w io.Writer, opts ExportOptions) 
 		CacheEntries:    len(manifest.CacheEntries),
 		ProvenanceLinks: len(manifest.ProvenanceLinks),
 		TotalBlobBytes:  manifest.TotalBlobBytes,
+		ScanVerdicts:    len(manifest.ScanVerdicts),
 	}, nil
 }
 
@@ -149,6 +155,25 @@ func (e *Exporter) buildManifest(ctx context.Context, opts ExportOptions) (*Bund
 			return nil, fmt.Errorf("mirror: listing provenance links: %w", err)
 		}
 		manifest.ProvenanceLinks = links
+	}
+
+	if opts.Verdicts != nil && len(manifest.CacheEntries) > 0 {
+		// Only verdicts about bytes that are in the bundle travel with it: a
+		// verdict is carried with the content it is about, never on its own.
+		digests := make(map[string]bool, len(manifest.CacheEntries))
+		for _, entry := range manifest.CacheEntries {
+			digests[entry.Digest] = true
+		}
+		verdicts, err := opts.Verdicts.ExportVerdicts(ctx, digests)
+		if err != nil {
+			return nil, fmt.Errorf("mirror: collecting scan verdicts: %w", err)
+		}
+		for _, v := range verdicts {
+			if !digests[v.Digest] || v.Gate == "" || len(v.Record) == 0 {
+				continue
+			}
+			manifest.ScanVerdicts = append(manifest.ScanVerdicts, v)
+		}
 	}
 
 	manifest.sortManifest()

@@ -46,10 +46,24 @@ reduces egress without weakening any guarantee.
   known, defending against a *malicious* peer, not merely transit corruption.
   Disabling `requireDigest` falls back to the peer-advertised digest (transit
   integrity only) and is **not recommended**.
-- **Only already-gated, cacheable artifacts are exchanged.** A serving proxy
-  answers a sibling only from its local cache, which by construction holds only
-  artifacts that passed its admission gates (a blocked/quarantined artifact is
-  evicted). Ungated content is never federated.
+- **Only cached artifacts are exchanged, and the receiver gates them itself.** A
+  serving proxy answers a sibling only from its local cache. The cache is not a
+  set of admitted artifacts, though: an artifact is in it from the moment it is
+  fetched until a gate that refuses it evicts it, and a gate in an observe-only
+  mode leaves a flagged artifact there for good. The defense is therefore on the
+  receiving side — a miss filled from a peer is put before the receiving proxy's
+  own admission gates exactly like one fetched from the upstream.
+- **A proxy does not hand out what it has itself refused.** The peer endpoint
+  consults a serve guard before any byte is written, for `HEAD` and `GET` alike.
+  With the [LLM package-content scan](llm-package-scan.md) enabled, an entry
+  whose bytes have a verdict the gate currently refuses — or that is a blob
+  implicated by a refused image, which stays in the cache — is answered `403`.
+  Nothing is scanned on this path; a stored verdict is enforced.
+- **A peer that declines is not a failed peer.** A `404` (the peer does not hold
+  the key) or a `403` (it declines to serve it) is a healthy answer and does not
+  count against the peer's circuit breaker; transport errors, `401` and `5xx`
+  do. A sibling that lacked — or had refused — a few keys in a row is not taken
+  out of rotation for every other key.
 - **Authenticated protocol.** The peer endpoint (`/internal/cachefed/v1/blob`)
   requires a shared bearer token (`cacheFed.auth.secretRef`, resolvable from
   env/file/Vault via the Task 133 secrets layer) presented as
@@ -96,11 +110,12 @@ All series carry the `pullthrough_cachefed_` prefix:
 | --- | --- |
 | `pullthrough_cachefed_hits_total` | local misses served by a sibling peer |
 | `pullthrough_cachefed_misses_total` | local misses no peer could satisfy (fell through to the upstream) |
-| `pullthrough_cachefed_peer_errors_total` | peer read-through requests that failed |
+| `pullthrough_cachefed_peer_errors_total` | peer read-through requests that failed (transport error, `401`, `5xx`; a peer that answers `404` or `403` did not fail) |
 | `pullthrough_cachefed_verify_failures_total` | peer responses rejected on digest re-verification |
 | `pullthrough_cachefed_skipped_no_digest_total` | misses not offered to peers (no verifiable digest) |
 | `pullthrough_cachefed_served_total` | sibling requests answered from this instance's cache |
 | `pullthrough_cachefed_served_misses_total` | sibling requests for a key this instance did not hold |
+| `pullthrough_cachefed_served_refused_total` | sibling requests refused by a serve guard (an entry this proxy has itself refused) |
 | `pullthrough_cachefed_unauthorized_total` | sibling requests rejected for a bad/missing token |
 | `pullthrough_cachefed_peer_requests_total{peer,outcome}` | per-peer success/failure counts |
 | `pullthrough_cachefed_peer_latency_seconds_{sum,count}{peer}` | per-peer read-through latency |

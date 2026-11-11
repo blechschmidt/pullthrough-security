@@ -3,6 +3,8 @@ package maven
 import (
 	"regexp"
 	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 )
 
 // The Maven repository layout addresses every artifact by its GAV coordinate
@@ -277,4 +279,114 @@ func (r resource) cacheable() bool {
 	default:
 		return false
 	}
+}
+
+// payloadExtensions are the primary-artifact extensions — lower case, as Maven
+// packaging and Gradle write them — whose content a build puts on a class path,
+// unpacks, links or runs: the POM (examined as a single file), Java archives of
+// every flavor, generic archives, plugin packagings, native libraries and
+// executables.
+var payloadExtensions = []string{
+	"pom",
+	"jar", "war", "ear", "aar", "rar", "zip", "tar.gz", "tgz", "tar", "tar.bz2", "tar.xz",
+	"klib", "hpi", "jpi", "nar", "kar", "so", "dll", "dylib", "exe",
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass). path is the request path the resource was parsed
+// from.
+//
+//   - maven-metadata.xml and every checksum and signature sidecar are metadata,
+//     as is the component's Gradle Module Metadata (see isModuleMetadata).
+//   - A primary artifact with one of payloadExtensions is a payload, cached or
+//     not: a non-timestamped snapshot is revalidated on every request and is a
+//     payload all the same.
+//   - A primary artifact of any other extension is left unclassified.
+//
+// Metadata is served unexamined, so it is only claimed for a plain path (see
+// plainPath).
+func (r resource) artifact(path string) backends.Artifact {
+	switch r.kind {
+	case kindMetadata, kindMetadataChecksum, kindChecksum, kindSignature:
+		if plainPath(path) {
+			return backends.Metadata()
+		}
+	case kindArtifact:
+		clean := strings.Trim(path, "/")
+		file := clean[strings.LastIndex(clean, "/")+1:]
+		// The name is judged as written and as a repository manager may read it:
+		// a servlet container drops a ";name=value" path parameter before the
+		// application looks the file up, so "lib-1.0.pom;x" is "lib-1.0.pom" to
+		// it. What is a payload under either reading is a payload. (The reverse
+		// — calling something metadata — is only ever done for a plain path.)
+		names := []string{strings.ToLower(file)}
+		if bare, _, found := strings.Cut(names[0], ";"); found {
+			names = append(names, bare)
+		}
+		for _, lower := range names {
+			for _, ext := range payloadExtensions {
+				if strings.HasSuffix(lower, "."+ext) {
+					if ext == "pom" {
+						// A POM is one XML file: a parent or BOM is the whole artifact.
+						return backends.PayloadFile()
+					}
+					return backends.Payload()
+				}
+			}
+		}
+		if r.isModuleMetadata(file) && plainPath(path) {
+			return backends.Metadata()
+		}
+	}
+	return backends.Artifact{}
+}
+
+// isModuleMetadata reports whether file is the component's Gradle Module
+// Metadata: "<artifactId>-<version>.module", the version being the timestamped
+// one for a deployed snapshot. Gradle publishes the document under that name and
+// no other.
+//
+// The extension alone is not enough. The module metadata is written by the
+// publisher and tells Gradle where each of a variant's files is ("url", relative
+// to the module), so a file "<artifactId>-<version>-all.module" beside it can be
+// what Gradle downloads as the component's jar.
+func (r resource) isModuleMetadata(file string) bool {
+	stem, ok := strings.CutSuffix(file, ".module")
+	if !ok {
+		return false
+	}
+	stem, ok = strings.CutPrefix(stem, r.artifactID+"-")
+	if !ok {
+		return false
+	}
+	if stem == r.version {
+		return true
+	}
+	base, ok := strings.CutSuffix(r.version, "-SNAPSHOT")
+	if !ok {
+		return false
+	}
+	stamp, ok := strings.CutPrefix(stem, base)
+	return ok && stamp != "" && snapshotTimestampPattern.FindString(stamp) == stamp
+}
+
+// plainPath reports whether a layout path is written only in the characters
+// Maven coordinates and file names are made of: letters, digits, ".", "_", "-"
+// and "+". (classify has already refused empty and dot segments.)
+//
+// What an upstream makes of other characters is not knowable here. A servlet
+// container strips a ";" path parameter from a segment before the application
+// looks the path up, so a repository manager built on one can answer
+// "lib-1.0.jar;x=.sha1" — a checksum sidecar by its ending — with the jar.
+func plainPath(path string) bool {
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '/', c == '.', c == '_', c == '-', c == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -1,6 +1,10 @@
 package bazel
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
+)
 
 // The Bazel Central Registry (https://bcr.bazel.build) and every Bzlmod-format
 // registry (self-hosted or a private BCR mirror) share one static HTTP layout,
@@ -301,6 +305,35 @@ func (r resource) cacheable() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// artifact classifies the resource for the content gates (see
+// backends.ArtifactClass).
+//
+// The source archive is what Bazel unpacks and builds. Its upstream URL is the
+// module's source.json (re-read at fetch time to locate the archive), so the
+// archive's file name is stated explicitly: the name that trailed the endpoint
+// in the request, or "archive" for the bare form. That name is the client's
+// spelling and selects nothing (see isArchiveFileName); it is a label for the
+// payload, never evidence of what the bytes are.
+//
+// MODULE.bazel, patches and overlay files are payloads too. They are single
+// files, not archives, but Bazel evaluates the first (Starlark) and applies the
+// others to the source tree it then builds, so they are examined rather than
+// waved through as text. Only the three JSON descriptors — the registry config,
+// a module's metadata.json and a version's source.json — are metadata.
+func (r resource) artifact() backends.Artifact {
+	switch r.kind {
+	case kindArchive:
+		return backends.PayloadNamed(r.filename)
+	case kindModuleBazel, kindPatch, kindOverlay:
+		// Single files: a Starlark module file, a patch, a file laid over the source.
+		return backends.PayloadFile()
+	case kindRegistry, kindMetadata, kindSource:
+		return backends.Metadata()
+	default:
+		return backends.Artifact{}
 	}
 }
 

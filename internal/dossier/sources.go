@@ -741,6 +741,8 @@ func (b *Builder) fillLLMPackageScan(id ident, tenant string, mu *sync.Mutex, d 
 		Anomalies:      append([]string(nil), worst.Anomalies...),
 		Truncated:      worst.Truncated,
 		Coverage:       append([]string(nil), worst.Coverage...),
+		Format:         worst.Format,
+		ReadAs:         llmpkgscan.DescribeVariant(worst),
 		Digest:         worst.Digest,
 		Provider:       worst.Provider,
 		Model:          worst.Model,

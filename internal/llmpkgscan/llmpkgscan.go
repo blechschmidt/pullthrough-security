@@ -26,8 +26,14 @@ type Request struct {
 	Tenant string
 	// Open yields a fresh stream of the artifact's bytes. It is called with the
 	// scan's own context — not the caller's — because the scan outlives a caller
-	// that disconnects.
+	// that disconnects. A stream that also offers random access (io.ReaderAt or
+	// io.ReadSeeker) lets a metadata-only scan list a zip larger than the scan
+	// limit, whose directory is at its end.
 	Open func(ctx context.Context) (io.ReadCloser, error)
+	// Image, when set, makes this the scan of an OCI image: Open yields the image
+	// manifest (Artifact.Digest is its digest) and Image opens the config and
+	// layer blobs it references.
+	Image *ImageSource
 }
 
 // Unscanned explains why an artifact has no verdict.
@@ -72,31 +78,61 @@ type Report struct {
 // Scanned reports whether the report carries a verdict.
 func (r *Report) Scanned() bool { return r != nil && r.Verdict != nil }
 
-// codeNotArchive marks, in the negative cache and in a scan result, bytes that
-// are not an archive of any kind. It is internal — it never appears in a
-// report: notArchive turns it into the outcome for a particular request.
+// codeNotArchive marks, in the negative cache and in a scan result, a resource
+// that turned out to hold nothing this gate examines: a metadata document, an
+// index, an image index, an OCI artifact that is a signature. It is internal —
+// it never appears in a report.
 const codeNotArchive = "not-an-archive"
 
-const notArchiveDetail = "the artifact is named like a package archive but is not an archive"
-
-// notArchive is the outcome for bytes that are not an archive at all.
-//
-// A resource that does not claim to be a package either is a metadata document
-// served under a package's coordinate — a wheel's METADATA sidecar, a .nuspec, a
-// gemspec. No package manager installs code from it, so the gate does not apply
-// (a nil report), which is different from "could not be scanned": it must not
-// be refused under fail-closed, or every client breaks for no gain.
-//
-// A resource that is named like an installable archive but is not one is a
-// package that went unexamined, and is reported as such. So is anything that
-// starts like an archive this scanner cannot unpack, under any name — that case
-// never reaches this function (see archiveMagic).
-func (s *Service) notArchive(art Artifact) *Report {
-	if claimsArchive(art.Filename) {
-		return s.unscanned(art, CodeUnsupported, notArchiveDetail)
-	}
+// notApplicable is the outcome for such a resource: no report at all. That is
+// different from "could not be scanned". No package manager installs code from
+// a wheel's METADATA sidecar or a registry index, so the gate does not apply —
+// and it must not be refused under fail-closed, or every client breaks for no
+// gain.
+func (s *Service) notApplicable() *Report {
 	s.notPackage.Add(1)
 	return nil
+}
+
+// Variants of a verdict: how the artifact behind a digest was read. Each is
+// stored under its own key, so a verdict of one kind is never served as
+// another's — a metadata-only reading as a full scan, the reading of a manifest
+// as a JSON file as the scan of the image it describes, the reading of a
+// tarball as an image layer (where an absolute link target is ordinary) as the
+// reading of the same tarball as a package (where it is an extraction attack).
+const (
+	variantFull         = ""
+	variantMetadataOnly = "metadata-only"
+	variantImage        = "image"
+	// An image layer read on its own, as a piece of a root filesystem — whole,
+	// or (above the scan limit, under oversize: metadata-only) in part.
+	variantLayer             = "layer"
+	variantLayerMetadataOnly = "layer-metadata-only"
+)
+
+// allVariants lists every variant, for lookups that must find a verdict on a
+// digest however it was read.
+var allVariants = []string{variantFull, variantMetadataOnly, variantImage, variantLayer, variantLayerMetadataOnly}
+
+// variantFor decides how a request's artifact is read.
+func (s *Service) variantFor(req Request) string {
+	partial := req.Artifact.Size > s.cfg.Limits.MaxArtifactBytes && s.cfg.Oversize == OversizeMetadataOnly
+	switch {
+	case req.Image != nil:
+		return variantImage
+	case req.Artifact.RootFS && partial:
+		return variantLayerMetadataOnly
+	case req.Artifact.RootFS:
+		return variantLayer
+	case partial:
+		return variantMetadataOnly
+	}
+	return variantFull
+}
+
+// partialVariant reports whether a variant is a metadata-only reading.
+func partialVariant(variant string) bool {
+	return variant == variantMetadataOnly || variant == variantLayerMetadataOnly
 }
 
 // queuePerSlot sizes the wait queue: this many scans may wait per scan slot.
@@ -174,10 +210,18 @@ type Service struct {
 	breaker  breakerState
 	notified map[string]time.Time // budget scope+tenant -> last exhaustion notice
 	load     map[string]int       // tenant -> scans it started that are running or waiting
+	// probes remembers what the bytes behind a digest (bare hex) probed as.
+	probes map[string]Probe
+	// blobs indexes the blobs of scanned images: blob digest (bare hex) -> the
+	// keys of the image verdicts that say something about it, and what each says
+	// (see blobRole).
+	blobs    map[string]map[string]blobRole
 	byCode   map[string]uint64
 	byTool   map[string]uint64
 	byEco    map[string]uint64
 	byScope  map[string]uint64
+	byKind   map[string]uint64 // verdicts by how the artifact was read
+	byPath   map[string]uint64 // stored-verdict enforcements by serve path
 	costUSD  float64
 	scanSecs float64
 
@@ -193,6 +237,7 @@ type Service struct {
 	verdictBenign  atomic.Uint64
 	injected       atomic.Uint64
 	truncatedScans atomic.Uint64
+	metadataOnly   atomic.Uint64
 	providerCalls  atomic.Uint64
 	providerErrs   atomic.Uint64
 	inputTokens    atomic.Uint64
@@ -243,10 +288,14 @@ func NewService(cfg Config) (*Service, error) {
 		viewers:  make(map[string]map[string]struct{}),
 		notified: make(map[string]time.Time),
 		load:     make(map[string]int),
+		probes:   make(map[string]Probe),
+		blobs:    make(map[string]map[string]blobRole),
 		byCode:   make(map[string]uint64),
 		byTool:   make(map[string]uint64),
 		byEco:    make(map[string]uint64),
 		byScope:  make(map[string]uint64),
+		byKind:   make(map[string]uint64),
+		byPath:   make(map[string]uint64),
 	}
 	if s.store == nil {
 		s.store = NewMemoryStore(0)
@@ -278,6 +327,7 @@ func (s *Service) warmCoordinates() {
 			// have had these bytes; any other is re-admitted when it next pulls them.
 			s.addCoordLocked(coordKey(v.Ecosystem, v.Name, v.Version), v.Key, v.Tenant)
 		}
+		s.indexBlobsLocked(v)
 	}
 }
 
@@ -341,6 +391,24 @@ func (s *Service) FailMode() FailMode {
 	return s.cfg.FailMode
 }
 
+// Limits returns the bounds on one scan. Safe on a nil receiver (it then
+// returns the built-in defaults).
+func (s *Service) Limits() Limits {
+	if s == nil {
+		return DefaultLimits()
+	}
+	return s.cfg.Limits
+}
+
+// Oversize returns what the gate does with an artifact larger than the scan
+// limit. Safe on a nil receiver.
+func (s *Service) Oversize() Oversize {
+	if s == nil {
+		return OversizeFail
+	}
+	return s.cfg.Oversize
+}
+
 // UsesTools reports whether scans may use the tool loop right now.
 func (s *Service) UsesTools() bool { return s != nil && s.toolsUsable() }
 
@@ -365,7 +433,7 @@ func (s *Service) Assess(ctx context.Context, req Request) (*Report, error) {
 }
 
 // assess is Assess for an ecosystem in scope. A nil report with a nil error
-// means the resource turned out not to be a package archive.
+// means the resource turned out to hold nothing the gate examines.
 func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 	art := req.Artifact
 
@@ -387,7 +455,9 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 		hexDigest = d
 	}
 	art.Digest = "sha256:" + hexDigest
-	key := CacheKey(hexDigest, s.cfg.Model, PromptVersion)
+	req.Artifact = art
+	variant := s.variantFor(req)
+	key := CacheKeyVariant(hexDigest, s.cfg.Model, PromptVersion, variant)
 
 	// 1. The verdict cache: identical bytes are scanned once.
 	if v := s.lookup(ctx, key); v != nil {
@@ -399,16 +469,39 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 		rep.Cached = true
 		return rep, nil
 	}
-	// 2. A remembered failure: do not pay again for a scan that just failed.
+	// 2. Is there anything to examine? A payload always is. Anything else is
+	// judged from its bytes — before a remembered failure, the size check, the
+	// breaker, the queue and the budget, none of which a metadata document
+	// should ever be held to. What the bytes are is remembered; what that means
+	// is decided for each request, by what the resource was served as: two
+	// requests for the same bytes under different names or classes must not
+	// inherit each other's answer.
+	if art.Class != ClassPayload && req.Image == nil {
+		probed, known := s.probed(hexDigest)
+		if !known {
+			var err error
+			if probed, err = s.probe(ctx, req); err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				return s.unscanned(art, CodeUnavailable, "reading the cached artifact: "+err.Error()), nil
+			}
+			s.rememberProbe(hexDigest, probed)
+		}
+		if !probed.Applies(art.Class, art.IndexArchive, art.Filename) {
+			return s.notApplicable(), nil
+		}
+	}
+	// 3. A remembered failure: do not pay again for a scan that just failed.
 	if ne, hit := s.negative(key); hit {
 		if ne.code == codeNotArchive {
-			return s.notArchive(art), nil
+			return s.notApplicable(), nil
 		}
 		s.negHits.Add(1)
 		return s.unscanned(art, ne.code, ne.detail), nil
 	}
-	// 3. Cheap refusals before any work is queued.
-	if art.Size > s.cfg.Limits.MaxArtifactBytes {
+	// 4. Cheap refusals before any work is queued.
+	if req.Image == nil && !partialVariant(variant) && art.Size > s.cfg.Limits.MaxArtifactBytes {
 		detail := fmt.Sprintf("the artifact is %d bytes, over the %d-byte scan limit", art.Size, s.cfg.Limits.MaxArtifactBytes)
 		s.remember(key, CodeOversized, detail)
 		return s.unscanned(art, CodeOversized, detail), nil
@@ -450,7 +543,7 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 		return s.unscanned(art, CodeBudgetExhausted, "the "+scope+" cost ceiling was reached"), nil
 	}
 
-	// 4. Scan, sharing one scan among concurrent requests for the same digest.
+	// 5. Scan, sharing one scan among concurrent requests for the same digest.
 	if s.isInflight(key) {
 		s.joined.Add(1)
 	}
@@ -459,13 +552,13 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 			return &scanResult{code: CodeUnavailable, detail: "the gate is shutting down"}, nil
 		}
 		defer s.wg.Done()
-		return s.scan(key, hexDigest, art, req), nil
+		return s.scan(key, hexDigest, variant, art, req), nil
 	})
 	select {
 	case res := <-ch:
 		out, _ := res.Val.(*scanResult)
 		if out != nil && out.code == codeNotArchive {
-			return s.notArchive(art), nil
+			return s.notApplicable(), nil
 		}
 		s.cacheMisses.Add(1)
 		if out == nil {
@@ -487,6 +580,53 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 	}
 }
 
+// probe reads the start of an artifact and reports what it is (see
+// ProbeContent). It reads one tar block, and up to ProbeBytes when the content
+// is compressed and has to be looked into.
+func (s *Service) probe(ctx context.Context, req Request) (Probe, error) {
+	if req.Open == nil {
+		return Probe{}, errors.New("no artifact stream was supplied")
+	}
+	rc, err := req.Open(ctx)
+	if err != nil {
+		return Probe{}, err
+	}
+	defer rc.Close()
+	prefix, err := ReadProbePrefix(rc)
+	if err != nil {
+		return Probe{}, err
+	}
+	return ProbeContent(prefix), nil
+}
+
+// maxProbeEntries bounds the remembered probes.
+const maxProbeEntries = 50000
+
+// probed returns the remembered probe of the bytes behind a digest.
+func (s *Service) probed(hexDigest string) (Probe, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.probes[hexDigest]
+	return p, ok
+}
+
+// rememberProbe records what the bytes behind a digest are. That never
+// changes, so the entry has no expiry; the map is bounded instead, and
+// forgetting an entry costs one short read.
+func (s *Service) rememberProbe(hexDigest string, p Probe) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.probes) >= maxProbeEntries {
+		for k := range s.probes {
+			delete(s.probes, k)
+			if len(s.probes) < maxProbeEntries*9/10 {
+				break
+			}
+		}
+	}
+	s.probes[hexDigest] = p
+}
+
 // scanResult is what one scan produced, shared by every request that waited.
 type scanResult struct {
 	verdict *Verdict
@@ -498,7 +638,7 @@ type scanResult struct {
 // scan runs one scan to completion on its own context. It never returns nil and
 // never panics: a panic anywhere beneath it (the unpacker, the provider SDK)
 // becomes an "internal-error" result instead of taking the proxy down.
-func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *scanResult) {
+func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request) (res *scanResult) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.log.Error("llmpkgscan: scan panicked", "artifact", art.Coordinate(), "panic", fmt.Sprint(r))
@@ -541,23 +681,43 @@ func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *s
 	if err != nil {
 		return s.failed(key, art, failf(CodeUnavailable, "opening the cached artifact: %v", err))
 	}
-	tree, err := buildTree(ctx, rc, s.cfg.Limits)
-	_ = rc.Close()
-	if errors.Is(err, errNotArchive) {
-		// The bytes are not an archive of any kind. That is a property of the
-		// bytes, so it is what gets remembered and shared with every request
-		// waiting on this scan; what it means is decided per request, by what the
-		// resource claims to be (see notArchive) — two requests for the same bytes
-		// under different names must not inherit each other's answer.
-		s.remember(key, codeNotArchive, "")
-		if claimsArchive(art.Filename) {
-			s.scanErrors.Add(1)
-			s.mu.Lock()
-			s.byCode[CodeUnsupported]++
-			s.mu.Unlock()
-			s.log.Warn("llmpkgscan: artifact not scanned",
-				"artifact", art.Coordinate(), "ecosystem", art.Ecosystem, "code", CodeUnsupported, "error", notArchiveDetail)
+	var (
+		tree  *Tree
+		image *imageBuild
+	)
+	switch variant {
+	case variantImage:
+		// The manifest is small; it is read whole, and its digest is the image's.
+		manifest, rerr := io.ReadAll(io.LimitReader(rc, maxManifestBytes+1))
+		_ = rc.Close()
+		switch {
+		case rerr != nil:
+			return s.failed(key, art, failf(CodeUnavailable, "reading the image manifest: %v", rerr))
+		case len(manifest) > maxManifestBytes:
+			return s.failed(key, art, failf(CodeUnsupported, "the image manifest is larger than %d bytes", maxManifestBytes))
 		}
+		if image, err = buildImageTree(ctx, manifest, *req.Image, s.cfg.Limits, s.cfg.Oversize); err == nil {
+			tree = image.tree
+		}
+	default:
+		// By this point the resource is known to hold something to examine: its
+		// backend called it a payload, or its bytes said so.
+		opts := treeOptions{filename: art.Filename, examine: true, single: art.SingleFile, rootFS: art.RootFS}
+		if partialVariant(variant) {
+			opts.partial, opts.size, opts.at = true, art.Size, randomAccess(rc)
+		} else if art.Size > 0 {
+			// Only for a second reading of a file that is two archives at once; the
+			// scan itself reads, and hashes, the stream.
+			opts.reread, opts.size = randomAccess(rc), art.Size
+		}
+		tree, err = buildTreeOpts(ctx, rc, s.cfg.Limits, opts)
+		_ = rc.Close()
+	}
+	if errors.Is(err, errNotArchive) || errors.Is(err, errImageIndex) {
+		// Nothing to examine: an empty file, an image index, an OCI artifact that
+		// is a signature or an attestation. That is a property of the bytes, so it
+		// is remembered and shared with every request waiting on this scan.
+		s.remember(key, codeNotArchive, "")
 		return &scanResult{code: codeNotArchive}
 	}
 	if err != nil {
@@ -566,12 +726,17 @@ func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *s
 	// The verdict is stored under the digest the cache recorded; it must describe
 	// those bytes. If what was just read hashes differently, the cache entry
 	// changed underneath the scan (or its metadata is wrong), and a verdict on
-	// these bytes must not be filed under that digest.
-	if tree.Digest != hexDigest {
-		s.log.Error("llmpkgscan: artifact digest mismatch; refusing to record a verdict",
-			"artifact", art.Coordinate(), "expected", hexDigest, "actual", tree.Digest)
-		return s.failed(key, art, failf(CodeDigestMismatch, "the artifact's bytes do not match its recorded sha256 digest"))
+	// these bytes must not be filed under that digest. (A metadata-only view does
+	// not read the artifact to its end and so has no digest of its own: it is
+	// bound to the recorded one by the caller's Open.)
+	if !tree.Partial || variant == variantImage {
+		if tree.Digest != hexDigest {
+			s.log.Error("llmpkgscan: artifact digest mismatch; refusing to record a verdict",
+				"artifact", art.Coordinate(), "expected", hexDigest, "actual", tree.Digest)
+			return s.failed(key, art, failf(CodeDigestMismatch, "the artifact's bytes do not match its recorded sha256 digest"))
+		}
 	}
+	tree.Digest = hexDigest
 
 	injection := detectInjection(ctx, tree)
 	run, err := s.runModel(ctx, tree, art)
@@ -601,6 +766,7 @@ func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *s
 		Turns:               run.turns,
 		ToolCalls:           run.toolCalls,
 		Format:              tree.Format,
+		Kind:                tree.Kind,
 		Files:               len(tree.Files),
 		UnpackedBytes:       tree.UnpackedBytes,
 		InputTokens:         run.usage.InputTokens,
@@ -624,6 +790,17 @@ func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *s
 		v.Coverage = append(v.Coverage, "The package did not fit the prompt: the verdict is based on the highest-priority files only.")
 	}
 	v.Truncated = len(v.Coverage) > 0
+	if tree.Partial {
+		v.Scope = ScopeMetadataOnly
+	}
+	if image != nil {
+		v.Blobs = image.blobs
+		v.Config = image.imageConfig
+		v.Unexamined = image.unexamined
+		v.Implicated = implicatedBlobs(image, v)
+	} else {
+		v.RootFS = art.RootFS
+	}
 
 	s.scans.Add(1)
 	switch v.Verdict {
@@ -640,8 +817,12 @@ func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *s
 	if v.Truncated {
 		s.truncatedScans.Add(1)
 	}
+	if v.Scope == ScopeMetadataOnly {
+		s.metadataOnly.Add(1)
+	}
 	s.mu.Lock()
 	s.byEco[v.Ecosystem]++
+	s.byKind[v.Kind]++
 	s.scanSecs += end.Sub(start).Seconds()
 	s.mu.Unlock()
 
@@ -650,10 +831,56 @@ func (s *Service) scan(key, hexDigest string, art Artifact, req Request) (res *s
 	if perr := s.store.Put(s.baseCtx, v); perr != nil {
 		s.log.Error("llmpkgscan: persisting verdict failed", "artifact", art.Coordinate(), "error", perr)
 	}
+	s.indexBlobs(v)
 	if s.cfg.OnVerdict != nil {
 		s.cfg.OnVerdict(v.clone())
 	}
 	return &scanResult{verdict: v}
+}
+
+// randomAccess returns random access to an artifact stream when the stream
+// offers it, and nil otherwise.
+func randomAccess(rc io.ReadCloser) io.ReaderAt {
+	switch r := rc.(type) {
+	case io.ReaderAt:
+		return r
+	case io.ReadSeeker:
+		return &seekReaderAt{rs: r}
+	}
+	return nil
+}
+
+// seekReaderAt adapts a seekable stream to io.ReaderAt. It is used by one
+// goroutine at a time; the mutex makes that an invariant rather than a hope.
+//
+// The stream it adapts is the same one the scan reads sequentially, so every
+// ReadAt puts the stream's position back where it found it: a random-access
+// look at the artifact must not move the sequential read that is being hashed.
+type seekReaderAt struct {
+	mu sync.Mutex
+	rs io.ReadSeeker
+}
+
+func (s *seekReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cur, err := s.rs.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if _, rerr := s.rs.Seek(cur, io.SeekStart); rerr != nil && err == nil {
+			err = rerr
+		}
+	}()
+	if _, err := s.rs.Seek(off, io.SeekStart); err != nil {
+		return 0, err
+	}
+	n, err = io.ReadFull(s.rs, p)
+	if err == io.ErrUnexpectedEOF {
+		err = io.EOF // io.ReaderAt: a short read at the end of the input is EOF
+	}
+	return n, err
 }
 
 // treeError maps an unpack failure onto a reason.
@@ -663,12 +890,14 @@ func treeError(ctx context.Context, err error, lim Limits) *scanError {
 		return failf(CodeOversized, "the artifact is larger than the %d-byte scan limit", lim.MaxArtifactBytes)
 	case errors.Is(err, errUnsupported):
 		return failf(CodeUnsupported, "the artifact is not an archive format the scanner can unpack: %v", err)
-	case errors.Is(err, errNotArchive):
-		return failf(CodeUnsupported, notArchiveDetail)
 	case errors.Is(err, errEmpty):
 		return failf(CodeEmptyArchive, "the archive contains no files")
 	case errors.Is(err, errUnpackLimit):
 		return failf(CodeUnpackLimit, "nothing could be unpacked from the archive within the scan limits")
+	case errors.Is(err, errBlobMismatch):
+		return failf(CodeDigestMismatch, "a blob of the image does not match the digest its manifest names")
+	case errors.Is(err, errBlobUnavailable):
+		return failf(CodeUnavailable, "a blob of the image could not be fetched: %v", err)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled), ctx.Err() != nil:
 		return failf(CodeTimeout, "the scan did not finish within its time limit")
 	default:
