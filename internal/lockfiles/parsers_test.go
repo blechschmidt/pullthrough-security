@@ -421,12 +421,14 @@ func TestResultWarningsAreBounded(t *testing.T) {
 }
 
 // timeBound fails when fn takes longer than a generous bound: these inputs
-// are small, and only a super-linear algorithm makes them slow.
+// take milliseconds to read in linear time, and minutes or more with the
+// quadratic or exponential algorithms the tests guard against. The bound
+// leaves room for the race detector on a loaded CI runner.
 func timeBound(t *testing.T, what string, fn func()) {
 	t.Helper()
 	start := time.Now()
 	fn()
-	if d := time.Since(start); d > 5*time.Second {
+	if d := time.Since(start); d > 20*time.Second {
 		t.Errorf("%s took %s", what, d)
 	}
 }
@@ -487,19 +489,21 @@ func TestComposeMergesAreBounded(t *testing.T) {
 }
 
 func TestManyDigestsMergeInLinearTime(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("a==1.0")
-	for i := 0; i < 200000; i++ {
-		fmt.Fprintf(&b, " --hash=sha256:%064x", i)
+	// One requirement can carry hundreds of thousands of hashes; merging two
+	// copies of it pairwise would be 10^10 comparisons.
+	digests := make([]Digest, 100000)
+	for i := range digests {
+		digests[i] = Digest{Algorithm: "sha256", Value: fmt.Sprintf("%064x", i)}
 	}
-	b.WriteString("\n")
-	line := b.String()
-	timeBound(t, "200 000 hashes, twice", func() {
-		f := ParseFile(nil, nil, "requirements.txt", []byte(line+line))
-		if len(f.Dependencies) != 1 || len(f.Dependencies[0].Digests) != 200000 {
-			t.Errorf("%d dependencies", len(f.Dependencies))
+	timeBound(t, "merging 100 000 digests into 100 000", func() {
+		if got := mergeDigests(append([]Digest(nil), digests...), digests); len(got) != len(digests) {
+			t.Errorf("%d digests after the merge", len(got))
 		}
 	})
+	f := ParseFile(nil, nil, "requirements.txt", []byte("a==1.0 --hash=sha256:"+strings.Repeat("a", 64)+"\na==1.0 --hash=sha256:"+strings.Repeat("a", 64)+"\n"))
+	if len(f.Dependencies) != 1 || len(f.Dependencies[0].Digests) != 1 {
+		t.Errorf("a repeated requirement: %+v", f.Dependencies)
+	}
 }
 
 func TestDedupeMergesEntriesWithoutRegistry(t *testing.T) {

@@ -215,7 +215,10 @@ func TestManagerMetrics(t *testing.T) {
 }
 
 func TestManagerConcurrentInvoke(t *testing.T) {
-	mgr := loadConformance(t, Limits{Timeout: 2 * time.Second}, false)
+	// Sixteen concurrent evaluations under the race detector on a loaded CI
+	// runner can take longer than two seconds each; a timeout fails open and
+	// would read as a missing block. The test is about verdicts, not timing.
+	mgr := loadConformance(t, Limits{Timeout: 60 * time.Second}, false)
 	const n = 16
 	errc := make(chan error, n)
 	for i := 0; i < n; i++ {
