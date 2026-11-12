@@ -1,7 +1,9 @@
 package lockfiles
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -530,5 +532,36 @@ func TestAPanickingMergerFailsItsFileOnly(t *testing.T) {
 	finish([]*File{mod, sum}, nil)
 	if !strings.Contains(sum.Error, "failed") || mod.Error != "" || len(mod.Dependencies) != 1 {
 		t.Fatalf("go.sum error %q, go.mod %+v", sum.Error, mod)
+	}
+}
+
+// TestByteOrderMarksAndCRLF: lock files edited on Windows read the same.
+func TestByteOrderMarksAndCRLF(t *testing.T) {
+	for _, name := range []string{
+		"cargo-v4/Cargo.lock", "npm-lock-v3/package-lock.json", "npm-lock-v1-nested/package-lock.json",
+		"yarn-classic/yarn.lock", "yarn-berry-v4/yarn.lock", "pnpm-v9/pnpm-lock.yaml", "pnpm-package-manager/pnpm-lock.yaml",
+		"pip-requirements-hashes/requirements.txt", "pipenv/Pipfile.lock", "poetry-2/poetry.lock", "poetry-1.1/poetry.lock",
+		"uv/uv.lock", "pdm/pdm.lock", "pdm-old/pdm.lock", "go-modules/go.mod", "go-modules/go.sum",
+		"nuget/Fixture.Lib/packages.lock.json", "gradle/gradle.lockfile", "maven-pom/pom.xml", "bundler/Gemfile.lock",
+		"composer/composer.lock", "docker/Dockerfile", "docker/compose.yaml",
+	} {
+		data, err := os.ReadFile("testdata/fixtures/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain := ParseFile(nil, nil, baseName(name), data)
+		crlf := append([]byte("\xef\xbb\xbf"), bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))...)
+		windows := ParseFile(nil, nil, baseName(name), crlf)
+		if windows.Error != "" || len(windows.Dependencies) != len(plain.Dependencies) {
+			t.Errorf("%s with a BOM and CRLF: %d dependencies (want %d), error %q", name, len(windows.Dependencies), len(plain.Dependencies), windows.Error)
+			continue
+		}
+		for i := range plain.Dependencies {
+			a, b := plain.Dependencies[i], windows.Dependencies[i]
+			if a.Name != b.Name || a.Version != b.Version || a.Line != b.Line || len(a.Digests) != len(b.Digests) || a.Registry != b.Registry {
+				t.Errorf("%s: %+v differs from %+v", name, b, a)
+				break
+			}
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package lockfiles
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"strings"
@@ -53,6 +54,8 @@ func parseOne(p Parser, filePath string, data []byte) (f *File) {
 			f.Error = fmt.Sprintf("the %s parser failed on this file", p.Format())
 		}
 	}()
+	// A byte order mark (some Windows editors write one) is not content.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	res, err := p.Parse(data)
 	if err != nil {
 		f.Error = err.Error()
