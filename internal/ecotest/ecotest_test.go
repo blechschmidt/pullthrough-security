@@ -145,6 +145,75 @@ func TestClientScriptsFollowTheContract(t *testing.T) {
 	}
 }
 
+// TestTransparentScriptsFollowTheContract holds the interception scripts
+// (clients/transparent/) to their contract: the same shell rules as the
+// explicit scripts, and — the point of them — no proxy address at all. The
+// client keeps its own registry; what it is given is the interception CA (and,
+// in interception mode, the proxy environment the harness exports).
+func TestTransparentScriptsFollowTheContract(t *testing.T) {
+	usesProxyAddress := regexp.MustCompile(`\$\{?(MOUNT|PROXY_URL|PROXY_HOST)\b|getenv\("(MOUNT|PROXY_URL|PROXY_HOST)"\)|ENV\["(MOUNT|PROXY_URL|PROXY_HOST)"\]`)
+	usesPackage := regexp.MustCompile(`\bPKG_[A-Z_]+\b`)
+	// Clients whose transfers are plain HTTP verified by the archive's own
+	// signatures need no certificate to trust.
+	plainHTTP := map[string]bool{"apt": true, "yum": true, "cpan": true}
+	for _, e := range Catalog() {
+		if !e.transparent() {
+			continue
+		}
+		t.Run(e.ID, func(t *testing.T) {
+			raw, err := e.TransparentScript()
+			if err != nil {
+				t.Fatal(err)
+			}
+			script := string(raw)
+			if !strings.HasPrefix(script, "#!/bin/sh\n") {
+				t.Error("must start with a #!/bin/sh shebang")
+			}
+			if !regexp.MustCompile(`(?m)^set -eu$`).MatchString(script) {
+				t.Error("must `set -eu` so a failing command fails the install")
+			}
+			if !strings.Contains(script, "ECOTEST_CLIENT_VERSION=") {
+				t.Error("must print ECOTEST_CLIENT_VERSION=<version>")
+			}
+			if m := usesProxyAddress.FindString(script); m != "" {
+				t.Errorf("uses %s: an interception script has no proxy address — the client keeps its own registry", m)
+			}
+			if !usesPackage.MatchString(script) {
+				t.Error("never references $PKG_NAME (or another $PKG_* variable)")
+			}
+			for _, pkg := range []*Package{&e.Good, e.Bad} {
+				if pkg == nil {
+					continue
+				}
+				for key := range pkg.Env {
+					// PKG_UPSTREAM names a proxy upstream, for an explicit
+					// reference: proxy knowledge an interception script has no
+					// use for.
+					if key == "PKG_UPSTREAM" {
+						continue
+					}
+					if !regexp.MustCompile(`\b` + regexp.QuoteMeta(key) + `\b`).MatchString(script) {
+						t.Errorf("the catalog passes %s but the script never uses it", key)
+					}
+				}
+			}
+			if !plainHTTP[e.ID] && !strings.Contains(script, "PT_CA_CERT") {
+				t.Error("never trusts $PT_CA_CERT: the client cannot verify the certificates the proxy mints")
+			}
+			for _, liquid := range []string{"{{", "{%"} {
+				if strings.Contains(script, liquid) {
+					t.Errorf("contains %q, which the documentation site's Liquid templating would mangle", liquid)
+				}
+			}
+			for _, bashism := range []string{"[[", "<<<", "function ", "set -o pipefail", "&>"} {
+				if strings.Contains(script, bashism) {
+					t.Errorf("uses the bash-only construct %q", bashism)
+				}
+			}
+		})
+	}
+}
+
 // renderFor renders the proxy configuration for an ecosystem with plausible
 // run-time values.
 func renderFor(t *testing.T, e Ecosystem, dir string) ([]byte, RunConfig) {
@@ -640,6 +709,12 @@ func TestResultLifecycle(t *testing.T) {
 	}
 	g.Set(CheckPersonalLink, StatusPass, "cloned through a personal link")
 	g.Finalize()
+	if g.Passed {
+		t.Error("git: the result passed although the interception legs never ran")
+	}
+	g.Set(CheckIntercept, StatusPass, "cloned through the forward proxy")
+	g.Set(CheckNAT, StatusPass, "cloned through NAT")
+	g.Finalize()
 	if !g.Passed {
 		t.Error("git: n/a checks must not prevent a pass")
 	}
@@ -704,8 +779,9 @@ func TestMatrixRoundTrip(t *testing.T) {
 		"❌ failing", "1/3 ecosystems passed", "no result for: cargo",
 		"| npm | npm 10.9.9 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |",
 		// pip does not assert the download log: that column is "not applicable".
-		// The personal-link check comes last and was not reached.
-		"| pip | pip | ✅ | ❌ | ⏭ | ⏭ | ⏭ | ➖ | ⏭ | ❌ |",
+		// The personal-link check and the interception legs come last and were
+		// not reached.
+		"| pip | pip | ✅ | ❌ | ⏭ | ⏭ | ⏭ | ➖ | ⏭ | ⏭ | ⏭ | ❌ |",
 		"| cargo | — |",
 		"### Failures",
 		`no cache entry \| with a pipe and a newline`,

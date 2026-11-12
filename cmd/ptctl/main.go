@@ -96,6 +96,7 @@ func commands() []command {
 		{"usage", "show per-tenant usage metering & chargeback report (Task 84)", runUsage},
 		{"downloads", "show the download log: which package was downloaded from which client address — and by which user (Task 176)", runDownloads},
 		{"userlinks", "list, revoke or issue personal cache links — the per-user addresses downloads are tracked by (Task 177)", runUserLinks},
+		{"intercept", "show TLS-interception/NAT status, fetch the interception CA, or list the hostnames to send to the proxy (Task 172)", runIntercept},
 		{"preset", "list/diff/apply curated compliance policy presets — SLSA/NIST SSDF/hardened (Task 88)", runPreset},
 		{"compaction", "report cache compression & cross-artifact dedup space savings (Task 125)", runCompaction},
 		{"cache-encryption", "report at-rest cache-encryption status or rotate the key-encryption key (Task 141)", runCacheEncryption},

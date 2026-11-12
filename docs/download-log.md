@@ -80,6 +80,7 @@ Two rules in that table deserve a sentence each:
 | `durationMs` | How long the proxy took, upstream fetch and every gate included |
 | `subject`, `tenant`, `authMethod` | The identified client: a user who downloads through a [personal cache link](user-links.md) (`authMethod: personal-link`), or the principal of a token, an OIDC JWT or a client certificate when [client authentication](access-control-and-audit.md) is on |
 | `link` | For a download through a personal cache link: the link's identifier — which of the user's links it was, hence which of their machines. Not a secret (it is derived from a hash of the link) |
+| `via` | How the request reached the proxy when the client did not address the proxy itself ([interception](intercept-mode.md)): `intercept` through the forward proxy, `nat` through a NAT listener. Absent for a request sent to the proxy's own address |
 | `userAgent` | The client tool (`cargo/1.84.0 …`, `Go-http-client/1.1`, `npm/10.9.2 …`) |
 | `method`, `path` | The request (no query string: queries can carry credentials) |
 | `traceId` | The request's distributed-trace id, when [tracing](tracing.md) is on |
@@ -175,6 +176,7 @@ Entries, newest first. All parameters are optional and ANDed:
 | `subject` | The identified client. Exact, ignoring case — or a pattern with `*` (`*@example.com`). `-` selects the downloads **nobody was identified for** |
 | `tenant` | The client's team, exact |
 | `link` | A [personal cache link](user-links.md), by its identifier |
+| `via` | `intercept` · `nat` · `direct` (a request sent to the proxy's own address) — see [intercept-mode.md](intercept-mode.md) |
 | `q` | Free-text search across the textual fields |
 | `since`, `until` | Time bounds: an age (`15m`, `24h`, `7d`), RFC 3339, or unix seconds |
 | `limit` | Page size (default 100, at most 1000) |
@@ -228,8 +230,8 @@ response carries `nextBefore` — repeat the request with `before=<nextBefore>`.
 `format=csv` returns every matching entry as a download — or exactly the first
 `limit`, when given: the page-size cap does not apply to an export, which has no
 cursor to fetch the rest with. The total is in the `X-Total-Count` header. The
-`link` column is the last one, so that a consumer written before it existed
-finds every other column where it was. Cells
+`link` and `via` columns are the last ones, so that a consumer written before
+they existed finds every other column where it was. Cells
 a spreadsheet would interpret as a formula — a package name starting with `=` is
 a thing an attacker can publish — are prefixed with an apostrophe.
 
@@ -349,8 +351,10 @@ The same resolved address is what the [audit log](access-control-and-audit.md)
 records as `remoteAddr` and what anomaly detection scopes anonymous traffic by —
 there is one definition of "the client" per request.
 
-In [TLS-interception mode](intercept-mode.md) the client connects to the proxy
-directly, so the TCP peer is the client. Git over SSH has no forwarding header;
+In [TLS-interception and NAT mode](intercept-mode.md) the client connects to the
+proxy directly — through the forward proxy, or redirected by the network with
+its own source address — so the TCP peer is the client; the entry's `via` says
+which way it came. Git over SSH has no forwarding header;
 its address is always the TCP peer.
 
 ## Bounds, retention and privacy

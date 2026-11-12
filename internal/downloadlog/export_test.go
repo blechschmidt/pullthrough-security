@@ -47,7 +47,7 @@ func TestWriteCSV(t *testing.T) {
 		"2026-03-01T12:00:00.123Z", "10.0.0.5", "10.9.9.9", "cargo", "cargo", "cfg-if", "1.0.0",
 		"cfg-if-1.0.0.crate", "package", "served", "200", "", "", "", "MISS",
 		"7934", "7934", "12", "alice", "team-a", "token", "cargo/1.84.0",
-		"GET", "/v1/cargo/api/v1/crates/cfg-if/1.0.0/download", "sha256:ab", "4bf92f", "7", "",
+		"GET", "/v1/cargo/api/v1/crates/cfg-if/1.0.0/download", "sha256:ab", "4bf92f", "7", "", "",
 	}
 	if !reflect.DeepEqual(rows[1], want) {
 		t.Fatalf("first entry row\n %q\nwant\n %q", rows[1], want)

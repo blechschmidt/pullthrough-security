@@ -27,6 +27,12 @@ The verified client configuration for each ecosystem — the exact script CI run
 — is published in **[ecosystem-tests-reference.md](ecosystem-tests-reference.md)**
 (generated from the test catalog, so it cannot drift from what is tested).
 
+Every ecosystem is run in all three of the proxy's [access modes](intercept-mode.md):
+**explicit** (the client is configured with the proxy's address), **TLS
+interception** (the client keeps its registry and is given only the forward
+proxy as `HTTPS_PROXY` and the proxy's CA) and **NAT** (the client is given
+nothing but the CA; the registry's hostnames lead to the proxy).
+
 These tests run the proxy on loopback, over plain HTTP and without access
 control, with one client per ecosystem. What a deployment adds — a private CA
 to trust, a token to present — and the other clients of an ecosystem are
@@ -35,7 +41,7 @@ covered by the **[client lab](client-lab.md)**, and both stand behind the
 
 ## What is asserted
 
-Each ecosystem runs the same five checks — the Rust and Go ecosystems a sixth —
+Each ecosystem runs the same checks — the Rust and Go ecosystems one more —
 reported as one row of a matrix:
 
 | Check | Meaning |
@@ -46,10 +52,20 @@ reported as one row of a matrix:
 | **Re-install from cache** | A second install from a pristine client succeeds and the artifact is **not** fetched from the upstream again. |
 | **Bad package blocked** | A package whose source commit the LLM flagged malicious is refused by the proxy (`403`, reason `malicious`, recorded in the audit log with the offending commit) **and the real client fails**. |
 | **Downloads logged by client address** | The proxy's [download log](download-log.md) — read through the admin API, as the console's Downloads tab reads it — shows the installed package as *served* to the address of each client run that installed it (the second from the cache), and the refused package as *blocked* by the admission policy for the run that tried, and served to nobody. Filtering the log by one run's address lists that run's entries only. Asserted for the ecosystems that opt in (`DownloadLog` in the catalog): **cargo** and **go**. |
+| **Personal link names the user** | The install is repeated with the client pointed at a user's [personal cache link](user-links.md); the client must stay on it for every request, and every download the log holds for the run must name the user. |
+| **TLS interception (HTTPS_PROXY)** | The good package is installed once more with the client **not pointed at the proxy at all** — its built-in registry, plus the forward proxy as `HTTPS_PROXY` and the interception CA — and the forward proxy is the only thing the container can reach. Every request reaches the proxy through the interception listener for the registry's own host and none at the proxy's address (the index documents it gets lead back to the registry's host); the artifact is served from **the cache entry the explicit install filled**; the download log records it `via: intercept` for the run's address; and the bad package is refused, citing the malicious commit, while the client fails. |
+| **NAT (no client config)** | The same with **nothing but the CA**: the container resolves the registry's hostnames — the list the proxy's admin API reports — to an address where the proxy's NAT listeners answer on ports 443 and 80, and nothing else resolves or is reachable, the proxy's own address included. |
 
-The last check needs both halves. A client that fails for another reason (a
-flaky registry, a typo) does not count as a block; a proxy that blocks while the
+A block needs both halves. A client that fails for another reason (a flaky
+registry, a typo) does not count as a block; a proxy that blocks while the
 client quietly installs the package some other way does not count either.
+
+The interception and NAT legs run each ecosystem's **interception script**
+(`internal/ecotest/clients/transparent/<id>.sh`), which trusts the CA the way
+that client reads one and otherwise leaves the client alone. Where a client
+cannot do without a setting — Maven reads its proxy from `settings.xml`, DNF's
+mirror list names hosts the proxy cannot know — the script says so. The
+published scripts are the verified interception setup for each client.
 
 Git is the one ecosystem with no package coordinate to gate and, in
 pass-through mode, nothing immutable to cache; its row checks that a real `git`
@@ -79,6 +95,15 @@ deployment-specific routes).
               │  real client  →  http://127.0.0.1:PORT/v1/<ecosystem>/…
               └───────────────────────────────────────┘
 ```
+
+In the interception and NAT legs the forwarder exposes different listeners —
+and only those:
+
+| Leg | The container reaches | Inside the container |
+|---|---|---|
+| explicit | the proxy's own address | `127.0.0.1:PORT` |
+| TLS interception | the forward proxy (`server.intercept.listenAddr`) | `127.0.0.1:IPORT`, exported as `HTTPS_PROXY` |
+| NAT | the NAT listeners (`server.intercept.nat.httpsAddr` / `httpAddr`) | ports 443 and 80 of `127.0.0.2`, the address every hostname the proxy intercepts resolves to (`--add-host`) |
 
 1. **Source repository.** A small Git repository is created with two commits: an
    ordinary change, and one that adds an install hook piping a remote script into
@@ -123,6 +148,10 @@ on the host. Consequences:
 - The client uses the same `http://127.0.0.1:PORT` URL the proxy advertises as
   its `server.publicUrl`, so no client needs an "insecure host" exception that
   would not exist in an HTTPS deployment.
+- In the NAT leg there is no DNS: only the hostnames the proxy reports it
+  intercepts resolve. A client that needs any other host — a mirror list, a
+  separate download host the proxy did not move onto the registry's host —
+  fails, which is how such a gap shows up.
 
 ### Every client run has its own address
 
@@ -271,8 +300,13 @@ Running real clients surfaced behaviour that matters when deploying the proxy:
 2. Add `internal/ecotest/clients/<id>.sh`: configure the client to use `$MOUNT`,
    install `$PKG_NAME`. See
    [`clients/README.md`](../internal/ecotest/clients/README.md) for the contract.
-3. `make ecosystem-reference-gen` and commit the regenerated reference.
-4. `make test-ecosystems ECOSYSTEMS=<id> ECOTEST_KEEP=1`.
+3. Add `internal/ecotest/clients/transparent/<id>.sh`: the same install with the
+   client's own registry, trusting `$PT_CA_CERT`. If a client host is not
+   derived from the upstream URL, add it to the entry's `InterceptHosts` (or,
+   for the public registry of an ecosystem, to `intercept.ClientHosts`). Set
+   `NoIntercept` / `NoNAT` only to say why a leg cannot run.
+4. `make ecosystem-reference-gen` and commit the regenerated reference.
+5. `make test-ecosystems ECOSYSTEMS=<id> ECOTEST_KEEP=1`.
 
 `go test ./...` fails until a supported ecosystem (`internal/testset`) has a
 catalog entry and a script, so an ecosystem cannot be added without its

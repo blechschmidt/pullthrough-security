@@ -202,6 +202,11 @@ type Entry struct {
 	// through. A user holds one link per machine or purpose; this says which.
 	// It is the link's public identifier, never its token.
 	Link string `json:"link,omitempty"`
+	// Via says how the request reached the proxy when it was not sent to the
+	// proxy's own address: "intercept" through the TLS-interception forward
+	// proxy, "nat" through a NAT listener — the client addressed the upstream
+	// host itself (Task 172). Empty for a request to the proxy's address.
+	Via string `json:"via,omitempty"`
 	// UserAgent is the client's User-Agent header: which tool, which version.
 	UserAgent string `json:"userAgent,omitempty"`
 	// TraceID correlates the entry with the request's distributed trace.
@@ -271,6 +276,7 @@ func (e *Entry) sanitize() {
 	// caller's string, for the reason clean copies (see there).
 	e.Kind = canonicalKind(e.Kind)
 	e.Outcome = canonicalOutcome(e.Outcome, e.Status)
+	e.Via = canonicalVia(e.Via)
 	if e.Bytes < 0 {
 		e.Bytes = 0
 	}
@@ -370,4 +376,26 @@ func needsCleaning(s string, max int) bool {
 		}
 	}
 	return false
+}
+
+// The values of Entry.Via.
+const (
+	// ViaIntercept marks a request that came through the TLS-interception
+	// forward proxy.
+	ViaIntercept = "intercept"
+	// ViaNAT marks a request that came through a NAT listener.
+	ViaNAT = "nat"
+)
+
+// canonicalVia returns the package's constant for a Via value, or "" for
+// anything else.
+func canonicalVia(v string) string {
+	switch v {
+	case ViaIntercept:
+		return ViaIntercept
+	case ViaNAT:
+		return ViaNAT
+	default:
+		return ""
+	}
 }

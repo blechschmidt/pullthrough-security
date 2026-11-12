@@ -194,8 +194,9 @@ build tag.
 - [access-control-and-audit.md](access-control-and-audit.md) — audit hashing &
   secret encryption that run under this mode.
 - [sigverify.md](sigverify.md) — signature/attestation verification.
-- [intercept-mode.md](intercept-mode.md) — TLS interception (a FIPS-relevant
-  crypto path when enabled).
+- [intercept-mode.md](intercept-mode.md) — TLS interception and NAT mode (a
+  FIPS-relevant crypto path when enabled: the TLS terminated for intercepted
+  clients gets the same approved floor as the gateway's listener).
 - [self-release.md](self-release.md) — the FIPS build variant ships on the same
   reproducible, cosign-signed, SLSA-attested release path; verify it with
   `ptctl verify-self`.

@@ -21,7 +21,7 @@ func GenerateReference() string {
 	b.WriteString("# Ecosystem test reference (generated)\n\n")
 	b.WriteString("<!-- GENERATED FILE — DO NOT EDIT.\n")
 	b.WriteString("     Regenerate with `make ecosystem-reference-gen`.\n")
-	b.WriteString("     Source of truth: internal/ecotest (catalog_data.go + clients/*.sh). -->\n\n")
+	b.WriteString("     Source of truth: internal/ecotest (catalog_data.go + clients/*.sh + clients/transparent/*.sh). -->\n\n")
 	b.WriteString("This reference is generated from the real-package-manager ecosystem test suite\n")
 	b.WriteString("([ecosystem-tests.md](ecosystem-tests.md)). For every supported ecosystem it shows the\n")
 	b.WriteString("client that CI runs, the registry it pulls from through the proxy, and the exact\n")
@@ -33,19 +33,32 @@ func GenerateReference() string {
 	b.WriteString("(`https://proxy.example.com/v1/<upstream>`), `$PROXY_URL` is the proxy's base URL,\n")
 	b.WriteString("`$PROXY_HOST` its `host:port`, and `$PKG_NAME` / `$PKG_VERSION` the package to\n")
 	b.WriteString("install. The test proxy listens on loopback over plain HTTP unless noted.\n\n")
+	b.WriteString("Each ecosystem also has an **interception script** — the same client, *not* pointed at\n")
+	b.WriteString("the proxy at all ([intercept-mode.md](intercept-mode.md)). It keeps the client's own\n")
+	b.WriteString("registry and only makes it trust the proxy's interception CA, `$PT_CA_CERT`. CI runs it\n")
+	b.WriteString("twice: in **TLS-interception** mode, with the forward proxy exported as `HTTPS_PROXY`,\n")
+	b.WriteString("`HTTP_PROXY` (and their lower-case forms) and as `$PT_INTERCEPT_PROXY` for the clients\n")
+	b.WriteString("that need it spelled out; and in **NAT** mode, with nothing at all — the registry's\n")
+	b.WriteString("hostnames resolve to the proxy's NAT listeners and nothing else is reachable.\n\n")
 
 	cat := Catalog()
 
 	b.WriteString("## Overview\n\n")
-	b.WriteString("| Ecosystem | Client | Runs in | Pulls from | Installs | Refused |\n")
-	b.WriteString("|---|---|---|---|---|---|\n")
+	b.WriteString("| Ecosystem | Client | Runs in | Pulls from | Installs | Refused | Interception | NAT |\n")
+	b.WriteString("|---|---|---|---|---|---|:-:|:-:|\n")
 	for _, e := range cat {
 		bad := "— (no package coordinate)"
 		if e.Bad != nil {
 			bad = "`" + packageLabel(*e.Bad) + "`"
 		}
-		fmt.Fprintf(&b, "| [%s](#%s) | %s | `%s` | %s | `%s` | %s |\n",
-			e.ID, e.ID, e.Client, e.Image, e.Upstream.URL, packageLabel(e.Good), bad)
+		mark := func(reason string) string {
+			if reason == "" {
+				return "✓"
+			}
+			return "—"
+		}
+		fmt.Fprintf(&b, "| [%s](#%s) | %s | `%s` | %s | `%s` | %s | %s | %s |\n",
+			e.ID, e.ID, e.Client, e.Image, e.Upstream.URL, packageLabel(e.Good), bad, mark(e.NoIntercept), mark(e.NoNAT))
 	}
 	b.WriteString("\n\"Installs\" is pinned to the benign commit of the test's source repository and must\n")
 	b.WriteString("install; \"Refused\" is pinned to the commit the (mock) LLM flags malicious and must be\n")
@@ -110,8 +123,47 @@ func GenerateReference() string {
 		b.WriteString("\n```sh\n")
 		b.WriteString(strings.TrimRight(string(script), "\n"))
 		b.WriteString("\n```\n\n")
+
+		writeTransparentReference(&b, e)
 	}
 	return b.String()
+}
+
+// writeTransparentReference renders an ecosystem's interception and NAT legs:
+// what they assert, what the proxy needs beyond its upstreams, and the
+// transparent script.
+func writeTransparentReference(b *strings.Builder, e Ecosystem) {
+	fmt.Fprintf(b, "### %s — interception and NAT\n\n", e.ID)
+	if e.NoIntercept != "" {
+		fmt.Fprintf(b, "- **TLS interception:** not asserted — %s\n", e.NoIntercept)
+	} else {
+		b.WriteString("- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs the good " +
+			"package through the forward proxy, out of the cache entry the explicit install filled, and the bad package is refused\n")
+	}
+	if e.NoNAT != "" {
+		fmt.Fprintf(b, "- **NAT:** not asserted — %s\n", e.NoNAT)
+	} else {
+		b.WriteString("- **NAT:** asserted — the same with nothing but the CA: the registry's hostnames lead to the proxy's NAT " +
+			"listeners, and nothing else (not even the proxy's own address) is reachable\n")
+	}
+	if len(e.InterceptHosts) > 0 {
+		rules := make([]string, 0, len(e.InterceptHosts))
+		for rule := range e.InterceptHosts {
+			rules = append(rules, rule)
+		}
+		sort.Strings(rules)
+		for _, rule := range rules {
+			fmt.Fprintf(b, "- **Proxy setting:** `server.intercept.hosts: {%s: %s}`\n", rule, e.InterceptHosts[rule])
+		}
+	}
+	script, err := e.TransparentScript()
+	if err != nil {
+		b.WriteString("\n")
+		return
+	}
+	b.WriteString("\n```sh\n")
+	b.WriteString(strings.TrimRight(string(script), "\n"))
+	b.WriteString("\n```\n\n")
 }
 
 // pinLabel renders the provenance pin a package gets, as it appears in the

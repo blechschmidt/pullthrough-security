@@ -14,13 +14,17 @@ is one page per ecosystem; this page holds what they have in common.
 > ([`internal/clientguide`](../internal/clientguide)) fails when a snippet and
 > its script drift apart. What was not executed says so.
 
-## Two ways to use the proxy
+## Three ways to use the proxy
 
 This guide covers **explicit package sources**: each tool is told to use
 `https://proxy.example.com/v1/<name>/` instead of the public registry. The
-proxy can also **intercept TLS** — clients keep the public registry's address
-and are given an HTTP proxy and the proxy's CA instead; see
-[intercept-mode.md](intercept-mode.md). The CA settings below apply to both.
+proxy can also **intercept TLS**, and then clients keep the public registry's
+address: either they are given an HTTP proxy (`HTTPS_PROXY`) and the proxy's CA,
+or — in **NAT mode** — only the CA, while the network sends their connections to
+the registries to the proxy. See [intercept-mode.md](intercept-mode.md); the
+verified interception setup of every package manager is in
+[ecosystem-tests-reference.md](ecosystem-tests-reference.md). The CA settings
+below apply to all three.
 
 ## What you need
 

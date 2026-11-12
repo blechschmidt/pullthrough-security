@@ -73,11 +73,28 @@ const (
 	envList = "ECOTEST_LIST"
 
 	// Helper mode (see TestMain): the test binary re-executed inside a client
-	// container as a TCP -> unix-socket forwarder.
-	envForwardListen = "ECOTEST_FORWARD_LISTEN"
-	envForwardUnix   = "ECOTEST_FORWARD_UNIX"
-	envForwardReady  = "ECOTEST_FORWARD_READY"
+	// container as a TCP -> unix-socket forwarder. envForward lists what it
+	// forwards: "<listen address>=<unix socket path>" pairs, separated by ";".
+	envForward      = "ECOTEST_FORWARD"
+	envForwardReady = "ECOTEST_FORWARD_READY"
 )
+
+// The modes a client step runs in.
+const (
+	// modeExplicit: the client is configured with the proxy's address
+	// (clients/<id>.sh).
+	modeExplicit = ""
+	// modeIntercept: the client keeps its registry and is given the forward
+	// proxy as HTTPS_PROXY (clients/transparent/<id>.sh).
+	modeIntercept = "intercept"
+	// modeNAT: the client keeps its registry and is given nothing; the
+	// registry's hostnames lead to the NAT listeners (clients/transparent/<id>.sh).
+	modeNAT = "nat"
+)
+
+// natContainerIP is the address the registry hostnames resolve to inside a
+// client container in NAT mode. The forwarder listens on its ports 443 and 80.
+const natContainerIP = "127.0.0.2"
 
 // Paths inside a client container.
 const (
@@ -112,8 +129,8 @@ func TestMain(m *testing.M) {
 		_ = json.NewEncoder(os.Stdout).Encode(IDs())
 		os.Exit(0)
 	}
-	if listen := os.Getenv(envForwardListen); listen != "" {
-		if err := runForwarder(listen, os.Getenv(envForwardUnix), os.Getenv(envForwardReady)); err != nil {
+	if spec := os.Getenv(envForward); spec != "" {
+		if err := runForwarder(spec, os.Getenv(envForwardReady)); err != nil {
 			fmt.Fprintf(os.Stderr, "ecotest forwarder: %v\n", err)
 			os.Exit(1)
 		}
@@ -122,35 +139,53 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// runForwarder relays TCP connections accepted on listen to the unix socket at
-// unixPath until the process is killed.
-func runForwarder(listen, unixPath, readyFile string) error {
-	if unixPath == "" {
-		return errors.New(envForwardUnix + " is not set")
+// runForwarder relays the TCP connections accepted on each listen address of
+// spec ("<listen>=<unix socket>;…") to its unix socket until the process is
+// killed. The ready file is written once every address is listening.
+func runForwarder(spec, readyFile string) error {
+	type pair struct{ listen, sock string }
+	var pairs []pair
+	for _, item := range strings.Split(spec, ";") {
+		listen, sock, ok := strings.Cut(strings.TrimSpace(item), "=")
+		if !ok || listen == "" || sock == "" {
+			return fmt.Errorf("%s: malformed entry %q", envForward, item)
+		}
+		pairs = append(pairs, pair{listen, sock})
 	}
-	ln, err := net.Listen("tcp", listen)
-	if err != nil {
-		return err
+	listeners := make([]net.Listener, 0, len(pairs))
+	for _, p := range pairs {
+		ln, err := net.Listen("tcp", p.listen)
+		if err != nil {
+			return err
+		}
+		listeners = append(listeners, ln)
 	}
 	if readyFile != "" {
 		if err := os.WriteFile(readyFile, []byte("ready\n"), 0o644); err != nil {
 			return err
 		}
 	}
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return err
-		}
-		go func() {
-			up, err := net.Dial("unix", unixPath)
-			if err != nil {
-				_ = conn.Close()
-				return
+	errCh := make(chan error, len(pairs))
+	for i, p := range pairs {
+		go func(ln net.Listener, sock string) {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					errCh <- err
+					return
+				}
+				go func() {
+					up, err := net.Dial("unix", sock)
+					if err != nil {
+						_ = conn.Close()
+						return
+					}
+					relay(conn, up)
+				}()
 			}
-			relay(conn, up)
-		}()
+		}(listeners[i], p.sock)
 	}
+	return <-errCh
 }
 
 // relay copies bytes both ways between a and b and closes both when either
@@ -429,9 +464,10 @@ type run struct {
 	proxyExited chan error // receives the proxy's exit status exactly once
 	llm         *MockLLM
 
-	toolDir  string         // host directory mounted at containerToolDir
-	bridges  []net.Listener // per-step unix sockets relaying container connections to the proxy
-	listenTo string         // the proxy's loopback host:port
+	toolDir     string         // host directory mounted at containerToolDir
+	bridges     []net.Listener // per-step unix sockets relaying container connections to the proxy
+	bridgeSteps []int          // the client steps bridges were opened for (numbers their source addresses)
+	listenTo    string         // the proxy's loopback host:port
 
 	benign, malicious string // fixture commit hashes
 
@@ -439,6 +475,22 @@ type run struct {
 	// ("/u/<token>"): client steps are then pointed at the user's personal
 	// address of the proxy instead of the plain one.
 	personal string
+
+	// mode is how client steps reach the proxy: explicitly (modeExplicit), or
+	// not pointed at it at all (modeIntercept, modeNAT; Task 172).
+	mode string
+	// interceptListen, natListen and natHTTPListen are the proxy's
+	// interception listeners (host:port on loopback); empty when the
+	// ecosystem runs no interception leg.
+	interceptListen, natListen, natHTTPListen string
+	// interceptCA is the PEM path of the proxy's interception CA.
+	interceptCA string
+	// natHosts are the hostnames the proxy intercepts, as its admin API
+	// reports them: what a NAT-mode client container resolves to the proxy.
+	natHosts []string
+	// explicitArtifact is the good package's cache entry as the explicit
+	// install left it (nil when it did not get that far).
+	explicitArtifact *cacheEntry
 
 	containers []string // containers to force-remove on teardown
 }
@@ -493,6 +545,14 @@ func runEcosystem(t *testing.T, s *suite, e Ecosystem) *Result {
 		return r.res
 	}
 	r.scenario()
+	// The same packages, with the client not pointed at the proxy at all
+	// (Task 172): through the forward proxy, then through the NAT listeners.
+	if e.applies(CheckIntercept) {
+		r.transparentLeg(modeIntercept, CheckIntercept)
+	}
+	if e.applies(CheckNAT) {
+		r.transparentLeg(modeNAT, CheckNAT)
+	}
 	return r.res
 }
 
@@ -530,10 +590,14 @@ func (r *run) setup() error {
 	// all; the forwarder inside it listens on this same loopback address and
 	// relays to the proxy, so one URL is valid on both sides.
 	const listenHost = "127.0.0.1"
-	port, err := freePort(listenHost)
+	// Every port the run's listeners need is chosen at once: the proxy's own
+	// address and, for the interception legs, the forward proxy and the two NAT
+	// listeners.
+	ports, err := freePorts(listenHost, 4)
 	if err != nil {
 		return err
 	}
+	port := ports[0]
 	listenAddr := net.JoinHostPort(listenHost, strconv.Itoa(port))
 	r.listenTo = listenAddr
 	r.proxyHost = listenAddr
@@ -562,6 +626,21 @@ func (r *run) setup() error {
 	}
 	rc.PublicURL = r.publicURL
 	r.client = &http.Client{Transport: transport, Timeout: 30 * time.Second}
+
+	// The interception listeners (Task 172): the forward proxy and the NAT
+	// listeners, all on loopback like the proxy's own address.
+	if r.e.transparent() {
+		addrs := make([]string, 3)
+		for i := range addrs {
+			addrs[i] = net.JoinHostPort(listenHost, strconv.Itoa(ports[1+i]))
+		}
+		r.interceptListen, r.natListen, r.natHTTPListen = addrs[0], addrs[1], addrs[2]
+		caDir := filepath.Join(r.stateDir, "intercept")
+		rc.Intercept = &InterceptListeners{
+			ForwardAddr: r.interceptListen, NATHTTPSAddr: r.natListen, NATHTTPAddr: r.natHTTPListen, CADir: caDir,
+		}
+		r.interceptCA = InterceptCACertPath(caDir)
+	}
 
 	if r.e.Bad != nil {
 		repo, benign, malicious, err := createSourceRepo(filepath.Join(r.root, "source"))
@@ -599,6 +678,11 @@ func (r *run) setup() error {
 	}
 	if err := r.startBridge(); err != nil {
 		return fmt.Errorf("starting the proxy bridge: %w", err)
+	}
+	if r.e.transparent() {
+		if err := r.readInterception(); err != nil {
+			return err
+		}
 	}
 	if r.e.Bad != nil {
 		if err := r.awaitVerdicts(2 * time.Minute); err != nil {
@@ -665,59 +749,97 @@ func clientAddr(n int) string {
 
 // stepBridge is one client step's way to the proxy.
 type stepBridge struct {
-	// sock is the name of the step's unix socket inside the tool directory.
-	sock string
+	// pairs are what the step's forwarder listens on inside the container,
+	// and the unix socket (a name inside the tool directory) it relays each
+	// connection to.
+	pairs []bridgePair
 	// addr is the source address the proxy sees for the step.
 	addr string
 }
 
-// openBridge creates the unix socket for one client step. Every connection the
-// step's forwarder makes to it is relayed to the proxy from a loopback address
+type bridgePair struct {
+	listen string // address inside the container
+	sock   string // socket name in the tool directory
+}
+
+// openBridge creates the unix sockets for one client step. Every connection the
+// step's forwarder makes to them is relayed to the proxy from a loopback address
 // that belongs to this step alone — the step is a client machine with an
 // address of its own. That is what lets the suite assert what the proxy's
 // download log says about "which address pulled this package": the address is
 // one the proxy observed on the connection, different for every step.
+//
+// What the step can reach depends on the mode it runs in, and is all it can
+// reach:
+//
+//   - explicit: the proxy's own address (the URL the client is configured
+//     with), at the same host:port inside the container;
+//   - intercept: the forward proxy, at the same host:port inside the
+//     container (the address HTTPS_PROXY names);
+//   - nat: the NAT listeners, at ports 443 and 80 of natContainerIP — the
+//     address the container resolves the registry's hostnames to.
 func (r *run) openBridge() (*stepBridge, error) {
-	n := len(r.bridges) + 1
-	b := &stepBridge{sock: fmt.Sprintf("p%d.sock", n), addr: clientAddr(n)}
-	sock := filepath.Join(r.toolDir, b.sock)
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		return nil, err
-	}
-	// The container user differs per image; connecting needs write permission.
-	if err := os.Chmod(sock, 0o666); err != nil {
-		_ = ln.Close()
-		return nil, err
-	}
-	r.bridges = append(r.bridges, ln)
-
-	dialer := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(b.addr)}, Timeout: 10 * time.Second}
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return // listener closed on teardown
-			}
-			go func() {
-				up, err := dialer.Dial("tcp", r.listenTo)
-				if err != nil {
-					_ = conn.Close()
-					return
-				}
-				relay(conn, up)
-			}()
+	n := len(r.bridgeSteps) + 1
+	r.bridgeSteps = append(r.bridgeSteps, n)
+	b := &stepBridge{addr: clientAddr(n)}
+	type target struct{ listen, proxy string }
+	var targets []target
+	switch r.mode {
+	case modeIntercept:
+		targets = []target{{r.interceptListen, r.interceptListen}}
+	case modeNAT:
+		targets = []target{
+			{net.JoinHostPort(natContainerIP, "443"), r.natListen},
+			{net.JoinHostPort(natContainerIP, "80"), r.natHTTPListen},
 		}
-	}()
+	default:
+		targets = []target{{r.listenTo, r.listenTo}}
+	}
+	dialer := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(b.addr)}, Timeout: 10 * time.Second}
+	for i, tg := range targets {
+		pair := bridgePair{listen: tg.listen, sock: fmt.Sprintf("p%d-%d.sock", n, i)}
+		sock := filepath.Join(r.toolDir, pair.sock)
+		ln, err := net.Listen("unix", sock)
+		if err != nil {
+			return nil, err
+		}
+		// The container user differs per image; connecting needs write permission.
+		if err := os.Chmod(sock, 0o666); err != nil {
+			_ = ln.Close()
+			return nil, err
+		}
+		r.bridges = append(r.bridges, ln)
+		proxyAddr := tg.proxy
+		go func() {
+			for {
+				conn, err := ln.Accept()
+				if err != nil {
+					return // listener closed on teardown
+				}
+				go func() {
+					up, err := dialer.Dial("tcp", proxyAddr)
+					if err != nil {
+						_ = conn.Close()
+						return
+					}
+					relay(conn, up)
+				}()
+			}
+		}()
+		b.pairs = append(b.pairs, pair)
+	}
 	return b, nil
 }
 
 // forwarderEnv is the environment that turns the helper into the forwarder of
 // one client step.
 func (r *run) forwarderEnv(b *stepBridge) []string {
+	spec := make([]string, 0, len(b.pairs))
+	for _, p := range b.pairs {
+		spec = append(spec, p.listen+"="+containerToolDir+"/"+p.sock)
+	}
 	return []string{
-		envForwardListen + "=" + r.listenTo,
-		envForwardUnix + "=" + containerToolDir + "/" + b.sock,
+		envForward + "=" + strings.Join(spec, ";"),
 		envForwardReady + "=" + containerReadyFile,
 	}
 }
@@ -766,6 +888,37 @@ func (r *run) startProxy(cfgPath string) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 	return errors.New("the proxy did not become ready within 60s")
+}
+
+// readInterception reads what the proxy reports about its interception
+// listeners through the admin API: the hostnames it intercepts — which a
+// NAT-mode client container resolves to the NAT listeners, and nothing else —
+// and checks the CA it generated is there to hand to clients.
+func (r *run) readInterception() error {
+	var status struct {
+		Enabled   bool     `json:"enabled"`
+		HostNames []string `json:"hostNames"`
+		Routes    []struct {
+			Rule     string `json:"rule"`
+			Upstream string `json:"upstream"`
+		} `json:"routes"`
+	}
+	if err := r.getJSON("/admin/api/intercept", &status); err != nil {
+		return fmt.Errorf("reading the interception status: %w", err)
+	}
+	if !status.Enabled || len(status.HostNames) == 0 {
+		return fmt.Errorf("the proxy reports interception enabled=%t with hostnames %v", status.Enabled, status.HostNames)
+	}
+	r.natHosts = status.HostNames
+	routes := make([]string, 0, len(status.Routes))
+	for _, rt := range status.Routes {
+		routes = append(routes, rt.Rule+" -> "+rt.Upstream)
+	}
+	r.t.Logf("[%s] interception routes: %s", r.e.ID, strings.Join(routes, ", "))
+	if _, err := os.Stat(r.interceptCA); err != nil {
+		return fmt.Errorf("the proxy did not write its interception CA: %w", err)
+	}
+	return nil
 }
 
 // adminBase is the base URL the harness itself uses to reach the proxy.
@@ -845,6 +998,7 @@ func (r *run) scenario() {
 			r.fail(CheckCached, "%v", err)
 			return
 		}
+		r.explicitArtifact = artifact
 		r.pass(CheckCached, "cache entry %s (%d bytes)", artifact.Key, artifact.Size)
 	}
 
@@ -1139,20 +1293,35 @@ func (r *run) assertScanAdmitted() error {
 // It returns the client step whose refusal was attributed to the policy, or nil
 // when the check failed.
 func (r *run) assertBlocked() *clientResult {
+	res, hit, err := r.refuse("bad")
+	if err != nil {
+		r.fail(CheckBlock, "%v", err)
+		r.dumpProxyLog(40)
+		return nil
+	}
+	r.pass(CheckBlock, "proxy refused %s (403 %s, source commit %s flagged by the LLM) and %s failed with exit %d",
+		hit.Artifact, hit.Code, shortSHA(hit.Commit), r.e.Client, res.exitCode)
+	return res
+}
+
+// refuse runs the client for the bad package (steps "<step>-1", "<step>-2", …)
+// until a run fails AND the proxy's audit log holds a new 'malicious' block for
+// the bad coordinate, citing the malicious fixture commit. A run that installs
+// the package is an error at once; a run that fails without such a block (a
+// flaky upstream) is retried.
+func (r *run) refuse(step string) (*clientResult, *policyBlock, error) {
 	bad := *r.e.Bad
 	var lastDetail string
 	for attempt := 1; attempt <= r.s.attempts; attempt++ {
 		blocksBefore := len(r.policyBlocks())
-		step := fmt.Sprintf("bad-%d", attempt)
-		res, err := r.runClient(step, bad)
+		res, err := r.runClient(fmt.Sprintf("%s-%d", step, attempt), bad)
 		if err != nil {
 			lastDetail = fmt.Sprintf("running the client: %v", err)
 			continue
 		}
 		if res.exitCode == 0 {
-			r.fail(CheckBlock, "the client INSTALLED %s although its source commit %s is flagged malicious (see %s)",
+			return nil, nil, fmt.Errorf("the client INSTALLED %s although its source commit %s is flagged malicious (see %s)",
 				packageLabel(bad), shortSHA(r.malicious), res.logPath)
-			return nil
 		}
 
 		// The audit record is written as part of handling the refused request,
@@ -1178,20 +1347,157 @@ func (r *run) assertBlocked() *clientResult {
 		if hit == nil {
 			lastDetail = fmt.Sprintf("the client failed (exit %d) but the proxy recorded no 'malicious' block for coordinate %q; "+
 				"blocks recorded: %+v; client output tail:\n%s", res.exitCode, bad.pinName(), blocks, tail(res.output, 25))
-			r.t.Logf("[%s] bad attempt %d/%d not attributable to the policy: %s", r.e.ID, attempt, r.s.attempts, lastDetail)
+			r.t.Logf("[%s] %s attempt %d/%d not attributable to the policy: %s", r.e.ID, step, attempt, r.s.attempts, lastDetail)
 			continue
 		}
 		if hit.Commit != r.malicious {
-			r.fail(CheckBlock, "the block cites commit %s, want the malicious fixture commit %s", hit.Commit, r.malicious)
-			return nil
+			return nil, nil, fmt.Errorf("the block cites commit %s, want the malicious fixture commit %s", hit.Commit, r.malicious)
 		}
-		r.pass(CheckBlock, "proxy refused %s (403 %s, source commit %s flagged by the LLM) and %s failed with exit %d",
-			hit.Artifact, hit.Code, shortSHA(hit.Commit), r.e.Client, res.exitCode)
-		return res
+		return res, hit, nil
 	}
-	r.fail(CheckBlock, "%s", lastDetail)
-	r.dumpProxyLog(40)
-	return nil
+	return nil, nil, errors.New(lastDetail)
+}
+
+// transparentLeg installs the good package and tries the bad one with the
+// client not pointed at the proxy at all (Task 172) — mode intercept: given the
+// forward proxy as HTTPS_PROXY; mode nat: given nothing, the registry's
+// hostnames leading to the NAT listeners — and records the outcome as check.
+// Both runs use the transparent script and trust the interception CA. It
+// asserts:
+//
+//   - the client installed the good package, and everything it asked the proxy
+//     for came through the mode's listener: the proxy answered requests
+//     dispatched via that mode, and not one request for a package source at
+//     its own address — the client was never sent there (the index documents
+//     it was given lead back to the registry's host) and in NAT mode could not
+//     even have reached it;
+//   - the artifact was served out of the proxy's cache — the entry the
+//     explicit install filled, untouched: an intercepted request is the same
+//     request to the cache — and the download log records it for the step's
+//     address with how it got there;
+//   - the bad package is refused by the same admission policy, citing the
+//     malicious commit, and the client fails.
+func (r *run) transparentLeg(mode, check string) {
+	e := r.e
+	mark := r.waitForQuiet(1500*time.Millisecond, 15*time.Second)
+	before, err := r.metrics()
+	if err != nil {
+		r.fail(check, "reading metrics: %v", err)
+		return
+	}
+	r.mode = mode
+	defer func() { r.mode = modeExplicit }()
+
+	good, err := r.clientStep(mode+"-good", e.Good, true)
+	if err != nil {
+		r.fail(check, "%s, not pointed at the proxy (%s), could not install %s: %v", e.Client, mode, packageLabel(e.Good), err)
+		r.dumpProxyLog(40)
+		return
+	}
+
+	// What the proxy answered while the client ran.
+	r.waitForQuiet(1500*time.Millisecond, 15*time.Second)
+	var via int
+	var strays []string
+	hosts := map[string]bool{}
+	for i, rec := range r.requestRecords() {
+		if i < mark {
+			continue
+		}
+		path, _ := rec["path"].(string)
+		status, _ := rec["status"].(float64)
+		recVia, _ := rec["via"].(string)
+		switch {
+		case recVia == mode:
+			if status >= 200 && status < 400 {
+				via++
+				if h, _ := rec["host"].(string); h != "" {
+					hosts[h] = true
+				}
+			}
+		case strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v2/") || strings.HasPrefix(path, "/u/"):
+			if len(strays) < 5 {
+				strays = append(strays, fmt.Sprintf("%s %s → %.0f (via %q)", rec["method"], path, status, recVia))
+			}
+		}
+	}
+	if via == 0 {
+		r.fail(check, "the proxy answered no request through its %s listener while %s ran (log: %s)", mode, e.Client, good.logPath)
+		return
+	}
+	if len(strays) > 0 {
+		r.fail(check, "while %s ran in %s mode the proxy also answered requests that did not come through interception: %s",
+			e.Client, mode, strings.Join(strays, "; "))
+		return
+	}
+	hostList := make([]string, 0, len(hosts))
+	for h := range hosts {
+		hostList = append(hostList, h)
+	}
+	sort.Strings(hostList)
+	detail := fmt.Sprintf("%s installed %s with %s (%d request(s) via %s for %s)",
+		e.Client, packageLabel(e.Good), map[string]string{modeIntercept: "only HTTPS_PROXY and the CA", modeNAT: "only the CA"}[mode],
+		via, mode, strings.Join(hostList, ", "))
+
+	if e.Artifact != "" {
+		entry, err := r.findArtifact()
+		if err != nil {
+			r.fail(check, "%v", err)
+			return
+		}
+		after, err := r.metrics()
+		if err != nil {
+			r.fail(check, "reading metrics: %v", err)
+			return
+		}
+		hits := after.sum("pullthrough_cache_hits_total", nil) - before.sum("pullthrough_cache_hits_total", nil)
+		if prev := r.explicitArtifact; prev != nil {
+			if entry.Key != prev.Key || !entry.ModTime.Equal(prev.ModTime) {
+				r.fail(check, "the artifact did not come from the cache entry the explicit install filled: %s written at %s, was %s written at %s",
+					entry.Key, entry.ModTime.Format(time.RFC3339Nano), prev.Key, prev.ModTime.Format(time.RFC3339Nano))
+				return
+			}
+			if hits < 1 {
+				r.fail(check, "the %s install produced no cache hit (hits +%.0f)", mode, hits)
+				return
+			}
+			detail += fmt.Sprintf("; served from the cache entry the explicit install filled (%s, +%.0f hits)", entry.Key, hits)
+		} else {
+			detail += fmt.Sprintf("; cached as %s", entry.Key)
+		}
+
+		entries, err := r.downloads(url.Values{"ip": {good.addr}})
+		if err != nil {
+			r.fail(check, "reading the download log: %v", err)
+			return
+		}
+		logged := false
+		for _, d := range entries {
+			if d.ClientIP != good.addr || d.Via != mode {
+				r.fail(check, "the download log holds an entry for %s that says it came via %q, want %q: %s %s",
+					good.addr, d.Via, mode, d.Package, d.Path)
+				return
+			}
+			logged = logged || d.Outcome == "served"
+		}
+		if !logged {
+			r.fail(check, "the download log holds no served download for %s (%d entries)", good.addr, len(entries))
+			return
+		}
+		detail += fmt.Sprintf("; download log: %d entr(ies) for %s via %s", len(entries), good.addr, mode)
+	}
+
+	if e.Bad != nil {
+		res, hit, err := r.refuse(mode + "-bad")
+		if err != nil {
+			r.fail(check, "%v", err)
+			r.dumpProxyLog(40)
+			return
+		}
+		detail += fmt.Sprintf("; %s refused (403 %s, commit %s) and %s failed with exit %d",
+			hit.Artifact, hit.Code, shortSHA(hit.Commit), e.Client, res.exitCode)
+	}
+	r.pass(check, "%s", detail)
 }
 
 // downloadEntry is one entry of the proxy's download log, as the admin API
@@ -1218,6 +1524,9 @@ type downloadEntry struct {
 	Tenant     string `json:"tenant"`
 	AuthMethod string `json:"authMethod"`
 	Link       string `json:"link"`
+	// Via is how the request reached the proxy when the client was not
+	// pointed at it (Task 172): "intercept" or "nat".
+	Via string `json:"via"`
 }
 
 // downloads queries the proxy's download log through the admin API — the
@@ -1431,19 +1740,35 @@ var clientVersionRE = regexp.MustCompile(`(?m)^ECOTEST_CLIENT_VERSION=(.*)$`)
 
 // clientEnv is the environment contract handed to a client script.
 func (r *run) clientEnv(pkg Package) []string {
-	// With a personal cache link, the user's personal address of the proxy
-	// stands wherever the plain one would: that is the whole of what a user
-	// changes in their client configuration.
-	env := []string{
-		"PROXY_URL=" + r.publicURL + r.personal,
-		"PROXY_HOST=" + r.proxyHost + r.personal,
-		"MOUNT=" + r.publicURL + r.personal + "/v1/" + r.e.Upstream.Name,
-		"PKG_NAME=" + pkg.Name,
-		"PKG_VERSION=" + pkg.Version,
+	var env []string
+	switch r.mode {
+	case modeExplicit:
+		// With a personal cache link, the user's personal address of the proxy
+		// stands wherever the plain one would: that is the whole of what a user
+		// changes in their client configuration.
+		env = []string{
+			"PROXY_URL=" + r.publicURL + r.personal,
+			"PROXY_HOST=" + r.proxyHost + r.personal,
+			"MOUNT=" + r.publicURL + r.personal + "/v1/" + r.e.Upstream.Name,
+		}
+		if r.caCert != "" {
+			env = append(env, "PT_CA_CERT=/work/ca.crt")
+		}
+	default:
+		// A transparent script is told nothing about the proxy's address: it
+		// has none to use. It gets the interception CA, and — in interception
+		// mode — the proxy environment every proxy-aware tool reads, as an
+		// operator would set it machine-wide.
+		env = []string{"PT_CA_CERT=/work/ca.crt", "PT_MODE=" + r.mode}
+		if r.mode == modeIntercept {
+			proxyURL := "http://" + r.interceptListen
+			env = append(env,
+				"PT_INTERCEPT_PROXY="+proxyURL,
+				"HTTPS_PROXY="+proxyURL, "https_proxy="+proxyURL,
+				"HTTP_PROXY="+proxyURL, "http_proxy="+proxyURL)
+		}
 	}
-	if r.caCert != "" {
-		env = append(env, "PT_CA_CERT=/work/ca.crt")
-	}
+	env = append(env, "PKG_NAME="+pkg.Name, "PKG_VERSION="+pkg.Version)
 	keys := make([]string, 0, len(pkg.Env))
 	for k := range pkg.Env {
 		keys = append(keys, k)
@@ -1469,14 +1794,21 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 		return nil, err
 	}
 	script, err := r.e.Script()
+	caCert := r.caCert
+	if r.mode != modeExplicit {
+		// Not pointed at the proxy: the transparent script, and the CA the
+		// proxy mints the registry's certificates with.
+		script, err = r.e.TransparentScript()
+		caCert = r.interceptCA
+	}
 	if err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(scratch, "client.sh"), script, 0o755); err != nil {
 		return nil, err
 	}
-	if r.caCert != "" {
-		pemBytes, err := os.ReadFile(r.caCert)
+	if caCert != "" {
+		pemBytes, err := os.ReadFile(caCert)
 		if err != nil {
 			return nil, err
 		}
@@ -1511,7 +1843,7 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 	_ = os.WriteFile(logPath, out, 0o644)
 
 	res := &clientResult{output: string(out), logPath: logPath, addr: bridge.addr}
-	if r.s.openNetwork && r.e.runner() != RunnerDind {
+	if r.s.openNetwork && r.e.runner() != RunnerDind && r.mode == modeExplicit {
 		// On the host network the client talks to the proxy directly.
 		res.addr = "127.0.0.1"
 	}
@@ -1545,10 +1877,11 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 func (r *run) runInContainer(ctx context.Context, name, scratch string, env []string, bridge *stepBridge) ([]byte, error) {
 	args := []string{"run", "--rm", "--name", name, "-v", scratch + ":/work", "-w", "/work"}
 	script := "/work/client.sh"
-	if r.s.openNetwork {
+	if r.s.openNetwork && r.mode == modeExplicit {
 		args = append(args, "--network", "host")
 	} else {
 		args = append(args, "--network", "none", "-v", r.toolDir+":"+containerToolDir+":ro")
+		args = append(args, r.natArgs()...)
 		env = append(env, r.forwarderEnv(bridge)...)
 		script = containerToolDir + "/run.sh"
 	}
@@ -1572,6 +1905,22 @@ func (r *run) runInContainer(ctx context.Context, name, scratch string, env []st
 	return out, err
 }
 
+// natArgs are the container options of a NAT-mode step: the hostnames the
+// proxy intercepts resolve to natContainerIP — the network's half of NAT mode,
+// done by DNS here — where the forwarder listens on ports 443 and 80, which any
+// container user may bind. Nothing else resolves: the container has no
+// network and no DNS.
+func (r *run) natArgs() []string {
+	if r.mode != modeNAT {
+		return nil
+	}
+	args := []string{"--sysctl", "net.ipv4.ip_unprivileged_port_start=0"}
+	for _, h := range r.natHosts {
+		args = append(args, "--add-host", h+":"+natContainerIP)
+	}
+	return args
+}
+
 // runInDind starts a private Docker daemon whose registry mirror is the proxy,
 // runs the client script inside it, and removes it again. A fresh daemon per
 // step is what makes each step start from an empty image store. Like every other
@@ -1582,10 +1931,22 @@ func (r *run) runInDind(ctx context.Context, name, scratch string, env []string,
 	r.containers = append(r.containers, name)
 	args := []string{"run", "-d", "--privileged", "--name", name, "--network", "none",
 		"-v", scratch + ":/work", "-v", r.toolDir + ":" + containerToolDir + ":ro",
-		"-e", "DOCKER_TLS_CERTDIR=",
-		// The mirror is the proxy's host root. It is a loopback address, which the
-		// Docker Engine accepts over plain HTTP without an insecure-registries entry.
-		r.e.Image, "--registry-mirror=" + r.publicURL}
+		"-e", "DOCKER_TLS_CERTDIR="}
+	args = append(args, r.natArgs()...)
+	switch r.mode {
+	case modeExplicit:
+		// The mirror is the proxy's host root. It is a loopback address, which
+		// the Docker Engine accepts over plain HTTP without an
+		// insecure-registries entry.
+		args = append(args, r.e.Image, "--registry-mirror="+r.publicURL)
+	case modeIntercept:
+		// The daemon is the client: it reads the proxy environment at start —
+		// what a systemd drop-in with Environment=HTTPS_PROXY=… sets.
+		proxyURL := "http://" + r.interceptListen
+		args = append(args, "-e", "HTTPS_PROXY="+proxyURL, "-e", "HTTP_PROXY="+proxyURL, r.e.Image)
+	default:
+		args = append(args, r.e.Image)
+	}
 	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
 		return out, fmt.Errorf("starting the docker-in-docker daemon: %w", err)
 	}
@@ -2154,12 +2515,26 @@ func copyFile(src, dst string, mode os.FileMode) error {
 
 // freePort returns a currently free TCP port on host.
 func freePort(host string) (int, error) {
-	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	ports, err := freePorts(host, 1)
 	if err != nil {
-		return 0, fmt.Errorf("finding a free port on %s: %w", host, err)
+		return 0, err
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port, nil
+	return ports[0], nil
+}
+
+// freePorts returns n distinct free ports on host. Every port is held until all
+// are chosen, so none of them is handed out twice.
+func freePorts(host string, n int) ([]int, error) {
+	ports := make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+		if err != nil {
+			return nil, fmt.Errorf("finding a free port on %s: %w", host, err)
+		}
+		defer ln.Close()
+		ports = append(ports, ln.Addr().(*net.TCPAddr).Port)
+	}
+	return ports, nil
 }
 
 // tail returns the last n lines of s.

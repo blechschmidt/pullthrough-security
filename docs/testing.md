@@ -77,6 +77,18 @@ tooling and run in CI's `integration` job:
 go test -tags integration ./internal/e2e/...
 ```
 
+The same package holds the **interception suite** (`internal/e2e/intercept_test.go`,
+Task 172): for every ecosystem fixture it puts the
+[TLS-interception](intercept-mode.md) listeners — the forward proxy and the NAT
+TLS and plain-HTTP listeners — in front of that gateway and pulls the fixture's
+resources the way a client that is *not* pointed at the proxy does: from the
+upstream's own host, through a `CONNECT`, and through a connection the network
+sent to the NAT listener. Each pull must be routed by host, the artifact fetched
+from the upstream once and served from the cache to every later intercepted
+client, a host without a rule refused, and a known-malicious coordinate blocked
+before anything is fetched. The same modes with every ecosystem's real client
+run in the [ecosystem tests](ecosystem-tests.md).
+
 The same job runs the **download-log suite** (`internal/e2e/downloadlog`, Task
 176), which tests "which package was downloaded from which address" with the
 Rust and Go ecosystems against the real `pullthrough` binary: the real `cargo`

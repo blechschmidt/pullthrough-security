@@ -18,12 +18,10 @@ import (
 // interceptor into its /v1 pipeline.
 type fakeInterceptor struct {
 	started    chan struct{}
-	gotAddr    string
 	dispatched *http.Response
 }
 
-func (f *fakeInterceptor) Run(ctx context.Context, listenAddr string, serve http.Handler) error {
-	f.gotAddr = listenAddr
+func (f *fakeInterceptor) Run(ctx context.Context, serve http.Handler) error {
 	// Simulate an intercepted, rewritten request flowing into the gateway.
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/unknown-backend/foo", nil)
@@ -43,7 +41,6 @@ func TestGatewayStartsInterceptor(t *testing.T) {
 		Interceptor: fi,
 	}, Options{
 		HTTPAddr:        "127.0.0.1:0",
-		InterceptAddr:   ":31280",
 		ShutdownTimeout: time.Second,
 	})
 	if err != nil {
@@ -61,9 +58,6 @@ func TestGatewayStartsInterceptor(t *testing.T) {
 		t.Fatal("interceptor Run was not started")
 	}
 
-	if fi.gotAddr != ":31280" {
-		t.Errorf("interceptor got addr %q, want :31280", fi.gotAddr)
-	}
 	// The dispatched request went through the real /v1 router: an unknown backend
 	// yields 404 from handleBackend, proving the gateway handler (not a stub) ran.
 	if fi.dispatched.StatusCode != http.StatusNotFound {

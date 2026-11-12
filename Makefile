@@ -120,7 +120,7 @@ ECOSYSTEMS ?=
 
 .PHONY: test-ecosystems
 test-ecosystems: ## Run each ecosystem's real package manager through the proxy (needs Docker); ECOSYSTEMS="npm pip" selects
-	CGO_ENABLED=0 ECOTEST_ECOSYSTEMS="$(ECOSYSTEMS)" $(GO) test -tags ecosystem -count=1 -v -timeout 180m \
+	CGO_ENABLED=0 ECOTEST_ECOSYSTEMS="$(ECOSYSTEMS)" $(GO) test -tags ecosystem -count=1 -v -timeout 360m \
 		-run '^TestEcosystems$$' ./internal/ecotest/
 
 .PHONY: test-ecosystems-list

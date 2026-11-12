@@ -42,10 +42,24 @@ const (
 	// carry the user and the link. Not asserted where the client has no way to
 	// carry a link (Ecosystem.NoPersonalLink says why).
 	CheckPersonalLink = "personal-link"
+	// CheckIntercept: TLS interception through the forward proxy (Task 172).
+	// The client is not pointed at the proxy at all — it keeps its built-in
+	// registry — and is given only the proxy environment (HTTPS_PROXY) and the
+	// interception CA; the forward proxy is the only thing it can reach. The
+	// good package installs, every request reaches the proxy through the
+	// interception listener for the registry's own host, the artifact is served
+	// from the same cache entry an explicit install uses, and the bad package
+	// is refused. Not asserted where Ecosystem.NoIntercept says why.
+	CheckIntercept = "intercept"
+	// CheckNAT: NAT mode (Task 172). As CheckIntercept, but the client is given
+	// nothing except the CA: the network answers the registry's hostnames with
+	// the proxy's NAT listeners, and nothing else — not even the proxy's own
+	// address — is reachable. Not asserted where Ecosystem.NoNAT says why.
+	CheckNAT = "nat"
 )
 
 // checkOrder is the canonical column order.
-var checkOrder = []string{CheckInstall, CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock, CheckDownloadLog, CheckPersonalLink}
+var checkOrder = []string{CheckInstall, CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock, CheckDownloadLog, CheckPersonalLink, CheckIntercept, CheckNAT}
 
 // checkTitles are the matrix column headings.
 var checkTitles = map[string]string{
@@ -56,6 +70,8 @@ var checkTitles = map[string]string{
 	CheckBlock:        "Bad package blocked",
 	CheckDownloadLog:  "Downloads logged by client address",
 	CheckPersonalLink: "Personal link names the user",
+	CheckIntercept:    "TLS interception (HTTPS_PROXY)",
+	CheckNAT:          "NAT (no client config)",
 }
 
 // Check statuses.
@@ -128,6 +144,10 @@ func (e Ecosystem) applies(check string) bool {
 		return e.DownloadLog && e.Bad != nil
 	case CheckPersonalLink:
 		return e.NoPersonalLink == ""
+	case CheckIntercept:
+		return e.NoIntercept == ""
+	case CheckNAT:
+		return e.NoNAT == ""
 	default:
 		return true
 	}

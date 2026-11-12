@@ -30,6 +30,8 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `server.tlsKeyFile` | string | — |
 | `server.intercept.enabled` | bool | false |
 | `server.intercept.listenAddr` | string | — |
+| `server.intercept.nat.httpsAddr` | string | — |
+| `server.intercept.nat.httpAddr` | string | — |
 | `server.intercept.caCertFile` | string | — |
 | `server.intercept.caKeyFile` | string | — |
 | `server.intercept.generateCa` | bool | false |

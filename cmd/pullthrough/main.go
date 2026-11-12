@@ -933,9 +933,14 @@ func run() error {
 		webhookHandler = commitWatch.WebhookHandler(ctx)
 	}
 
-	interceptor, err := buildInterceptor(cfg, logger)
+	interceptMetrics := &intercept.Metrics{}
+	interceptor, err := buildInterceptor(cfg, logger, interceptMetrics)
 	if err != nil {
 		return err
+	}
+	gatewayInterceptor, interceptInspector := interceptorDeps(interceptor)
+	if obs.adminServer != nil && interceptInspector != nil {
+		obs.adminServer.SetIntercept(interceptInspector)
 	}
 
 	gateway, err := proxy.New(proxy.Dependencies{
@@ -944,7 +949,7 @@ func run() error {
 		Backends:        registry,
 		Scanner:         scanner,
 		SSHServer:       sshServer,
-		Interceptor:     interceptor,
+		Interceptor:     gatewayInterceptor,
 		Enforcer:        enforcer,
 		RateLimit:       rateLimiter,
 		Coalescer:       coalescer,
@@ -1009,7 +1014,6 @@ func run() error {
 		AdminPrefix:      obs.adminPrefix,
 		PortalUIPrefix:   obs.portalUIPrefix,
 		PortalAPIPrefix:  obs.portalAPIPath,
-		InterceptAddr:    cfg.Server.Intercept.ListenAddr,
 		WebhookPath:      watchWebhookPath(cfg),
 		FIPSEnabled:      fipsMode.Enabled,
 		RegistryRoot:     buildRegistryRoot(cfg, logger),
@@ -1025,6 +1029,7 @@ func run() error {
 	// serve counters (Task 75) are bound here, once both exist.
 	bindServeMetrics(obs.collector, gateway)
 	bindPersonalLinkEdgeMetrics(obs.collector, gateway, userLinksSvc)
+	bindInterceptMetrics(obs.collector, gateway, interceptor, interceptMetrics)
 
 	// Git LFS objects are served by the Git backend itself, not through the
 	// gateway's cached-artifact path, so the LLM package-content scan (Task 174)
@@ -4063,77 +4068,6 @@ type gitRuntime struct {
 func (g *gitRuntime) resolve(name string) (*git.Upstream, bool) {
 	up, ok := g.upstreams[name]
 	return up, ok
-}
-
-// buildInterceptor constructs the TLS-interception forward proxy (Task 100) from
-// config, or returns a true nil when interception is disabled (so the gateway's
-// nil check correctly detects the absent dependency). It loads or generates the
-// signing CA and builds the host->backend routing table: the primary host of
-// every enabled upstream URL is mapped automatically, then any explicit
-// server.intercept.hosts entries are applied on top (overriding).
-func buildInterceptor(cfg *config.Config, logger *slog.Logger) (proxy.Interceptor, error) {
-	ic := cfg.Server.Intercept
-	if !ic.Enabled {
-		return nil, nil
-	}
-
-	ca, err := intercept.LoadOrGenerateCA(intercept.CAOptions{
-		CertFile:     ic.CACertFile,
-		KeyFile:      ic.CAKeyFile,
-		Generate:     ic.GenerateCA,
-		Organization: ic.CAOrganization,
-		CommonName:   ic.CACommonName,
-		LeafTTL:      ic.LeafTTL,
-		CacheSize:    ic.CertCacheSize,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("building intercept CA: %w", err)
-	}
-
-	hosts := make(map[string]string)
-	// Auto-map the primary registry/index host of every enabled upstream. Only
-	// the primary host is derived automatically: a backend serves its upstream's
-	// native path layout, and its index-rewriting keeps dependent artifact fetches
-	// on that same host. Operators map extra hosts (e.g. a separate artifact CDN)
-	// explicitly via server.intercept.hosts.
-	for name, up := range cfg.Upstreams {
-		if !up.IsEnabled() {
-			continue
-		}
-		if host := intercept.HostOf(up.URL); host != "" {
-			if _, taken := hosts[host]; !taken {
-				hosts[host] = name
-			}
-		}
-	}
-	// Explicit host mappings override the auto-derived ones.
-	for host, backend := range ic.Hosts {
-		hosts[host] = backend
-	}
-
-	router := intercept.NewRouter(hosts)
-	if router.Len() == 0 {
-		logger.Warn("tls-interception enabled but no upstream hosts to route; configure upstreams or server.intercept.hosts")
-	}
-
-	p, err := intercept.New(intercept.Options{
-		Router:               router,
-		CA:                   ca,
-		Logger:               logger,
-		PassthroughUnmatched: ic.PassthroughUnmatched,
-		AllowPlainHTTP:       ic.AllowPlainHTTP,
-		ReadTimeout:          cfg.Server.ReadTimeout,
-		WriteTimeout:         cfg.Server.WriteTimeout,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("building intercept proxy: %w", err)
-	}
-	logger.Info("tls-interception forward proxy configured",
-		"listenAddr", ic.ListenAddr,
-		"routedHosts", router.Hosts(),
-		"passthroughUnmatched", ic.PassthroughUnmatched,
-		"caSubject", ca.Subject())
-	return p, nil
 }
 
 // buildBackends registers a backend per enabled upstream. Package ecosystems and

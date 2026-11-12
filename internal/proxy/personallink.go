@@ -13,6 +13,7 @@ import (
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
 	"github.com/blechschmidt/pullthrough-security/internal/backends"
+	"github.com/blechschmidt/pullthrough-security/internal/intercept"
 	"github.com/blechschmidt/pullthrough-security/internal/userlinks"
 )
 
@@ -46,6 +47,11 @@ type personalRequest struct {
 	prefix string
 	// host is the Host the request was addressed to.
 	host string
+	// intercept is set for a request that came through TLS interception or NAT
+	// (Task 172) rather than a personal link: its links are moved onto the
+	// upstream host the client is talking to, not given a personal prefix (see
+	// interceptedge.go).
+	intercept *intercept.Info
 
 	// backend and class are filled in by handleBackend as the request is routed
 	// and resolved. They are written by the goroutine serving the request,
@@ -313,7 +319,7 @@ type personalWriter struct {
 	status      int
 	wroteHeader bool // the handler has set the final status
 	sent        bool // the status line has been forwarded
-	rewriter    *linkRewriter
+	rewriter    linkStream
 }
 
 // Unwrap lets http.ResponseController reach the underlying writer.
@@ -367,12 +373,22 @@ func (w *personalWriter) Flush() {
 // is none yet (a flush before any byte, a response without a body).
 func (w *personalWriter) send(first []byte) {
 	w.sent = true
-	w.g.personal.requests.Add(1)
 	h := w.Header()
-	mount := "/v1/" + w.pr.backend
-	var rw *linkRewriter
-	if w.pr.backend != "" && w.g.opts.LinkBackends[w.pr.backend] {
-		rw = newLinkRewriter(mount, w.pr.prefix, w.g.opts.PublicURL, w.pr.host)
+	var rw linkStream
+	if w.pr.intercept != nil {
+		w.g.interceptLinks.requests.Add(1)
+		if w.pr.backend != "" && w.g.opts.LinkBackends[w.pr.backend] {
+			rw = newInterceptRewriter(w.pr.backend, w.g.opts.PublicURL, w.pr.host, *w.pr.intercept)
+		}
+	} else {
+		w.g.personal.requests.Add(1)
+		if w.pr.backend != "" && w.g.opts.LinkBackends[w.pr.backend] {
+			rw = newLinkRewriter("/v1/"+w.pr.backend, w.pr.prefix, w.g.opts.PublicURL, w.pr.host)
+		}
+		makePrivate(h)
+		h.Set("Referrer-Policy", "no-referrer")
+	}
+	if rw != nil {
 		for _, name := range linkHeaders {
 			if v := h.Get(name); v != "" {
 				if out := rw.rewriteAll(v); out != v {
@@ -381,8 +397,6 @@ func (w *personalWriter) send(first []byte) {
 			}
 		}
 	}
-	makePrivate(h)
-	h.Set("Referrer-Policy", "no-referrer")
 
 	if rw != nil && w.rewritable(h, first) {
 		// The rewritten body is longer than the original by an amount not known
@@ -391,9 +405,13 @@ func (w *personalWriter) send(first []byte) {
 		h.Del("Accept-Ranges")
 		if !w.head {
 			rw.reset()
-			rw.markup = isMarkup(h.Get("Content-Type"))
+			rw.setMarkup(isMarkup(h.Get("Content-Type")))
 			w.rewriter = rw
-			w.g.personal.rewritten.Add(1)
+			if w.pr.intercept != nil {
+				w.g.interceptLinks.rewritten.Add(1)
+			} else {
+				w.g.personal.rewritten.Add(1)
+			}
 		}
 	}
 	w.ResponseWriter.WriteHeader(w.status)
@@ -458,7 +476,11 @@ func (w *personalWriter) finish() {
 		if out := w.rewriter.feed(nil, true); len(out) > 0 {
 			_, _ = w.ResponseWriter.Write(out)
 		}
-		w.g.personal.links.Add(w.rewriter.count)
+		if w.pr.intercept != nil {
+			w.g.interceptLinks.links.Add(w.rewriter.links())
+		} else {
+			w.g.personal.links.Add(w.rewriter.links())
+		}
 	}
 }
 
@@ -562,6 +584,10 @@ func looksLikeText(sample []byte) bool {
 type linkRewriter struct {
 	mount  []byte // "/v1/npm"
 	prefix []byte // "/u/<token>"
+	// replace, when set, is written in place of a match instead of
+	// prefix+mount: the whole matched text is replaced (see
+	// newInterceptRewriter).
+	replace []byte
 	// markup allows the value openers of HTML and XML besides the JSON one: an
 	// attribute value in single quotes. It is set for a body of such a media
 	// type; in JSON a single quote is an ordinary character of a string.
@@ -620,6 +646,24 @@ func newLinkRewriter(mount, prefix, publicURL, host string) *linkRewriter {
 	return rw
 }
 
+// linkStream is a streaming link rewriter: a linkRewriter, or a chain of them.
+type linkStream interface {
+	// feed consumes the next chunk and returns the output that is ready; final
+	// marks the end of the stream.
+	feed(chunk []byte, final bool) []byte
+	// rewriteAll rewrites a complete text, such as a header value.
+	rewriteAll(s string) string
+	// reset forgets a stream.
+	reset()
+	// setMarkup says whether the text is HTML/XML (see linkRewriter.markup).
+	setMarkup(markup bool)
+	// links is the number of links rewritten.
+	links() uint64
+}
+
+func (rw *linkRewriter) setMarkup(markup bool) { rw.markup = markup }
+func (rw *linkRewriter) links() uint64         { return rw.count }
+
 // valueStartLook is how far before a link valueStarts looks back.
 const valueStartLook = 64
 
@@ -664,8 +708,12 @@ func (rw *linkRewriter) feed(chunk []byte, final bool) []byte {
 		}
 		if (end == len(buf) || mountEnds(buf[end])) && rw.linkStartsAt(buf, i) {
 			out = append(out, buf[done:i]...)
-			out = append(out, rw.prefix...)
-			out = append(out, rw.mount...)
+			if rw.replace != nil {
+				out = append(out, rw.replace...)
+			} else {
+				out = append(out, rw.prefix...)
+				out = append(out, rw.mount...)
+			}
 			done = end
 			rw.count++
 			continue

@@ -35,3 +35,21 @@ each package manager at the proxy.
 - Exit `0` when the package was installed, non-zero otherwise.
 - Print `ECOTEST_CLIENT_VERSION=<version>` once, so the report names the exact
   client that was exercised.
+
+## Interception scripts (`transparent/`)
+
+`transparent/<id>.sh` installs the same package with the client **not pointed at
+the proxy**: it keeps its own registry and only trusts the proxy's interception
+CA. The harness runs it in TLS-interception mode and in NAT mode
+([docs/intercept-mode.md](../../../docs/intercept-mode.md)).
+
+| Variable | Example | Meaning |
+|---|---|---|
+| `PT_CA_CERT` | `/work/ca.crt` | The CA the proxy mints the registry's certificates with. Always set. |
+| `PT_MODE` | `intercept` | `intercept` or `nat`, for diagnostics. A script must not need it. |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `https_proxy`, `http_proxy` | `http://127.0.0.1:41235` | The forward proxy. Set in interception mode only, as an operator sets it machine-wide. |
+| `PT_INTERCEPT_PROXY` | `http://127.0.0.1:41235` | The same, for a client that needs it spelled out in its own configuration (Maven). Empty in NAT mode. |
+| `PKG_NAME`, `PKG_VERSION`, `PKG_*` | | As above. |
+
+`PROXY_URL`, `PROXY_HOST` and `MOUNT` are **not** set: a transparent script has
+no proxy address to use.

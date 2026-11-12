@@ -596,7 +596,50 @@ func TestEntryLinkIsStoredAndExported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if last := len(csvHeader) - 1; csvHeader[last] != "link" || rows[1][last] != got.Link {
-		t.Fatalf("the export's last column is %q = %q, want link = %q", csvHeader[last], rows[1][last], got.Link)
+	col := -1
+	for i, name := range csvHeader {
+		if name == "link" {
+			col = i
+		}
+	}
+	if col < 0 || rows[1][col] != got.Link {
+		t.Fatalf("the export's link column (%d) does not hold the link %q: %q", col, got.Link, rows[1])
+	}
+}
+
+func TestEntryViaIsStoredFilteredAndExported(t *testing.T) {
+	log, clk := newLog(t, Config{})
+	for i, via := range []string{"", ViaIntercept, ViaNAT, "something-else"} {
+		e := entry(fmt.Sprintf("10.0.0.%d", i+1), "npm", "left-pad", "1.3.0")
+		e.Via = via
+		log.Record(e)
+	}
+	count := func(values url.Values) int {
+		t.Helper()
+		q, err := QueryFromValues(values, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(mustQuery(t, log, q).Entries)
+	}
+	// An unknown spelling is stored as no via at all: it counts as direct.
+	for via, want := range map[string]int{"": 4, "intercept": 1, "NAT": 1, "direct": 2} {
+		if got := count(url.Values{"via": {via}, "since": {clk.Now().Add(-time.Hour).Format(time.RFC3339)}}); got != want {
+			t.Errorf("via=%q selects %d entries, want %d", via, got, want)
+		}
+	}
+	if _, err := QueryFromValues(url.Values{"via": {"tunnel"}}, time.Now()); err == nil {
+		t.Error("an unknown via filter was accepted")
+	}
+
+	q, _ := QueryFromValues(url.Values{"via": {"nat"}}, time.Now())
+	res := mustQuery(t, log, q)
+	var buf bytes.Buffer
+	if err := WriteCSV(&buf, res.Entries); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := csv.NewReader(&buf).ReadAll()
+	if last := len(csvHeader) - 1; csvHeader[last] != "via" || rows[1][last] != ViaNAT {
+		t.Fatalf("the export's last column is %q = %q, want via = nat", csvHeader[last], rows[1][last])
 	}
 }

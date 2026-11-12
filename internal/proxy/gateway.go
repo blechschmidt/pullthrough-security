@@ -41,6 +41,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
 	"github.com/blechschmidt/pullthrough-security/internal/installhooks"
+	"github.com/blechschmidt/pullthrough-security/internal/intercept"
 	"github.com/blechschmidt/pullthrough-security/internal/license"
 	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockdown"
@@ -481,13 +482,14 @@ type SSHServer interface {
 	Run(ctx context.Context) error
 }
 
-// Interceptor is the TLS-interception forward-proxy listener (Task 100). Run
-// binds listenAddr, dispatches decrypted/host-routed requests into serve (the
-// gateway handler), and blocks until ctx is canceled, then returns. serve
-// receives requests whose path has been rewritten into the "/v1/<backend>/..."
-// route space.
+// Interceptor is the TLS-interception listener set (Tasks 100 and 172): the
+// forward proxy and the NAT listeners. Run binds them, dispatches decrypted,
+// host-routed requests into serve (the gateway handler), and blocks until ctx
+// is canceled, then returns. serve receives requests whose path has been
+// rewritten into the "/v1/<backend>/..." route space, carrying an
+// intercept.Info in their context.
 type Interceptor interface {
-	Run(ctx context.Context, listenAddr string, serve http.Handler) error
+	Run(ctx context.Context, serve http.Handler) error
 }
 
 // Options configures Gateway behavior derived from config.
@@ -528,9 +530,6 @@ type Options struct {
 	// supplied.
 	PortalUIPrefix  string
 	PortalAPIPrefix string
-	// InterceptAddr is the listen address for the TLS-interception forward proxy
-	// (Task 100). It is honored only when Dependencies.Interceptor is set.
-	InterceptAddr string
 	// WebhookPath is the path the continuous commit scanner's push-webhook
 	// receiver is mounted at (e.g. "/webhooks/git"). Empty disables the endpoint
 	// even if a handler is supplied.
@@ -574,6 +573,9 @@ type Gateway struct {
 	// personal counts what the personal-link edge did (Task 177), surfaced via
 	// PersonalLinkMetrics.
 	personal personalStats
+	// interceptLinks counts what the interception edge did to the links in
+	// intercepted responses (Task 172), surfaced via InterceptLinkMetrics.
+	interceptLinks personalStats
 }
 
 // New validates dependencies and constructs a Gateway.
@@ -637,7 +639,9 @@ func (g *Gateway) routes() http.Handler {
 	mux.HandleFunc("/healthz", g.handleHealth)
 	mux.HandleFunc("/readyz", g.handleReady)
 	backend := g.withClientSource(g.withTracing(g.withAccessControl(g.withRateLimit(http.HandlerFunc(g.handleBackend)))))
-	mux.Handle("/v1/", backend)
+	// A request the interception listeners dispatched (Task 172) has the links
+	// in its response moved onto the upstream host the client is talking to.
+	mux.Handle("/v1/", g.withInterceptEdge(backend))
 
 	// Host-root Docker/OCI Registry v2 alias. Container clients always insert
 	// "/v2/" directly after the registry host, so they cannot reach the
@@ -742,7 +746,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 		handler := g.routes()
 		go func() {
 			defer close(interceptDone)
-			if err := g.deps.Interceptor.Run(ctx, g.opts.InterceptAddr, handler); err != nil {
+			if err := g.deps.Interceptor.Run(ctx, handler); err != nil {
 				g.deps.Logger.Error("tls-intercept forward proxy stopped with error", "error", err)
 				interceptErr = err
 				cancel()
@@ -1888,13 +1892,20 @@ func (g *Gateway) withRequestLogging(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		g.deps.Logger.Debug("request",
+		attrs := []any{
 			"method", r.Method,
 			// A personal link's token is part of the path and is a credential:
 			// it is not written into the log.
 			"path", redactPersonalPath(r.URL.Path, g.deps.UserLinks.PathPrefix()),
 			"status", sw.status,
-			"duration", time.Since(start))
+			"duration", time.Since(start),
+		}
+		// A request the interception listeners dispatched says so, and names
+		// the upstream host the client addressed.
+		if info, ok := intercept.InfoFrom(r.Context()); ok {
+			attrs = append(attrs, "via", string(info.Mode), "host", info.Host)
+		}
+		g.deps.Logger.Debug("request", attrs...)
 	})
 }
 

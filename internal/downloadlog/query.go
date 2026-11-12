@@ -52,6 +52,9 @@ type Query struct {
 	Tenant string
 	// Link selects by the personal cache link a request came through, exactly.
 	Link string
+	// Via selects by how the request reached the proxy: "intercept", "nat", or
+	// "direct" for a request sent to the proxy's own address.
+	Via string
 	// Search is a free-text filter: an entry matches when any of its textual
 	// fields contains it, ignoring case.
 	Search string
@@ -110,6 +113,14 @@ func QueryFromValues(v url.Values, now time.Time) (Query, error) {
 		Tenant:    strings.TrimSpace(v.Get("tenant")),
 		Link:      strings.TrimSpace(v.Get("link")),
 		Search:    strings.TrimSpace(v.Get("q")),
+	}
+	if raw := strings.ToLower(strings.TrimSpace(v.Get("via"))); raw != "" {
+		switch raw {
+		case ViaIntercept, ViaNAT, ViaDirect:
+			q.Via = raw
+		default:
+			return Query{}, fmt.Errorf("unknown via %q (want %s, %s or %s)", raw, ViaIntercept, ViaNAT, ViaDirect)
+		}
 	}
 	if q.ClientIP != "" {
 		if _, err := parseIPFilter(q.ClientIP); err != nil {
@@ -351,6 +362,9 @@ func (m *matcher) match(e *Entry) bool {
 	if q.Link != "" && e.Link != q.Link {
 		return false
 	}
+	if q.Via != "" && !matchVia(e.Via, q.Via) {
+		return false
+	}
 	if m.search != "" && !m.searchMatch(e) {
 		return false
 	}
@@ -511,4 +525,16 @@ func (s *Selection) Each(fn func(e *Entry) bool) {
 			return
 		}
 	}
+}
+
+// ViaDirect is the Query.Via value that selects the requests sent to the
+// proxy's own address (Entry.Via empty).
+const ViaDirect = "direct"
+
+// matchVia reports whether an entry's Via satisfies a Via filter.
+func matchVia(entry, filter string) bool {
+	if filter == ViaDirect {
+		return entry == ""
+	}
+	return entry == filter
 }

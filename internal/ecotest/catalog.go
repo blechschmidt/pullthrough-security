@@ -135,8 +135,30 @@ type Ecosystem struct {
 	// "<proxy>/v1/<upstream>" — and the proxy must record the install under
 	// that user.
 	NoPersonalLink string
+	// NoIntercept and NoNAT, when set, say why the TLS-interception and the NAT
+	// leg (Task 172) are not run for the ecosystem. Everywhere else the good and
+	// the bad package are installed once more with the client not pointed at
+	// the proxy at all: through the forward proxy (HTTPS_PROXY), and with the
+	// registry's hostnames sent to the NAT listeners. Those runs use the
+	// ecosystem's transparent script, clients/transparent/<ID>.sh.
+	NoIntercept string
+	NoNAT       string
+	// InterceptHosts are server.intercept.hosts entries the run needs: hosts
+	// the stock client fetches from that the proxy does not derive from the
+	// upstream URL by itself.
+	InterceptHosts map[string]string
 	// Notes documents anything a reader needs to know about the choices above.
 	Notes string
+}
+
+// transparent reports whether either interception leg runs.
+func (e Ecosystem) transparent() bool { return e.NoIntercept == "" || e.NoNAT == "" }
+
+// TransparentScript returns the embedded client script the interception and
+// NAT legs run: the ecosystem's client, not pointed at the proxy, trusting the
+// interception CA.
+func (e Ecosystem) TransparentScript() ([]byte, error) {
+	return clientScripts.ReadFile("clients/transparent/" + e.ID + ".sh")
 }
 
 // timeout returns the per-run timeout.
@@ -282,19 +304,41 @@ func Validate() error {
 		if _, err := e.Script(); err != nil {
 			add("%s: no client script clients/%s.sh (%v)", e.ID, e.ID, err)
 		}
+		_, terr := e.TransparentScript()
+		switch {
+		case e.transparent() && terr != nil:
+			add("%s: no transparent client script clients/transparent/%s.sh (%v); set NoIntercept and NoNAT to say why there is none", e.ID, e.ID, terr)
+		case !e.transparent() && terr == nil:
+			add("%s: clients/transparent/%s.sh exists but neither interception leg runs", e.ID, e.ID)
+		}
+		for rule, upstream := range e.InterceptHosts {
+			if rule == "" || upstream == "" {
+				add("%s: InterceptHosts has an empty rule or upstream", e.ID)
+				continue
+			}
+			found := false
+			for _, u := range e.upstreams() {
+				found = found || u.Name == upstream
+			}
+			if !found {
+				add("%s: InterceptHosts[%q] names %q, which is not one of the run's upstreams", e.ID, rule, upstream)
+			}
+		}
 	}
 
-	entries, err := clientScripts.ReadDir("clients")
-	if err != nil {
-		add("reading embedded client scripts: %v", err)
-	}
-	for _, ent := range entries {
-		name := ent.Name()
-		if !strings.HasSuffix(name, ".sh") {
-			continue
+	for _, dir := range []string{"clients", "clients/transparent"} {
+		entries, err := clientScripts.ReadDir(dir)
+		if err != nil {
+			add("reading embedded client scripts in %s: %v", dir, err)
 		}
-		if id := strings.TrimSuffix(name, ".sh"); !seen[id] {
-			add("client script clients/%s has no catalog entry", name)
+		for _, ent := range entries {
+			name := ent.Name()
+			if !strings.HasSuffix(name, ".sh") {
+				continue
+			}
+			if id := strings.TrimSuffix(name, ".sh"); !seen[id] {
+				add("client script %s/%s has no catalog entry", dir, name)
+			}
 		}
 	}
 

@@ -297,9 +297,10 @@ func TestDownloadsByUser(t *testing.T) {
 		!strings.Contains(out, "Users: 1   Downloads without an identity: 1") {
 		t.Fatalf("who pulled left-pad: %v\n%s", err, out)
 	}
-	// The export carries the link.
+	// The export carries the link (followed by the via column, empty for a
+	// request sent to the proxy's own address).
 	out, err = runCaptured(t, append([]string{"downloads", "--format", "csv", "--user", "bob@example.com"}, base...)...)
-	if err != nil || !strings.Contains(out, ",link\n") || !strings.Contains(out, ","+ids["bob-laptop"]+"\n") {
+	if err != nil || !strings.Contains(out, ",link,via\n") || !strings.Contains(out, ","+ids["bob-laptop"]+",\n") {
 		t.Fatalf("the CSV export: %v\n%s", err, out)
 	}
 }

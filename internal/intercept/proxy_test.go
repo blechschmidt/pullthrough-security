@@ -61,11 +61,12 @@ func clientThrough(t *testing.T, proxyAddr string, ca *CA) *http.Client {
 }
 
 func TestProxyInterceptsAndRewrites(t *testing.T) {
-	var gotPath, gotHost, gotInterceptHeader atomic.Value
+	var gotPath, gotHost, gotInfo atomic.Value
 	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath.Store(r.URL.Path)
 		gotHost.Store(r.Host)
-		gotInterceptHeader.Store(r.Header.Get("X-Pullthrough-Intercepted-Host"))
+		info, _ := InfoFrom(r.Context())
+		gotInfo.Store(info)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"ok":true}`)
 	})
@@ -93,8 +94,9 @@ func TestProxyInterceptsAndRewrites(t *testing.T) {
 	if got := gotHost.Load(); got != "registry.npmjs.org" {
 		t.Fatalf("host = %q, want registry.npmjs.org", got)
 	}
-	if got := gotInterceptHeader.Load(); got != "registry.npmjs.org" {
-		t.Fatalf("intercept header = %q", got)
+	want := Info{Mode: ModeForward, Host: "registry.npmjs.org", Origin: "https://registry.npmjs.org", Backend: "npm"}
+	if got := gotInfo.Load(); got != want {
+		t.Fatalf("dispatched request info = %+v, want %+v", got, want)
 	}
 }
 

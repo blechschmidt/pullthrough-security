@@ -10,6 +10,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/clientip"
 	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
+	"github.com/blechschmidt/pullthrough-security/internal/intercept"
 	"github.com/blechschmidt/pullthrough-security/internal/tracing"
 )
 
@@ -245,6 +246,11 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 	}
 	if rec.source.Forwarded {
 		entry.ForwardedBy = rec.source.Peer
+	}
+	// A request the interception listeners dispatched (Task 172) says how it
+	// got here: the client addressed the upstream host, not the proxy.
+	if info, ok := intercept.InfoFrom(r.Context()); ok {
+		entry.Via = string(info.Mode)
 	}
 	if blocked {
 		entry.Gate = rec.gate

@@ -295,6 +295,21 @@ A user who already has a link generates their client configuration with
 ptctl config --personal-link https://proxy.example.com/u/ptl1… npm=npm pypi=pip
 ```
 
+### `ptctl intercept` — TLS interception and NAT mode
+
+The operator's view of [TLS interception and NAT mode](intercept-mode.md):
+clients that keep their registries' addresses and either use the proxy as
+`HTTPS_PROXY` or are sent to it by the network.
+
+```bash
+ptctl intercept status                                 # listeners, routing table, counters
+ptctl intercept ca --out pullthrough-intercept-ca.crt  # the CA intercepted clients must trust
+ptctl intercept hosts                                  # hostnames to send to the NAT listeners
+ptctl intercept hosts --address 10.0.0.5 >> /etc/hosts # …as hosts-file lines
+```
+
+All three need the admin `read` capability. `status` takes `--format table|json`.
+
 ### `ptctl completion` — shell completion
 
 Emits a static completion script for `bash`, `zsh`, or `fish`:

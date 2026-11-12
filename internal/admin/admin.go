@@ -635,6 +635,7 @@ type Options struct {
 	Dossier                     DossierInspector
 	Metering                    MeteringInspector
 	DownloadLog                 DownloadLogInspector
+	Intercept                   InterceptInspector
 	UserLinks                   UserLinksManager
 	Config                      ConfigInspector
 	Presets                     PresetController
@@ -851,6 +852,10 @@ func (s *Server) routes() *http.ServeMux {
 	// Download log (Task 176): which package was downloaded from which address.
 	mux.HandleFunc("GET "+s.prefix+"/api/downloads", s.handleDownloads)
 	mux.HandleFunc("GET "+s.prefix+"/api/downloads/summary", s.handleDownloadsSummary)
+	// TLS interception and NAT mode (Task 172): the listeners, the routing
+	// table, the hostnames to send to the proxy, and the CA to trust.
+	mux.HandleFunc("GET "+s.prefix+"/api/intercept", s.handleIntercept)
+	mux.HandleFunc("GET "+s.prefix+"/api/intercept/ca.crt", s.handleInterceptCA)
 	// Personal cache links (Task 177): who holds which link, and the means to
 	// end one.
 	mux.HandleFunc("GET "+s.prefix+"/api/userlinks", s.handleUserLinks)

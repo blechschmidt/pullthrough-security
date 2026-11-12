@@ -459,7 +459,11 @@ jobs:
   #   4. for cargo and go: the proxy's download log attributes the installed
   #      package to the address of each client run that installed it, and the
   #      refused one — as blocked — to the run that tried (Task 176). Every
-  #      client run reaches the proxy from an address of its own.
+  #      client run reaches the proxy from an address of its own;
+  #   5. the same install and refusal with the client NOT pointed at the proxy
+  #      (Task 172): through TLS interception (only HTTPS_PROXY and the proxy's
+  #      CA), and in NAT mode (only the CA; the registry's hostnames resolve to
+  #      the proxy's NAT listeners and nothing else is reachable).
   #
   # The LLM is a mock speaking the provider's wire format; everything else is
   # real. Client containers run with no network at all (the proxy is reachable
@@ -519,7 +523,8 @@ jobs:
     name: Ecosystem · ${{ matrix.ecosystem }}
     needs: ecosystem-build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Three legs per ecosystem: explicit, TLS interception and NAT (Task 172).
+    timeout-minutes: 80
     strategy:
       fail-fast: false
       matrix:
@@ -539,7 +544,7 @@ jobs:
         run: |
           chmod +x ecotest-bin/pullthrough ecotest-bin/ecotest.test
           export ECOTEST_BIN="$PWD/ecotest-bin/pullthrough"
-          ecotest-bin/ecotest.test -test.run '^TestEcosystems$' -test.v -test.timeout 40m
+          ecotest-bin/ecotest.test -test.run '^TestEcosystems$' -test.v -test.timeout 75m
 
       - name: Publish result
         if: always()

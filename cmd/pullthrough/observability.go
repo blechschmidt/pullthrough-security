@@ -123,6 +123,7 @@ type observability struct {
 	metricsPath    string
 	adminHandler   http.Handler
 	adminPrefix    string
+	adminServer    *admin.Server // nil when the admin surface is disabled
 	portalHandler  http.Handler
 	portalUIPrefix string
 	portalAPIPath  string
@@ -538,6 +539,7 @@ func buildObservability(
 		} else {
 			obs.adminHandler = srv.Handler()
 			obs.adminPrefix = srv.Prefix()
+			obs.adminServer = srv
 			logger.Info("admin api/dashboard enabled",
 				"prefix", obs.adminPrefix,
 				"sso", adminAuthSvc != nil,

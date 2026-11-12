@@ -33,7 +33,25 @@ type RunConfig struct {
 	// bad package are pinned to.
 	BenignCommit    string
 	MaliciousCommit string
+	// Intercept, when set, enables TLS interception (Task 172): the forward
+	// proxy and the NAT listeners.
+	Intercept *InterceptListeners
 }
+
+// InterceptListeners are the interception listeners of a run.
+type InterceptListeners struct {
+	// ForwardAddr is the forward proxy's listen address (HTTPS_PROXY).
+	ForwardAddr string
+	// NATHTTPSAddr and NATHTTPAddr receive the connections the network sends
+	// to the proxy for the upstream hosts (ports 443 and 80).
+	NATHTTPSAddr string
+	NATHTTPAddr  string
+	// CADir holds the interception CA the proxy generates on first start.
+	CADir string
+}
+
+// InterceptCACertPath is where the proxy of a run writes its interception CA.
+func InterceptCACertPath(caDir string) string { return filepath.Join(caDir, "intercept-ca.crt") }
 
 // AuditLogPath is where the proxy of a run writes its audit log.
 func AuditLogPath(stateDir string) string { return filepath.Join(stateDir, "audit", "audit.log") }
@@ -81,6 +99,31 @@ func RenderConfig(rc RunConfig) ([]byte, error) {
 	}
 	if e.RegistryDefault != "" {
 		server["registry"] = map[string]any{"defaultUpstream": e.RegistryDefault}
+	}
+	if ic := rc.Intercept; ic != nil {
+		// TLS interception (Task 172), both ways in: the forward proxy for
+		// clients given HTTPS_PROXY, the NAT listeners for clients given
+		// nothing. The routing table is derived from the upstreams; the CA is
+		// generated on first start.
+		intercept := map[string]any{
+			"enabled":    true,
+			"listenAddr": ic.ForwardAddr,
+			"nat":        map[string]any{"httpsAddr": ic.NATHTTPSAddr, "httpAddr": ic.NATHTTPAddr},
+			"caCertFile": InterceptCACertPath(ic.CADir),
+			"caKeyFile":  filepath.Join(ic.CADir, "intercept-ca.key"),
+			"generateCa": true,
+			// APT and DNF repositories are commonly configured with http://
+			// URLs, which a forward proxy receives as absolute-form requests.
+			"allowPlainHttp": true,
+		}
+		if len(e.InterceptHosts) > 0 {
+			hosts := map[string]any{}
+			for rule, upstream := range e.InterceptHosts {
+				hosts[rule] = upstream
+			}
+			intercept["hosts"] = hosts
+		}
+		server["intercept"] = intercept
 	}
 
 	upstreams := map[string]any{}

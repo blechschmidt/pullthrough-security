@@ -12,7 +12,7 @@ pull-through proxy focused on software supply-chain security.
 | See what the proxy serves, rewrites, verifies and caches for each upstream type | [backends.md](backends.md) |
 | Run the client guide's configurations yourself: real clients, a private CA, access control, and a record of every host a client tries to reach | [client-lab.md](client-lab.md) |
 | Onboard an ecosystem with no dedicated backend (declarative YAML, no code) | [generic-backend.md](generic-backend.md) |
-| Choose explicit sources vs. transparent TLS interception (MITM forward proxy) | [intercept-mode.md](intercept-mode.md) |
+| Choose explicit sources, TLS interception (forward proxy) or NAT mode (no client configuration) | [intercept-mode.md](intercept-mode.md) |
 | Serve big artifacts with Range/resumable downloads & bounded memory | [range-streaming.md](range-streaming.md) |
 | Onboard fast with the client CLI (generate config, self-test, inspect) | [client-cli.md](client-cli.md) |
 | Configure the proxy (every field) | [configuration.md](configuration.md) |

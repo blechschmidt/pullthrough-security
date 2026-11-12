@@ -20,6 +20,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/clientip"
 	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
+	"github.com/blechschmidt/pullthrough-security/internal/intercept"
 	"github.com/blechschmidt/pullthrough-security/internal/nameguard"
 	"github.com/blechschmidt/pullthrough-security/internal/notify"
 	"github.com/blechschmidt/pullthrough-security/internal/policy"
@@ -765,15 +766,37 @@ func (u UpstreamConfig) IsRegistryUpstream() bool {
 	}
 }
 
-// InterceptConfig configures the TLS-interception forward-proxy mode (Task 100).
-// It is additive and independent of the explicit /v1 access mode, which is
-// always available; enabling it starts a second listener.
+// InterceptConfig configures TLS interception (Tasks 100 and 172): serving
+// clients that address the upstream registries themselves — pypi.org,
+// registry.npmjs.org — instead of the proxy. It is additive and independent of
+// the explicit /v1 access mode, which is always available. Two ways of getting
+// such a client's connections to the proxy are supported, each with listeners
+// of its own; either or both may be configured:
+//
+//   - forward proxy (listenAddr): the client is configured to use the proxy as
+//     its HTTP(S) proxy (HTTPS_PROXY/HTTP_PROXY) and sends a CONNECT for the
+//     upstream host;
+//   - NAT (nat.httpsAddr, nat.httpAddr): the client is not configured at all;
+//     the network sends its connections to the upstream hosts to the proxy — a
+//     NAT redirect on a gateway, or DNS answering the upstream hosts with the
+//     proxy's address — and the proxy routes each by the host the client asked
+//     for (TLS server name, HTTP Host header).
+//
+// Either way the proxy terminates TLS with a certificate for the upstream host
+// minted by its own CA (which clients must trust), maps the host and path to a
+// configured upstream, and runs the request through the same caching and
+// admission pipeline as an explicit request.
 type InterceptConfig struct {
-	// Enabled turns on the interception forward-proxy listener.
+	// Enabled turns interception on.
 	Enabled bool `yaml:"enabled"`
-	// ListenAddr is the listen address for the forward proxy, e.g. ":3128".
-	// Required when Enabled. Clients set HTTP_PROXY/HTTPS_PROXY to this address.
+	// ListenAddr is the listen address of the forward proxy, e.g. ":3128":
+	// clients set HTTPS_PROXY/HTTP_PROXY to it. Empty runs no forward proxy (NAT
+	// mode only); at least one of listenAddr, nat.httpsAddr and nat.httpAddr
+	// must be set when interception is enabled.
 	ListenAddr string `yaml:"listenAddr"`
+	// NAT configures NAT mode: listeners for connections the network redirects
+	// to the proxy, so clients need no proxy configuration at all.
+	NAT InterceptNATConfig `yaml:"nat"`
 	// CACertFile and CAKeyFile are the PEM paths of the signing CA used to mint
 	// per-host leaf certificates for intercepted TLS connections. Clients must
 	// trust CACertFile. Required when Enabled.
@@ -791,20 +814,50 @@ type InterceptConfig struct {
 	LeafTTL time.Duration `yaml:"leafTtl"`
 	// CertCacheSize bounds the in-memory minted-leaf cache (default 1024).
 	CertCacheSize int `yaml:"certCacheSize"`
-	// Hosts maps additional upstream hostnames to a configured backend name, for
-	// interception. The primary host of every enabled upstream's URL is mapped
-	// automatically (plus well-known artifact hosts for pip/cargo derived from
-	// their settings); use this for extra hosts an ecosystem fetches from (e.g.
-	// a CDN) or to override. Keys may be exact hosts or "*.suffix" wildcards; the
-	// value is the upstream name (the key in the `upstreams` map).
+	// Hosts maps additional upstream hosts to a configured upstream (the key in
+	// the `upstreams` map), for interception. Every enabled upstream's URL is
+	// mapped automatically — its host and, when it has one, its path
+	// ("deb.debian.org/debian") — together with the hosts a stock client of the
+	// ecosystem uses for the same public registry (repo.maven.apache.org for
+	// Maven Central, index.rubygems.org for rubygems.org, …). Use this for
+	// anything else a client fetches from directly, or to override. A key is a
+	// host, a "*.suffix" wildcard, or either followed by a path prefix
+	// ("deb.debian.org/debian-security"), which is taken off before the
+	// upstream sees the path.
 	Hosts map[string]string `yaml:"hosts"`
-	// PassthroughUnmatched, when true, blindly tunnels CONNECT requests to hosts
-	// that are not configured for interception. When false (the default, secure),
-	// such requests are refused so the proxy carries only configured traffic.
+	// PassthroughUnmatched, when true, passes connections to hosts that are not
+	// configured for interception on undecrypted: a CONNECT is tunnelled to its
+	// target, and a NAT connection to its original destination (which only a
+	// NAT redirect records — on Linux, from connection tracking; without one the
+	// connection is refused). When false (the default, secure), such connections
+	// are refused so the proxy carries only configured traffic.
 	PassthroughUnmatched bool `yaml:"passthroughUnmatched"`
-	// AllowPlainHTTP, when true, also intercepts absolute-form plain-HTTP proxy
-	// requests to configured hosts. HTTPS CONNECT interception is always enabled.
+	// AllowPlainHTTP, when true, also intercepts absolute-form plain-HTTP
+	// requests to configured hosts on the forward proxy (APT and YUM
+	// repositories are commonly configured with http:// URLs). HTTPS CONNECT
+	// interception is always enabled, and the NAT HTTP listener serves plain
+	// HTTP whenever it is configured.
 	AllowPlainHTTP bool `yaml:"allowPlainHttp"`
+}
+
+// InterceptNATConfig configures NAT mode (Task 172): the listeners that receive
+// the connections the network redirects to the proxy.
+type InterceptNATConfig struct {
+	// HTTPSAddr receives redirected TLS connections — what clients send to port
+	// 443 of an upstream host — e.g. ":443" on the address DNS answers the
+	// upstream hosts with, or ":8443" behind a rule redirecting port 443 there.
+	// Each connection is routed by the server name (SNI) its TLS handshake asks
+	// for. Empty runs no NAT TLS listener.
+	HTTPSAddr string `yaml:"httpsAddr"`
+	// HTTPAddr receives redirected plain-HTTP connections (port 80), routed by
+	// their Host header. Empty runs no NAT HTTP listener.
+	HTTPAddr string `yaml:"httpAddr"`
+}
+
+// Listening reports whether the configuration runs any interception listener.
+func (c InterceptConfig) Listening() bool {
+	return strings.TrimSpace(c.ListenAddr) != "" || strings.TrimSpace(c.NAT.HTTPSAddr) != "" ||
+		strings.TrimSpace(c.NAT.HTTPAddr) != ""
 }
 
 // LoggingConfig configures structured logging.
@@ -6394,18 +6447,34 @@ func (c *Config) validateRegistry() error {
 	return nil
 }
 
-// validateIntercept checks the TLS-interception forward-proxy configuration
-// (Task 100). It is a no-op when interception is disabled.
+// validateIntercept checks the TLS-interception configuration (Tasks 100 and
+// 172). It is a no-op when interception is disabled.
 func (c *Config) validateIntercept() error {
 	ic := c.Server.Intercept
 	if !ic.Enabled {
 		return nil
 	}
-	if strings.TrimSpace(ic.ListenAddr) == "" {
-		return fmt.Errorf("config: server.intercept.listenAddr is required when interception is enabled")
+	if !ic.Listening() {
+		return fmt.Errorf("config: server.intercept needs a listener when interception is enabled: " +
+			"listenAddr (forward proxy), nat.httpsAddr and/or nat.httpAddr (NAT mode)")
 	}
-	if ic.ListenAddr == c.Server.HTTPAddr {
-		return fmt.Errorf("config: server.intercept.listenAddr must differ from server.httpAddr")
+	// Every listener needs an address of its own.
+	addrs := []struct{ name, addr string }{
+		{"server.httpAddr", c.Server.HTTPAddr},
+		{"server.sshAddr", c.Server.SSHAddr},
+		{"server.intercept.listenAddr", ic.ListenAddr},
+		{"server.intercept.nat.httpsAddr", ic.NAT.HTTPSAddr},
+		{"server.intercept.nat.httpAddr", ic.NAT.HTTPAddr},
+	}
+	for i, a := range addrs {
+		if strings.TrimSpace(a.addr) == "" {
+			continue
+		}
+		for _, b := range addrs[i+1:] {
+			if strings.TrimSpace(b.addr) != "" && sameListenAddr(a.addr, b.addr) {
+				return fmt.Errorf("config: %s must differ from %s (both are %q)", b.name, a.name, b.addr)
+			}
+		}
 	}
 	if strings.TrimSpace(ic.CACertFile) == "" || strings.TrimSpace(ic.CAKeyFile) == "" {
 		return fmt.Errorf("config: server.intercept requires both caCertFile and caKeyFile")
@@ -6420,6 +6489,9 @@ func (c *Config) validateIntercept() error {
 		if strings.TrimSpace(host) == "" {
 			return fmt.Errorf("config: server.intercept.hosts has an empty host key")
 		}
+		if _, _, ok := intercept.ParseRule(host); !ok {
+			return fmt.Errorf("config: server.intercept.hosts[%q] does not name a host", host)
+		}
 		if strings.TrimSpace(backend) == "" {
 			return fmt.Errorf("config: server.intercept.hosts[%q] has an empty backend", host)
 		}
@@ -6428,6 +6500,21 @@ func (c *Config) validateIntercept() error {
 		}
 	}
 	return nil
+}
+
+// sameListenAddr reports whether two listen addresses would bind the same port:
+// the same port, and the same host or an unspecified one on either side.
+func sameListenAddr(a, b string) bool {
+	if strings.TrimSpace(a) == strings.TrimSpace(b) {
+		return true
+	}
+	ha, pa, errA := net.SplitHostPort(strings.TrimSpace(a))
+	hb, pb, errB := net.SplitHostPort(strings.TrimSpace(b))
+	if errA != nil || errB != nil || pa != pb {
+		return false
+	}
+	unspecified := func(h string) bool { return h == "" || h == "0.0.0.0" || h == "::" }
+	return ha == hb || unspecified(ha) || unspecified(hb)
 }
 
 // validateEgress checks the SSRF / outbound-egress guard configuration (Task 89):

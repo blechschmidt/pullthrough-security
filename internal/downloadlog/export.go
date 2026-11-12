@@ -12,7 +12,7 @@ var csvHeader = []string{
 	"time", "client_ip", "forwarded_by", "ecosystem", "upstream", "package", "version",
 	"artifact", "kind", "outcome", "status", "gate", "code", "reason", "cache",
 	"bytes", "size", "duration_ms", "subject", "tenant", "auth_method", "user_agent",
-	"method", "path", "digest", "trace_id", "id", "link",
+	"method", "path", "digest", "trace_id", "id", "link", "via",
 }
 
 // CSVWriter writes entries as CSV, one row at a time, so an export can be
@@ -69,6 +69,7 @@ func (c *CSVWriter) Write(e *Entry) error {
 		csvCell(e.TraceID),
 		strconv.FormatUint(e.ID, 10),
 		csvCell(e.Link),
+		csvCell(e.Via),
 	)
 	return c.cw.Write(c.record)
 }

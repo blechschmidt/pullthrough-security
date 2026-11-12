@@ -174,6 +174,10 @@ var catalog = []Ecosystem{
 		Client:   "apt-get",
 		Image:    "debian:bookworm-slim",
 		Upstream: Upstream{Name: "apt", Type: "apt", URL: "https://deb.debian.org/debian"},
+		// The image's own sources include the security archive. With an upstream
+		// for it, the interception and NAT legs run APT with those sources
+		// exactly as the image ships them.
+		Extra: []Upstream{{Name: "apt-security", Type: "apt", URL: "https://deb.debian.org/debian-security"}},
 		// APT picks the version the suite currently ships, so pin by name only.
 		Good:     Package{Name: "hello"},
 		Bad:      &Package{Name: "tree"},
@@ -210,7 +214,10 @@ var catalog = []Ecosystem{
 		Client:   "mix",
 		Image:    "elixir:1.16-slim",
 		Upstream: Upstream{Name: "hex", Type: "hex", URL: "https://repo.hex.pm"},
-		Good:     Package{Name: "jason", Version: "1.4.1", CoordinateVersion: "1.4.1"},
+		// `mix local.hex` gets Hex itself from builds.hex.pm. repo.hex.pm serves
+		// the same installs/ tree, so the hex upstream serves that host too.
+		InterceptHosts: map[string]string{"builds.hex.pm": "hex"},
+		Good:           Package{Name: "jason", Version: "1.4.1", CoordinateVersion: "1.4.1"},
 		// Not decimal: it is an optional dependency of jason.
 		Bad:      &Package{Name: "telemetry", Version: "1.2.1", CoordinateVersion: "1.2.1"},
 		Artifact: `^hex:tarballs/jason-1\.4\.1\.tar$`,
