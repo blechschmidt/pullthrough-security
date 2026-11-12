@@ -265,6 +265,10 @@ Collecting six==1.16.0
 - **Uploading does not go through the proxy** (`twine upload`, `uv publish`,
   `poetry publish`): it is read-only.
 - pipenv and conda's bundled pip were not tested; both take the same index URL.
+- **With a [personal cache link](../user-links.md)** the index belongs in your
+  user-level `pip.conf`; pip records nothing. `uv.lock` and `poetry.lock` record
+  the index URL (see above), and with it the link — which works like a password:
+  do not lock a project whose lock file is committed through a personal link.
 
 ## On the proxy
 

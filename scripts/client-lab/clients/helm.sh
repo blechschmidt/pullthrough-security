@@ -20,16 +20,12 @@ test -s podinfo-6.7.1.tgz
 
 # OCI: oci://<proxy>/<upstream>/<repository>.
 mkdir oci
-if [ -z "${PROXY_TOKEN:-}" ]; then
-    helm pull oci://proxy.example.com/helm-oci/stefanprodan/charts/podinfo --version 6.7.1 \
-        --ca-file /etc/ssl/corp-ca.pem --destination oci
-    test -s oci/podinfo-6.7.1.tgz
-else
-    # A LIMITATION, asserted: like the Docker Engine, Helm's registry client
-    # cannot answer the proxy's Bearer challenge.
-    if echo "${PROXY_TOKEN}" | helm registry login proxy.example.com --username pullthrough \
-        --password-stdin --ca-file /etc/ssl/corp-ca.pem >login.log 2>&1; then
-        echo "helm registry login succeeded: update docs/clients/helm.md"; cat login.log; exit 1
-    fi
-    cat login.log
+if [ -n "${PROXY_TOKEN:-}" ]; then
+    # Helm's registry client answers the proxy's challenge (HTTP Basic, for a
+    # container registry) with what `helm registry login` stored.
+    echo "${PROXY_TOKEN}" | helm registry login proxy.example.com --username pullthrough --password-stdin \
+        --ca-file /etc/ssl/corp-ca.pem
 fi
+helm pull oci://proxy.example.com/helm-oci/stefanprodan/charts/podinfo --version 6.7.1 \
+    --ca-file /etc/ssl/corp-ca.pem --destination oci
+test -s oci/podinfo-6.7.1.tgz

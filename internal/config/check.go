@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -165,6 +167,7 @@ func (c *Config) checkConsistency(r *Report) {
 
 	c.checkLLMPackageScan(r)
 	c.checkTrustedProxies(r)
+	c.checkUserLinks(r)
 
 	// Tracing enabled without an exporter endpoint is the documented inert state,
 	// but worth flagging so an operator who meant to export spans notices.
@@ -219,6 +222,52 @@ func (c *Config) checkConsistency(r *Report) {
 			r.warnf("observability.profiling", "profiling is enabled on an unauthenticated admin surface; set adminAuth or observability.adminToken so the pprof/trace endpoints are not world-readable")
 		}
 	}
+}
+
+// checkUserLinks reports the personal-links configurations (Task 177) that load
+// but do not do what an operator who wrote them would expect.
+func (c *Config) checkUserLinks(r *Report) {
+	u := c.UserLinks
+	if !u.Enabled {
+		return
+	}
+	// Nobody can sign in, so nobody gets a link unless an administrator issues it.
+	if !u.OIDC.Enabled {
+		r.warnf("userLinks.oidc.enabled", "personal links are enabled without an identity provider; users cannot sign in, and links exist only when an administrator issues them (ptctl userlinks issue)")
+	}
+	// With access control on, a user without a role may pull nothing.
+	if c.Auth.Enabled && len(u.DefaultRoles) == 0 && len(u.RoleMap) == 0 {
+		r.warnf("userLinks.defaultRoles", "auth.enabled is on but signed-in users are given no role (userLinks.defaultRoles and userLinks.roleMap are empty); a personal link will authenticate its user and then be refused by RBAC unless the identity provider's groups carry the names of roles in auth.roles")
+	}
+	// A link is a credential in a URL; over plain HTTP it travels in the clear —
+	// unless it does not travel at all: a proxy reached on loopback (a test
+	// set-up, a sidecar) is not on a network.
+	if pub, err := url.Parse(strings.TrimSpace(c.Server.PublicURL)); err == nil && strings.EqualFold(pub.Scheme, "http") && !isLoopbackHost(pub.Hostname()) {
+		r.warnf("server.publicUrl", "personal links are enabled on a plain-HTTP public URL; a link is a credential and would cross the network unencrypted — serve the proxy over HTTPS (and note that the sign-in cookies need userLinks.insecureCookies over HTTP)")
+	}
+	// A registry in memory forgets every link at restart, and is not shared.
+	backend := u.StoreBackend(c.Cache.Backend)
+	if backend == "memory" {
+		r.warnf("userLinks.store.backend", "the personal-link registry is kept in memory: every link stops working when the proxy restarts, and a link created on one replica is unknown to the others")
+	}
+	// Several replicas, each with a directory of its own, each know only the
+	// links they created themselves.
+	if backend == "filesystem" && c.Coordination.Enabled && !strings.EqualFold(strings.TrimSpace(c.Coordination.Mode), "memory") {
+		r.warnf("userLinks.store", "this looks like a multi-replica deployment (coordination is enabled) with the personal-link registry in a directory; every replica must mount the same directory (userLinks.store.dir on a shared volume) or use the s3 store, or a link works only on the replica that created it")
+	}
+	// Links that never expire are bounded by revocation alone.
+	if u.LinkTTL == 0 {
+		r.warnf("userLinks.linkTtl", "personal links do not expire (linkTtl is 0s); a link that leaked keeps working until someone revokes it")
+	}
+}
+
+// isLoopbackHost reports whether a URL's host names this machine itself.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // checkLLMPackageScan reports the LLM package-content scan gate's loadable-but-
@@ -439,6 +488,11 @@ func (c *Config) hasEncryptedSecret() bool {
 		c.Coordination.S3.AccessKeyID,
 		c.Coordination.S3.SecretAccessKey,
 		c.Coordination.S3.SessionToken,
+		c.UserLinks.SessionKey,
+		c.UserLinks.OIDC.ClientSecret,
+		c.UserLinks.Store.S3.AccessKeyID,
+		c.UserLinks.Store.S3.SecretAccessKey,
+		c.UserLinks.Store.S3.SessionToken,
 	}
 	for _, up := range c.Upstreams {
 		candidates = append(candidates, up.Credentials.Username, up.Credentials.Password, up.Credentials.Token)

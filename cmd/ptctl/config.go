@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/userlinks"
 )
 
 // runConfig implements `ptctl config`: it generates package-manager
@@ -34,11 +36,17 @@ func runConfig(args []string) error {
 		outDir  = fs.String("output", "", "write snippets to files in this directory instead of stdout")
 		manager = fs.String("manager", "", "comma-separated backend names or types to include (default: all)")
 		force   = fs.Bool("force", false, "overwrite existing files when writing with -output")
+		link    = fs.String("personal-link", "", "your personal cache link (https://proxy.example.com/u/ptl1…): generate configuration that uses it, so your downloads are recorded under your name")
 	)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: ptctl config [flags] [name=type ...]")
 		fmt.Fprintln(os.Stderr, "Generate package-manager config snippets for the proxy's backends.")
 		fmt.Fprintln(os.Stderr, "With no positional args, backends are auto-discovered from the proxy.")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "With --personal-link the snippets use your personal cache link (Task 177) and")
+		fmt.Fprintln(os.Stderr, "say where it must not end up. The proxy URL is taken from the link; name the")
+		fmt.Fprintln(os.Stderr, "backends as name=type unless you also have access to the admin API:")
+		fmt.Fprintln(os.Stderr, "  ptctl config --personal-link https://proxy.example.com/u/ptl1… npm=npm pypi=pip")
 		fmt.Fprintln(os.Stderr)
 		fmt.Fprintln(os.Stderr, "Sub-actions:")
 		fmt.Fprintln(os.Stderr, "  ptctl config validate [file]  validate a candidate config (or the live config)")
@@ -48,6 +56,23 @@ func runConfig(args []string) error {
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// A personal cache link names the proxy and the user at once. The snippets
+	// are always built from the link's own address: it is the address the link
+	// belongs to, and a --url (or PULLTHROUGH_URL) naming another one — an
+	// internal address, plain HTTP — is used only to ask the admin API which
+	// backends there are.
+	personal, linkBase := "", ""
+	if strings.TrimSpace(*link) != "" {
+		base, prefix, err := splitPersonalLink(*link)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(g.url) == "" {
+			g.url = base
+		}
+		personal, linkBase = prefix, base
 	}
 
 	c, err := newClient(g)
@@ -64,15 +89,25 @@ func runConfig(args []string) error {
 		return fmt.Errorf("no backends matched -manager %q (available: %s)", *manager, "run 'ptctl selftest' to list them")
 	}
 
+	proxyBase := c.baseURL
+	if linkBase != "" {
+		proxyBase = linkBase
+	}
 	host := ""
-	if u, perr := url.Parse(c.baseURL); perr == nil {
+	if u, perr := url.Parse(proxyBase); perr == nil {
 		host = u.Host
 	}
 	ctx := snippetContext{
-		proxyBase: c.baseURL,
+		proxyBase: proxyBase,
 		host:      host,
 		tenant:    c.tenant,
 		token:     c.token,
+		personal:  personal,
+	}
+	if personal != "" {
+		// The link is the credential; a token given besides it (or exported in
+		// the environment for the admin API) does not belong in the snippets.
+		ctx.token = ""
 	}
 
 	var all []snippet
@@ -85,6 +120,41 @@ func runConfig(args []string) error {
 	}
 	printSnippets(os.Stdout, ctx, backends, all)
 	return nil
+}
+
+// splitPersonalLink takes a personal cache link apart: the proxy's base URL,
+// and the personal path prefix that follows it ("/u/<token>"). The link is
+// "<proxy base>/<prefix>/<token>"; anything after the token — a user who pasted
+// the address of one package source — is dropped.
+func splitPersonalLink(raw string) (base, prefix string, err error) {
+	raw = strings.TrimSpace(raw)
+	u, perr := url.Parse(raw)
+	if perr != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", "", fmt.Errorf("--personal-link %q is not a URL: it looks like https://proxy.example.com/u/ptl1…", raw)
+	}
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, seg := range segs {
+		if userlinks.WellFormed(seg) {
+			if i == 0 {
+				break
+			}
+			base = u.Scheme + "://" + u.Host
+			if i > 1 {
+				base += "/" + strings.Join(segs[:i-1], "/")
+			}
+			return base, "/" + segs[i-1] + "/" + seg, nil
+		}
+	}
+	return "", "", fmt.Errorf("--personal-link %q contains no personal link: it looks like https://proxy.example.com/u/ptl1… (was it cut short?)", redactLinkish(raw))
+}
+
+// redactLinkish keeps an error message from repeating what may be most of a
+// credential: everything after the host is dropped.
+func redactLinkish(raw string) string {
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		return u.Scheme + "://" + u.Host + "/…"
+	}
+	return "…"
 }
 
 // filterBackends keeps only backends whose name or type matches one of the
@@ -115,6 +185,10 @@ func filterBackends(in []backend, sel string) []backend {
 func printSnippets(w *os.File, ctx snippetContext, backends []backend, snippets []snippet) {
 	fmt.Fprintf(w, "# Pull-through proxy client configuration\n")
 	fmt.Fprintf(w, "# proxy: %s\n", ctx.proxyBase)
+	if ctx.personal != "" {
+		fmt.Fprintf(w, "# personal cache link: downloads through these addresses are recorded under your name.\n")
+		fmt.Fprintf(w, "# The link works like a password — keep this output out of files you share or commit.\n")
+	}
 	if ctx.tenant != "" {
 		fmt.Fprintf(w, "# tenant: %s\n", ctx.tenant)
 	}

@@ -65,6 +65,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/snapshot"
 	"github.com/blechschmidt/pullthrough-security/internal/tracing"
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
+	"github.com/blechschmidt/pullthrough-security/internal/userlinks"
 	"github.com/blechschmidt/pullthrough-security/internal/vulnscan"
 )
 
@@ -462,6 +463,16 @@ type Dependencies struct {
 	// after the response is written and never affects serving. A nil log is a
 	// valid no-op.
 	DownloadLog *downloadlog.Log
+	// UserLinks, when set, is the personal-links subsystem (Task 177): cache
+	// users sign in through an OIDC identity provider and are handed personal
+	// cache links — the package-source URLs under a path prefix that is theirs
+	// ("/u/<token>/v1/<upstream>/…") — so that a download is attributed to a
+	// person and not only to an address. The gateway serves that prefix (taking
+	// it off the path at the edge and putting it back into the links of the
+	// response), resolves a request's link to the user it stands for — in the
+	// path or presented as a credential — and mounts the self-service page. A
+	// nil service is the feature switched off.
+	UserLinks *userlinks.Service
 }
 
 // SSHServer is an auxiliary listener (Git-over-SSH) run for the lifetime of the
@@ -541,6 +552,15 @@ type Options struct {
 	// download log all use the address it returns. Nil trusts no proxy: the
 	// address is always the TCP peer.
 	ClientIP *clientip.Resolver
+	// PublicURL is the proxy's externally reachable base URL (server.publicUrl),
+	// and LinkBackends names the backends whose protocol adapter writes links to
+	// its own mount into the documents it serves — an npm packument's tarball
+	// URLs, a PyPI page's file links, a Terraform provider's download URL.
+	// Together they are what the personal-link edge needs to recognise such a
+	// link in a response and give it the personal prefix (Task 177). They are
+	// used for nothing else.
+	PublicURL    string
+	LinkBackends map[string]bool
 }
 
 // Gateway is the core proxy. It is constructed via New and started with Run.
@@ -551,6 +571,9 @@ type Gateway struct {
 	// serve holds cumulative counters for the Range/partial-content streaming
 	// serve path (Task 75), surfaced via ServeMetrics.
 	serve *serveStats
+	// personal counts what the personal-link edge did (Task 177), surfaced via
+	// PersonalLinkMetrics.
+	personal personalStats
 }
 
 // New validates dependencies and constructs a Gateway.
@@ -621,8 +644,23 @@ func (g *Gateway) routes() http.Handler {
 	// path-prefixed mount; the alias rewrites each request onto
 	// "/v1/<upstream>/v2/..." and reuses the very same handler chain, so the
 	// access-control envelope and every admission gate apply unchanged.
+	var registry http.Handler
 	if rr := g.opts.RegistryRoot; rr != nil && len(rr.Upstreams) > 0 {
-		mux.Handle(registryRootPrefix, g.handleRegistryRoot(backend))
+		registry = g.handleRegistryRoot(backend)
+		mux.Handle(registryRootPrefix, registry)
+	}
+
+	// Personal cache links (Task 177): the same package sources under a path
+	// prefix that names a user, "/u/<token>/v1/<upstream>/…". The prefix is
+	// taken off here and the request handed to the very handler chains above,
+	// so a personal request passes the same access control and the same gates;
+	// what differs is who it is recorded as. The self-service page where users
+	// sign in and manage their links is mounted next to it; it authenticates its
+	// users itself.
+	if links := g.deps.UserLinks; links.Enabled() {
+		mux.Handle(links.PathPrefix()+"/", g.handlePersonalPath(backend, registry))
+		mux.Handle(links.UIPath(), links.Handler())
+		mux.Handle(links.UIPath()+"/", links.Handler())
 	}
 
 	// Operational telemetry: the Prometheus endpoint and the admin API/dashboard.
@@ -761,6 +799,20 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing backend in path; expected /v1/<backend>/...", http.StatusBadRequest)
 		return
 	}
+	// A request that came in through a personal link (Task 177) has its links
+	// to this backend's mount rewritten on the way out; tell the edge which
+	// mount that is.
+	notePersonalBackend(r.Context(), name)
+
+	// What a backend serves is package content or an index of it — never a
+	// page. In a browser it must not run as one on the proxy's origin, which is
+	// also that of the admin console and of the personal-links page: a file
+	// from a repository, served with its upstream's media type (text/html,
+	// image/svg+xml), could otherwise act there with the user's session — and
+	// create a link and read it. Package managers pay no attention to either
+	// header.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	// Meter the response for per-backend request-count and bytes-served metrics.
 	mw := &meteredWriter{ResponseWriter: w, status: http.StatusOK}
@@ -851,6 +903,7 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 	// From here on the request has a name: note what it resolved to, for the
 	// download log and for the audit record of the pull.
 	pullRecordFrom(r.Context()).describe(name, g.ecosystemFor(name), resolved)
+	notePersonalResolved(r.Context(), resolved)
 
 	// Enrich the request-level span with the resolved package coordinates so a
 	// trace is searchable by what was actually pulled.
@@ -1837,7 +1890,9 @@ func (g *Gateway) withRequestLogging(next http.Handler) http.Handler {
 		next.ServeHTTP(sw, r)
 		g.deps.Logger.Debug("request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			// A personal link's token is part of the path and is a credential:
+			// it is not written into the log.
+			"path", redactPersonalPath(r.URL.Path, g.deps.UserLinks.PathPrefix()),
 			"status", sw.status,
 			"duration", time.Since(start))
 	})

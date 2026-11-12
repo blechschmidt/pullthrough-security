@@ -82,6 +82,12 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 	// to within a second of every download and replaced whenever it is
 	// compacted. As a source it would fail every backup taken while the proxy
 	// serves traffic. docs/download-log.md says how to copy it instead.
+	//
+	// The personal-link registry (userLinks.store, Task 177) is not a source
+	// either, for the same reason: every replica rewrites its usage record a
+	// few seconds after a link is used. It lives in a directory or a bucket
+	// prefix of its own, which docs/user-links.md says to back up with the
+	// files or buckets around it.
 
 	return srcs
 }

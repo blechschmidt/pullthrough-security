@@ -13,6 +13,9 @@ type snippetContext struct {
 	host      string // e.g. proxy.example.com[:port]
 	tenant    string
 	token     string
+	// personal is the path prefix of a personal cache link ("/u/ptl1…"), when
+	// the snippets are for one (Task 177).
+	personal string
 }
 
 // snippetsFor produces the client-config snippets for one backend, delegating to
@@ -23,6 +26,7 @@ func snippetsFor(ctx snippetContext, b backend) []snippet {
 		Host:      ctx.host,
 		Tenant:    ctx.tenant,
 		Token:     ctx.token,
+		Personal:  ctx.personal,
 	}, onboard.Backend{Name: b.Name, Type: b.Type, URL: b.URL})
 }
 

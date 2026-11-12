@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>Personal cache links</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header>
+    <h1>Personal cache links</h1>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="btn ghost" id="sign-out" type="button" hidden>Sign out</button>
+  </header>
+
+  <main id="main">
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <!-- Shown until the page knows who is looking at it. -->
+    <section id="gate" class="panel gate" aria-label="Sign in">
+      <h2 id="gate-title">Loading…</h2>
+      <p id="gate-text" class="muted"></p>
+      <p><a class="btn" id="sign-in" href="login" hidden>Sign in</a></p>
+    </section>
+
+    <div id="app" hidden>
+      <section class="panel" aria-labelledby="intro-title">
+        <h2 id="intro-title">What a personal link is</h2>
+        <p>
+          A personal link is the cache's ordinary package source address with a part in it that is yours
+          alone: <code class="mono" id="example-url"></code>. Everything downloaded through it is recorded
+          under your name, so that when a package turns out to be malicious the people who pulled it can
+          be told — you included.
+        </p>
+        <p class="muted">
+          The link works like a password. Anyone who has it downloads as you. Keep it out of files you
+          share or commit, give each machine its own, and revoke one the moment you think it got out.
+        </p>
+      </section>
+
+      <section class="panel" aria-labelledby="new-title">
+        <h2 id="new-title">Create a link</h2>
+        <form id="new-form" class="row">
+          <div class="field grow">
+            <label for="new-label">Name <span class="muted">(where you will use it: "laptop", "build box")</span></label>
+            <input id="new-label" name="label" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="laptop">
+          </div>
+          <div class="field">
+            <label for="new-ttl">Expires</label>
+            <select id="new-ttl" name="ttl"></select>
+          </div>
+          <div class="field">
+            <button class="btn" id="new-submit" type="submit">Create link</button>
+          </div>
+        </form>
+        <p class="muted" id="new-limit"></p>
+      </section>
+
+      <!-- The one time a link is shown. -->
+      <section id="created" class="panel created" aria-labelledby="created-title" hidden tabindex="-1">
+        <h2 id="created-title">Your new link</h2>
+        <p class="banner warn" role="note">
+          This is the only time the link is shown. The proxy does not keep it and cannot show it again:
+          copy what you need now. If you lose it, revoke it and create another.
+        </p>
+        <div class="field">
+          <label for="created-base">Your personal base address</label>
+          <div class="copy-row">
+            <input id="created-base" class="mono" type="text" readonly>
+            <button class="btn ghost" type="button" data-copy="created-base">Copy</button>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field grow">
+            <label for="created-upstream">Package source</label>
+            <select id="created-upstream"></select>
+          </div>
+          <div class="field" id="created-mode-field" hidden>
+            <label for="created-mode">Present the link as</label>
+            <select id="created-mode">
+              <option value="url" selected>part of the address</option>
+              <option value="token">a password (access token)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="created-url">Address for this source</label>
+          <div class="copy-row">
+            <input id="created-url" class="mono" type="text" readonly>
+            <button class="btn ghost" type="button" data-copy="created-url">Copy</button>
+          </div>
+        </div>
+        <div id="created-snippets"></div>
+        <p><button class="btn ghost" id="created-done" type="button">I have saved it — hide the link</button></p>
+      </section>
+
+      <section class="panel" aria-labelledby="links-title">
+        <h2 id="links-title">Your links <span id="links-count" class="muted"></span></h2>
+        <div class="table-wrap">
+          <table id="links-table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Status</th>
+                <th scope="col">Created</th>
+                <th scope="col">Expires</th>
+                <th scope="col">Last used</th>
+                <th scope="col"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="links-body"></tbody>
+          </table>
+        </div>
+        <p class="muted">
+          "Last used" names the address the most recent download through a link came from. An address
+          you do not recognise means someone else has the link: revoke it.
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

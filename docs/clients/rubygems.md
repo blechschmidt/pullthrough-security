@@ -101,6 +101,10 @@ URL it fetches.
 - **Gems are verified by the proxy** against the SHA-256 the registry's index
   declares, including platform-specific gems.
 - **Publishing does not go through the proxy** (`gem push`): it is read-only.
+- **With a [personal cache link](../user-links.md)** use the mirror
+  (`bundle config set --global mirror.…`), not a `source` in the `Gemfile`:
+  `Gemfile` and `Gemfile.lock` then keep naming rubygems.org, and the link —
+  which works like a password — is not committed.
 
 ## On the proxy
 

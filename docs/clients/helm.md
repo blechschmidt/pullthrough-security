@@ -61,19 +61,16 @@ helm repo add podinfo https://proxy.example.com/v1/podinfo --ca-file /etc/ssl/co
     --username pullthrough --password "<token>"
 ```
 
-**OCI charts cannot be pulled from a proxy that requires a token.** Helm's
-registry client, like the Docker Engine, reads the proxy's `Bearer` challenge
-as the address of a token service; `helm registry login` fails:
+**OCI charts** — log in to the proxy's registry once. The proxy challenges a
+registry client with HTTP Basic, and Helm answers with what
+`helm registry login` stored:
 
-<!-- output: lab:helm -->
+<!-- verified: lab:helm -->
 
+```sh
+echo "<token>" | helm registry login proxy.example.com --username pullthrough --password-stdin \
+    --ca-file /etc/ssl/corp-ca.pem
 ```
-Error: Get "https://proxy.example.com/v2/": Get "pullthrough?account=pullthrough&client_id=docker&offline_token=true": unsupported protocol scheme ""
-```
-
-Where access control is on, the operator has to admit anonymous reads for the
-OCI chart upstream
-([how](../clients.md#clients-that-cannot-present-a-token)).
 
 ## Trust a private CA
 
@@ -108,6 +105,10 @@ helm pull podinfo/podinfo --version 6.7.1
 - **An index the proxy cannot fully rewrite is refused** (`502`) rather than
   passed on, so an upstream cannot steer Helm around the proxy.
 - **Only pulls**: `helm push` needs the registry itself.
+- **With a [personal cache link](../user-links.md)** point a dependency's
+  `repository` at the local name (`@podinfo`), not at the link: a URL written
+  into `Chart.yaml` is copied into `Chart.lock`, link included — and the link
+  works like a password.
 
 ## On the proxy
 

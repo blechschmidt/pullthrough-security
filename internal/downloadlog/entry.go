@@ -190,11 +190,18 @@ type Entry struct {
 	// fetch and every admission gate.
 	DurationMs int64 `json:"durationMs"`
 
-	// Subject, Tenant and AuthMethod identify the authenticated client, when
-	// client authentication is enabled.
+	// Subject, Tenant and AuthMethod identify the client: the user or the
+	// workload behind the request, their team, and how they were identified —
+	// "token", "oidc", "mtls", "ssh-key", or "personal-link" for a request that
+	// came through a user's personal cache link (Task 177). They are empty for a
+	// request nobody was identified for.
 	Subject    string `json:"subject,omitempty"`
 	Tenant     string `json:"tenant,omitempty"`
 	AuthMethod string `json:"authMethod,omitempty"`
+	// Link is the identifier of the personal cache link the request came
+	// through. A user holds one link per machine or purpose; this says which.
+	// It is the link's public identifier, never its token.
+	Link string `json:"link,omitempty"`
 	// UserAgent is the client's User-Agent header: which tool, which version.
 	UserAgent string `json:"userAgent,omitempty"`
 	// TraceID correlates the entry with the request's distributed trace.
@@ -256,6 +263,7 @@ func (e *Entry) sanitize() {
 	e.Subject = clean(e.Subject, maxVersionLen)
 	e.Tenant = clean(e.Tenant, maxVersionLen)
 	e.AuthMethod = clean(e.AuthMethod, 32)
+	e.Link = clean(e.Link, 64)
 	e.UserAgent = clean(e.UserAgent, maxUserAgentLen)
 	e.TraceID = clean(e.TraceID, 64)
 

@@ -185,3 +185,54 @@ func TestCacheNamespacingIsolatesTenants(t *testing.T) {
 		t.Errorf("cache key %q is not namespaced by team", got)
 	}
 }
+
+// A 401 names a way of presenting the token that the client at hand can use: a
+// container client and Git are challenged with Basic, everything else with
+// Bearer as before.
+func TestAuthChallengeSuitsTheClient(t *testing.T) {
+	g := &Gateway{opts: Options{RegistryRoot: &RegistryRoot{Upstreams: []string{"dockerhub", "charts"}}}}
+	for _, tc := range []struct{ backend, ecosystem, want string }{
+		{"npm", "npm", challengeBearer},
+		{"pypi", "pip", challengeBearer},
+		{"dockerhub", "docker", challengeBasic},
+		{"charts", "helm", challengeBasic}, // a Helm upstream in OCI mode speaks the registry API
+		{"git", "git", challengeBasic},
+	} {
+		if got := g.authChallenge(tc.backend, tc.ecosystem); got != tc.want {
+			t.Errorf("challenge for %s (%s) = %q, want %q", tc.backend, tc.ecosystem, got, tc.want)
+		}
+	}
+	// Without the host-root registry alias the ecosystem decides.
+	if got := (&Gateway{}).authChallenge("ghcr", "docker"); got != challengeBasic {
+		t.Errorf("challenge for a registry upstream without the alias = %q, want Basic", got)
+	}
+	if got := (&Gateway{}).authChallenge("charts", "helm"); got != challengeBearer {
+		t.Errorf("challenge for an index-mode Helm upstream = %q, want Bearer", got)
+	}
+}
+
+// The Docker Engine's first request is the version check at "/v2/". The answer
+// to it decides whether `docker login` can work at all: a Bearer challenge whose
+// realm is no URL makes the daemon give up ("unsupported protocol scheme").
+func TestRegistryVersionCheckIsChallengedWithBasic(t *testing.T) {
+	srv := upstreamArtifact(t)
+	defer srv.Close()
+	g, _ := newSecuredGateway(t, srv.URL, Options{RegistryRoot: &RegistryRoot{Upstreams: []string{"npm"}}})
+
+	rr := httptest.NewRecorder()
+	g.routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v2/", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rr.Code)
+	}
+	if got := rr.Header().Get("WWW-Authenticate"); got != `Basic realm="pullthrough"` {
+		t.Fatalf("WWW-Authenticate = %q, want a Basic challenge", got)
+	}
+
+	// Everything else keeps the challenge it had.
+	rr = httptest.NewRecorder()
+	g2, _ := newSecuredGateway(t, srv.URL, Options{})
+	g2.routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/npm/pkg.tgz", nil))
+	if got := rr.Header().Get("WWW-Authenticate"); got != `Bearer realm="pullthrough"` {
+		t.Fatalf("WWW-Authenticate for a package request = %q, want the Bearer challenge", got)
+	}
+}

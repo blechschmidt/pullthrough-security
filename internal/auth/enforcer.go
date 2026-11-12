@@ -128,6 +128,23 @@ func (e *Enforcer) Check(ctx context.Context, r *http.Request, upstream, ecosyst
 		return Result{Allowed: false, Status: status, Reason: reason, Stage: StageAuthn}
 	}
 
+	return e.Admit(p, upstream, ecosystem)
+}
+
+// Admit performs the admission decision for a caller that has already been
+// authenticated by other means — a personal cache link (Task 177), whose token
+// the gateway resolves itself: authorize, then reserve quota, exactly as Check
+// does after it has authenticated a request. The principal is subject to the
+// same RBAC roles and the same team quota as any other.
+//
+// With access control disabled (a nil Enforcer) there is nothing to decide and
+// the principal is admitted as it is: the identity is then for the record, not
+// for a decision.
+func (e *Enforcer) Admit(p *Principal, upstream, ecosystem string) Result {
+	if e == nil {
+		return Result{Principal: p, Allowed: true, Status: http.StatusOK, Stage: StageAllow}
+	}
+
 	if allowed, reason := e.authz.Authorize(p, upstream, ecosystem); !allowed {
 		return Result{Principal: p, Allowed: false, Status: http.StatusForbidden, Reason: reason, Stage: StageAuthz}
 	}

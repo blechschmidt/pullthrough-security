@@ -5,6 +5,7 @@ package ecotest
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -433,6 +434,11 @@ type run struct {
 	listenTo string         // the proxy's loopback host:port
 
 	benign, malicious string // fixture commit hashes
+
+	// personal, when set, is the path prefix of a personal cache link
+	// ("/u/<token>"): client steps are then pointed at the user's personal
+	// address of the proxy instead of the plain one.
+	personal string
 
 	containers []string // containers to force-remove on teardown
 }
@@ -903,6 +909,176 @@ func (r *run) scenario() {
 			r.fail(CheckDownloadLog, "%v", err)
 		}
 	}
+
+	// 7. The same install through a personal cache link is recorded under the
+	//    link's user, and the client never leaves its personal address.
+	if e.applies(CheckPersonalLink) {
+		if err := r.assertPersonalLink(); err != nil {
+			r.fail(CheckPersonalLink, "%v", err)
+		}
+	}
+}
+
+// personalUser is who the personal-link check's link is issued to.
+const personalUser = "dev@ecotest.example"
+
+// assertPersonalLink checks personal cache links (Task 177) with the
+// ecosystem's real client. An operator issues a link for a user through the
+// admin API; a pristine client machine then installs the good package with the
+// user's personal address of the package source — "<proxy>/u/<link>/v1/<name>"
+// — where the plain one stood, and nothing else changed. The assertion is about
+// what a package manager does with the links it is handed:
+//
+//   - the client stayed on its personal address: while it ran, the proxy
+//     answered requests under the personal prefix and not one request for a
+//     package source outside it. An index document, a redirect or a download
+//     URL that named the plain mount would have sent the client there, and the
+//     download that followed would have been nobody's;
+//   - the download log holds entries for the client's address, and every one of
+//     them names the user, the link and how the client was identified.
+func (r *run) assertPersonalLink() error {
+	e := r.e
+	var issued struct {
+		Token   string `json:"token"`
+		BaseURL string `json:"baseUrl"`
+		Link    struct {
+			ID string `json:"id"`
+		} `json:"link"`
+	}
+	err := r.postJSON("/admin/api/userlinks/issue", map[string]any{
+		"subject": personalUser, "name": "Ecosystem Test", "team": "ecotest", "label": e.ID + " client",
+	}, &issued)
+	if err != nil {
+		return fmt.Errorf("issuing a personal link through the admin API: %w", err)
+	}
+	prefix := strings.TrimPrefix(issued.BaseURL, r.publicURL)
+	if issued.Token == "" || issued.Link.ID == "" || prefix == issued.BaseURL || !strings.HasSuffix(prefix, "/"+issued.Token) {
+		return fmt.Errorf("the admin API answered the request for a link with base URL %q and link id %q",
+			strings.ReplaceAll(issued.BaseURL, issued.Token, "<token>"), issued.Link.ID)
+	}
+	redact := func(text string) string { return strings.ReplaceAll(text, issued.Token, "<link>") }
+
+	// What the proxy answers from here on is the personal run's. The steps
+	// before it (a refused install, the download-log clients) may still be
+	// writing their last records: wait until the proxy has answered nothing for
+	// a while, then count from there — by position in the log, not by a time
+	// with slack around it, which would take in the end of the step before.
+	mark := r.waitForQuiet(1500*time.Millisecond, 15*time.Second)
+	started := time.Now()
+	r.personal = prefix
+	step, err := r.clientStep("personal", e.Good, true)
+	r.personal = ""
+	if err != nil {
+		return fmt.Errorf("installing %s through a personal link failed: %s", packageLabel(e.Good), redact(err.Error()))
+	}
+
+	// What the proxy answered while the client ran.
+	var personal, stray int
+	var strays []string
+	for i, rec := range r.requestRecords() {
+		if i < mark {
+			continue
+		}
+		path, _ := rec["path"].(string)
+		status, _ := rec["status"].(float64)
+		switch {
+		case strings.HasPrefix(path, "/u/<link>/") || strings.HasPrefix(path, "/v2/u/<link>/"):
+			if status >= 200 && status < 400 {
+				personal++
+			}
+		case strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/v2/"):
+			stray++
+			if len(strays) < 5 {
+				strays = append(strays, fmt.Sprintf("%s %s → %.0f", rec["method"], path, status))
+			}
+		}
+		if strings.Contains(path, issued.Token) {
+			return fmt.Errorf("the proxy's request log contains the link's token (path %q)", redact(path))
+		}
+	}
+	if personal == 0 {
+		return fmt.Errorf("the proxy answered no request under the personal prefix while %s ran (log: %s)", e.Client, step.logPath)
+	}
+	if stray > 0 {
+		return fmt.Errorf("%s left its personal address: %d request(s) for a package source came in without the personal prefix, "+
+			"so a link the proxy handed it did not lead back to it: %s", e.Client, stray, strings.Join(strays, "; "))
+	}
+
+	// What the download log says about the client's address since then. The
+	// entry is written when the proxy has finished answering; a short wait
+	// bridges that.
+	query := url.Values{"since": {started.UTC().Format(time.RFC3339Nano)}}
+	if !r.s.openNetwork {
+		query.Set("ip", step.addr)
+	}
+	var entries []downloadEntry
+	for wait := 0; wait < 20 && len(entries) == 0; wait++ {
+		if wait > 0 {
+			time.Sleep(250 * time.Millisecond)
+		}
+		if entries, err = r.downloads(cloneQuery(query)); err != nil {
+			return fmt.Errorf("reading the download log: %w", err)
+		}
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("the download log holds no entry for the client at %s that installed %s through a personal link",
+			step.addr, packageLabel(e.Good))
+	}
+	served := 0
+	for _, d := range entries {
+		if d.Subject != personalUser || d.Link != issued.Link.ID || d.AuthMethod != "personal-link" || d.Tenant != "ecotest" {
+			return fmt.Errorf("a download of the personal run is not recorded under the link's user: %s %s@%s (%s) has subject %q, link %q, method %q",
+				d.Ecosystem, d.Package, d.Version, d.Path, d.Subject, d.Link, d.AuthMethod)
+		}
+		if strings.Contains(d.Path, "/u/") && strings.Contains(d.Path, issued.Token) {
+			return fmt.Errorf("a download-log entry's path contains the link's token")
+		}
+		if d.Outcome == "served" {
+			served++
+		}
+	}
+	if served == 0 {
+		return fmt.Errorf("none of the %d download-log entries of the personal run is a served download", len(entries))
+	}
+	r.pass(CheckPersonalLink, "%s installed %s through a personal link: %d request(s) under the personal prefix, none outside it; "+
+		"%d download(s) recorded for %s", e.Client, packageLabel(e.Good), personal, len(entries), personalUser)
+	return nil
+}
+
+// requestRecords returns the proxy's "request" log records, in order.
+func (r *run) requestRecords() []map[string]any {
+	var out []map[string]any
+	for _, rec := range r.logRecords() {
+		if rec["msg"] == "request" {
+			out = append(out, rec)
+		}
+	}
+	return out
+}
+
+// waitForQuiet waits until the proxy has answered no request for quiet — at
+// most until max — and returns how many request records its log then holds.
+func (r *run) waitForQuiet(quiet, max time.Duration) int {
+	deadline := time.Now().Add(max)
+	count, since := -1, time.Now()
+	for {
+		n := len(r.requestRecords())
+		if n != count {
+			count, since = n, time.Now()
+		} else if time.Since(since) >= quiet || time.Now().After(deadline) {
+			return n
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// cloneQuery copies a query, which the download-log helper modifies.
+func cloneQuery(v url.Values) url.Values {
+	out := url.Values{}
+	for k, vs := range v {
+		out[k] = append([]string(nil), vs...)
+	}
+	return out
 }
 
 // assertScanAdmitted proves the good package's admission went through the LLM
@@ -1036,6 +1212,12 @@ type downloadEntry struct {
 	Bytes     int64  `json:"bytes"`
 	UserAgent string `json:"userAgent"`
 	Path      string `json:"path"`
+	// Who the client was identified as, and — for a personal cache link — by
+	// which link.
+	Subject    string `json:"subject"`
+	Tenant     string `json:"tenant"`
+	AuthMethod string `json:"authMethod"`
+	Link       string `json:"link"`
 }
 
 // downloads queries the proxy's download log through the admin API — the
@@ -1249,10 +1431,13 @@ var clientVersionRE = regexp.MustCompile(`(?m)^ECOTEST_CLIENT_VERSION=(.*)$`)
 
 // clientEnv is the environment contract handed to a client script.
 func (r *run) clientEnv(pkg Package) []string {
+	// With a personal cache link, the user's personal address of the proxy
+	// stands wherever the plain one would: that is the whole of what a user
+	// changes in their client configuration.
 	env := []string{
-		"PROXY_URL=" + r.publicURL,
-		"PROXY_HOST=" + r.proxyHost,
-		"MOUNT=" + r.publicURL + "/v1/" + r.e.Upstream.Name,
+		"PROXY_URL=" + r.publicURL + r.personal,
+		"PROXY_HOST=" + r.proxyHost + r.personal,
+		"MOUNT=" + r.publicURL + r.personal + "/v1/" + r.e.Upstream.Name,
 		"PKG_NAME=" + pkg.Name,
 		"PKG_VERSION=" + pkg.Version,
 	}
@@ -1444,7 +1629,33 @@ func (r *run) runInDind(ctx context.Context, name, scratch string, env []string,
 
 // getJSON fetches an admin API document.
 func (r *run) getJSON(path string, v any) error {
-	resp, err := r.client.Get(r.adminBase() + path)
+	return r.adminJSON(http.MethodGet, path, nil, v)
+}
+
+// postJSON sends a JSON document to the admin API and decodes the answer.
+func (r *run) postJSON(path string, body, v any) error {
+	return r.adminJSON(http.MethodPost, path, body, v)
+}
+
+// adminJSON performs an admin API request with the admin token.
+func (r *run) adminJSON(method, path string, in, out any) error {
+	var reader io.Reader
+	if in != nil {
+		data, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(method, r.adminBase()+path, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+AdminToken)
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := r.client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -1453,10 +1664,10 @@ func (r *run) getJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: status %d: %s", path, resp.StatusCode, tail(string(body), 5))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("%s %s: status %d: %s", method, path, resp.StatusCode, tail(string(body), 5))
 	}
-	return json.Unmarshal(body, v)
+	return json.Unmarshal(body, out)
 }
 
 type scanVerdict struct {

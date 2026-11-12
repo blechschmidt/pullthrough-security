@@ -31,7 +31,7 @@ func (g *Gateway) withAccessControl(next http.Handler) http.Handler {
 		ecosystem := g.ecosystemFor(name)
 
 		authCtx, authSpan := g.startSpan(r.Context(), "auth.check")
-		res := g.deps.Enforcer.Check(authCtx, r, name, ecosystem)
+		res := g.checkAccess(authCtx, r, name, ecosystem)
 		authSpan.SetAttributes(
 			tracing.Bool("pullthrough.auth.allowed", res.Allowed),
 			tracing.StringIf("pullthrough.auth.stage", string(res.Stage)),
@@ -52,9 +52,14 @@ func (g *Gateway) withAccessControl(next http.Handler) http.Handler {
 		authSpan.End()
 		if !res.Allowed {
 			g.auditDecision(r, name, ecosystem, res)
-			writeAccessError(w, res)
+			writeAccessError(w, res, g.authChallenge(name, ecosystem))
 			return
 		}
+
+		// A request identified by a personal link (Task 177): note that the link
+		// was used, and from where — what its owner looks at to tell their own
+		// use from someone else's.
+		g.deps.UserLinks.Touch(res.Principal, clientIP(r), r.UserAgent())
 
 		ctx := auth.WithPrincipal(r.Context(), res.Principal)
 		cw := &countingWriter{ResponseWriter: w, status: http.StatusOK, start: time.Now()}
@@ -103,6 +108,12 @@ func (g *Gateway) auditDecision(r *http.Request, backend, ecosystem string, res 
 		if res.Principal.Method != "" {
 			ev.Detail["authMethod"] = res.Principal.Method
 		}
+		// A refused personal link that is a known one — expired, revoked — is
+		// named, so "the revoked link was still being used from this address" can
+		// be read off the trail.
+		if link := personalLinkID(res.Principal); link != "" {
+			ev.Detail["link"] = link
+		}
 	}
 	g.logAudit(r.Context(), ev)
 }
@@ -135,6 +146,9 @@ func (g *Gateway) auditPull(r *http.Request, backend, ecosystem string, p *auth.
 		ev.Team = p.Team
 		if p.Method != "" {
 			ev.Detail["authMethod"] = p.Method
+		}
+		if link := personalLinkID(p); link != "" {
+			ev.Detail["link"] = link
 		}
 	}
 	// Name the package the request resolved to, so the audit trail (and a SIEM
@@ -169,11 +183,46 @@ func eventTypeForStage(stage auth.Stage) audit.EventType {
 	}
 }
 
+// The challenges a 401 can carry. The proxy takes a client's token as a bearer
+// token or as the user name or password of HTTP Basic (auth.CandidateTokens).
+const (
+	challengeBearer = `Bearer realm="pullthrough"`
+	challengeBasic  = `Basic realm="pullthrough"`
+)
+
+// authChallenge is the WWW-Authenticate challenge of a 401 answered for a
+// request to backend. It is "Bearer" — except for the two kinds of client that
+// can do nothing with that:
+//
+//   - A container client (the Docker Engine, containerd, podman) reads a Bearer
+//     challenge as the address of a token service to fetch a token from, and
+//     gives up on a realm that is not a URL. Challenged with Basic, it presents
+//     what `docker login` stored — which may be an API token or a personal
+//     link's token (Task 177) as the password.
+//   - Git answers a challenge only with a credential it holds for it: for Basic,
+//     the one in the URL, from a credential helper, or typed at its prompt.
+func (g *Gateway) authChallenge(backend, ecosystem string) string {
+	if rr := g.opts.RegistryRoot; rr != nil && rr.has(backend) {
+		return challengeBasic
+	}
+	switch ecosystem {
+	case "docker", "oci", "git":
+		return challengeBasic
+	}
+	return challengeBearer
+}
+
 // writeAccessError writes a denial response. The body is intentionally terse
-// and free of internal detail.
-func writeAccessError(w http.ResponseWriter, res auth.Result) {
+// and free of internal detail. challenge is the WWW-Authenticate value of a 401
+// (see authChallenge).
+func writeAccessError(w http.ResponseWriter, res auth.Result, challenge string) {
 	if res.Status == http.StatusUnauthorized {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="pullthrough"`)
+		w.Header().Set("WWW-Authenticate", challenge)
+	}
+	if res.Status == http.StatusServiceUnavailable {
+		// The check could not be made (the personal-link registry is
+		// unreachable); nothing is wrong with the request, which may be repeated.
+		w.Header().Set("Retry-After", "5")
 	}
 	msg := res.Reason
 	if msg == "" {

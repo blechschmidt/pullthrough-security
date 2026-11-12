@@ -310,6 +310,16 @@ jobs:
   # address (served, served from cache, refused, forwarded by a trusted proxy,
   # forged). PT_DOWNLOADLOG_CLIENTS=real makes a missing package manager a
   # failure rather than a silent fall-back to the scripted stand-in.
+  #
+  # So does the personal-links suite (Task 177, internal/e2e/userlinks): two
+  # users sign in at an OpenID Connect identity provider, each gets a personal
+  # cache link, and the real `npm`, `pip`, `cargo` and `go` — configured with the
+  # snippet the links page hands out — install a package through it. The suite
+  # asserts that the download log tells the users apart although every client
+  # runs on the same machine, that revoking a link stops it (on a second replica
+  # too), and that no link's token is in anything the proxy wrote or sent
+  # upstream. PT_USERLINKS_CLIENTS=real makes a missing package manager a
+  # failure instead of a skipped row.
   integration:
     name: Ecosystem integration suites (hermetic)
     runs-on: ubuntu-latest
@@ -323,25 +333,29 @@ jobs:
           cache: true
 
       # The download-log suite drives the real package managers of the Rust and
-      # Go ecosystems. Rust ships with the hosted runner image; fail here, with a
-      # clear message, if that ever changes.
-      - name: Show the package managers the download-log suite drives
+      # Go ecosystems, the personal-links suite those of npm and PyPI as well.
+      # Rust, Node.js and Python ship with the hosted runner image; fail here,
+      # with a clear message, if that ever changes.
+      - name: Show the package managers the download-log and personal-links suites drive
         run: |
           cargo --version
           go version
+          echo "npm $(npm --version)"
+          python3 -m pip --version
 
       # Every suite under internal/e2e but the LLM package-scan suite, which has
       # a job of its own (llm-package-scan, below).
-      - name: Run the per-ecosystem pipeline, LLM-scan admission and download-log suites
+      - name: Run the per-ecosystem pipeline, LLM-scan admission, download-log and personal-links suites
         env:
           PT_TEST_REPORT_DIR: ${{ runner.temp }}/integration-report
           PT_DOWNLOADLOG_CLIENTS: real
+          PT_USERLINKS_CLIENTS: real
         run: go test -race -tags integration $(go list -tags integration ./internal/e2e/... | grep -v '/internal/e2e/pkgscan$')
 
       - name: Publish matrices
         if: always()
         run: |
-          for f in e2e-coverage-matrix.md llm-scan-matrix.md download-log-matrix.md; do
+          for f in e2e-coverage-matrix.md llm-scan-matrix.md download-log-matrix.md user-links-matrix.md; do
             if [ -f "$RUNNER_TEMP/integration-report/$f" ]; then
               cat "$RUNNER_TEMP/integration-report/$f" >> "$GITHUB_STEP_SUMMARY"
               echo >> "$GITHUB_STEP_SUMMARY"

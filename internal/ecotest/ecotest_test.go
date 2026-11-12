@@ -193,8 +193,22 @@ func TestRenderedConfigLoads(t *testing.T) {
 			}
 			// Warnings count too: an unknown key is reported as one, and a typo in
 			// a key the harness renders would silently disable what it configures.
-			if !report.OK || len(report.Issues) > 0 {
-				t.Fatalf("the rendered config has issues: %+v\n---\n%s", report.Issues, rendered)
+			// One warning is expected and says what the suite does on purpose:
+			// personal links without an identity provider, issued by the operator.
+			var issues []config.Issue
+			expected := 0
+			for _, is := range report.Issues {
+				if is.Path == "userLinks.oidc.enabled" && is.Severity == config.SeverityWarning {
+					expected++
+					continue
+				}
+				issues = append(issues, is)
+			}
+			if !report.OK || len(issues) > 0 {
+				t.Fatalf("the rendered config has issues: %+v\n---\n%s", issues, rendered)
+			}
+			if expected != 1 {
+				t.Errorf("the configuration check reported the operator-issued personal links %d times, want once", expected)
 			}
 
 			cfg, err := config.Load(path)
@@ -513,6 +527,40 @@ func TestTextOf(t *testing.T) {
 	}
 }
 
+// The personal-link check (Task 177) runs for every ecosystem whose client can
+// carry a link in the address it is configured with. An ecosystem that opts
+// out must say why — the reason is published in the reference — and the check
+// is then "not applicable", not silently absent.
+func TestPersonalLinkAppliesUnlessTheCatalogSaysWhyNot(t *testing.T) {
+	asserted := 0
+	for _, e := range Catalog() {
+		res := NewResult(e)
+		switch got := res.Status(CheckPersonalLink); {
+		case e.NoPersonalLink == "" && got != StatusSkipped:
+			t.Errorf("%s: initial status of %s = %q, want skipped (it applies and has not run)", e.ID, CheckPersonalLink, got)
+		case e.NoPersonalLink != "" && got != StatusNA:
+			t.Errorf("%s: the catalog opts out of %s but its status is %q, want n/a", e.ID, CheckPersonalLink, got)
+		case e.NoPersonalLink != "" && len(e.NoPersonalLink) < 40:
+			t.Errorf("%s: NoPersonalLink %q does not explain much", e.ID, e.NoPersonalLink)
+		}
+		if e.NoPersonalLink == "" {
+			asserted++
+		}
+	}
+	if asserted < len(Catalog())-2 {
+		t.Errorf("only %d of %d ecosystems assert personal links", asserted, len(Catalog()))
+	}
+	// The rendered configuration serves the personal prefix and lets the
+	// operator issue links: both are what the check needs.
+	npm, _ := Lookup("npm")
+	out, _ := renderFor(t, npm, t.TempDir())
+	for _, want := range []string{"userLinks:", "enabled: true", "adminToken: " + AdminToken} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("the rendered configuration lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 // --- report -----------------------------------------------------------------
 
 func TestResultLifecycle(t *testing.T) {
@@ -583,7 +631,14 @@ func TestResultLifecycle(t *testing.T) {
 			t.Errorf("%s: the result passed although the download-log check never ran", id)
 		}
 	}
+	// What does apply to Git — the clone, and the clone through a personal
+	// link — decides.
 	g.Set(CheckInstall, StatusPass, "cloned")
+	g.Finalize()
+	if g.Passed {
+		t.Error("git: the result passed although the personal-link check never ran")
+	}
+	g.Set(CheckPersonalLink, StatusPass, "cloned through a personal link")
 	g.Finalize()
 	if !g.Passed {
 		t.Error("git: n/a checks must not prevent a pass")
@@ -647,9 +702,10 @@ func TestMatrixRoundTrip(t *testing.T) {
 	md := m.Markdown()
 	for _, want := range []string{
 		"❌ failing", "1/3 ecosystems passed", "no result for: cargo",
-		"| npm | npm 10.9.9 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |",
+		"| npm | npm 10.9.9 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |",
 		// pip does not assert the download log: that column is "not applicable".
-		"| pip | pip | ✅ | ❌ | ⏭ | ⏭ | ⏭ | ➖ | ❌ |",
+		// The personal-link check comes last and was not reached.
+		"| pip | pip | ✅ | ❌ | ⏭ | ⏭ | ⏭ | ➖ | ⏭ | ❌ |",
 		"| cargo | — |",
 		"### Failures",
 		`no cache entry \| with a pipe and a newline`,

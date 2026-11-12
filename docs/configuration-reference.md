@@ -1218,6 +1218,55 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `downloadLog.path` | string | — |
 | `downloadLog.includeMetadata` | bool | false |
 
+## `userLinks`
+
+| Setting | Type | Default |
+|---------|------|---------|
+| `userLinks.enabled` | bool | false |
+| `userLinks.pathPrefix` | string | `/u` |
+| `userLinks.uiPath` | string | `/links` |
+| `userLinks.linkTtl` | duration | 2160h0m0s |
+| `userLinks.maxLinksPerUser` | int | 0 |
+| `userLinks.sessionTtl` | duration | 1h0m0s |
+| `userLinks.sessionKey` | string | — |
+| `userLinks.insecureCookies` | bool | false |
+| `userLinks.syncInterval` | duration | 15s |
+| `userLinks.store.backend` | string | — |
+| `userLinks.store.dir` | string | — |
+| `userLinks.store.s3.endpoint` | string | — |
+| `userLinks.store.s3.region` | string | — |
+| `userLinks.store.s3.bucket` | string | — |
+| `userLinks.store.s3.prefix` | string | — |
+| `userLinks.store.s3.accessKeyId` | string | — |
+| `userLinks.store.s3.secretAccessKey` | string | — |
+| `userLinks.store.s3.sessionToken` | string | — |
+| `userLinks.store.s3.usePathStyle` | bool | false |
+| `userLinks.store.s3.insecureSkipVerify` | bool | false |
+| `userLinks.store.s3.maxRetries` | int | 0 |
+| `userLinks.oidc.enabled` | bool | false |
+| `userLinks.oidc.issuer` | string | — |
+| `userLinks.oidc.clientId` | string | — |
+| `userLinks.oidc.clientSecret` | string | — |
+| `userLinks.oidc.redirectUrl` | string | — |
+| `userLinks.oidc.scopes` | []string | [] |
+| `userLinks.oidc.discoveryUrl` | string | — |
+| `userLinks.oidc.authorizationEndpoint` | string | — |
+| `userLinks.oidc.tokenEndpoint` | string | — |
+| `userLinks.oidc.jwksUrl` | string | — |
+| `userLinks.oidc.jwks` | string | — |
+| `userLinks.oidc.subjectClaim` | string | — |
+| `userLinks.oidc.nameClaim` | string | — |
+| `userLinks.oidc.teamClaim` | string | — |
+| `userLinks.oidc.groupsClaim` | string | — |
+| `userLinks.oidc.allowUnverifiedEmail` | bool | false |
+| `userLinks.oidc.jwksCacheTtl` | duration | 0s |
+| `userLinks.oidc.leeway` | duration | 0s |
+| `userLinks.defaultTeam` | string | — |
+| `userLinks.defaultRoles` | []string | [] |
+| `userLinks.roleMap` | map[string]string | {} |
+| `userLinks.allowedGroups` | []string | [] |
+| `userLinks.allowedEmailDomains` | []string | [] |
+
 ## `secrets`
 
 | Setting | Type | Default |

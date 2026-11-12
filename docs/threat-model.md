@@ -84,6 +84,29 @@ answered with `405` before a backend sees it — so nothing can be published,
 changed or revoked with the proxy's credentials. See the limitation on
 [upstream credentials](#limitations-and-non-goals) for what remains.
 
+### T5a — A personal cache link leaks, or is guessed
+[Personal cache links](user-links.md) identify a cache user by a secret in the
+URL their package manager is configured with. Whoever holds the link downloads
+as that user. **Mitigation:** a link grants *read* access to what its user may
+pull and nothing else — it is not accepted by the links page or the admin API,
+and package backends are `GET`/`HEAD` only. Tokens carry 160 random bits and are
+stored as SHA-256 hashes only, so neither guessing nor a copy of the registry
+yields one; an unknown token costs a lookup in the registry's store only within
+a budget. The proxy takes the link off the request at its edge: it is not in
+the request log, the audit log, the download log, traces, cache keys or anything
+sent upstream, and a refused link is never served as an anonymous request.
+Links expire (90 days by default), are limited per user, can be revoked by
+their user and by an operator — one link, or everything issued to a user, on
+every replica — and each shows its user when, from where and with which tool it
+was last used. Index documents that contain a user's link are served
+`Cache-Control: private`; the edge gives a link the user's prefix only where
+the link starts a value, so a mount path that a package's author wrote into a
+URL of their own never turns that URL into one that carries the user's link.
+Whatever a backend serves is sandboxed (`Content-Security-Policy: sandbox`,
+`nosniff`), so a file from a repository opened in a browser cannot act on the
+links page of the same origin. What remains is in the
+[limitations](#limitations-and-non-goals).
+
 ### T6 — Tampering with accountability records
 An attacker covers tracks by editing the audit trail. **Mitigation:** the audit
 log is a keyed hash chain (HMAC-SHA256) — any edit, deletion, or reordering is
@@ -134,6 +157,21 @@ This is a side benefit, not a high-availability guarantee.
   fronts — never a personal or administrative one — prefer a revocable token
   over a password, and point `url` at the repository rather than at the host
   root.
+- **A personal cache link is a bearer secret in a URL.** That is what makes it
+  work with every package manager, and it has the weaknesses of its kind: URLs
+  are written down by things the proxy does not control — a lock file that
+  records where a package came from (`yarn.lock`, `composer.lock`,
+  `poetry.lock`), a container image name, a TLS-inspecting middlebox, a shell
+  history — and over plain HTTP the link is readable on the path. The links page
+  generates client configuration that keeps the link out of committed files
+  where the client allows it and says where it does not; serve the proxy over
+  HTTPS, add `ptl1[a-z2-7]{39}` to your secret scanner, and use the link as a
+  *credential* instead of a URL where a URL would be shown around
+  ([user-links.md](user-links.md#the-link-as-a-credential)). Attribution is as
+  good as the secret is kept: the log proves a link was used, not who typed the
+  command. A link also carries a **copy** of its user's identity and roles from
+  the moment it was created; a change at the identity provider reaches existing
+  links when they expire or are revoked.
 - **Probabilistic scanning.** LLM commit analysis can produce false negatives
   (missed malice) and false positives. It is a strong signal, not a proof; tune
   `failOn`/`blockAtRiskScore` to your risk tolerance and keep humans in the loop

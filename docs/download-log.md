@@ -6,7 +6,10 @@ download log answers both: it records, for every package a client pulls through
 the proxy, the **client address** the request came from, the **package
 coordinate** it resolved to (ecosystem, name, version), **what happened**
 (served, refused by an admission gate, not found, failed) and — when clients
-authenticate — **who** it was.
+identify themselves — **who** it was. With [personal cache links](user-links.md)
+every cache user signs in through the identity provider and downloads through an
+address of their own, so the log names a person where an address would name a
+NAT gateway.
 
 It is shown in the admin console's **Downloads** tab, served by the admin API,
 available on the command line as `ptctl downloads`, and it is **on by default**.
@@ -75,7 +78,8 @@ Two rules in that table deserve a sentence each:
 | `cache` | `MISS` (fetched from upstream for this request), `HIT`, `COALESCED-HIT`, `BYPASS` (never cached) |
 | `bytes`, `size` | Bytes of the artifact sent, and the artifact's full size. `bytes < size` is a byte-range request or an abandoned transfer |
 | `durationMs` | How long the proxy took, upstream fetch and every gate included |
-| `subject`, `tenant`, `authMethod` | The authenticated client, when [client authentication](access-control-and-audit.md) is on |
+| `subject`, `tenant`, `authMethod` | The identified client: a user who downloads through a [personal cache link](user-links.md) (`authMethod: personal-link`), or the principal of a token, an OIDC JWT or a client certificate when [client authentication](access-control-and-audit.md) is on |
+| `link` | For a download through a personal cache link: the link's identifier — which of the user's links it was, hence which of their machines. Not a secret (it is derived from a hash of the link) |
 | `userAgent` | The client tool (`cargo/1.84.0 …`, `Go-http-client/1.1`, `npm/10.9.2 …`) |
 | `method`, `path` | The request (no query string: queries can carry credentials) |
 | `traceId` | The request's distributed-trace id, when [tracing](tracing.md) is on |
@@ -124,19 +128,23 @@ SHA-256 fingerprint of the key the client authenticated with.
 
 `{admin prefix}/#downloads`. The tab is a filter over the log:
 
-- **Filter bar** — client IP or CIDR, package (a name or `name@version`, `*` as
-  a wildcard), ecosystem, outcome, time range, and a free-text search over
-  address, package, path, client tool, identity and reason. Enter applies.
+- **Filter bar** — client IP or CIDR, user (a name, a pattern such as
+  `*@example.com`, or `-` for downloads nobody was identified for), package (a
+  name or `name@version`, `*` as a wildcard), ecosystem, outcome, time range,
+  and a free-text search over address, package, path, client tool, identity and
+  reason. Enter applies.
 - **Cards** — downloads, blocked attempts, distinct client addresses, distinct
-  packages, and the log's own bounds (`held / capacity`, retention, whether it
-  is on disk).
-- **Client addresses** and **Packages** — the busiest of each for the current
-  filter. They are the two questions in table form.
+  users (and how many downloads have none), distinct packages, and the log's own
+  bounds (`held / capacity`, retention, whether it is on disk).
+- **Client addresses**, **Users** and **Packages** — the busiest of each for
+  the current filter. They are the questions in table form. The Users panel
+  appears once the log holds a download with an identity.
 - **Download log** — the entries, newest first, 100 at a time (*Load older
   entries*).
 
-**Click an address** anywhere to see everything it pulled; **click a package**
-to see everyone who pulled it. A row opens the detail drawer with every field
+**Click an address** anywhere to see everything it pulled; **click a user** to
+see everything they pulled, from whichever address; **click a package** to see
+everyone who pulled it. A row opens the detail drawer with every field
 and the same two pivots, plus *Open dossier* for the package's
 [security dossier](admin-ui-walkthrough.md#dossier--the-per-coordinate-360-view).
 
@@ -164,7 +172,9 @@ Entries, newest first. All parameters are optional and ANDed:
 | `ecosystem`, `upstream` | Exact, ignoring case |
 | `outcome` | `served` · `not_modified` · `blocked` · `not_found` · `error` |
 | `kind` | `package` · `metadata` · `unclassified` |
-| `subject`, `tenant` | The authenticated client, exact |
+| `subject` | The identified client. Exact, ignoring case — or a pattern with `*` (`*@example.com`). `-` selects the downloads **nobody was identified for** |
+| `tenant` | The client's team, exact |
+| `link` | A [personal cache link](user-links.md), by its identifier |
 | `q` | Free-text search across the textual fields |
 | `since`, `until` | Time bounds: an age (`15m`, `24h`, `7d`), RFC 3339, or unix seconds |
 | `limit` | Page size (default 100, at most 1000) |
@@ -217,7 +227,9 @@ response carries `nextBefore` — repeat the request with `before=<nextBefore>`.
 
 `format=csv` returns every matching entry as a download — or exactly the first
 `limit`, when given: the page-size cap does not apply to an export, which has no
-cursor to fetch the rest with. The total is in the `X-Total-Count` header. Cells
+cursor to fetch the rest with. The total is in the `X-Total-Count` header. The
+`link` column is the last one, so that a consumer written before it existed
+finds every other column where it was. Cells
 a spreadsheet would interpret as a formula — a package name starting with `=` is
 a thing an attacker can publish — are prefixed with an apostrophe.
 
@@ -232,20 +244,30 @@ $ curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
 {
   "enabled": true,
   "total": 2, "served": 2, "blocked": 0, "notModified": 0, "notFound": 0, "errors": 0,
-  "bytes": 15868, "clients": 2, "packages": 1,
+  "bytes": 15868, "clients": 2, "packages": 1, "users": 2, "unattributed": 0,
   "byClient": [
     { "clientIp": "10.20.1.22", "downloads": 1, "served": 1, "blocked": 0, "packages": 1, "bytes": 7934, "firstSeen": "…", "lastSeen": "…" },
     { "clientIp": "10.20.1.15", "downloads": 1, "served": 1, "blocked": 0, "packages": 1, "bytes": 7934, "firstSeen": "…", "lastSeen": "…" }
   ],
+  "byUser": [
+    { "subject": "alice@example.com", "tenant": "platform", "downloads": 1, "served": 1, "blocked": 0, "packages": 1, "addresses": 1, "clientIps": ["10.20.1.22"], "links": ["273d43ccab040774"], "bytes": 7934, "firstSeen": "…", "lastSeen": "…" },
+    { "subject": "bob@example.com", "tenant": "payments", "downloads": 1, "served": 1, "blocked": 0, "packages": 1, "addresses": 1, "clientIps": ["10.20.1.15"], "links": ["e8e4db1dc8b278b9"], "bytes": 7934, "firstSeen": "…", "lastSeen": "…" }
+  ],
   "byPackage": [
-    { "ecosystem": "cargo", "package": "cfg-if", "downloads": 2, "served": 2, "blocked": 0, "clients": 2, "versions": ["1.0.0"], "bytes": 15868, "lastSeen": "…" }
+    { "ecosystem": "cargo", "package": "cfg-if", "downloads": 2, "served": 2, "blocked": 0, "clients": 2, "users": 2, "versions": ["1.0.0"], "bytes": 15868, "lastSeen": "…" }
   ],
   "byEcosystem": [ { "ecosystem": "cargo", "downloads": 2, "served": 2, "blocked": 0, "bytes": 15868 } ]
 }
 ```
 
-- `?package=left-pad` → `byClient` is **who pulled left-pad**.
+- `?package=left-pad` → `byClient` is **which addresses pulled left-pad**, and
+  `byUser` **who** did.
 - `?ip=10.0.0.7` → `byPackage` is **what 10.0.0.7 pulled**.
+- `?subject=alice@example.com` → `byPackage` is **what alice pulled**, and
+  `byClient` from which machines.
+- `users` counts the distinct identified clients among the matches,
+  `unattributed` the downloads that have none; `byUser` (at most `top`) is empty
+  when no match has an identity.
 - `?outcome=blocked&since=24h` → who was refused what in the last day.
 
 ## `ptctl downloads`
@@ -253,15 +275,18 @@ $ curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
 ```console
 $ ptctl downloads --package cfg-if                 # who pulled cfg-if?
 $ ptctl downloads --ip 10.20.1.15                  # what did 10.20.1.15 pull?
+$ ptctl downloads --user alice@example.com         # what did alice pull?
+$ ptctl downloads --user - --summary               # what was pulled by nobody known?
 $ ptctl downloads --ip 10.20.0.0/16 --outcome blocked --since 24h
 $ ptctl downloads --summary --ecosystem cargo      # busiest addresses and crates
 $ ptctl downloads --all --format csv > downloads.csv
 ```
 
 Flags mirror the API (`--ip`, `--package` — a name or `name@version` —, `--ecosystem`,
-`--upstream`, `--outcome`, `--subject`, `--search`, `--since`, `--until`),
-plus `--limit` (default 50), `--all` (page through everything), `--summary`
-with `--top`, and `--format table|json|csv`. `--tenant` narrows the log only
+`--upstream`, `--outcome`, `--user` (also `--subject`), `--link`, `--search`,
+`--since`, `--until`), plus `--limit` (default 50), `--all` (page through
+everything), `--summary` with `--top` — totals and the busiest addresses, users
+and packages —, and `--format table|json|csv`. `--tenant` narrows the log only
 when given on the command line — an exported `PULLTHROUGH_TENANT` does not
 silently hide other tenants' downloads. See [client-cli.md](client-cli.md).
 
@@ -461,6 +486,10 @@ ecosystems**:
   LLM flagged as blocked for the machine that tried.
 
 Both run in CI on every push.
+
+Attribution to a **user** has a suite of its own — two users, one machine, the
+real `npm`, `pip`, `cargo`, `go`, Docker Engine and `git` through personal
+cache links: [user-links.md](user-links.md#tests).
 
 What a client or a damaged file can put in front of the log is fuzzed
 ([testing.md](testing.md#fuzzing-the-protocol--manifest-parsers)): the `X-Forwarded-For` resolution (a forged

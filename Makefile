@@ -80,6 +80,22 @@ PKGSCAN_ECOSYSTEMS ?=
 test-llm-package-scan: ## LLM package-scan e2e suite: every ecosystem through the real proxy with a mock LLM (hermetic)
 	PT_PKGSCAN_ECOSYSTEMS="$(PKGSCAN_ECOSYSTEMS)" $(GO) test -tags integration -count=1 -v ./internal/e2e/pkgscan/
 
+# --- Personal cache links: who downloaded what (Task 177) ---------------------
+#
+# The integration suite of personal cache links: two users sign in at an OpenID
+# Connect identity provider (a real one in miniature: discovery, authorization
+# code with PKCE, RS256 ID tokens), get a personal link each, and install a
+# package with the real `npm`, `pip`, `cargo` and `go` — configured with the
+# snippet the links page hands out — through the real proxy binary. The suite
+# asserts through the admin API that the download log tells the two users apart
+# although both ran on one machine, that a revoked link stops working (on a
+# second replica too), and that no link's token is in anything the proxy wrote
+# or sent upstream. Hermetic (loopback only). A missing package manager is
+# skipped unless PT_USERLINKS_CLIENTS=real. See docs/user-links.md.
+.PHONY: test-user-links
+test-user-links: ## Personal-links integration suite: OIDC sign-in, real npm/pip/cargo/go through personal links (hermetic)
+	$(GO) test -tags integration -count=1 -v ./internal/e2e/userlinks/
+
 # --- Ecosystem tests: real package managers through the proxy (Task 170) -----
 #
 # For every supported ecosystem, run the ecosystem's REAL client (npm, pip,
@@ -318,7 +334,13 @@ FUZZ_TARGETS := \
 	internal/downloadlog:FuzzLoad \
 	internal/git:FuzzFetchSniffer \
 	internal/git:FuzzDescribeDownload \
-	internal/git:FuzzAsksForNothingButRefs
+	internal/git:FuzzAsksForNothingButRefs \
+	internal/userlinks:FuzzWellFormed \
+	internal/userlinks:FuzzCleanText \
+	internal/userlinks:FuzzDecodeCookie \
+	internal/userlinks:FuzzLoadLink \
+	internal/proxy:FuzzLinkRewriter \
+	internal/proxy:FuzzRedactPersonalPath
 
 .PHONY: fuzz
 fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m)

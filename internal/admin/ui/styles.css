@@ -325,3 +325,55 @@ a.chip.linkish:hover { background: var(--accent-solid); color: #fff; }
 #downloads-table .truncate { max-width: 200px; display: inline-block; vertical-align: bottom; }
 #downloads-table .mono.truncate { max-width: 150px; }
 #downloads-table .cell-link.truncate { max-width: 250px; }
+/* The entry's user is cut where the plain identity text was before it became a
+   button, so the column is no wider than it used to be. */
+#downloads-table .identity .cell-link.truncate { max-width: 200px; }
+/* The summary's three tables. Where the window has room for two tables side by
+   side, addresses and packages share a row and the users take a whole row
+   below: six columns that start with an e-mail address do not fit half of one.
+   (auto-fit cannot say that — a panel spanning every track keeps the empty
+   third track from collapsing, which leaves a hole beside the first two — so
+   the columns are spelled out.) The packages get slightly the larger part:
+   their table has one column more. On a narrower window the three stack.
+   (1120px: the page's full width of 1100px plus a scrollbar.) */
+.secops-grid.two-up { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1120px) {
+  .secops-grid.two-up { grid-template-columns: minmax(0, 11fr) minmax(0, 12fr); }
+  .secops-grid.two-up > .wide { grid-column: 1 / -1; }
+  .secops-grid.two-up > .wide .truncate { max-width: 420px; }
+  /* Side by side, the numbers leave the first column some 150px. Cells and
+     values are trimmed to that, or the last columns scroll out of sight. */
+  .secops-grid.two-up > .panel:not(.wide) > .table-wrap thead th,
+  .secops-grid.two-up > .panel:not(.wide) > .table-wrap tbody td { padding-left: .4rem; padding-right: .4rem; }
+  .secops-grid.two-up > .panel:not(.wide) .truncate { max-width: 140px; }
+}
+/* An entry with a user and a personal link offers five actions in its detail
+   drawer: let them wrap rather than squeeze. */
+.drawer-body .button-group { flex-wrap: wrap; }
+
+/* --- Personal cache links (Task 177) ---------------------------------------- */
+#userlinks-notice { border-left: 3px solid var(--warn); }
+#userlinks-sync { border-left: 3px solid var(--crit); }
+#userlinks-howto a { color: var(--accent); }
+/* A card that states a word instead of a number: a size smaller, on the line
+   height of the numbers so that the cards' lines still align. */
+.stat .value.word { font-size: 1.3rem; line-height: 1.846; }
+/* The user the list is narrowed to, as a button that lifts the restriction: a
+   long name is cut, the cross after it stays in view. */
+.filter-chip { display: inline-flex; align-items: center; gap: .4rem; max-width: 100%; }
+.filter-chip .truncate { max-width: 18rem; }
+/* A note under a value that can run long (the client tool a link was last used
+   by) is cut like any other value, and stays on its own line. */
+.panel .cell-note.truncate { display: block; max-width: 240px; }
+/* The users are a summary above the table that matters: with many of them the
+   list scrolls inside its frame (the header row stays in place) instead of
+   pushing the links off the page. */
+.table-wrap.capped { max-height: 24rem; }
+#userlinks-users-table .user .truncate { max-width: 340px; }
+/* Seven columns share the links' row, and the last one holds the buttons that
+   matter: cells are tightened, and values and notes cut short enough, for all
+   seven to be in view. */
+#userlinks-table thead th, #userlinks-table tbody td { padding-left: .4rem; padding-right: .4rem; }
+#userlinks-table .truncate { max-width: 125px; }
+#userlinks-table .user .truncate { max-width: 190px; }
+#userlinks-table .name .truncate { max-width: 150px; }

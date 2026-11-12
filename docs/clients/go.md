@@ -110,6 +110,9 @@ prints every URL it fetches.
 - `404` answers for path prefixes (`…/github.com/@v/…`, `…/github.com/pkg/@v/…`)
   in the proxy's log are the go command probing which prefix of an import path
   is the module — normal.
+- **With a [personal cache link](../user-links.md)** `go env -w GOPROXY=…` keeps
+  it in your user configuration; `go.mod` and `go.sum` contain no URLs, so the
+  link — which works like a password — is not committed.
 
 ## On the proxy
 

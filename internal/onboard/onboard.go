@@ -40,12 +40,23 @@ type Context struct {
 	Host      string // e.g. proxy.example.com[:port]
 	Tenant    string
 	Token     string
+	// Personal is the path prefix of a personal cache link (Task 177), e.g.
+	// "/u/ptl1…": the part of the URL that identifies the user. When set, every
+	// snippet points at the user's personal mounts
+	// ("https://proxy.example.com/u/ptl1…/v1/npm") and carries no separate
+	// credential — the link is the credential — and each snippet says where the
+	// link must not end up (a lock file, a file under version control).
+	Personal string
 }
 
+// personal reports whether the snippets are for a personal cache link.
+func (c Context) personal() bool { return c.Personal != "" }
+
 // mount returns the public gateway base for a backend, e.g.
-// https://proxy.example.com/v1/npm
+// https://proxy.example.com/v1/npm — or, for a personal cache link,
+// https://proxy.example.com/u/ptl1…/v1/npm.
 func (c Context) mount(b Backend) string {
-	return c.ProxyBase + "/v1/" + b.Name
+	return c.ProxyBase + c.Personal + "/v1/" + b.Name
 }
 
 // tokenOr returns the configured token, or the given placeholder when no token
@@ -60,6 +71,9 @@ func (c Context) tokenOr(placeholder string) string {
 // authNote returns a leading note describing how the tenant/token is applied,
 // shared across generators.
 func (c Context) authNote() []string {
+	if c.personal() {
+		return []string{"This is your personal cache link: every download through it is recorded under your name. It works like a password — keep it out of files you share or commit."}
+	}
 	if c.Token != "" {
 		return []string{"Credentials below carry your proxy token; treat the file as a secret."}
 	}
@@ -69,6 +83,62 @@ func (c Context) authNote() []string {
 // For produces the client-config snippets for one backend. An unknown type
 // yields a single advisory snippet rather than failing.
 func For(ctx Context, b Backend) []Snippet {
+	snippets := forType(ctx, b)
+	if ctx.personal() {
+		if caveats := personalCaveats(b.Type); len(caveats) > 0 {
+			for i := range snippets {
+				snippets[i].Notes = append(snippets[i].Notes, caveats...)
+			}
+		}
+	}
+	return snippets
+}
+
+// personalCaveats says, per ecosystem, where a personal cache link would end up
+// if the tool were left to its defaults. A link in a URL is a credential in a
+// URL, and several package managers copy the URLs they download from into a
+// lock file that is then committed. The generated snippets avoid that where
+// the tool can be told to; where it cannot, the note names the file.
+func personalCaveats(typ string) []string {
+	switch typ {
+	case "npm":
+		return []string{
+			"Put this in your user-level ~/.npmrc, not in a project's .npmrc. omit-lockfile-registry-resolved keeps the link out of package-lock.json (npm 8.14+).",
+			"Yarn 1 writes the URL of every package into yarn.lock: with Yarn, do not commit a lock file created through a personal link.",
+		}
+	case "pip", "pypi":
+		return []string{
+			"pip itself records nothing. poetry.lock, uv.lock and Pipfile.lock do record the index URL: do not use a personal link as the index of a project whose lock file is committed.",
+		}
+	case "nuget":
+		return []string{"Use your user-level NuGet.Config (~/.nuget/NuGet/NuGet.Config, %AppData%\\NuGet\\NuGet.Config), not the one in the repository."}
+	case "maven":
+		return []string{"~/.m2/settings.xml is per user. Do not put the link into a pom.xml or a Gradle build file."}
+	case "composer":
+		return []string{"composer.lock records the download URL of every package, link included: do not commit a composer.lock created through a personal link. " +
+			"For a project that commits its lock file, present the link as a password instead, with the proxy's plain address (needs client authentication on the proxy; docs/user-links.md)."}
+	case "bazel":
+		return []string{"Use ~/.bazelrc, not the workspace's .bazelrc. MODULE.bazel.lock records the registry URL of every module: do not commit one created through a personal link. " +
+			"For a project that commits its lock file, present the link as a password instead (needs client authentication on the proxy; docs/user-links.md)."}
+	case "dart", "pub":
+		return []string{"pubspec.lock records the hosted URL of every package: do not commit one created through a personal link. " +
+			"For a project that commits its lock file, present the link as a token instead (dart pub token add; needs client authentication on the proxy; docs/user-links.md)."}
+	case "helm":
+		return []string{"Refer to the repository by its alias (\"@pullthrough\") in Chart.yaml; a URL written there is copied into Chart.lock."}
+	case "cran":
+		return []string{"renv.lock records repository URLs: do not commit one created through a personal link."}
+	case "ansible":
+		return []string{"Use your user-level ~/.ansible.cfg, not an ansible.cfg under version control."}
+	case "git":
+		return []string{"Prefer an insteadOf rule (git config --global url.\"<your link's Git address>/\".insteadOf \"https://<forge>/\"): it lives in your global Git configuration, so clone URLs, .gitmodules and dependency manifests keep naming the forge and never contain the link. A URL given to `git clone` is stored in that checkout's .git/config."}
+	case "docker", "oci":
+		return []string{"The link becomes part of the image name: it shows in `docker images`, in build logs and in any Dockerfile or manifest that names the image. Where the proxy requires authentication, prefer `docker login` with the link's token as the password."}
+	}
+	return nil
+}
+
+// forType dispatches to the generator for a backend type.
+func forType(ctx Context, b Backend) []Snippet {
 	switch b.Type {
 	case "npm":
 		return []Snippet{npmSnippet(ctx, b)}
@@ -135,9 +205,16 @@ func For(ctx Context, b Backend) []Snippet {
 	default:
 		return []Snippet{{
 			Title: fmt.Sprintf("%s (%s)", b.Name, orUnknown(b.Type)),
-			Notes: []string{fmt.Sprintf("No generator for backend type %q; point your client at %s and supply your proxy token.", orUnknown(b.Type), ctx.mount(b))},
+			Notes: []string{unknownTypeNote(ctx, b)},
 		}}
 	}
+}
+
+func unknownTypeNote(ctx Context, b Backend) string {
+	if ctx.personal() {
+		return fmt.Sprintf("No generator for backend type %q; point your client at %s — your personal cache link for this upstream.", orUnknown(b.Type), ctx.mount(b))
+	}
+	return fmt.Sprintf("No generator for backend type %q; point your client at %s and supply your proxy token.", orUnknown(b.Type), ctx.mount(b))
 }
 
 // ForAll generates the snippets for every backend, in order.
@@ -163,14 +240,25 @@ func npmSnippet(ctx Context, b Backend) Snippet {
 	// npm attaches credentials to the registry host+path via :_authToken; emit it
 	// always (with a placeholder when no token is set) so the file is complete.
 	ref := strings.TrimPrefix(strings.TrimPrefix(mount, "https:"), "http:")
-	fmt.Fprintf(&sb, "%s:_authToken=%s\n", ref, ctx.tokenOr("${PULLTHROUGH_TOKEN}"))
+	if ctx.personal() {
+		// The link is the credential. What it must not do is travel on: by
+		// default npm copies the URL of every package it installs into
+		// package-lock.json.
+		sb.WriteString("omit-lockfile-registry-resolved=true\n")
+	} else {
+		fmt.Fprintf(&sb, "%s:_authToken=%s\n", ref, ctx.tokenOr("${PULLTHROUGH_TOKEN}"))
+	}
+	where := "Project-local or user-level (~/.npmrc)."
+	if ctx.personal() {
+		where = "User-level (~/.npmrc)."
+	}
 	return Snippet{
 		Title: fmt.Sprintf("npm — %s (.npmrc)", b.Name),
 		File:  ".npmrc",
 		Lang:  "ini",
 		Body:  sb.String(),
 		Notes: append(ctx.authNote(),
-			"Project-local or user-level (~/.npmrc). For a scope only, use '@scope:registry=' instead of 'registry='."),
+			where+" For a scope only, use '@scope:registry=' instead of 'registry='."),
 	}
 }
 
@@ -203,13 +291,23 @@ func cargoSnippet(ctx Context, b Backend) Snippet {
 		File:  "cargo-config.toml",
 		Lang:  "toml",
 		Body:  body,
-		Notes: []string{
-			"$CARGO_HOME/config.toml (~/.cargo/config.toml unless CARGO_HOME is set, as it is in the official Rust image). The trailing slash on the sparse+ URL is required.",
-			"Without a file: cargo --config 'source.crates-io.replace-with=\"proxy\"' --config 'source.proxy.registry=\"" + sparse + "\"' <command>. CARGO_SOURCE_* environment variables do not work.",
-			"cargo cannot present a proxy token for crate downloads. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
-				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
-		},
+		Notes: cargoNotes(ctx, sparse),
 	}
+}
+
+// cargoNotes are the notes of the cargo snippet. With a personal link the link
+// is the credential, and what matters is where it ends up; without one, that
+// cargo cannot present a proxy token.
+func cargoNotes(ctx Context, sparse string) []string {
+	notes := []string{
+		"$CARGO_HOME/config.toml (~/.cargo/config.toml unless CARGO_HOME is set, as it is in the official Rust image). The trailing slash on the sparse+ URL is required.",
+		"Without a file: cargo --config 'source.crates-io.replace-with=\"proxy\"' --config 'source.proxy.registry=\"" + sparse + "\"' <command>. CARGO_SOURCE_* environment variables do not work.",
+	}
+	if ctx.personal() {
+		return append(notes, "Cargo.lock keeps naming crates.io as the source, so the link stays out of it.")
+	}
+	return append(notes, "cargo cannot present a proxy token for crate downloads. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream "+
+		"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).")
 }
 
 func goSnippet(ctx Context, b Backend) Snippet {
@@ -219,8 +317,10 @@ func goSnippet(ctx Context, b Backend) Snippet {
 		"The GOPROXY protocol is path-relative, so no URL rewriting is needed.")
 	if ctx.Token != "" {
 		body += "\n# ~/.netrc (Go reads it for module-proxy auth):\nmachine " + ctx.Host + " login pullthrough password " + ctx.Token + "\n"
-	} else {
+	} else if !ctx.personal() {
 		notes = append(notes, "If the proxy requires auth, add a ~/.netrc entry: 'machine "+ctx.Host+" login <user> password <token>'.")
+	} else {
+		notes = append(notes, "go env -w stores the setting in your user configuration; go.mod and go.sum contain no URLs.")
 	}
 	return Snippet{
 		Title: fmt.Sprintf("go — %s (GOPROXY)", b.Name),
@@ -243,16 +343,20 @@ func nugetSnippet(ctx Context, b Backend) Snippet {
 	// answer to a Basic challenge, and the proxy challenges with Bearer, so
 	// credentials in this file are never sent (verified with the real dotnet; see
 	// docs/clients/nuget.md).
+	notes := []string{"<clear /> removes nuget.org and every inherited source. The source must be HTTPS."}
+	if ctx.personal() {
+		// The link is in the source URL: there is no credential to present.
+		notes = append(ctx.authNote(), notes...)
+	} else {
+		notes = append(notes, "NuGet cannot present a proxy token. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream "+
+			"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).")
+	}
 	return Snippet{
 		Title: fmt.Sprintf("NuGet — %s (NuGet.config)", b.Name),
 		File:  "NuGet.config",
 		Lang:  "xml",
 		Body:  sb.String(),
-		Notes: []string{
-			"<clear /> removes nuget.org and every inherited source. The source must be HTTPS.",
-			"NuGet cannot present a proxy token. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
-				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
-		},
+		Notes: notes,
 	}
 }
 
@@ -275,13 +379,17 @@ func mavenSnippet(ctx Context, b Backend) Snippet {
 		sb.WriteString("    </server>\n  </servers>\n")
 	}
 	sb.WriteString("</settings>\n")
+	where := "~/.m2/settings.xml."
+	if ctx.Token != "" {
+		where += " The token is sent as an Authorization header configured on the mirror's <server>."
+	}
 	return Snippet{
 		Title: fmt.Sprintf("Maven — %s (settings.xml)", b.Name),
 		File:  "settings.xml",
 		Lang:  "xml",
 		Body:  sb.String(),
 		Notes: append(ctx.authNote(),
-			"~/.m2/settings.xml. The token is sent as an Authorization header configured on the mirror's <server>.",
+			where,
 			"Gradle: an init script that replaces every repository with maven { url = uri(\""+mount+"\") } (docs/clients/maven.md)."),
 	}
 }
@@ -299,6 +407,21 @@ func dockerSnippet(ctx Context, b Backend) Snippet {
 	// mirror must be the bare proxy URL — the Docker Engine rejects a mirror URL
 	// that carries a path.
 	var sb strings.Builder
+	if ctx.personal() {
+		// A personal link names the user in the repository path: the registry
+		// alias at the host root accepts "<prefix>/<upstream>/<repository>".
+		ref := ctx.Host + ctx.Personal + "/" + b.Name
+		fmt.Fprintf(&sb, "# Pull by explicit reference: <proxy>%s/%s/<repository>:<tag>\n", ctx.Personal, b.Name)
+		fmt.Fprintf(&sb, "docker pull %s/library/alpine:latest\n", ref)
+		return Snippet{
+			Title: fmt.Sprintf("Docker — %s (pull)", b.Name),
+			File:  "docker-pull.sh",
+			Lang:  "bash",
+			Body:  sb.String(),
+			Notes: append(ctx.authNote(),
+				"The explicit reference works for every registry upstream and fails closed when the proxy refuses an image."),
+		}
+	}
 	if ctx.Token != "" {
 		fmt.Fprintf(&sb, "echo %q | docker login %s --username pullthrough --password-stdin\n", ctx.Token, ctx.Host)
 	} else {
@@ -324,6 +447,8 @@ func helmSnippet(ctx Context, b Backend) Snippet {
 	var sb strings.Builder
 	if ctx.Token != "" {
 		fmt.Fprintf(&sb, "helm repo add pullthrough %s --username pullthrough --password %q\n", mount, ctx.Token)
+	} else if ctx.personal() {
+		fmt.Fprintf(&sb, "helm repo add pullthrough %s\n", mount)
 	} else {
 		fmt.Fprintf(&sb, "helm repo add pullthrough %s   # add --username/--password if the proxy requires auth\n", mount)
 	}
@@ -333,26 +458,56 @@ func helmSnippet(ctx Context, b Backend) Snippet {
 		File:  "helm-repo.sh",
 		Lang:  "bash",
 		Body:  sb.String(),
-		Notes: append(ctx.authNote(),
-			"OCI-hosted charts (settings.oci=true) use 'helm registry login "+ctx.Host+"' + 'helm pull oci://...'."),
+		Notes: append(ctx.authNote(), helmOCINote(ctx)),
 	}
 }
 
 func rubygemsSnippet(ctx Context, b Backend) Snippet {
 	mount := WithUserinfo(ctx.mount(b), ctx.Token)
-	body := "bundle config mirror.https://rubygems.org " + mount + "\n"
+	// --global: the user's own configuration. Without it Bundler writes the
+	// setting into the project's .bundle/config when run inside one.
+	body := "bundle config set --global mirror.https://rubygems.org " + mount + "\n"
 	return Snippet{
 		Title: fmt.Sprintf("RubyGems — %s (bundler)", b.Name),
 		File:  "bundle-config.sh",
 		Lang:  "bash",
 		Body:  body,
-		Notes: append(ctx.authNote(),
-			"Or set the Gemfile source: source \""+ctx.mount(b)+"\"."),
+		Notes: append(ctx.authNote(), rubygemsNote(ctx, b)),
 	}
 }
 
+func rubygemsNote(ctx Context, b Backend) string {
+	if ctx.personal() {
+		return "The mirror setting is stored in your user-level Bundler configuration; the Gemfile and Gemfile.lock keep naming rubygems.org. Do not write the link into a Gemfile."
+	}
+	return "Or set the Gemfile source: source \"" + ctx.mount(b) + "\"."
+}
+
+// composerRepoName is the name the proxy is added under as a Composer
+// repository. It must not be "packagist": a repository of that name replaces
+// the definition of the default one, and Composer then still asks
+// packagist.org for what it does not find (seen in the client lab).
+const composerRepoName = "pullthrough"
+
 func composerSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
+	if ctx.personal() {
+		// composer.json is under version control; the per-user configuration is
+		// where a personal link belongs. Redefining the "packagist" repository
+		// there would not do: Composer keeps asking packagist.org (seen in the
+		// client lab, docs/clients/composer.md). packagist.org is switched off,
+		// and the proxy added as a repository of its own name.
+		body := "composer config --global repositories.packagist.org false\n" +
+			"composer config --global repositories." + composerRepoName + " composer " + mount + "\n"
+		return Snippet{
+			Title: fmt.Sprintf("Composer — %s (global config)", b.Name),
+			File:  "composer-config.sh",
+			Lang:  "bash",
+			Body:  body,
+			Notes: append(ctx.authNote(),
+				"This applies to every project of yours (the global config.json in your Composer home), and switches packagist.org off, so Composer does not fetch around the proxy."),
+		}
+	}
 	// Listing the proxy alone is not enough: Composer keeps consulting
 	// packagist.org unless that default repository is switched off, and then
 	// fetches whatever the proxy refused (or has not been asked for) directly.
@@ -361,7 +516,7 @@ func composerSnippet(ctx Context, b Backend) Snippet {
 	notes := append(ctx.authNote(),
 		"Add to composer.json. The \"packagist.org\": false entry keeps Composer from fetching around the proxy.",
 		"Or, for every project at once: composer config --global repositories.packagist.org false && "+
-			"composer config --global repositories.pullthrough composer "+mount+
+			"composer config --global repositories."+composerRepoName+" composer "+mount+
 			" (redefining \"packagist\" alone does not switch packagist.org off).")
 	if ctx.Token != "" {
 		notes = append(notes, "Auth: composer config --global --auth http-basic."+ctx.Host+" pullthrough "+ctx.Token)
@@ -383,9 +538,17 @@ func aptSnippet(ctx Context, b Backend) Snippet {
 		File:  "pullthrough.list",
 		Lang:  "text",
 		Body:  body,
-		Notes: append(ctx.authNote(),
-			"For auth, add /etc/apt/auth.conf.d/pullthrough.conf: 'machine "+ctx.Host+" login pullthrough password <token>'."),
+		Notes: aptNotes(ctx),
 	}
+}
+
+func aptNotes(ctx Context) []string {
+	if ctx.personal() {
+		return append(ctx.authNote(), "APT names the files it keeps in /var/lib/apt/lists after the source's address — link included — and every user of the machine can read those names. "+
+			"On a machine others use, do not use a personal link with APT: present it as a password in /etc/apt/auth.conf.d instead (needs client authentication on the proxy).")
+	}
+	return append(ctx.authNote(),
+		"For auth, add /etc/apt/auth.conf.d/pullthrough.conf: 'machine "+ctx.Host+" login pullthrough password <token>'.")
 }
 
 func yumSnippet(ctx Context, b Backend) Snippet {
@@ -396,9 +559,15 @@ func yumSnippet(ctx Context, b Backend) Snippet {
 		File:  "pullthrough.repo",
 		Lang:  "ini",
 		Body:  body,
-		Notes: append(ctx.authNote(),
-			"For auth, add 'username=' and 'password=' lines to the repo stanza."),
+		Notes: yumNotes(ctx),
 	}
+}
+
+func yumNotes(ctx Context) []string {
+	if ctx.personal() {
+		return append(ctx.authNote(), "The file is readable by every user of the machine: on a shared machine, make it readable by root only (chmod 0600).")
+	}
+	return append(ctx.authNote(), "For auth, add 'username=' and 'password=' lines to the repo stanza.")
 }
 
 // conanSnippet registers the proxy as a Conan remote. It deliberately carries no
@@ -409,6 +578,17 @@ func yumSnippet(ctx Context, b Backend) Snippet {
 // one into the snippet would only leak it into a file that cannot use it.
 func conanSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
+	if ctx.personal() {
+		return Snippet{
+			Title: fmt.Sprintf("Conan — %s", b.Name),
+			File:  "conan-remote.sh",
+			Lang:  "bash",
+			Body:  fmt.Sprintf("conan remote add %s %s\n", b.Name, mount),
+			Notes: append(ctx.authNote(),
+				"Conan 2.x only (the revisions API). The proxy serves the /v2/... endpoints under "+mount+".",
+				"The remote is stored in your Conan home (remotes.json), not in the project. No `conan remote login` is needed: the link identifies you."),
+		}
+	}
 	return Snippet{
 		Title: fmt.Sprintf("Conan — %s", b.Name),
 		File:  "conan-remote.sh",
@@ -430,7 +610,7 @@ func condaSnippet(ctx Context, b Backend) Snippet {
 	// otherwise still points at repo.anaconda.com.
 	// The token is the password of a user name: conda sends no credentials for
 	// a URL that has a user name alone (verified with the real client).
-	alias := withLogin(ctx.ProxyBase+"/v1", ctx.Token)
+	alias := withLogin(ctx.ProxyBase+ctx.Personal+"/v1", ctx.Token)
 	var sb strings.Builder
 	sb.WriteString("# ~/.condarc (read by conda, mamba and micromamba)\n")
 	fmt.Fprintf(&sb, "channel_alias: %s\n", alias)
@@ -480,13 +660,21 @@ func hexSnippet(ctx Context, b Backend) Snippet {
 		File:  "hex-mirror.sh",
 		Lang:  "bash",
 		Body:  sb.String(),
-		Notes: []string{
-			"Do not add the proxy with `mix hex.repo add`: the registry is signed for the repository name hexpm.",
-			"mix cannot present a proxy token. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream " +
-				"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).",
-			"Tarballs are verified against the outer_checksum their signed /packages resource declares.",
-		},
+		Notes: hexNotes(ctx),
 	}
+}
+
+// hexNotes are the notes of the Hex snippet. With a personal link the address
+// identifies the user, and there is no token to present.
+func hexNotes(ctx Context) []string {
+	notes := []string{"Do not add the proxy with `mix hex.repo add`: the registry is signed for the repository name hexpm."}
+	if ctx.personal() {
+		notes = append(ctx.authNote(), notes...)
+	} else {
+		notes = append(notes, "mix cannot present a proxy token. If the proxy enforces authentication, ask the operator to admit anonymous reads for this upstream "+
+			"(auth.allowAnonymous with an auth.anonymousRoles role scoped to it).")
+	}
+	return append(notes, "Tarballs are verified against the outer_checksum their signed /packages resource declares.")
 }
 
 func bazelSnippet(ctx Context, b Backend) Snippet {
@@ -584,7 +772,13 @@ func puppetSnippet(ctx Context, b Backend) Snippet {
 func swiftSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "swift package-registry set %s\n", mount)
+	if ctx.personal() {
+		// Without --global the registry is written into the package's own
+		// .swiftpm/configuration, which is under version control.
+		fmt.Fprintf(&sb, "swift package-registry set --global %s\n", mount)
+	} else {
+		fmt.Fprintf(&sb, "swift package-registry set %s\n", mount)
+	}
 	if ctx.Token != "" {
 		fmt.Fprintf(&sb, "swift package-registry login %s --token %s\n", mount, ctx.Token)
 	}
@@ -636,7 +830,7 @@ func terraformSnippet(ctx Context, b Backend) Snippet {
 	}
 	notes := append(ctx.authNote(),
 		"Provider and module source addresses in your .tf files stay as they are: the host block serves "+registry+" from the proxy.")
-	if ctx.Token == "" {
+	if ctx.Token == "" && !ctx.personal() {
 		notes = append(notes, "If the proxy requires auth, add: credentials \""+registry+"\" { token = \"<your proxy token>\" }.")
 	}
 	return Snippet{
@@ -657,17 +851,24 @@ func registryHost(raw, fallback string) string {
 	return fallback
 }
 
+// helmOCINote is how an OCI-hosted chart is pulled: by its oci:// reference,
+// which carries a personal link the way an image name does.
+func helmOCINote(ctx Context) string {
+	if ctx.personal() {
+		return "OCI-hosted charts (settings.oci=true): helm pull oci://" + ctx.Host + ctx.Personal + "/<upstream>/<repository> — the link is then part of the chart reference."
+	}
+	return "OCI-hosted charts (settings.oci=true) use 'helm registry login " + ctx.Host + "' + 'helm pull oci://...'."
+}
+
 func gitSnippet(ctx Context, b Backend) Snippet {
 	mount := ctx.mount(b)
 	body := ""
 	notes := ctx.authNote()
-	if ctx.Token != "" {
+	if ctx.Token != "" && !ctx.personal() {
 		// The token goes into the user's global Git configuration, scoped to the
 		// proxy, and is sent with every request to it. Clone URLs, .git/config
 		// and .gitmodules then carry no credential — and Git never has to be
-		// challenged: a token in the URL is one Git only sends in answer to a
-		// Basic challenge, which the proxy does not send (verified with the real
-		// client; docs/clients/git.md).
+		// challenged, or to ask for a password nobody has.
 		body += "# Present your token with every request to the proxy (kept in your global Git configuration):\n" +
 			"git config --global http." + ctx.ProxyBase + "/.extraHeader \"Authorization: Bearer " + ctx.Token + "\"\n\n"
 		notes = append(notes, "The token is stored in ~/.gitconfig, not in clone URLs. Remove it with: git config --global --unset http."+ctx.ProxyBase+"/.extraHeader.")

@@ -106,6 +106,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/tracing"
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
 	"github.com/blechschmidt/pullthrough-security/internal/upstreampool"
+	"github.com/blechschmidt/pullthrough-security/internal/userlinks"
 	"github.com/blechschmidt/pullthrough-security/internal/vexexport"
 	"github.com/blechschmidt/pullthrough-security/internal/vulnscan"
 	"github.com/blechschmidt/pullthrough-security/internal/webauthn"
@@ -217,6 +218,7 @@ func buildObservability(
 	keyRotationSvc *keyrotation.Service,
 	webAuthnSvc *webauthn.Service,
 	downloads *downloadlog.Log,
+	userLinksSvc *userlinks.Service,
 	logger *slog.Logger,
 ) observability {
 	var obs observability
@@ -514,6 +516,7 @@ func buildObservability(
 		bindSecOpsMetrics(collector, secopsHub)
 		bindMeteringMetrics(collector, meter)
 		bindDownloadLogMetrics(collector, downloads)
+		bindUserLinksMetrics(collector, userLinksSvc)
 		bindQueryAPIMetrics(collector, queryEngine)
 		bindMCPServerMetrics(collector, mcpSrv)
 		bindGRPCServerMetrics(collector, grpcSrv)
@@ -527,7 +530,7 @@ func buildObservability(
 	}
 
 	if cfg.Observability.Admin {
-		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, adminAuthSvc, vexExporter, logger)
+		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, userLinksSvc, adminAuthSvc, vexExporter, logger)
 		if err != nil {
 			// Cache inspection is the admin minimum; if it cannot be wired we log and
 			// run without the surface rather than aborting the whole proxy.
@@ -5240,6 +5243,7 @@ func buildAdminServer(
 	grpcSrv *grpcapi.Server,
 	meter *metering.Meter,
 	downloads *downloadlog.Log,
+	userLinksSvc *userlinks.Service,
 	adminAuthSvc *adminauth.Service,
 	vexExporter *vexexport.Service,
 	logger *slog.Logger,
@@ -5487,6 +5491,11 @@ func buildAdminServer(
 	// at an empty Downloads tab why it is empty.
 	if downloads != nil {
 		opts.DownloadLog = downloads
+	}
+	// Personal cache links (Task 177): listed and revoked from the console. A
+	// typed nil must not become a non-nil interface, hence the check.
+	if userLinksSvc.Enabled() {
+		opts.UserLinks = userLinksSvc
 	}
 	// Outbound VEX authoring (Task 137): the service is built once in
 	// buildObservability so the metrics bridge and this endpoint share it.

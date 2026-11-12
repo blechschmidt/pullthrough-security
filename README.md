@@ -74,6 +74,14 @@ metrics plus an admin dashboard.
 > refused — filterable by address, CIDR, package and outcome. It is on by
 > default and tested end to end with the real `cargo` and `go` clients. See
 > [docs/download-log.md](docs/download-log.md).
+>
+> **And by whom.** An address is a machine, a NAT gateway or a shared build
+> host. With personal cache links, a cache user signs in through your OpenID
+> Connect identity provider and gets their own address for every package source
+> — `https://proxy.example.com/u/<link>/v1/npm/` — and every download through
+> it is recorded under their name. Tested end to end with the real `npm`,
+> `pip`, `cargo`, `go`, Docker Engine and `git`. See
+> [docs/user-links.md](docs/user-links.md).
 
 ## Architecture
 
@@ -123,6 +131,7 @@ For a deeper walkthrough see [docs/architecture.md](docs/architecture.md).
 | `internal/notify`        | Event-notification & alerting (webhooks + Slack): per-event routing, severity filtering, field redaction, retry-with-backoff, bounded async delivery. See [docs/notifications.md](docs/notifications.md). |
 | `internal/downloadlog`   | The download log: a bounded (entries + retention), queryable, optionally file-persisted record of which package was downloaded from which client address — and by which authenticated identity — including attempts an admission gate refused. Fed by the gateway (and the Git-over-SSH endpoint), served by the admin API's `/api/downloads` endpoints, shown in the console's Downloads tab and by `ptctl downloads`. Filters by address or CIDR, package (with wildcards), ecosystem, outcome, identity and time; aggregates "who pulled this package" / "what did this address pull"; CSV export. See [docs/download-log.md](docs/download-log.md). |
 | `internal/clientip`      | Resolves the address a request is attributed to: the TCP peer, or — for the reverse proxies listed in `server.trustedProxies` — the client they forwarded the request for (`X-Forwarded-For`, read from the right, honored from trusted peers only). One answer per request, shared by the download log, the audit log and anomaly detection. |
+| `internal/userlinks`     | Personal cache links: cache users sign in through an OpenID Connect identity provider (authorization code + PKCE) on a self-service page and get their own address of every package source (`/u/<link>/v1/<upstream>/…`, or `<host>/u/<link>/<upstream>/<image>` for container clients; the link also works as a credential), so the download log attributes each download to a person. Tokens are stored as hashes only; the link registry is shared between replicas through a directory or the S3 bucket; links expire and can be revoked by their user or an operator (`ptctl userlinks`, the console's User links tab). The gateway strips the prefix at its edge and puts it back into the index documents that link to the mount, so nothing behind the edge — cache, gates, logs, upstreams — ever sees a link. See [docs/user-links.md](docs/user-links.md). |
 | `internal/provenance`    | `Resolver` interface linking artifacts to source commits.             |
 | `internal/config`        | YAML + environment configuration loading and validation.             |
 | `internal/logging`       | Structured logging via `log/slog`.                                    |

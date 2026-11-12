@@ -64,6 +64,7 @@ blocked by the proxy. Nothing is wrong with the refused packages themselves.
 - **Also uses:** upstream `pip` (type `pip`) → https://pypi.org, for the client's own tooling
 - **Installs:** `community.general@8.0.0` — pinned as `{ecosystem: ansible, name: community.general, version: 8.0.0}`
 - **Refused:** `ansible.posix@1.5.4` — pinned as `{ecosystem: ansible, name: ansible.posix, version: 1.5.4}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -101,6 +102,7 @@ test -d "collections/ansible_collections/$(echo "$PKG_NAME" | tr . /)"
 - **Upstream:** `apt` (type `apt`) → https://deb.debian.org/debian
 - **Installs:** `hello` — pinned as `{ecosystem: apt, name: hello}`
 - **Refused:** `tree` — pinned as `{ecosystem: apt, name: tree}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -125,6 +127,7 @@ dpkg -s "$PKG_NAME" >/dev/null
 - **Upstream:** `bazel` (type `bazel`) → https://bcr.bazel.build
 - **Installs:** `platforms@0.0.10` — pinned as `{ecosystem: bazel, name: platforms, version: 0.0.10}`
 - **Refused:** `rules_license@1.0.0` — pinned as `{ecosystem: bazel, name: rules_license, version: 1.0.0}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -155,6 +158,7 @@ bazel fetch --repo="@$PKG_NAME"
 - **Installs:** `cfg-if@1.0.0` — pinned as `{ecosystem: cargo, name: cfg-if, version: 1.0.0}`
 - **Refused:** `itoa@1.0.11` — pinned as `{ecosystem: cargo, name: itoa, version: 1.0.11}`
 - **Download log:** asserted — each client run reaches the proxy from its own address; the log must show the installed package for each of them and the refused one as blocked ([download-log.md](download-log.md))
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -198,6 +202,7 @@ cargo fetch
 - **Upstream:** `composer` (type `composer`) → https://repo.packagist.org
 - **Installs:** `psr/log@3.0.0` — pinned as `{ecosystem: composer, name: psr/log, version: 3.0.0}`
 - **Refused:** `psr/container@2.0.2` — pinned as `{ecosystem: composer, name: psr/container, version: 2.0.2}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -239,6 +244,7 @@ composer audit || [ "$?" -lt 100 ]
 - **Also uses:** upstream `pip` (type `pip`) → https://pypi.org, for the client's own tooling
 - **Installs:** `zlib@1.3.1` — pinned as `{ecosystem: conan, name: zlib, version: 1.3.1}`
 - **Refused:** `bzip2@1.0.8` — pinned as `{ecosystem: conan, name: bzip2, version: 1.0.8}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -269,6 +275,7 @@ conan list "$PKG_NAME/$PKG_VERSION" | grep -q "$PKG_NAME/$PKG_VERSION"
 - **Upstream:** `conda` (type `conda`) → https://conda.anaconda.org/conda-forge
 - **Installs:** `tzdata@2024a` — pinned as `{ecosystem: conda, name: tzdata, version: 2024a}`
 - **Refused:** `font-ttf-ubuntu@0.83` — pinned as `{ecosystem: conda, name: font-ttf-ubuntu, version: 0.83}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -300,6 +307,7 @@ test -d "$PWD/env/conda-meta"
 - **Upstream:** `cpan` (type `cpan`) → https://www.cpan.org
 - **Installs:** `Try::Tiny` — pinned as `{ecosystem: cpan, name: Try-Tiny}`
 - **Refused:** `Text::Glob` — pinned as `{ecosystem: cpan, name: Text-Glob}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -321,6 +329,7 @@ perl -e "require $PKG_NAME; print qq($PKG_NAME ok\n)"
 - **Upstream:** `cran` (type `cran`) → https://cloud.r-project.org
 - **Installs:** `R6` — pinned as `{ecosystem: cran, name: R6}`
 - **Refused:** `praise` — pinned as `{ecosystem: cran, name: praise}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -350,6 +359,7 @@ Rscript -e '
 - **Upstream:** `dart` (type `dart`) → https://pub.dev
 - **Installs:** `path@1.9.0` — pinned as `{ecosystem: dart, name: path, version: 1.9.0}`
 - **Refused:** `collection@1.18.0` — pinned as `{ecosystem: dart, name: collection, version: 1.18.0}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -384,6 +394,7 @@ test -d "$PUB_CACHE/hosted"
 - **Proxy setting:** `server.registry.defaultUpstream: docker`
 - **Installs:** `library/alpine@3.19` — pinned as `{ecosystem: docker, name: library/alpine, version: 3.19}`
 - **Refused:** `library/busybox@1.36` — pinned as `{ecosystem: docker, name: library/busybox, version: 1.36}`
+- **Personal link:** not asserted here — this script's second pull uses the registry mirror, which is configured as a bare host and cannot carry a link; the personal image reference (`<proxy>/u/<link>/<upstream>/<repository>`) and `docker login` with the link are asserted with the real Docker Engine by the personal-links suite ([user-links.md](user-links.md#tests))
 - **Note:** Exercises both the explicit `<proxy>/<upstream>/<repository>` reference and registry-mirror mode. The daemon has no network, so a refused image cannot be fetched from Docker Hub instead.
 
 ```sh
@@ -422,6 +433,7 @@ docker run --rm --network none "$PKG_NAME:$PKG_VERSION" true
 - **Upstream:** `git` (type `git`) → https://github.com
 - **Installs:** `octocat/Hello-World` — pinned as `{ecosystem: git, name: octocat/Hello-World}`
 - **Refused:** not applicable — the ecosystem has no package coordinate for the admission policy to gate
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -446,6 +458,7 @@ git -C repo log --oneline -1
 - **Installs:** `rsc.io/quote@v1.5.2` — pinned as `{ecosystem: go, name: rsc.io/quote, version: v1.5.2}`
 - **Refused:** `github.com/pkg/errors@v0.9.1` — pinned as `{ecosystem: go, name: github.com/pkg/errors, version: v0.9.1}`
 - **Download log:** asserted — each client run reaches the proxy from its own address; the log must show the installed package for each of them and the refused one as blocked ([download-log.md](download-log.md))
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -477,6 +490,7 @@ go get "$PKG_NAME@$PKG_VERSION"
 - **Upstream:** `hackage` (type `hackage`) → https://hackage.haskell.org
 - **Installs:** `text@2.1` — pinned as `{ecosystem: hackage, name: text, version: 2.1}`
 - **Refused:** `split@0.2.5` — pinned as `{ecosystem: hackage, name: split, version: 0.2.5}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -505,6 +519,7 @@ test -d "$PKG_NAME-$PKG_VERSION"
 - **Upstream:** `helm` (type `helm`) → https://stefanprodan.github.io/podinfo
 - **Installs:** `podinfo@6.7.1` — pinned as `{ecosystem: helm, name: podinfo, version: 6.7.1}`
 - **Refused:** `podinfo@6.7.0` — pinned as `{ecosystem: helm, name: podinfo, version: 6.7.0}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -529,6 +544,7 @@ test -s "$PKG_NAME-$PKG_VERSION.tgz"
 - **Upstream:** `hex` (type `hex`) → https://repo.hex.pm
 - **Installs:** `jason@1.4.1` — pinned as `{ecosystem: hex, name: jason, version: 1.4.1}`
 - **Refused:** `telemetry@1.2.1` — pinned as `{ecosystem: hex, name: telemetry, version: 1.2.1}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -561,6 +577,7 @@ test -d "deps/$PKG_NAME"
 - **Upstream:** `homebrew` (type `homebrew`) → https://formulae.brew.sh
 - **Installs:** `hello` — pinned as `{ecosystem: homebrew, name: hello}`
 - **Refused:** `cowsay` — pinned as `{ecosystem: homebrew, name: cowsay}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -587,6 +604,7 @@ brew fetch --force "$PKG_NAME"
 - **Also uses:** upstream `pip` (type `pip`) → https://pypi.org, for the client's own tooling
 - **Installs:** `hf-internal-testing/tiny-random-bert@f171d7baecaf37b5da5a3616d8833b9969753535` — pinned as `{ecosystem: huggingface, name: hf-internal-testing/tiny-random-bert}`
 - **Refused:** `hf-internal-testing/tiny-random-gpt2@71034c5d8bde858ff824298bdedc65515b97d2b9` — pinned as `{ecosystem: huggingface, name: hf-internal-testing/tiny-random-gpt2}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -623,6 +641,7 @@ print("downloaded", path, os.path.getsize(path), "bytes")
 - **Upstream:** `jsr` (type `jsr`) → https://jsr.io
 - **Installs:** `@luca/flag@1.0.1` — pinned as `{ecosystem: jsr, name: @luca/flag, version: 1.0.1}`
 - **Refused:** `@std/bytes@1.0.2` — pinned as `{ecosystem: jsr, name: @std/bytes, version: 1.0.2}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -642,6 +661,7 @@ deno cache "jsr:$PKG_NAME@$PKG_VERSION"
 - **Upstream:** `julia` (type `julia`) → https://pkg.julialang.org
 - **Installs:** `Example@0.5.3` — pinned as `{ecosystem: julia, name: 7876af07-990d-54b4-ab0e-23690620f79a}`
 - **Refused:** `IteratorInterfaceExtensions@1.0.0` — pinned as `{ecosystem: julia, name: 82899510-4779-5014-852e-03e436cf321d}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -662,6 +682,7 @@ julia -e 'using Pkg; Pkg.add(name=ENV["PKG_NAME"], version=ENV["PKG_VERSION"])'
 - **Upstream:** `maven` (type `maven`) → https://repo1.maven.org/maven2
 - **Installs:** `org.apache.commons:commons-lang3@3.14.0` — pinned as `{ecosystem: maven, name: org.apache.commons:commons-lang3, version: 3.14.0}`
 - **Refused:** `org.json:json@20240303` — pinned as `{ecosystem: maven, name: org.json:json, version: 20240303}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -697,6 +718,7 @@ mvn --batch-mode --no-transfer-progress -s settings.xml -Dmaven.repo.local="$PWD
   - setting `trustedPublicKeys: cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=`
 - **Installs:** `hello@2.12.1 (nixos-23.11)` — pinned as `{ecosystem: nix, name: n5glp21rsz314qssw9fbvfswgy3kc68f}`
 - **Refused:** `cowsay@3.7.0 (nixos-24.05)` — pinned as `{ecosystem: nix, name: 64hd3cmf7cs2aq5wvjk7xz72z83l1i2v}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -722,6 +744,7 @@ test -e "$PKG_STORE_PATH"
 - **Upstream:** `npm` (type `npm`) → https://registry.npmjs.org
 - **Installs:** `is-number@7.0.0` — pinned as `{ecosystem: npm, name: is-number, version: 7.0.0}`
 - **Refused:** `left-pad@1.3.0` — pinned as `{ecosystem: npm, name: left-pad, version: 1.3.0}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -746,6 +769,7 @@ node -e "require(process.env.PKG_NAME)"
 - **Transport:** HTTPS with a test CA (the client refuses a plain-HTTP source)
 - **Installs:** `Newtonsoft.Json@13.0.3` — pinned as `{ecosystem: nuget, name: newtonsoft.json, version: 13.0.3}`
 - **Refused:** `Humanizer.Core@2.14.1` — pinned as `{ecosystem: nuget, name: humanizer.core, version: 2.14.1}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 - **Note:** Served over HTTPS with a test CA: NuGet requires an HTTPS repository-signature resource.
 
 ```sh
@@ -793,6 +817,7 @@ dotnet restore app.csproj --configfile NuGet.config
 - **Also uses:** upstream `npm` (type `npm`) → https://registry.npmjs.org, for the client's own tooling
 - **Installs:** `dracula-theme.theme-dracula@2.25.1` — pinned as `{ecosystem: openvsx, name: dracula-theme.theme-dracula, version: 2.25.1}`
 - **Refused:** `esbenp.prettier-vscode@11.0.0` — pinned as `{ecosystem: openvsx, name: esbenp.prettier-vscode, version: 11.0.0}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -817,6 +842,7 @@ test -s extension.vsix
 - **Upstream:** `pip` (type `pip`) → https://pypi.org
 - **Installs:** `six@1.16.0` — pinned as `{ecosystem: pip, name: six, version: 1.16.0}`
 - **Refused:** `toml@0.10.2` — pinned as `{ecosystem: pip, name: toml, version: 0.10.2}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -842,6 +868,7 @@ pip show "$PKG_NAME" >/dev/null
 - **Also uses:** upstream `rubygems` (type `rubygems`) → https://rubygems.org, for the client's own tooling
 - **Installs:** `puppetlabs-stdlib@9.4.1` — pinned as `{ecosystem: puppet, name: puppetlabs-stdlib, version: 9.4.1}`
 - **Refused:** `puppetlabs-concat@9.0.2` — pinned as `{ecosystem: puppet, name: puppetlabs-concat, version: 9.0.2}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -872,6 +899,7 @@ test -n "$(ls modules)"
 - **Upstream:** `rubygems` (type `rubygems`) → https://rubygems.org
 - **Installs:** `rake@13.1.0` — pinned as `{ecosystem: rubygems, name: rake, version: 13.1.0}`
 - **Refused:** `rainbow@3.1.1` — pinned as `{ecosystem: rubygems, name: rainbow, version: 3.1.1}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -899,6 +927,7 @@ bundle exec ruby -e 'puts Gem.loaded_specs.keys.sort.join(" ")'
 - **Upstream:** `terraform` (type `terraform`) → https://registry.terraform.io
 - **Installs:** `hashicorp/null@3.2.2` — pinned as `{ecosystem: terraform, name: hashicorp/null, version: 3.2.2}`
 - **Refused:** `hashicorp/random@3.6.0` — pinned as `{ecosystem: terraform, name: hashicorp/random, version: 3.6.0}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh
@@ -941,6 +970,7 @@ terraform init -input=false -no-color
 - **Upstream:** `yum` (type `yum`) → https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os
 - **Installs:** `tree` — pinned as `{ecosystem: yum, name: tree}`
 - **Refused:** `zip` — pinned as `{ecosystem: yum, name: zip}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
 ```sh
 #!/bin/sh

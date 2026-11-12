@@ -130,6 +130,10 @@ means the configuration was not read (see `$CARGO_HOME` above).
 - **Publishing does not go through the proxy** (`cargo publish`, `cargo
   login`, `cargo owner`): it is read-only, and cargo refuses those commands on a
   replaced source anyway.
+- **With a [personal cache link](../user-links.md)** the source replacement
+  belongs in your own `~/.cargo/config.toml`, not a project's
+  `.cargo/config.toml`. `Cargo.lock` keeps naming crates.io, so the link — which
+  works like a password — stays out of it.
 
 ## On the proxy
 

@@ -274,6 +274,12 @@ a rejected token ([client CLI](../client-cli.md)).
   The metadata of a refused package is still served — it is the tarball that is
   refused — so `npm view` works and the install fails at the download.
   [What a refusal means and what to do](../clients.md#when-the-proxy-refuses-a-package).
+- **With a [personal cache link](../user-links.md)** the registry belongs in
+  your user-level `~/.npmrc`, with `omit-lockfile-registry-resolved=true`: npm
+  (8.14 and later) then writes no URL into `package-lock.json`, and the link —
+  which works like a password — is not committed with it. Yarn 1 writes every
+  URL into `yarn.lock`: do not commit a `yarn.lock` written through a personal
+  link.
 
 ## On the proxy
 

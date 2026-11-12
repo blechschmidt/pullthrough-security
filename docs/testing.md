@@ -91,6 +91,22 @@ manager a failure instead of falling back to a scripted client. See
 go test -tags integration ./internal/e2e/downloadlog/
 ```
 
+And the **personal-links suite** (`internal/e2e/userlinks`, Task 177), which
+tests "downloads tracked per user": two users sign in at an OpenID Connect
+identity provider (authorization code with PKCE, RS256 ID tokens), each gets a
+personal cache link from the self-service page, and the real `npm`, `pip`,
+`cargo`, `go`, Docker Engine and `git` — configured with the snippet the page
+hands out — install a package through the real `pullthrough` binary. The log
+must tell the two users apart although every client runs on one machine; a
+revoked link must stop working, on a second replica too; and no link's token
+may be found in anything a proxy wrote or sent upstream.
+`PT_USERLINKS_CLIENTS=real` (set in CI) makes a missing client a failure
+instead of a skipped row. See [user-links.md](user-links.md#tests).
+
+```sh
+make test-user-links     # go test -tags integration ./internal/e2e/userlinks/
+```
+
 The **red-team** tier (`internal/redteam`, Task 76) injects a catalog of
 synthetic supply-chain attacks end-to-end through the full admission pipeline of
 an in-process gateway and asserts the expected gate blocks each one, emitting a
@@ -171,6 +187,12 @@ up by default.
 | `internal/downloadlog` | `FuzzQueryFromValues` | the admin API's filter parameters |
 | `internal/downloadlog` | `FuzzWriteCSV` | the CSV export (formula injection, row integrity) |
 | `internal/downloadlog` | `FuzzLoad` | the on-disk log file after a crash or an edit |
+| `internal/userlinks` | `FuzzWellFormed` | personal-link tokens: only what the generator can produce is well-formed |
+| `internal/userlinks` | `FuzzCleanText` | every string a link record stores (names from an ID token, labels, addresses) |
+| `internal/userlinks` | `FuzzDecodeCookie` | the links page's sign-in cookies: nothing unsigned or re-purposed decodes |
+| `internal/userlinks` | `FuzzLoadLink` | link records read back from the registry's store |
+| `internal/proxy` | `FuzzLinkRewriter` | the personal-link response rewriter: rewriting in chunks equals rewriting at once, and nothing but links to the mount changes |
+| `internal/proxy` | `FuzzRedactPersonalPath` | request-path redaction: a link's token never survives into a log line |
 | `internal/git` | `FuzzFetchSniffer` | a Git client's SSH session stream (pkt-lines) |
 | `internal/git` | `FuzzDescribeDownload` | a Git `upload-pack` request body, plain or gzip |
 | `internal/git` | `FuzzAsksForNothingButRefs` | the decision that keeps a Git request out of the download log |

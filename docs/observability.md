@@ -217,6 +217,21 @@ because the log was full), `expired_total` (dropped by the retention),
 small to cover `downloadLog.retention`; a non-zero `persist_errors_total` means
 `downloadLog.path` cannot be written. See [download-log.md](download-log.md).
 
+### Personal cache links (Task 177)
+
+`pullthrough_userlinks_` + `links{state}` (active\|expired\|revoked) and `users`
+(gauges), `requests_total{via,outcome}` (via: path\|credential; outcome:
+ok\|malformed\|unknown\|expired\|revoked\|unavailable),
+`signins_total{result}` (started\|completed\|failed\|denied), `issued_total`,
+`revoked_total`, `user_revocations_total`, `registry_synced` (gauge: 1 once the
+link registry has been read from its store — while 0 every link is refused),
+`sync_errors_total`, `store_errors_total`, `store_lookups_total`,
+`personal_responses_total`, `rewritten_responses_total`, `rewritten_links_total`.
+A `registry_synced` of 0 beyond start-up or a climbing `store_errors_total`
+means the registry's store (`userLinks.store`) cannot be reached; a climbing
+`requests_total{outcome="unknown"}` means someone is trying links that were
+never issued. See [user-links.md](user-links.md#metrics-and-audit-events).
+
 ### Supply-chain graph (Task 33)
 
 `pullthrough_provgraph_nodes`, `pullthrough_provgraph_edges` (gauges),

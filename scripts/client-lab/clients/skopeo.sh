@@ -43,26 +43,32 @@ if [ -z "${PROXY_TOKEN:-}" ]; then
     # The explicit reference works as well.
     skopeo inspect docker://proxy.example.com/dockerhub/library/alpine:3.19 >/dev/null
 else
-    # skopeo can be handed a bearer token for the registry it reads from, and
-    # sends it to the mirror as well: the one client of this family that can
-    # present a token to the proxy.
-    skopeo copy --src-registry-token "${PROXY_TOKEN}" docker://docker.io/library/alpine:3.19 dir:/tmp/alpine
+    # A login — a user name and a password in an auth file, which is all
+    # Podman, Buildah and CRI-O have. The proxy challenges a container client
+    # with HTTP Basic, and the library answers with the password it holds for
+    # the proxy's host: for the mirror as for an explicit reference.
+    echo "${PROXY_TOKEN}" | skopeo login --username pullthrough --password-stdin proxy.example.com
+    skopeo copy docker://docker.io/library/alpine:3.19 dir:/tmp/alpine
+    skopeo copy docker://ghcr.io/stefanprodan/podinfo:6.7.1 dir:/tmp/podinfo
     test -s /tmp/alpine/manifest.json
-    skopeo inspect --registry-token "${PROXY_TOKEN}" docker://proxy.example.com/dockerhub/library/alpine:3.19 >/dev/null
+    test -s /tmp/podinfo/manifest.json
+    skopeo inspect docker://proxy.example.com/dockerhub/library/alpine:3.19 >/dev/null
+    skopeo logout proxy.example.com
 
-    # A LIMITATION, asserted: a login — a user name and a password in an auth
-    # file, which is all Podman, Buildah and CRI-O have — fails. Like the Docker
-    # Engine, the library reads the proxy's Bearer challenge as the address of a
-    # token service.
-    if skopeo login --username pullthrough --password "${PROXY_TOKEN}" proxy.example.com >login.log 2>&1; then
-        echo "skopeo logged in to the proxy: the limitation is gone — update docs/clients/docker.md"
-        cat login.log; exit 1
+    # The same credential on the command line, for an explicit reference.
+    skopeo inspect --creds "pullthrough:${PROXY_TOKEN}" docker://proxy.example.com/dockerhub/library/alpine:3.19 >/dev/null
+
+    # A LIMITATION, asserted: a bearer token on the command line is not sent.
+    # The library presents one only in answer to a Bearer challenge.
+    if skopeo inspect --registry-token "${PROXY_TOKEN}" docker://proxy.example.com/dockerhub/library/alpine:3.19 >token.log 2>&1; then
+        echo "skopeo authenticated with --registry-token: update docs/clients/docker.md"; cat token.log; exit 1
     fi
-    cat login.log
-    grep -q "unsupported protocol scheme" login.log
-    if skopeo inspect --creds "pullthrough:${PROXY_TOKEN}" docker://proxy.example.com/dockerhub/library/alpine:3.19 >creds.log 2>&1; then
-        echo "skopeo authenticated with --creds: the limitation is gone — update docs/clients/docker.md"
-        exit 1
+    cat token.log
+    grep -q "authentication required" token.log
+
+    # Without a credential, the proxy refuses.
+    if skopeo inspect docker://proxy.example.com/dockerhub/library/alpine:3.19 >anonymous.log 2>&1; then
+        echo "skopeo read from a proxy that requires a token without presenting one"; cat anonymous.log; exit 1
     fi
-    grep -q "unsupported protocol scheme" creds.log
+    cat anonymous.log
 fi

@@ -87,6 +87,10 @@ bazel fetch --repo="@platforms"
   (see [Git](git.md)).
 - **Bazel's own downloads** (toolchains fetched by rules, Bazelisk's download
   of Bazel) do not go through the registry.
+- **With a [personal cache link](../user-links.md)** the registry belongs in
+  your user-level `~/.bazelrc`, not the workspace's `.bazelrc`.
+  `MODULE.bazel.lock` records registry URLs, link included, and the link works
+  like a password: do not commit one written through a personal link.
 
 ## On the proxy
 

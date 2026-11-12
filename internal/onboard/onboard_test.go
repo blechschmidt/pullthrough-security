@@ -262,3 +262,85 @@ func TestHackageSnippetKeepsTheSecureRepository(t *testing.T) {
 		t.Errorf("hackage snippet missing the stanza\n%q\ngot\n%s", want, snip.Body)
 	}
 }
+
+// A token is handed to Git through a header scoped to the proxy, kept in the
+// user's global configuration — never as part of a URL, which Git would store
+// in every checkout and which, lacking a password, makes Git ask for one.
+func TestGitSnippetKeepsTheTokenOutOfURLs(t *testing.T) {
+	snip := For(ctx("secret-tok"), Backend{Name: "github", Type: "git", URL: "https://github.com"})[0]
+	for _, want := range []string{
+		`git config --global http.https://proxy.example.com/.extraHeader "Authorization: Bearer secret-tok"`,
+		"git clone https://proxy.example.com/v1/github/<owner>/<repo>.git",
+		`git config --global url."https://proxy.example.com/v1/github/".insteadOf "https://github.com/"`,
+	} {
+		if !strings.Contains(snip.Body, want) {
+			t.Errorf("git snippet missing %q:\n%s", want, snip.Body)
+		}
+	}
+	if strings.Contains(snip.Body, "secret-tok@") {
+		t.Errorf("the token is part of a URL:\n%s", snip.Body)
+	}
+	// Without a token there is no header to set, and with a personal link the
+	// link is the credential.
+	for name, c := range map[string]Context{
+		"no token":      ctx(""),
+		"personal link": {ProxyBase: "https://proxy.example.com", Host: "proxy.example.com", Personal: "/u/ptl1example"},
+	} {
+		if body := For(c, Backend{Name: "github", Type: "git", URL: "https://github.com"})[0].Body; strings.Contains(body, "extraHeader") {
+			t.Errorf("%s: the snippet sets a credential header:\n%s", name, body)
+		}
+	}
+}
+
+// With a personal link the Composer snippet is the global configuration (a
+// composer.json is committed), and it must keep Composer off packagist.org as
+// the composer.json form does: redefining "packagist" does not.
+func TestComposerPersonalSnippetSwitchesPackagistOff(t *testing.T) {
+	c := Context{ProxyBase: "https://proxy.example.com", Host: "proxy.example.com", Personal: "/u/ptl1example"}
+	snip := For(c, Backend{Name: "packagist", Type: "composer"})[0]
+	for _, want := range []string{
+		"composer config --global repositories.packagist.org false\n",
+		"composer config --global repositories.pullthrough composer https://proxy.example.com/u/ptl1example/v1/packagist\n",
+	} {
+		if !strings.Contains(snip.Body, want) {
+			t.Errorf("personal composer snippet missing %q:\n%s", want, snip.Body)
+		}
+	}
+	if strings.Contains(snip.Body, "repos.packagist") || strings.Contains(snip.Body, "repositories.packagist composer") {
+		t.Errorf("the snippet redefines packagist, which leaves packagist.org in use:\n%s", snip.Body)
+	}
+	if strings.Index(snip.Body, "packagist.org false") > strings.Index(snip.Body, "repositories.pullthrough") {
+		t.Errorf("packagist.org is switched off after the proxy is added:\n%s", snip.Body)
+	}
+}
+
+// With a personal link, every address of the proxy a snippet writes into a
+// configuration is the personal one: an address without the link would leave
+// the client anonymous — or, with authentication on, refused.
+func TestPersonalSnippetsUseThePersonalAddress(t *testing.T) {
+	const personal = "/u/ptl1example"
+	c := Context{ProxyBase: "https://proxy.example.com", Host: "proxy.example.com", Personal: personal}
+	for _, typ := range []string{"npm", "pip", "cargo", "go", "nuget", "maven", "docker", "helm", "rubygems", "composer",
+		"apt", "yum", "terraform", "conan", "conda", "cran", "hex", "bazel", "jsr", "hackage", "julia", "cpan", "openvsx",
+		"nix", "homebrew", "huggingface", "ansible", "puppet", "swift", "dart", "git"} {
+		for _, snip := range For(c, Backend{Name: "up", Type: typ, URL: "https://upstream.example"}) {
+			body := snip.Body
+			for i := strings.Index(body, "proxy.example.com"); i >= 0; {
+				rest := body[i+len("proxy.example.com"):]
+				if !strings.HasPrefix(rest, personal) {
+					line := body[strings.LastIndex(body[:i], "\n")+1:]
+					if j := strings.Index(line, "\n"); j >= 0 {
+						line = line[:j]
+					}
+					t.Errorf("%s: the snippet names the proxy without the personal link:\n    %s", typ, line)
+					break
+				}
+				next := strings.Index(rest, "proxy.example.com")
+				if next < 0 {
+					break
+				}
+				i += len("proxy.example.com") + next
+			}
+		}
+	}
+}

@@ -38,6 +38,14 @@ configuration for each of them as a starting point (where it differs from this
 guide, the guide is the one that was executed), and `ptctl selftest` tells a
 network problem from a rejected token.
 
+> **Per-user addresses.** With [personal cache links](user-links.md) every
+> cache user has their own address of each backend —
+> `https://proxy.example.com/u/<link>/v1/<name>/...` — so that downloads are
+> recorded per user. Everything in this guide applies with that address in
+> place of the mount; the links page (and `ptctl config --personal-link`)
+> generates the configuration, and says for each client where the link must not
+> end up (lock files that record URLs, files under version control).
+
 ## Every ecosystem
 
 | Ecosystem | Clients | What you set | Token |
@@ -96,16 +104,22 @@ one in any of these places:
 
 | Form | Sent by |
 |---|---|
-| `Authorization: Bearer <token>` (also `token <token>`) | npm, Yarn, pnpm, Bun, Composer, Maven and Gradle (as a configured header), containerd, skopeo, Git (as a configured header), Julia, Deno, dart pub, Hugging Face, ansible-galaxy, r10k, puppet |
-| HTTP Basic, the token as the **password** (any user name) | pip, uv, Poetry, PDM, go, Bundler, gem, apt, dnf, Helm, cpanm, conda, Nix, Bazel, R, cabal (through curl), Homebrew (through curl), Git (a credential helper, sent proactively) |
+| `Authorization: Bearer <token>` (also `token <token>`) | npm, Yarn, pnpm, Bun, Composer, Maven and Gradle (as a configured header), containerd, Git (as a configured header), Julia, Deno, dart pub, Hugging Face, ansible-galaxy, r10k, puppet |
+| HTTP Basic, the token as the **password** (any user name) | pip, uv, Poetry, PDM, go, Bundler, gem, apt, dnf, Helm, cpanm, conda, Nix, Bazel, R, cabal (through curl), Homebrew (through curl), the Docker Engine, Podman, Buildah, CRI-O and skopeo (a login), Git (a credential helper) |
 | HTTP Basic, the token as the user name | accepted, for tools that put a token there |
 | `X-Api-Token: <token>` or `X-Auth-Token: <token>` | scripts and CI steps |
 
 A request without a valid token is answered `401` with the challenge
-`WWW-Authenticate: Bearer realm="pullthrough"`. That matters for the clients
-below: a client that only ever sends its credentials in answer to a `Basic`
-challenge, or that reads a `Bearer` challenge as the address of a token
-service, never gets to send them.
+`WWW-Authenticate: Bearer realm="pullthrough"` — except a request to a
+container registry upstream and a Git request, which are challenged with
+`Basic realm="pullthrough"`: a container client reads a `Bearer` challenge as
+the address of a token service to log in to, and Git answers only a `Basic`
+one from its credential helper. The challenge matters for the clients below: a
+client that only ever sends its credentials in answer to a `Basic` challenge
+never gets to send them to the other upstreams.
+
+A [personal cache link](user-links.md) is a token too: where access control is
+on, any of these forms can carry its token instead of an API token.
 
 ### Clients that cannot present a token
 
@@ -113,18 +127,20 @@ service, never gets to send them.
 |---|---|---|
 | cargo | sends its token for crate downloads only when the registry declares `auth-required`, which the proxy's `config.json` does not | [cargo](clients/cargo.md#authenticate) |
 | NuGet | sends source credentials only in answer to a `Basic` challenge | [NuGet](clients/nuget.md#authenticate) |
-| Docker Engine, Podman, Buildah, CRI-O, Helm (OCI) | read the `Bearer` challenge as a token service to log in to (skopeo, of the same family, takes a token on its command line) | [Docker](clients/docker.md#authenticate), [Helm](clients/helm.md#authenticate) |
 | Terraform, OpenTofu (providers) | fetch checksums, signature and package without the token they send to the registry API | [Terraform](clients/terraform.md#authenticate) |
 | Conan | gets its token from a login endpoint the proxy does not serve | [Conan](clients/conan.md#authenticate) |
 | mix (Hex) | Mix has no credential setting for downloading Hex; Hex hands its key to hex.pm, not to a mirror | [Hex](clients/hex.md#authenticate) |
 | ovsx | has a token only for publishing | [Open VSX](clients/openvsx.md#authenticate) |
-| Git with a credential helper or a token in the URL | presents such a credential only in answer to a `Basic` challenge — the header form works, and so does a credential helper once Git (2.46 or later) is told to send it proactively | [Git](clients/git.md#authenticate) |
-| Maven with `<username>`/`<password>` | the same — a header, or preemptive authentication, works | [Maven](clients/maven.md#authenticate) |
+| Maven with `<username>`/`<password>` | presents them only in answer to a `Basic` challenge — a header, or preemptive authentication, works | [Maven](clients/maven.md#authenticate) |
 
-For the first seven there is no client-side setting that helps. Where access
-control is on, the operator admits such a client **without** a token, for
-exactly its upstream, and keeps the token requirement everywhere else — an
-anonymous role scoped to that upstream:
+For the first six there is no client-side setting that helps. Two ways
+remain. With [personal cache links](user-links.md), the client needs no token:
+its user's link is part of the package source's address, so every request
+carries it (the integration suite installs with the real cargo that way, on a
+proxy that requires authentication). Otherwise, where access control is on, the
+operator admits such a client **without** a token, for exactly its upstream,
+and keeps the token requirement everywhere else — an anonymous role scoped to
+that upstream:
 
 <!-- proxy-config -->
 

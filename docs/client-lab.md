@@ -101,7 +101,7 @@ and `lab.sh up` makes new ones when they are about to run out.
 
 <!-- results:begin -->
 
-Last run: 2026-11-11, linux/x86_64.
+Last run: 2026-11-12, linux/x86_64.
 
 | Client | Version | No access control | Token required | Token required, anonymous role | Other hosts looked up | Script |
 |---|---|---|---|---|---|---|
@@ -125,7 +125,7 @@ Last run: 2026-11-11, linux/x86_64.
 | dart pub | 3.5.4 | ✔ | ✔ | — | — | [`dart.sh`](../scripts/client-lab/clients/dart.sh) |
 | Deno | 2.9.8 | ✔ | ✔ | — | — | [`deno.sh`](../scripts/client-lab/clients/deno.sh) |
 | DNF | 4.14.0 | ✔ | ✔ | — | — | [`dnf.sh`](../scripts/client-lab/clients/dnf.sh) |
-| Docker Engine (with a token: refused) | 27.5.1 | — | ✔ | — | — | [`docker-login.sh`](../scripts/client-lab/clients/docker-login.sh) |
+| Docker Engine (docker login) | 27.5.1 | — | ✔ | — | — | [`docker-login.sh`](../scripts/client-lab/clients/docker-login.sh) |
 | Docker Engine | 27.5.1 | ✔ | — | — | docker.io | [`docker.sh`](../scripts/client-lab/clients/docker.sh) |
 | RubyGems (gem) and a Gemfile source | 3.5.22 | ✔ | ✔ | — | — | [`gem.sh`](../scripts/client-lab/clients/gem.sh) |
 | Git | 2.49.1 | ✔ | ✔ | — | — | [`git.sh`](../scripts/client-lab/clients/git.sh) |
@@ -191,13 +191,13 @@ cran 0c32c9d5eae9
 dart 5fa99b599820
 deno 5a34612e29c8
 dnf 7b64165e9e5d
-docker-login ea748ff7fb77
+docker-login ba02ea48d1cc
 docker 9643275c270c
 gem 23e5f2282587
-git 111e9a440240
+git 624ae43130f4
 go 71ce814e4af3
 gradle 336a42c56280
-helm d1a042e1f1b5
+helm eeef309fef0e
 hex ab46b2828f3e
 hex-token 1518bdbd0854
 huggingface 25375d201adf
@@ -229,7 +229,7 @@ refused-cargo 2b3150e9baaa
 refused-go da63b18d03cd
 refused-npm 67d9252420e6
 refused-pip f87b2d06a802
-skopeo a92c9a1235a0
+skopeo 1010d3830066
 terraform 092d85c93c62
 tofu edef86277dc2
 uv c098c8c7f3f9
@@ -293,13 +293,18 @@ tooling and the proxy:
   `dc.services.visualstudio.com`, brew updates itself from `github.com`. Each
   page says how to switch that off, and each script that sets such a switch
   was also run without it to see what it is for.
-- **Several clients cannot present a token to the proxy**: cargo, NuGet, the
-  Docker Engine, the library Podman, Buildah and CRI-O share (a login fails;
-  skopeo, built on it, takes a token on its command line), Helm for OCI
-  charts, Terraform and OpenTofu for providers, Conan, mix, ovsx; Git and Maven
-  only in some of their forms. The guide says so per client, and the lab
-  asserts these limitations so that the guide follows when one is lifted
-  ([which clients](clients.md#clients-that-cannot-present-a-token)).
+- **Several clients cannot present a token to the proxy**: cargo, NuGet,
+  Terraform and OpenTofu for providers, Conan, mix, ovsx; Maven only in some of
+  its forms. The guide says so per client, and the lab asserts these
+  limitations so that the guide follows when one is lifted
+  ([which clients](clients.md#clients-that-cannot-present-a-token)). The Docker
+  Engine, the library Podman, Buildah, CRI-O and skopeo share, Helm for OCI
+  charts and Git with a credential helper were on this list while the proxy
+  challenged every client with `Bearer`: they read it as the address of a token
+  service, or answer only a `Basic` challenge. The proxy now challenges
+  container registry and Git requests with `Basic`, and the lab asserts that
+  `docker login`, `skopeo login`, `helm registry login` and a Git credential
+  helper work.
 - **`ptctl config` printed configurations that cannot work**: a
   `mix hex.repo add` that Hex rejects, credentials cargo and NuGet never send,
   a token in a Git URL, a conda channel alias whose credentials conda drops, a

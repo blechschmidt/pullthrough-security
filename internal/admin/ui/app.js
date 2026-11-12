@@ -78,6 +78,22 @@
     return `${Math.floor(secs / 86400)}d ago`;
   }
 
+  // fmtUntil is fmtAge for a moment that is still to come — fmtAge calls every
+  // one of those "now": "in 40 min", "in 5 h", "in 89 days". It rounds down, so
+  // what it names is time that is certainly left. A moment already past reads
+  // as fmtAge has it.
+  function fmtUntil(s) {
+    if (!s) return "—";
+    const d = new Date(s);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2) return "—";
+    const secs = (d.getTime() - Date.now()) / 1000;
+    if (secs <= 0) return fmtAge(s);
+    if (secs < 60) return "in <1 min";
+    if (secs < 3600) return `in ${Math.floor(secs / 60)} min`;
+    if (secs < 172800) return `in ${Math.floor(secs / 3600)} h`;
+    return `in ${Math.floor(secs / 86400)} days`;
+  }
+
   function fmtPct(r) {
     return `${(Math.max(0, Math.min(1, r || 0)) * 100).toFixed(1)}%`;
   }
@@ -310,7 +326,8 @@
   // The address bar names the open tab ("#downloads"), so a view can be
   // bookmarked, linked from a ticket, and survives a reload or an SSO round
   // trip. The download log additionally carries its filter
-  // ("#downloads?ip=10.0.0.7"): "who pulled this package" is a link.
+  // ("#downloads?ip=10.0.0.7"): "who pulled this package" is a link. So does
+  // the list of personal links ("#userlinks?subject=alice@example.com").
   function viewNames() {
     return $$(".tab").map((t) => t.dataset.view);
   }
@@ -326,15 +343,15 @@
 
   function currentHash() {
     let hash = "#" + currentView;
-    if (currentView === "downloads") {
-      const filter = downloadsParams().toString();
-      if (filter) hash += "?" + filter;
-    }
+    let filter = "";
+    if (currentView === "downloads") filter = downloadsParams().toString();
+    else if (currentView === "userlinks") filter = userlinksParams().toString();
+    if (filter) hash += "?" + filter;
     return hash;
   }
 
-  // syncHash writes the open tab (and the download-log filter) to the address
-  // bar without adding a history entry per click.
+  // syncHash writes the open tab (and its filter, where the tab has one) to the
+  // address bar without adding a history entry per click.
   function syncHash() {
     const hash = currentHash();
     if (location.hash !== hash) history.replaceState(null, "", hash);
@@ -346,6 +363,7 @@
     const target = parseHash();
     if (!target) return false;
     if (target.name === "downloads") setDownloadsFilter(downloadsFilterFromParams(target.params), false);
+    if (target.name === "userlinks") setUserlinksFilter(userlinksFilterFromParams(target.params), false);
     setView(target.name);
     return true;
   }
@@ -931,14 +949,16 @@
   // --- Download log (Task 176) ----------------------------------------------
   // Which package was downloaded from which address. The view is a filter over
   // the proxy's download log: a page of entries (GET downloads) plus the
-  // aggregates for the same filter (GET downloads/summary). Clicking an address
-  // or a package sets the filter to it, which is how the two questions the log
-  // exists for are asked: "what did this address pull" and "who pulled this
-  // package".
+  // aggregates for the same filter (GET downloads/summary). Clicking an address,
+  // a user or a package sets the filter to it, which is how the questions the
+  // log exists for are asked: "what did this address pull", "what did this user
+  // pull" and "who pulled this package". A user is whoever the proxy identified
+  // the client as — by its authentication, or by the personal cache link the
+  // request came through (Task 177).
   const DOWNLOADS_PAGE = 100;
   const DOWNLOADS_TOP = 8;
   const DOWNLOADS_AUTO_MS = 5000;
-  const DOWNLOADS_FILTERS = ["ip", "package", "ecosystem", "outcome", "since", "search"];
+  const DOWNLOADS_FILTERS = ["ip", "package", "subject", "ecosystem", "outcome", "since", "search"];
   const downloadsState = { wired: false, next: 0, shown: 0, total: 0, seq: 0, timer: null };
 
   // downloadsParams turns the filter controls into API query parameters.
@@ -946,6 +966,7 @@
     const p = new URLSearchParams();
     const ip = $("#downloads-ip").value.trim();
     const coord = $("#downloads-package").value.trim();
+    const subject = $("#downloads-subject").value.trim();
     const eco = $("#downloads-ecosystem").value;
     const outcome = $("#downloads-outcome").value;
     const since = $("#downloads-since").value;
@@ -956,6 +977,10 @@
     // not something the text says, so it is not split here: the API matches the
     // filter against both the name and the name@version coordinate.
     if (coord) p.set("package", coord);
+    // As typed, too. The API reads it: a "*" makes it a pattern
+    // ("*@example.com"), and "-" asks for the downloads nobody was identified
+    // for.
+    if (subject) p.set("subject", subject);
     if (eco) p.set("ecosystem", eco);
     if (outcome) p.set("outcome", outcome);
     if (since) p.set("since", since);
@@ -963,21 +988,31 @@
     return p;
   }
 
+  // setFilterControl sets one filter control. A <select> that does not offer
+  // the value yet (an ecosystem seen only in a link) is given it as an option:
+  // the filter is then applied — and refused by the API when it is wrong —
+  // rather than silently dropped.
+  function setFilterControl(control, value) {
+    if (control.tagName === "SELECT" && value && !$$("option", control).some((o) => o.value === value)) {
+      control.appendChild(el("option", { value, text: value }));
+    }
+    control.value = value;
+  }
+
   // setDownloadsFilter sets filter controls by name and reloads. A value absent
   // from `values` is left as it is; pass "" to clear one.
   function setDownloadsFilter(values, reload) {
     for (const name of DOWNLOADS_FILTERS) {
-      if (!(name in values)) continue;
-      const control = $("#downloads-" + name);
-      const value = values[name] || "";
-      if (control.tagName === "SELECT" && value && !$$("option", control).some((o) => o.value === value)) {
-        // A value the list does not offer yet (an ecosystem seen only in a
-        // link): add it rather than silently dropping the filter.
-        control.appendChild(el("option", { value, text: value }));
-      }
-      control.value = value;
+      if (name in values) setFilterControl($("#downloads-" + name), values[name] || "");
     }
     if (reload !== false) runDownloads().catch((e) => toast(e.message, true));
+  }
+
+  // openDownloads opens the download log from another tab with nothing but the
+  // given filter set: "what did this user pull", asked from the list of users.
+  function openDownloads(values) {
+    setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), values), false);
+    setView("downloads");
   }
 
   // downloadsFilterFromParams maps deep-link parameters ("#downloads?ip=…") onto
@@ -1013,11 +1048,6 @@
     }
   }
 
-  function downloadsIdentity(e) {
-    if (e.subject && e.tenant) return e.subject + " (" + e.tenant + ")";
-    return e.subject || e.tenant || "";
-  }
-
   // downloadsLink renders a value as a button that filters the log by it.
   function downloadsLink(text, title, values, mono) {
     const btn = el("button.cell-link" + (mono ? ".mono" : "") + ".truncate", { type: "button", title, text });
@@ -1027,6 +1057,24 @@
     return btn;
   }
 
+  // downloadsIdentityCell renders who an entry's client was identified as: the
+  // user as a button that filters the log by them, the tenant in parentheses,
+  // and under them the personal link the request came through. An entry
+  // without a user shows what it always did: the tenant, or a dash.
+  function downloadsIdentityCell(e) {
+    const cell = el("td.identity");
+    if (e.subject) {
+      cell.appendChild(downloadsLink(e.subject, "Show everything " + e.subject + " pulled", { subject: e.subject }));
+      if (e.tenant) cell.appendChild(document.createTextNode(" (" + e.tenant + ")"));
+    } else {
+      cell.appendChild(el("span.truncate", { title: e.tenant || "", text: e.tenant || "—" }));
+    }
+    if (e.link) {
+      cell.appendChild(el("span.cell-note", { title: "the personal cache link this request came through", text: "link " + e.link }));
+    }
+    return cell;
+  }
+
   function downloadsRow(e) {
     const pkg = e.package
       ? downloadsLink(e.package, "Show everyone who pulled " + e.package, { package: e.package, ecosystem: e.ecosystem }, true)
@@ -1034,7 +1082,6 @@
     const client = el("td", null,
       downloadsLink(e.clientIp, "Show everything " + e.clientIp + " pulled", { ip: e.clientIp }, true),
       e.forwardedBy ? el("span.cell-note", { title: "client address forwarded by the trusted proxy " + e.forwardedBy, text: "via " + e.forwardedBy }) : null);
-    const identity = downloadsIdentity(e);
     const open = () => showDownload(e);
     // The row is clickable as a convenience for the mouse; the control that
     // opens the details — for the keyboard and for assistive technology — is a
@@ -1055,7 +1102,7 @@
       // For a refused request the cache column would only repeat "blocked".
       el("td", null, el("span.muted", { text: e.outcome === "blocked" ? "—" : (e.cache || "—") })),
       el("td.num", { text: e.outcome === "served" ? fmtBytes(e.bytes) : "—" }),
-      el("td", null, el("span.truncate", { title: identity, text: identity || "—" })));
+      downloadsIdentityCell(e));
     row.addEventListener("click", open);
     return row;
   }
@@ -1070,6 +1117,7 @@
       ["Identity", e.subject],
       ["Tenant", e.tenant],
       ["Authenticated via", e.authMethod],
+      ["Personal link", e.link ? el("span.mono", { text: e.link }) : ""],
       ["Ecosystem", e.ecosystem],
       ["Upstream", e.upstream],
       ["Package", e.package ? el("span.mono", { text: e.package }) : ""],
@@ -1097,6 +1145,14 @@
       actions.appendChild(b);
     };
     act("Everything from " + e.clientIp, () => setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), { ip: e.clientIp })));
+    if (e.subject) {
+      act("Everything by " + e.subject, () => setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), { subject: e.subject })));
+    }
+    if (e.link) {
+      // The filter bar has no control for a link; the free-text search matches
+      // link identifiers.
+      act("Everything through this link", () => setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), { search: e.link })));
+    }
     if (e.package) {
       act("Everyone who pulled " + e.package, () => setDownloadsFilter(Object.assign(downloadsFilterFromParams([]), { package: e.package, ecosystem: e.ecosystem })));
       act("Open dossier", () => {
@@ -1119,6 +1175,14 @@
       `${sum.served || 0} served · ${fmtBytes(sum.bytes || 0)} sent` + (failed ? ` · ${failed} failed` : "")));
     cards.appendChild(stat("Blocked attempts", sum.blocked || 0, "refused by an admission gate", sum.blocked ? "bad" : "ok"));
     cards.appendChild(stat("Client addresses", sum.clients || 0, "distinct addresses"));
+    // How much of the selection is known by person, and how much only by
+    // address.
+    const anonymous = sum.unattributed || 0;
+    cards.appendChild(stat("Users", sum.users || 0, !sum.users
+      ? "no download carries an identity"
+      : anonymous
+        ? `${anonymous} ${anonymous === 1 ? "download" : "downloads"} without an identity`
+        : "every download has an identity"));
     cards.appendChild(stat("Packages", sum.packages || 0, "distinct packages"));
     if (log) {
       const keep = log.retentionSeconds ? Math.round(log.retentionSeconds / 8640) / 10 + " d retention" : "no time limit";
@@ -1130,19 +1194,26 @@
     if (!sum.byClient || !sum.byClient.length) {
       clients.appendChild(emptyRow($("#downloads-clients-table"), 5, "No downloads match."));
     } else {
-      sum.byClient.forEach((c) => clients.appendChild(el("tr", null,
-        el("td", null,
-          downloadsLink(c.clientIp, "Show everything " + c.clientIp + " pulled", { ip: c.clientIp }, true),
-          c.identities && c.identities.length ? el("span.muted", { text: " " + c.identities.join(", ") }) : null),
-        el("td.num", { text: String(c.downloads || 0) }),
-        el("td.num", null, c.blocked ? el("span.bad", { text: String(c.blocked) }) : "0"),
-        el("td.num", { text: String(c.packages || 0) }),
-        el("td.nowrap", null, el("span.muted", { title: c.lastSeen, text: fmtAge(c.lastSeen) })))));
+      sum.byClient.forEach((c) => {
+        // The users seen at the address are e-mail addresses, as a rule, and
+        // there can be several: they are cut like every other value, or one
+        // long name pushes the numbers out of the panel.
+        const who = (c.identities || []).join(", ");
+        clients.appendChild(el("tr", null,
+          el("td", null,
+            downloadsLink(c.clientIp, "Show everything " + c.clientIp + " pulled", { ip: c.clientIp }, true),
+            who ? " " : null,
+            who ? el("span.muted.truncate", { title: who, text: who }) : null),
+          el("td.num", { text: String(c.downloads || 0) }),
+          el("td.num", null, c.blocked ? el("span.bad", { text: String(c.blocked) }) : "0"),
+          el("td.num", { text: String(c.packages || 0) }),
+          el("td.nowrap", null, el("span.muted", { title: c.lastSeen, text: fmtAge(c.lastSeen) }))));
+      });
     }
 
     const packages = clear($("#downloads-packages-body"));
     if (!sum.byPackage || !sum.byPackage.length) {
-      packages.appendChild(emptyRow($("#downloads-packages-table"), 5, "No downloads match."));
+      packages.appendChild(emptyRow($("#downloads-packages-table"), 6, "No downloads match."));
     } else {
       sum.byPackage.forEach((p) => packages.appendChild(el("tr", null,
         el("td", null,
@@ -1151,7 +1222,31 @@
         el("td.num", { text: String(p.downloads || 0) }),
         el("td.num", null, p.blocked ? el("span.bad", { text: String(p.blocked) }) : "0"),
         el("td.num", { text: String(p.clients || 0) }),
+        el("td.num", { text: String(p.users || 0) }),
         el("td.nowrap", null, el("span.muted", { title: p.lastSeen, text: fmtAge(p.lastSeen) })))));
+    }
+
+    const users = clear($("#downloads-users-body"));
+    if (!sum.byUser || !sum.byUser.length) {
+      users.appendChild(emptyRow($("#downloads-users-table"), 6, "No download in this selection carries an identity."));
+    } else {
+      sum.byUser.forEach((u) => {
+        // One user on many addresses is worth a look: a laptop that moves, or a
+        // personal link that got out. The summary names a few of them.
+        const ips = u.clientIps || [];
+        const more = (u.addresses || 0) - ips.length;
+        const addresses = ips.join(", ") + (ips.length && more > 0 ? ` and ${more} more` : "");
+        users.appendChild(el("tr", null,
+          el("td", null,
+            downloadsLink(u.subject, "Show everything " + u.subject + " pulled", { subject: u.subject }),
+            u.tenant ? " " : null,
+            u.tenant ? el("span.muted.nowrap", { text: u.tenant }) : null),
+          el("td.num", { text: String(u.downloads || 0) }),
+          el("td.num", null, u.blocked ? el("span.bad", { text: String(u.blocked) }) : "0"),
+          el("td.num", { text: String(u.packages || 0) }),
+          el("td.num", { title: addresses || null, text: String(u.addresses || 0) }),
+          el("td.nowrap", null, el("span.muted", { title: u.lastSeen, text: fmtAge(u.lastSeen) }))));
+      });
     }
 
     // Offer every ecosystem that has entries, whatever the page shows.
@@ -1198,6 +1293,7 @@
       clear($("#downloads-cards"));
       clear($("#downloads-clients-body"));
       clear($("#downloads-packages-body"));
+      clear($("#downloads-users-body"));
       clear($("#downloads-body")).appendChild(emptyRow($("#downloads-table"), 8, "The download log is disabled."));
       $("#downloads-more").hidden = true;
       meta.textContent = "";
@@ -1269,7 +1365,7 @@
       $("#downloads-auto").addEventListener("click", downloadsToggleAuto);
       $("#downloads-csv").addEventListener("click", () => exportDownloads().catch((e) => toast(e.message, true)));
       $("#downloads-more").addEventListener("click", () => runDownloads({ older: true }).catch((e) => toast(e.message, true)));
-      ["#downloads-ip", "#downloads-package", "#downloads-search"].forEach((id) => {
+      ["#downloads-ip", "#downloads-package", "#downloads-subject", "#downloads-search"].forEach((id) => {
         $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
       });
       ["#downloads-ecosystem", "#downloads-outcome", "#downloads-since"].forEach((id) => $(id).addEventListener("change", go));
@@ -1283,6 +1379,349 @@
       }).catch(() => {});
     }
     await runDownloads();
+  };
+
+  // --- Personal cache links (Task 177) --------------------------------------
+  // Who holds a personal link — the package-source URL under a prefix that
+  // names a user, so that their downloads are recorded as theirs — when each
+  // link was last used and from where, and the means to end them. The view is a
+  // filter over the link registry (GET userlinks). The proxy keeps no tokens,
+  // so a link can be listed and revoked here, never shown again.
+  const USERLINKS_LIMIT = 500;
+  const userlinksState = { wired: false, seq: 0, subject: "" };
+
+  // userlinksParams turns the filter into API query parameters. The deep link
+  // ("#userlinks?subject=…") uses the same names.
+  function userlinksParams() {
+    const p = new URLSearchParams();
+    const q = $("#userlinks-search").value.trim();
+    const state = $("#userlinks-state").value;
+    if (q) p.set("q", q);
+    if (state) p.set("state", state);
+    if (userlinksState.subject) p.set("subject", userlinksState.subject);
+    return p;
+  }
+
+  // setUserlinksFilter sets the filter by name and reloads. A name absent from
+  // `values` is left as it is; pass "" to clear one. The user is not one of the
+  // toolbar's controls: "the links of this user" is an exact match, which the
+  // search box — a substring search over several fields — cannot say. It is
+  // kept here and shown as a button that lifts it.
+  function setUserlinksFilter(values, reload) {
+    if ("search" in values) $("#userlinks-search").value = values.search || "";
+    if ("state" in values) setFilterControl($("#userlinks-state"), values.state || "");
+    if ("subject" in values) {
+      userlinksState.subject = values.subject || "";
+      renderUserlinksSubject();
+    }
+    if (reload !== false) runUserlinks().catch((e) => toast(e.message, true));
+  }
+
+  // userlinksFilterFromParams maps deep-link parameters ("#userlinks?state=…")
+  // onto the filter. Like the download log's, it accepts the API's names.
+  function userlinksFilterFromParams(params) {
+    const values = { search: "", state: "", subject: "" };
+    for (const [key, value] of params) {
+      if (key === "q" || key === "search") values.search = value;
+      else if (key === "state") values.state = value.trim().toLowerCase();
+      else if (key === "subject") values.subject = value.trim();
+    }
+    return values;
+  }
+
+  // renderUserlinksSubject shows the user the list is narrowed to, as the
+  // button that lists everyone's links again.
+  function renderUserlinksSubject() {
+    const chip = clear($("#userlinks-subject"));
+    const subject = userlinksState.subject;
+    chip.hidden = !subject;
+    if (!subject) return;
+    chip.title = "Only the links of " + subject + " are listed";
+    chip.appendChild(el("span.truncate", { text: "User: " + subject }));
+    // The cross is decoration; what the button does is said in words.
+    chip.appendChild(el("span", { "aria-hidden": "true", text: "✕" }));
+    chip.appendChild(el("span.visually-hidden", { text: "(list the links of every user again)" }));
+  }
+
+  // userlinksSubjectLink renders a user as a button that narrows the list to
+  // their links.
+  function userlinksSubjectLink(subject) {
+    const btn = el("button.cell-link.truncate", { type: "button", title: "Show only the links of " + subject, text: subject });
+    btn.addEventListener("click", () => {
+      setUserlinksFilter({ subject });
+      // The reload replaces the row this button is in. Focus goes to the
+      // control that now shows — and undoes — what it did.
+      $("#userlinks-subject").focus();
+    });
+    return btn;
+  }
+
+  function userlinksStatePill(l) {
+    switch (l.state) {
+      case "active":
+        return el("span.pill.ok", { text: "working" });
+      case "expired":
+        return el("span.pill.warn", { text: "expired" });
+      case "revoked": {
+        const title = "revoked" + (l.revokedAt ? " " + new Date(l.revokedAt).toLocaleString() : "") +
+          (l.revokedBy ? " by " + l.revokedBy : "") + (l.revokeReason ? " — " + l.revokeReason : "");
+        return el("span.pill.bad", { title, text: "revoked" });
+      }
+      default:
+        return el("span.pill", { text: l.state || "—" });
+    }
+  }
+
+  // userlinksNote renders a secondary line under a cell's value. These are
+  // texts of any length — a name, an address, a client tool — so the line is
+  // cut where it runs long, and the title has all of it.
+  function userlinksNote(text, title) {
+    return text ? el("span.cell-note.truncate", { title: title || text, text }) : null;
+  }
+
+  // userlinksUsed renders when a link — or any link of a user — was last used.
+  // The note under it names the address of that download.
+  function userlinksUsed(at, note) {
+    if (!at) return el("td", null, el("span.muted", { text: "never" }));
+    return el("td", null, el("span.nowrap", { title: at, text: fmtAge(at) }), userlinksNote(note));
+  }
+
+  function userlinksUserRow(u) {
+    const who = [u.name, u.team].filter(Boolean).join(" · ");
+    const downloads = el("button.btn.btn-sm", {
+      type: "button", title: "Show everything " + u.subject + " pulled, in the download log",
+      "aria-label": "Downloads of " + u.subject, text: "Downloads",
+    });
+    downloads.addEventListener("click", () => openDownloads({ subject: u.subject }));
+    const revoke = el("button.btn.btn-sm.btn-danger", {
+      type: "button", title: "Revoke every link of " + u.subject + " and sign them out of the links page",
+      "aria-label": "Revoke all links of " + u.subject, text: "Revoke all",
+    });
+    revoke.addEventListener("click", () => revokeUserlinksOf(u.subject, revoke));
+    return el("tr", null,
+      el("td.user", null, userlinksSubjectLink(u.subject), userlinksNote(who)),
+      el("td.num", { text: String(u.active || 0) }),
+      el("td.num", { text: String(u.links || 0) }),
+      userlinksUsed(u.lastUsedAt, u.lastAddr),
+      el("td.nowrap", null, el("div.button-group", null, downloads, revoke)));
+  }
+
+  // userlinksLinkName is how a dialog or a button names one link: by the name
+  // its user gave it, or by its identifier when they gave none.
+  function userlinksLinkName(l) {
+    return l.label ? `the link "${l.label}"` : "the unnamed link " + l.id;
+  }
+
+  function userlinksRow(l) {
+    // Under the user: the name the identity provider gave, and the e-mail
+    // address where that is not what the user is called anyway.
+    const who = [l.name, l.email !== l.subject ? l.email : ""].filter(Boolean).join(" · ");
+    const downloads = el("button.btn.btn-sm", {
+      type: "button", title: "Show the downloads through this link, in the download log",
+      "aria-label": "Downloads through " + userlinksLinkName(l) + " of " + l.subject, text: "Downloads",
+    });
+    // The download log's filter bar has no control for a link; its free-text
+    // search matches link identifiers.
+    downloads.addEventListener("click", () => openDownloads({ search: l.id }));
+    const actions = el("div.button-group", null, downloads);
+    if (l.state === "active") {
+      const revoke = el("button.btn.btn-sm.btn-danger", {
+        type: "button", "aria-label": "Revoke " + userlinksLinkName(l) + " of " + l.subject, text: "Revoke",
+      });
+      revoke.addEventListener("click", () => revokeUserlink(l, revoke));
+      actions.appendChild(revoke);
+    }
+    return el("tr", null,
+      el("td.user", null, userlinksSubjectLink(l.subject), userlinksNote(who)),
+      el("td.name", null,
+        l.label ? el("span.truncate", { title: l.label, text: l.label }) : el("span.muted", { text: "(unnamed)" }),
+        el("span.cell-note.mono", { text: "id " + l.id }),
+        l.issuedBy ? userlinksNote("issued by " + l.issuedBy, "issued by " + l.issuedBy + ", an administrator, on the user's behalf") : null),
+      el("td.nowrap", null, userlinksStatePill(l)),
+      el("td", null,
+        el("span.nowrap", { title: l.createdAt, text: fmtAge(l.createdAt) }),
+        l.createdFrom ? userlinksNote("from " + l.createdFrom) : null),
+      el("td.nowrap", null, l.expiresAt
+        ? el("span", { title: l.expiresAt, text: fmtUntil(l.expiresAt) })
+        : el("span.muted", { text: "never" })),
+      userlinksUsed(l.lastUsedAt, [l.lastAddr, l.lastAgent].filter(Boolean).join(" · ")),
+      el("td.nowrap", null, actions));
+  }
+
+  // renderUserlinksAbout fills in what the explanatory paragraph leaves open:
+  // this proxy's own prefix, and where — or whether — users get their links.
+  function renderUserlinksAbout(data) {
+    $("#userlinks-example").textContent = (data.pathPrefix || "/u") + "/<token>/v1/<upstream>/…";
+    const howto = clear($("#userlinks-howto"));
+    if (!data.signIn) {
+      howto.appendChild(el("span", null,
+        "No identity provider is configured, so users cannot sign in: links are issued by an administrator with ",
+        el("span.mono", { text: "ptctl userlinks issue" }), "."));
+      return;
+    }
+    if (!data.pageUrl) {
+      howto.textContent = "Users create their links on the self-service page after signing in.";
+      return;
+    }
+    // Only an http(s) address is made a link; anything else is shown, not
+    // followed.
+    const page = /^https?:\/\//i.test(data.pageUrl)
+      ? el("a", { href: data.pageUrl, target: "_blank", rel: "noopener noreferrer", text: data.pageUrl })
+      : el("span.mono", { text: data.pageUrl });
+    howto.appendChild(el("span", null, "Users create their links on the self-service page, ", page, ", after signing in."));
+  }
+
+  // renderUserlinksRegistry shows the registry's numbers — and says so,
+  // prominently, when the registry cannot reach its store.
+  function renderUserlinksRegistry(reg) {
+    const broken = !reg.synced || !!reg.lastSyncError;
+    const sync = clear($("#userlinks-sync"));
+    sync.hidden = !broken;
+    if (broken) {
+      sync.appendChild(el("span", { text: "The link registry cannot reach its store. Links that this replica does not already know are refused until it can." }));
+      if (reg.lastSyncError) sync.appendChild(el("div.codeblock", { text: reg.lastSyncError }));
+    }
+
+    const cards = clear($("#userlinks-cards"));
+    const stat = (label, value, sub, tone) => el("div.stat" + (tone ? "." + tone : ""), null,
+      el("div.label", { text: label }), el("div.value", { text: String(value) }), sub ? el("div.sub", { text: sub }) : null);
+    cards.appendChild(stat("Working links", reg.active || 0, "neither expired nor revoked"));
+    cards.appendChild(stat("Users", reg.users || 0, "with a working link"));
+    cards.appendChild(stat("Ended", (reg.expired || 0) + (reg.revoked || 0),
+      `${reg.expired || 0} expired · ${reg.revoked || 0} revoked`));
+    const registry = stat("Registry", broken ? "unreachable" : "in sync",
+      "last sync: " + (reg.lastSync ? fmtAge(reg.lastSync) : "never"), broken ? "bad" : "ok");
+    // A word where the other cards have a number: set a size smaller, or the
+    // longer of the two does not fit a narrow card.
+    $(".value", registry).classList.add("word");
+    cards.appendChild(registry);
+  }
+
+  // runUserlinks (re)loads the view for the current filter.
+  async function runUserlinks() {
+    const seq = ++userlinksState.seq;
+    const meta = $("#userlinks-meta");
+    const params = userlinksParams();
+    const listParams = new URLSearchParams(params);
+    listParams.set("limit", String(USERLINKS_LIMIT));
+
+    meta.textContent = "loading…";
+    if (currentView === "userlinks") syncHash();
+    let data;
+    try {
+      data = await api.get("userlinks?" + listParams.toString());
+    } catch (e) {
+      if (seq === userlinksState.seq) meta.textContent = "error: " + e.message;
+      throw e;
+    }
+    // A slower, older request must not overwrite the answer to a newer one.
+    if (seq !== userlinksState.seq) return;
+
+    const notice = $("#userlinks-notice");
+    const main = $("#userlinks-main");
+    if (!data.enabled) {
+      // Without the feature nothing below means anything: say how to switch it
+      // on, and nothing else.
+      notice.hidden = false;
+      clear(notice).appendChild(el("span", { text: "Personal cache links are switched off. Set userLinks.enabled: true (and configure userLinks.oidc) so that cache users can sign in and downloads are recorded per user." }));
+      main.hidden = true;
+      meta.textContent = "";
+      return;
+    }
+    notice.hidden = true;
+    main.hidden = false;
+    renderUserlinksAbout(data);
+    renderUserlinksRegistry(data.registry || {});
+
+    const filtered = params.toString() !== "";
+    // The users are those of every matching link, not only of the links listed
+    // below; the list is cut at the same length.
+    const users = data.users || [];
+    const usersBody = clear($("#userlinks-users-body"));
+    users.slice(0, USERLINKS_LIMIT).forEach((u) => usersBody.appendChild(userlinksUserRow(u)));
+    if (!users.length) {
+      usersBody.appendChild(emptyRow($("#userlinks-users-table"), 5, filtered
+        ? "No user matches this filter."
+        : "No user holds a personal link yet."));
+    }
+    $("#userlinks-users-meta").textContent = users.length > USERLINKS_LIMIT
+      ? `${USERLINKS_LIMIT} of ${users.length} users · narrow the filter to see the rest`
+      : "";
+
+    const links = data.links || [];
+    const body = clear($("#userlinks-body"));
+    links.forEach((l) => body.appendChild(userlinksRow(l)));
+    if (!links.length) {
+      const nobody = data.signIn && data.pageUrl
+        ? "No personal links yet. Users create them at " + data.pageUrl + "."
+        : "No personal links yet. An administrator issues them with ptctl userlinks issue.";
+      body.appendChild(emptyRow($("#userlinks-table"), 7, filtered ? "No links match this filter." : nobody));
+    }
+    const total = data.total || 0;
+    meta.textContent = total
+      ? `${links.length} of ${total} ${total === 1 ? "link" : "links"}` + (links.length < total ? " · narrow the filter to see the rest" : "")
+      : "";
+  }
+
+  // userlinksRevoke asks, revokes and reloads. It asks the way the console's
+  // other destructive actions do: a confirmation, then a prompt for the reason
+  // that is recorded with the revocation. The reason may be left empty;
+  // cancelling either dialog revokes nothing. Whether the caller may revoke at
+  // all is the API's decision (the "operate" capability): a refusal is shown
+  // like any other error.
+  async function userlinksRevoke(target, question, done, btn) {
+    if (!window.confirm(question)) return;
+    const reason = window.prompt("Reason, recorded with the revocation (optional). Cancel revokes nothing.", "");
+    if (reason === null) return;
+    btn.disabled = true;
+    try {
+      const out = await api.post("userlinks/revoke", Object.assign({}, target, { reason: reason.trim() }));
+      toast(done(out));
+    } catch (e) {
+      btn.disabled = false;
+      toast(e.message, true);
+      return;
+    }
+    await runUserlinks().catch((e) => toast(e.message, true));
+  }
+
+  function revokeUserlink(l, btn) {
+    return userlinksRevoke({ id: l.id },
+      `Revoke ${userlinksLinkName(l)} of ${l.subject}? Whatever uses it stops working at once.`,
+      () => "Link revoked", btn);
+  }
+
+  // revokeUserlinksOf ends everything issued to one user. The API counts the
+  // working links it ended; none is not a failure — the user is signed out of
+  // the links page all the same, and a link this replica had not seen yet ends
+  // with the others.
+  function revokeUserlinksOf(subject, btn) {
+    return userlinksRevoke({ subject },
+      `Revoke everything issued to ${subject}? All of their links stop working at once and they are signed out of the links page. They can sign in again and create new links.`,
+      (out) => {
+        const n = (out && out.revoked) || 0;
+        return n
+          ? `${n} ${n === 1 ? "link" : "links"} of ${subject} revoked`
+          : `No working link of ${subject} was left to revoke; they are signed out of the links page`;
+      }, btn);
+  }
+
+  views.userlinks = async function () {
+    if (!userlinksState.wired) {
+      userlinksState.wired = true;
+      const go = () => runUserlinks().catch((e) => toast(e.message, true));
+      $("#userlinks-run").addEventListener("click", go);
+      $("#userlinks-reset").addEventListener("click", () => setUserlinksFilter(userlinksFilterFromParams([])));
+      $("#userlinks-subject").addEventListener("click", () => {
+        setUserlinksFilter({ subject: "" });
+        // The button is gone with the restriction it lifted; do not leave the
+        // keyboard's focus on nothing.
+        $("#userlinks-search").focus();
+      });
+      $("#userlinks-search").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      $("#userlinks-state").addEventListener("change", go);
+    }
+    await runUserlinks();
   };
 
   // --- Cache ----------------------------------------------------------------

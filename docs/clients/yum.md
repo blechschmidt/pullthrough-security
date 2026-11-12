@@ -70,6 +70,9 @@ dnf -y install tree
   distribution's key; the proxy does not re-sign anything.
 - **DNF picks the version.** A package is refused by name (and version) at the
   download of its `.rpm`; reading the repository metadata still succeeds.
+- **With a [personal cache link](../user-links.md)** the link is in a `.repo`
+  file every user of the machine can read, and it works like a password: on a
+  shared machine, make the file readable by root only.
 
 ## On the proxy
 

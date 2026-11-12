@@ -675,8 +675,8 @@ var looseGenerators = map[string]string{
 	"conancenter":    "the remote is added without the options the lab passes",
 	"cran":           "prints an R session, where the lab writes an Rprofile",
 	"debian":         "a one-line sources.list entry with placeholders, where the guide has a .sources file",
-	"dockerhub":      "prints docker login, which fails against the proxy's challenge",
-	"ghcr":           "prints docker login, which fails against the proxy's challenge",
+	"dockerhub":      "without a token, an interactive docker login; an example tag (alpine:latest) the lab does not pull",
+	"ghcr":           "without a token, an interactive docker login; an example image (library/alpine) that is not on ghcr.io",
 	"github":         "placeholders in the clone URL; the header is spelled without the quotes the lab uses",
 	"goproxy":        "a one-line ~/.netrc entry, where the lab's has three lines",
 	"gradle-plugins": "the Maven mirror is tested with the maven upstream",
@@ -691,7 +691,7 @@ var looseGenerators = map[string]string{
 	"puppet":         "puppet module install with a module the lab does not install",
 	"pypi":           "the token as a user name alone (it works: tried by hand), where the lab uses pullthrough:<token>",
 	"rocky":          "a repository section of its own naming",
-	"rubygems":       "bundle config without set --global; the token as a user name alone (it works: tried by hand)",
+	"rubygems":       "the token as a user name alone (it works: tried by hand)",
 }
 
 // unverifiedGeneratorLines returns the lines `ptctl config` prints for an

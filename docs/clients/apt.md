@@ -84,6 +84,13 @@ apt-cache policy hello | grep -q "https://proxy.example.com/v1/debian bookworm/m
   download of its `.deb`; `apt-get update` still succeeds.
 - **A container image build** gets the same three files with `COPY` before its
   first `apt-get update`.
+- **With a [personal cache link](../user-links.md)** the link is part of the
+  source's address, and APT names the files it keeps in `/var/lib/apt/lists`
+  after that address — link included. Every user of the machine can read those
+  names, and the link works like a password: on a machine others use, do not
+  use a personal link with APT. Where the proxy requires a token, present the
+  link as the password in `/etc/apt/auth.conf.d` instead
+  ([Authenticate](#authenticate)).
 
 ## On the proxy
 

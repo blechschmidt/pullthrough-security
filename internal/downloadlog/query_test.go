@@ -1,6 +1,9 @@
 package downloadlog
 
 import (
+	"bytes"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -514,5 +517,86 @@ func TestQueryPackageMatchesNameOrCoordinate(t *testing.T) {
 	sum, err := l.Summarize(Query{Package: "python@3.12"}, 0)
 	if err != nil || sum.Total != 1 || len(sum.ByPackage) != 1 || sum.ByPackage[0].Package != "python@3.12" {
 		t.Errorf("summary for python@3.12 = %+v, %v", sum, err)
+	}
+}
+
+// The subject filter: exact by default, a pattern with a "*", and "-" for the
+// entries nobody was identified for (Task 177).
+func TestQueryBySubjectAndLink(t *testing.T) {
+	l, _ := fixture(t)
+	e := entry("10.0.2.1", "npm", "left-pad", "1.3.0")
+	e.Subject, e.AuthMethod, e.Link = "Carol@Example.com", "personal-link", "00000000000000aa"
+	l.Record(e)
+	e = entry("10.0.2.2", "npm", "left-pad", "1.3.0")
+	e.Subject, e.AuthMethod, e.Link = "dave@example.com", "personal-link", "00000000000000bb"
+	l.Record(e)
+
+	for name, tc := range map[string]struct {
+		q    Query
+		want []uint64
+	}{
+		"exact":                        {Query{Subject: "alice"}, []uint64{1, 2}},
+		"exact is case-sensitive":      {Query{Subject: "ALICE"}, nil},
+		"exact, not a prefix":          {Query{Subject: "ali"}, nil},
+		"a pattern":                    {Query{Subject: "*@example.com"}, []uint64{9, 10}},
+		"a pattern ignores case":       {Query{Subject: "CAROL@*"}, []uint64{9}},
+		"a pattern needs a subject":    {Query{Subject: "*"}, []uint64{1, 2, 3, 9, 10}},
+		"nobody":                       {Query{Subject: NoSubject}, []uint64{4, 5, 6, 7, 8}},
+		"by link":                      {Query{Link: "00000000000000aa"}, []uint64{9}},
+		"by link, exact":               {Query{Link: "00000000000000a"}, nil},
+		"link and subject":             {Query{Link: "00000000000000bb", Subject: "dave@example.com"}, []uint64{10}},
+		"link and another subject":     {Query{Link: "00000000000000bb", Subject: "alice"}, nil},
+		"search finds the link":        {Query{Search: "00000000000000BB"}, []uint64{10}},
+		"search finds the user":        {Query{Search: "carol@"}, []uint64{9}},
+		"subject and package together": {Query{Subject: "*@example.com", Package: "left-pad"}, []uint64{9, 10}},
+	} {
+		if got := queryIDs(t, l, tc.q); !reflect.DeepEqual(got, tc.want) && !(len(got) == 0 && len(tc.want) == 0) {
+			t.Errorf("%s: entries %v, want %v", name, got, tc.want)
+		}
+	}
+
+	// As URL parameters, the way the admin API takes them.
+	q, err := QueryFromValues(url.Values{"subject": {" *@example.com "}, "link": {" 00000000000000aa "}}, time.Now())
+	if err != nil || q.Subject != "*@example.com" || q.Link != "00000000000000aa" {
+		t.Fatalf("QueryFromValues = %+v, %v", q, err)
+	}
+	if got := queryIDs(t, l, q); !reflect.DeepEqual(got, []uint64{9}) {
+		t.Fatalf("from URL parameters: %v", got)
+	}
+}
+
+// The link is part of an entry like any other field: stored bounded, written to
+// the file and the export, and never anything but what was recorded.
+func TestEntryLinkIsStoredAndExported(t *testing.T) {
+	l, _ := newLog(t, Config{})
+	e := entry("10.0.0.5", "npm", "left-pad", "1.3.0")
+	e.Subject, e.AuthMethod = "alice@example.com", "personal-link"
+	e.Link = "0123456789abcdef\x00" + strings.Repeat("x", 200)
+	l.Record(e)
+	got := mustQuery(t, l, Query{}).Entries[0]
+	if len(got.Link) > 64 || strings.ContainsRune(got.Link, 0) || !strings.HasPrefix(got.Link, "0123456789abcdef") {
+		t.Fatalf("stored link = %q", got.Link)
+	}
+	data, err := json.Marshal(got)
+	if err != nil || !strings.Contains(string(data), `"authMethod":"personal-link","link":"0123456789abcdef`) {
+		t.Fatalf("JSON form = %s, %v", data, err)
+	}
+	// An entry without a link has no such field: files written before the field
+	// existed and files written now read alike.
+	plain, _ := json.Marshal(entry("10.0.0.5", "npm", "left-pad", "1.3.0"))
+	if strings.Contains(string(plain), `"link"`) {
+		t.Fatalf("an entry without a link has the field: %s", plain)
+	}
+
+	var buf bytes.Buffer
+	if err := WriteCSV(&buf, []Entry{got}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := csv.NewReader(&buf).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := len(csvHeader) - 1; csvHeader[last] != "link" || rows[1][last] != got.Link {
+		t.Fatalf("the export's last column is %q = %q, want link = %q", csvHeader[last], rows[1][last], got.Link)
 	}
 }

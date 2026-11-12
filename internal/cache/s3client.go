@@ -337,8 +337,13 @@ func (c *s3HTTPClient) listObjects(ctx context.Context, prefix string, fn func(k
 				return err
 			}
 		}
-		if !result.IsTruncated || result.NextContinuationToken == "" {
+		if !result.IsTruncated {
 			return nil
+		}
+		if result.NextContinuationToken == "" {
+			// The server says there is more and gives no way to ask for it.
+			// Stopping here would pass a part of the listing off as all of it.
+			return fmt.Errorf("cache: s3 list response for %q is truncated but carries no continuation token", prefix)
 		}
 		continuation = result.NextContinuationToken
 	}

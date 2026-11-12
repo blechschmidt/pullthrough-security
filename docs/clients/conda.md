@@ -85,6 +85,10 @@ system-wide `.condarc` (Miniforge ships one) is merged with yours.
 - **Packages are verified by the proxy** against the SHA-256 the channel's
   `repodata.json` records.
 - **pip inside a conda environment** is a separate client: see [pip](pip.md).
+- **With a [personal cache link](../user-links.md)** the channel alias belongs
+  in your user-level `~/.condarc`. Explicit lock files record package URLs, link
+  included, and the link works like a password: do not commit one written
+  through a personal link.
 
 ## On the proxy
 

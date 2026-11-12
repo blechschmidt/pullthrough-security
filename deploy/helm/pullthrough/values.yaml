@@ -370,6 +370,24 @@ config:
   # (downloadLog.path) in a directory the proxy can write to; several replicas
   # must not share one file.
 
+  # Personal cache links (docs/user-links.md): downloads tracked per user. Cache
+  # users sign in through your OIDC identity provider at <publicUrl>/links/ and
+  # get their own address of every package source (<publicUrl>/u/<link>/v1/…).
+  # It needs server.publicUrl. With several replicas the link registry must be
+  # shared: on the S3 cache it lives in the cache bucket without further
+  # configuration; otherwise point userLinks.store.dir at a volume every replica
+  # mounts. Give every replica the same sessionKey (from a Secret), and set
+  # coordination.nodeId to the pod name so each replica records link usage under
+  # its own name.
+  #   userLinks:
+  #     enabled: true
+  #     sessionKey: ${PTS_USERLINKS_SESSION_KEY}
+  #     oidc:
+  #       enabled: true
+  #       issuer: https://login.example.com/realms/corp
+  #       clientId: pullthrough-cache
+  #       clientSecret: ${PTS_USERLINKS_OIDC_SECRET}
+
   observability:
     metrics: true
     metricsPath: /metrics

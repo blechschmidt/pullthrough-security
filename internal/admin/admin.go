@@ -635,6 +635,7 @@ type Options struct {
 	Dossier                     DossierInspector
 	Metering                    MeteringInspector
 	DownloadLog                 DownloadLogInspector
+	UserLinks                   UserLinksManager
 	Config                      ConfigInspector
 	Presets                     PresetController
 	VEXExport                   VEXExporter
@@ -850,6 +851,11 @@ func (s *Server) routes() *http.ServeMux {
 	// Download log (Task 176): which package was downloaded from which address.
 	mux.HandleFunc("GET "+s.prefix+"/api/downloads", s.handleDownloads)
 	mux.HandleFunc("GET "+s.prefix+"/api/downloads/summary", s.handleDownloadsSummary)
+	// Personal cache links (Task 177): who holds which link, and the means to
+	// end one.
+	mux.HandleFunc("GET "+s.prefix+"/api/userlinks", s.handleUserLinks)
+	mux.HandleFunc("POST "+s.prefix+"/api/userlinks/revoke", s.handleUserLinksRevoke)
+	mux.HandleFunc("POST "+s.prefix+"/api/userlinks/issue", s.handleUserLinksIssue)
 	// Configuration validation, preflight & drift detection (Task 85).
 	mux.HandleFunc("GET "+s.prefix+"/api/config/validate", s.handleConfigValidate)
 	mux.HandleFunc("POST "+s.prefix+"/api/config/validate", s.handleConfigValidate)

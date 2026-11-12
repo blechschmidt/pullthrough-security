@@ -27,7 +27,9 @@ per the [example config](../configs/config.example.yaml).
 
 ## Authentication
 
-Two mechanisms can run together (tried in order: static token, then OIDC):
+Two mechanisms can run together (tried in order: static token, then OIDC). A
+third — [personal cache links](#personal-cache-links-userlinks) — identifies
+people rather than workloads, and is tried first:
 
 ### Static API tokens (`auth.tokens`)
 
@@ -50,6 +52,33 @@ verifier validates the signature and the `exp`, `nbf`, `iss`, and `aud` claims.
 downgrade attacks. Subject/team/roles are read from configurable claims
 (`subjectClaim`, `teamClaim`, `rolesClaim`); IdP group names can be translated
 with `roleMap`.
+
+### Personal cache links (`userLinks`)
+
+A cache user signs in through an OpenID Connect identity provider in the
+browser and is handed a personal link: their own address of every package
+source (`…/u/<link>/v1/<upstream>/…`), or the same token as a password. A
+request that carries a link is authenticated as the link's user — subject,
+team and roles come from the ID token (`userLinks.defaultRoles`,
+`userLinks.roleMap`) — and is then authorized, metered and audited like any
+other principal, with `authMethod: personal-link`. Personal links can be the
+only mechanism configured under `auth.enabled`, and they also work with
+authentication off, where they add an identity to the requests that carry one.
+A link that is unknown, expired or revoked is refused — the request does not
+fall back to another mechanism or to anonymous access. See
+[user-links.md](user-links.md).
+
+### The challenge of a `401`
+
+An unauthenticated request is answered `401` with `WWW-Authenticate: Bearer
+realm="pullthrough"` — except where the client could do nothing with that: a
+**container registry** request and a **Git** request are challenged with
+`Basic realm="pullthrough"`. A container client (the Docker Engine,
+containerd, podman) reads a Bearer challenge as the address of a token service
+and gives up on a realm that is not a URL; challenged with Basic it presents
+what `docker login` stored, with the token as the password. Git answers only a
+challenge it holds a credential for — from the URL, a credential helper or its
+prompt.
 
 ## Authorization (RBAC)
 

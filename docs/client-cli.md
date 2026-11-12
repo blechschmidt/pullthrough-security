@@ -62,9 +62,6 @@ clients. Where the two differ, the guide is right. Known differences:
 - With a token, the snippets for Composer, apt, dnf, R, Bazel, Deno (JSR),
   r10k and dart print the configuration without credentials; each of those
   pages says how the client presents a token.
-- `docker login` and `helm registry login` are printed although the Docker
-  Engine and Helm's OCI client cannot log in to a proxy that requires a token
-  ([why](clients.md#clients-that-cannot-present-a-token)).
 - A `generic` upstream has no client of its own: only its address is printed.
 
 ```bash
@@ -84,6 +81,11 @@ ptctl config npm=npm pypi=pip central=maven dockerhub=docker
 Backend discovery uses the admin `GET {prefix}/api/overview` endpoint. If your
 token cannot read it (or the proxy is locked down), pass explicit `name=type`
 arguments instead — no server round-trip is then needed.
+
+With `--personal-link <your link>` the snippets use your [personal cache
+link](user-links.md) — the proxy URL is taken from the link, no other
+credential appears — and each says where the link must not end up (a lock file,
+a file under version control).
 
 ### `ptctl selftest` — connectivity & auth check
 
@@ -227,32 +229,71 @@ ptctl vex export --snapshot <snapshot-id>
 re-ingestable. It requires a signing key on the proxy
 (`vulnerabilities.vex.export.signingKey`, falling back to the attest/audit key).
 
-### `ptctl downloads` — which package went to which client address
+### `ptctl downloads` — which package went to which client address, and to whom
 
 Queries the proxy's [download log](download-log.md) through the admin API: one
 entry per package download or refused attempt, with the client address it came
-from. It needs a token with the admin `read` capability.
+from — and the user, where one was identified (a [personal cache
+link](user-links.md), a token). It needs a token with the admin `read`
+capability.
 
 ```bash
 ptctl downloads --package left-pad                # who pulled left-pad?
 ptctl downloads --package 'rsc.io/quote@v1.5.2'   # one exact version
 ptctl downloads --ip 10.0.0.7                     # what did 10.0.0.7 pull?
+ptctl downloads --user alice@example.com          # what did alice pull?
+ptctl downloads --user '*@example.com' --outcome blocked
+ptctl downloads --user - --summary                # what was pulled by nobody known?
 ptctl downloads --ip 10.0.0.0/16 --outcome blocked --since 24h
-ptctl downloads --summary --ecosystem cargo       # busiest addresses and crates
+ptctl downloads --summary --ecosystem cargo       # busiest addresses, users and crates
 ptctl downloads --all --format csv > downloads.csv
 ```
 
 Filters are ANDed: `--ip` (an address or a CIDR prefix), `--package`
 (a name or `name@version`; `*` is a wildcard), `--ecosystem`, `--upstream`,
 `--outcome` (`served`, `not_modified`, `blocked`, `not_found`, `error`),
-`--subject`, `--search` (free text), `--since` / `--until` (an age such as
-`15m`, `24h`, `7d`, RFC 3339, or unix seconds). `--limit` (default 50) bounds
-the table; `--all` pages through every match. `--summary` prints totals and the
-busiest client addresses and packages (`--top`) instead of entries. `--format`
-is `table` (default), `json` or `csv`.
+`--user` (the identified client — also spelled `--subject`; `*` is a wildcard,
+`-` selects the downloads nobody was identified for), `--link` (one personal
+cache link, by its identifier), `--search` (free text), `--since` / `--until`
+(an age such as `15m`, `24h`, `7d`, RFC 3339, or unix seconds). `--limit`
+(default 50) bounds the table; `--all` pages through every match. `--summary`
+prints totals and the busiest client addresses, users and packages (`--top`)
+instead of entries. `--format` is `table` (default), `json` or `csv`.
 
 The global `--tenant` narrows the log only when given on the command line: an
 exported `PULLTHROUGH_TENANT` does not hide other tenants' downloads.
+
+### `ptctl userlinks` — personal cache links
+
+The operator's view of [personal cache links](user-links.md): the per-user
+addresses of the package sources that cache users create after signing in
+through the identity provider.
+
+```bash
+ptctl userlinks list                                   # every link: user, state, expiry, last use
+ptctl userlinks list --users                           # per user
+ptctl userlinks list --user alice@example.com --state active
+ptctl userlinks revoke --id 273d43ccab040774 --reason "laptop stolen"
+ptctl userlinks revoke --user bob@example.com --reason "left the company"
+ptctl userlinks issue --user ci-bot --team platform --roles reader --label "nightly build"
+```
+
+`list` needs the admin `read` capability and takes `--user`, `--state`
+(`active`, `expired`, `revoked`), `--search`, `--limit`, `--users` and
+`--format table|json`. `revoke` needs `operate`: `--id` ends one link, `--user`
+everything issued to a user — every link on every replica, and their session on
+the links page; they may sign in again if the identity provider still lets them.
+`issue` needs `administer` and creates a link for an identity the operator
+names (`--user`, and optionally `--name`, `--email`, `--team`, `--roles`,
+`--label`, `--ttl-days`) — for a service account, or where no identity provider
+is configured. It prints the link **once**: the proxy keeps only its hash.
+
+A user who already has a link generates their client configuration with
+`ptctl config --personal-link` — no admin access needed:
+
+```bash
+ptctl config --personal-link https://proxy.example.com/u/ptl1… npm=npm pypi=pip
+```
 
 ### `ptctl completion` — shell completion
 

@@ -32,33 +32,21 @@ git clone https://proxy.example.com/v1/github/octocat/Spoon-Knife.git explicit
 if [ -n "${PROXY_TOKEN:-}" ]; then
     # The token from a credential helper instead of a header, in a home
     # directory of its own. ("store" keeps it in a plain file; any helper —
-    # the platform's keychain — is used the same way.)
+    # the platform's keychain — is used the same way.) Git asks its helper when
+    # it is challenged with HTTP Basic, which is how the proxy challenges Git.
     export HOME="$PWD/other-home" GIT_TERMINAL_PROMPT=0
     mkdir -p "$HOME"
     git config --global http."https://proxy.example.com/".sslCAInfo /etc/ssl/corp-ca.pem
     git config --global credential.helper store
     printf 'https://pullthrough:%s@proxy.example.com\n' "${PROXY_TOKEN}" > "$HOME/.git-credentials"
+    git clone https://proxy.example.com/v1/github/octocat/Hello-World.git helper
+    git -C helper fetch origin
+    test "$(git -C helper config --get remote.origin.url)" = "https://proxy.example.com/v1/github/octocat/Hello-World.git"
 
-    # A LIMITATION, asserted: by default Git presents a stored credential, or
-    # one in the URL, only in answer to a Basic challenge — and the proxy
-    # challenges with Bearer.
-    if git clone https://proxy.example.com/v1/github/octocat/Hello-World.git helper >helper.log 2>&1; then
-        echo "git authenticated with a stored credential: the limitation is gone — update docs/clients/git.md"
-        cat helper.log; exit 1
+    # Without a credential, the clone is refused.
+    rm "$HOME/.git-credentials"
+    if git clone https://proxy.example.com/v1/github/octocat/Hello-World.git anonymous >anonymous.log 2>&1; then
+        echo "git cloned from a proxy that requires a token without presenting one"; cat anonymous.log; exit 1
     fi
-    cat helper.log
-    grep -q "Authentication failed" helper.log
-    if git clone "https://pullthrough:${PROXY_TOKEN}@proxy.example.com/v1/github/octocat/Hello-World.git" in-url >in-url.log 2>&1; then
-        echo "git authenticated with a token in the URL: the limitation is gone — update docs/clients/git.md"
-        exit 1
-    fi
-    grep -q "Authentication failed" in-url.log
-
-    # Git 2.46 and later can be told to send the credential without waiting to
-    # be challenged: then the credential helper works. (The helper has to be
-    # given the credential again: Git erased it when it was refused above.)
-    printf 'https://pullthrough:%s@proxy.example.com\n' "${PROXY_TOKEN}" > "$HOME/.git-credentials"
-    git config --global http."https://proxy.example.com/".proactiveAuth basic
-    git clone https://proxy.example.com/v1/github/octocat/Hello-World.git proactive
-    git -C proactive fetch origin
+    cat anonymous.log
 fi

@@ -60,9 +60,10 @@ Authentication is by public key only; pin the proxy's host key in
 
 ## Authenticate
 
-Only when the proxy has access control switched on. Give Git your **proxy
-token** as a request header, scoped to the proxy's host, and keep URLs free of
-it:
+Only when the proxy has access control switched on. Hand Git your **proxy**
+token — an API token, or the token of your
+[personal cache link](../user-links.md) — once, scoped to the proxy, and keep
+clone URLs free of it:
 
 <!-- verified: lab:git -->
 
@@ -70,32 +71,25 @@ it:
 git config --global http."https://proxy.example.com/".extraHeader "Authorization: Bearer <token>"
 ```
 
-The token is then in `~/.gitconfig`. To keep it in a **credential helper**
-instead — the platform's keychain — tell Git to send the credential without
-waiting to be asked for it. This needs Git 2.46 or later:
+A **credential helper** works as well — the platform's keychain, or `store`,
+which keeps the credential in a plain file. The proxy challenges Git with HTTP
+Basic, and Git answers with what its helper holds for the proxy: any user name,
+the token as the password. With `store`, that is one line of
+`~/.git-credentials`:
 
 <!-- verified: lab:git -->
 
 ```sh
 git config --global credential.helper store
-git config --global http."https://proxy.example.com/".proactiveAuth basic
+printf 'https://pullthrough:%s@proxy.example.com\n' "<token>" > "$HOME/.git-credentials"
 ```
 
-`store` is the helper the lab uses (a plain file); name your own. The proxy
-takes the token as the password, with any user name.
+(With a helper and a terminal, Git asks for the user name and password the
+first time the proxy challenges it, and the helper keeps what you type.)
 
-**Without `proactiveAuth`, a credential helper or a token in the URL does not
-work.** Git presents such a credential only in answer to a `Basic` challenge,
-and the proxy challenges with `Bearer`. (Git then also erases the credential
-from the helper, as one that was refused: store it again once `proactiveAuth`
-is set.)
-
-<!-- output: lab:git -->
-
-```
-remote: missing or invalid credentials
-fatal: Authentication failed for 'https://proxy.example.com/v1/github/octocat/Hello-World.git/'
-```
+Without access control, a personal link is used as part of the address
+instead — with the same `insteadOf` rule, pointing at
+`https://proxy.example.com/u/<link>/v1/github/`.
 
 ## Trust a private CA
 
@@ -142,6 +136,11 @@ shows the host each request goes to.
   commit scanner for watched repositories, and the verdict gates the *packages*
   built from them; a clone itself is not refused
   ([security model](../security-model.md)).
+- **With a [personal cache link](../user-links.md)** use it in an `insteadOf`
+  rule of your global configuration, not in a clone URL: clone URLs,
+  `.git/config` and `.gitmodules` then keep naming the forge. A URL given to
+  `git clone` is stored in that checkout's `.git/config`, link included — and
+  the link works like a password.
 
 ## On the proxy
 

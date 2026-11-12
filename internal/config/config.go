@@ -320,6 +320,15 @@ type Config struct {
 	// entries, a retention period), so it is enabled by default.
 	DownloadLog DownloadLogConfig `yaml:"downloadLog"`
 
+	// UserLinks configures personal cache links (Task 177): cache users sign in
+	// through an OIDC identity provider and are handed their own address for
+	// every package source — the ordinary one under a path prefix that names
+	// them ("/u/<token>/v1/<upstream>/…") — so that the download log attributes
+	// a download to a person and not only to a client address. The link's token
+	// is equally accepted as an HTTP credential. Off by default: it needs an
+	// identity provider, or an administrator who issues links.
+	UserLinks UserLinksConfig `yaml:"userLinks"`
+
 	// Secrets configures the master key used to decrypt secret values stored
 	// encrypted at rest.
 	Secrets SecretsConfig `yaml:"secrets"`
@@ -5096,6 +5105,7 @@ func Default() Config {
 			MaxEntries: downloadlog.DefaultMaxEntries,
 			Retention:  downloadlog.DefaultRetention,
 		},
+		UserLinks: defaultUserLinks(),
 		KeyRotation: KeyRotationConfig{
 			// On by default: expiry scanning is cheap, read-only, and never blocks a
 			// pull. It only acts on material the deployment actually configures
@@ -5291,6 +5301,11 @@ func decryptSecrets(cfg *Config) error {
 		ref{"coordination.s3.accessKeyId", &cfg.Coordination.S3.AccessKeyID},
 		ref{"coordination.s3.secretAccessKey", &cfg.Coordination.S3.SecretAccessKey},
 		ref{"coordination.s3.sessionToken", &cfg.Coordination.S3.SessionToken},
+		ref{"userLinks.sessionKey", &cfg.UserLinks.SessionKey},
+		ref{"userLinks.oidc.clientSecret", &cfg.UserLinks.OIDC.ClientSecret},
+		ref{"userLinks.store.s3.accessKeyId", &cfg.UserLinks.Store.S3.AccessKeyID},
+		ref{"userLinks.store.s3.secretAccessKey", &cfg.UserLinks.Store.S3.SecretAccessKey},
+		ref{"userLinks.store.s3.sessionToken", &cfg.UserLinks.Store.S3.SessionToken},
 		ref{"secrets.vault.token", &cfg.Secrets.Vault.Token},
 		ref{"secrets.vault.roleId", &cfg.Secrets.Vault.RoleID},
 		ref{"secrets.vault.secretId", &cfg.Secrets.Vault.SecretID},
@@ -5398,6 +5413,11 @@ func expandSecrets(cfg *Config) {
 	cfg.Coordination.S3.AccessKeyID = os.ExpandEnv(cfg.Coordination.S3.AccessKeyID)
 	cfg.Coordination.S3.SecretAccessKey = os.ExpandEnv(cfg.Coordination.S3.SecretAccessKey)
 	cfg.Coordination.S3.SessionToken = os.ExpandEnv(cfg.Coordination.S3.SessionToken)
+	cfg.UserLinks.SessionKey = os.ExpandEnv(cfg.UserLinks.SessionKey)
+	cfg.UserLinks.OIDC.ClientSecret = os.ExpandEnv(cfg.UserLinks.OIDC.ClientSecret)
+	cfg.UserLinks.Store.S3.AccessKeyID = os.ExpandEnv(cfg.UserLinks.Store.S3.AccessKeyID)
+	cfg.UserLinks.Store.S3.SecretAccessKey = os.ExpandEnv(cfg.UserLinks.Store.S3.SecretAccessKey)
+	cfg.UserLinks.Store.S3.SessionToken = os.ExpandEnv(cfg.UserLinks.Store.S3.SessionToken)
 	cfg.Tracing.Endpoint = os.ExpandEnv(cfg.Tracing.Endpoint)
 	for k, v := range cfg.Tracing.Headers {
 		cfg.Tracing.Headers[k] = os.ExpandEnv(v)
@@ -5847,6 +5867,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateDownloadLog(); err != nil {
+		return err
+	}
+	if err := c.validateUserLinks(); err != nil {
 		return err
 	}
 	if err := c.validateTrustedProxies(); err != nil {
@@ -8706,8 +8729,10 @@ func (c *Config) validateAuth() error {
 		}
 	}
 
-	if len(a.Tokens) == 0 && !a.OIDC.Enabled && !a.AllowAnonymous && !c.ClientAuth.MTLS.Enabled {
-		return fmt.Errorf("config: auth.enabled but no tokens, oidc, mTLS, or anonymous access configured (proxy would reject all requests)")
+	// A personal cache link (Task 177) authenticates its user like a token does,
+	// so a deployment whose every client is a signed-in user needs nothing else.
+	if len(a.Tokens) == 0 && !a.OIDC.Enabled && !a.AllowAnonymous && !c.ClientAuth.MTLS.Enabled && !c.UserLinks.Enabled {
+		return fmt.Errorf("config: auth.enabled but no tokens, oidc, mTLS, personal links (userLinks), or anonymous access configured (proxy would reject all requests)")
 	}
 	return nil
 }

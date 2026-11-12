@@ -105,6 +105,9 @@ dotnet nuget list source | grep -q "https://proxy.example.com/v1/nuget/v3/index.
   package search needs that host or fails; restore does not use it.
 - **Publishing does not go through the proxy** (`dotnet nuget push`): it is
   read-only.
+- **With a [personal cache link](../user-links.md)** the source belongs in your
+  user-level `NuGet.Config`, not the repository's: the link works like a
+  password.
 
 ## On the proxy
 

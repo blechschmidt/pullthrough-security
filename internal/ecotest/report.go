@@ -33,19 +33,29 @@ const (
 	// bad package (blocked) to the machine that tried. Asserted for the
 	// ecosystems that opt in (Ecosystem.DownloadLog).
 	CheckDownloadLog = "download-log"
+	// CheckPersonalLink: the same install through a personal cache link (Task
+	// 177) — the package source behind a path prefix that names a user — is
+	// recorded under that user. The real client must stay on its personal
+	// address for every request it makes, which means every link the proxy
+	// handed it on the way (a tarball URL in an index document, a redirect) led
+	// back to that address; and every download the log holds for the run must
+	// carry the user and the link. Not asserted where the client has no way to
+	// carry a link (Ecosystem.NoPersonalLink says why).
+	CheckPersonalLink = "personal-link"
 )
 
 // checkOrder is the canonical column order.
-var checkOrder = []string{CheckInstall, CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock, CheckDownloadLog}
+var checkOrder = []string{CheckInstall, CheckCached, CheckScanAdmit, CheckCacheHit, CheckBlock, CheckDownloadLog, CheckPersonalLink}
 
 // checkTitles are the matrix column headings.
 var checkTitles = map[string]string{
-	CheckInstall:     "Installs via proxy",
-	CheckCached:      "Stored in cache",
-	CheckScanAdmit:   "Admitted by LLM scan",
-	CheckCacheHit:    "Re-install from cache",
-	CheckBlock:       "Bad package blocked",
-	CheckDownloadLog: "Downloads logged by client address",
+	CheckInstall:      "Installs via proxy",
+	CheckCached:       "Stored in cache",
+	CheckScanAdmit:    "Admitted by LLM scan",
+	CheckCacheHit:     "Re-install from cache",
+	CheckBlock:        "Bad package blocked",
+	CheckDownloadLog:  "Downloads logged by client address",
+	CheckPersonalLink: "Personal link names the user",
 }
 
 // Check statuses.
@@ -116,6 +126,8 @@ func (e Ecosystem) applies(check string) bool {
 		return e.Bad != nil
 	case CheckDownloadLog:
 		return e.DownloadLog && e.Bad != nil
+	case CheckPersonalLink:
+		return e.NoPersonalLink == ""
 	default:
 		return true
 	}

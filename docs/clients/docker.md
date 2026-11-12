@@ -152,40 +152,59 @@ fail-open, as with the other clients.
 
 ## Authenticate
 
-**The Docker Engine cannot use a proxy that requires a token.** It reads the
-proxy's `Bearer` challenge as the address of a token service and gives up on a
-realm that is not a URL. `docker login` fails, and so does every pull:
+Only when the proxy has access control switched on. The proxy challenges a
+container client with HTTP Basic and takes your **proxy token** — an API token,
+or the token of your [personal cache link](../user-links.md) — as the
+password, with any user name.
+
+**Docker Engine** — log in once. The Engine stores the credential and presents
+it whenever the proxy asks for one:
+
+<!-- verified: lab:docker-login -->
+
+```sh
+echo "<token>" | docker login proxy.example.com --username pullthrough --password-stdin
+```
+
+Without a login, a pull is refused:
 
 <!-- output: lab:docker-login -->
 
 ```
-Error response from daemon: Get "https://proxy.example.com/v2/": Get "pullthrough?account=pullthrough&client_id=docker&offline_token=true": unsupported protocol scheme ""
+Error response from daemon: Head "https://proxy.example.com/v2/dockerhub/library/alpine/manifests/3.19": no basic auth credentials
 ```
 
-Where access control is on, the operator has to admit the Engine without a
-token: an anonymous role scoped to the registry upstreams
-([how](../clients.md#clients-that-cannot-present-a-token)).
+The lab logs in for explicit references (`proxy.example.com/<upstream>/…`). A
+registry mirror for Docker Hub is not run with a token.
 
-**Podman, Buildah and CRI-O cannot either.** All they have is a login — a user
-name and a password in an auth file — and the library they share answers the
-proxy's challenge the way the Engine does. The lab asserts that with skopeo,
-which is built on the same library (`skopeo login` and `--creds` fail with the
-error above); Podman, Buildah and CRI-O themselves are not run. Helm's OCI
-client fails like the Engine as well ([Helm](helm.md#authenticate)).
-
-**skopeo can**: it takes a bearer token for the registry it reads from on the
-command line, sends it without waiting for a login, and sends it to a mirror as
-well:
+**Podman, Buildah, CRI-O, skopeo** — log in the same way; the credential is
+stored in the auth file the four share, and is presented to the proxy for an
+explicit reference and as a mirror alike:
 
 <!-- verified: lab:skopeo -->
 
 ```sh
-skopeo copy --src-registry-token "<token>" docker://docker.io/library/alpine:3.19 dir:/tmp/alpine
-skopeo inspect --registry-token "<token>" docker://proxy.example.com/dockerhub/library/alpine:3.19
+echo "<token>" | skopeo login --username pullthrough --password-stdin proxy.example.com
+skopeo copy docker://docker.io/library/alpine:3.19 dir:/tmp/alpine
+skopeo inspect docker://proxy.example.com/dockerhub/library/alpine:3.19
 ```
 
-**containerd can**: a `hosts.toml` carries request headers, and the proxy takes
-the token as a bearer token.
+(`podman login` and `buildah login` take the same arguments.) For an explicit
+reference the credential can also be given on the command line, with
+`--creds`:
+
+<!-- verified: lab:skopeo -->
+
+```sh
+skopeo inspect --creds "pullthrough:<token>" docker://proxy.example.com/dockerhub/library/alpine:3.19
+```
+
+`--creds` does not reach a mirror — log in for that — and skopeo's
+`--registry-token` does not work at all: the library sends a bearer token only
+in answer to a `Bearer` challenge.
+
+**containerd** — a `hosts.toml` carries request headers, and the proxy takes
+the token as a bearer token:
 
 <!-- verified: lab:containerd -->
 
@@ -260,6 +279,12 @@ other route.
 - **OCI Helm charts** use the same endpoint: see [Helm](helm.md).
 - BuildKit (`docker buildx` with a container builder) has its own registry
   configuration, `buildkitd.toml`. It was not tested.
+- **With a [personal cache link](../user-links.md)** the link becomes part of
+  the image name — `proxy.example.com/u/<link>/dockerhub/library/alpine:3.19` —
+  and with it shows in `docker images`, build logs and every file that names the
+  image. The link works like a password: where the proxy requires a token, log
+  in with the link's token instead ([Authenticate](#authenticate)) and keep
+  image names plain.
 
 ## On the proxy
 

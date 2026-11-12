@@ -68,7 +68,11 @@ func requiredCapability(method, relPath string) adminauth.Capability {
 		// Forcing a GitOps sync or rolling back to the last-known-good revision
 		// (Task 93) rewrites the on-disk configuration from the source of truth; it
 		// is the administrator's remit.
-		"/api/gitops/sync", "/api/gitops/rollback":
+		"/api/gitops/sync", "/api/gitops/rollback",
+		// Issuing a personal cache link (Task 177) mints a credential for an
+		// identity — and with roles — of the caller's choosing. (Revoking one only
+		// takes access away, and is an operational action like any other.)
+		"/api/userlinks/issue":
 		return adminauth.CapAdminister
 
 	// Managing one's own passkeys and running the step-up ceremonies (Task 161)

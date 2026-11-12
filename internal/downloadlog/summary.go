@@ -15,12 +15,16 @@ const (
 	// distinct identities / versions.
 	maxSummaryIdentities = 5
 	maxSummaryVersions   = 10
+	// maxSummaryAddresses and maxSummaryLinks bound the per-user lists of
+	// distinct client addresses / personal links.
+	maxSummaryAddresses = 5
+	maxSummaryLinks     = 5
 )
 
 // Summary aggregates the entries a query selects: totals, and the busiest
-// client addresses and packages. It answers the two questions the log exists
-// for from either side — "what did this address pull" and "who pulled this
-// package" — without paging through entries.
+// client addresses, users and packages. It answers the questions the log exists
+// for from either side — "what did this address pull", "what did this user
+// pull" and "who pulled this package" — without paging through entries.
 type Summary struct {
 	// Total is the number of matching entries; the fields below break it down by
 	// outcome.
@@ -36,12 +40,19 @@ type Summary struct {
 	// of distinct packages (ecosystem + name).
 	Clients  int `json:"clients"`
 	Packages int `json:"packages"`
+	// Users is the number of distinct identified users (subjects) among the
+	// matching entries; Unattributed the number of entries nobody was
+	// identified for — downloads known by their address only.
+	Users        int `json:"users"`
+	Unattributed int `json:"unattributed"`
 	// First and Last are the times of the oldest and newest matching entry.
 	First *time.Time `json:"first,omitempty"`
 	Last  *time.Time `json:"last,omitempty"`
 
 	// ByClient lists the client addresses with the most entries.
 	ByClient []ClientSummary `json:"byClient"`
+	// ByUser lists the identified users with the most entries (Task 177).
+	ByUser []UserSummary `json:"byUser"`
 	// ByPackage lists the packages with the most entries.
 	ByPackage []PackageSummary `json:"byPackage"`
 	// ByEcosystem breaks the entries down by ecosystem.
@@ -65,6 +76,32 @@ type ClientSummary struct {
 	LastSeen   time.Time `json:"lastSeen"`
 }
 
+// UserSummary is the activity of one identified user: the subject of a personal
+// cache link, a token, an OIDC identity, a workload certificate.
+type UserSummary struct {
+	Subject string `json:"subject"`
+	// Tenant is the user's team, as of their most recent entry.
+	Tenant string `json:"tenant,omitempty"`
+	// Downloads is the number of entries; Served and Blocked break out the two
+	// outcomes that matter most.
+	Downloads int `json:"downloads"`
+	Served    int `json:"served"`
+	Blocked   int `json:"blocked"`
+	// Packages is the number of distinct packages the user requested.
+	Packages int   `json:"packages"`
+	Bytes    int64 `json:"bytes"`
+	// Addresses is the number of distinct client addresses the user's requests
+	// came from; ClientIPs lists a few of them. One user on many addresses is a
+	// laptop that moves — or a personal link that got out.
+	Addresses int      `json:"addresses"`
+	ClientIPs []string `json:"clientIps,omitempty"`
+	// Links lists the personal cache links the user's requests came through (a
+	// few).
+	Links     []string  `json:"links,omitempty"`
+	FirstSeen time.Time `json:"firstSeen"`
+	LastSeen  time.Time `json:"lastSeen"`
+}
+
 // PackageSummary is the activity around one package.
 type PackageSummary struct {
 	Ecosystem string `json:"ecosystem"`
@@ -72,8 +109,10 @@ type PackageSummary struct {
 	Downloads int    `json:"downloads"`
 	Served    int    `json:"served"`
 	Blocked   int    `json:"blocked"`
-	// Clients is the number of distinct client addresses that requested it.
+	// Clients is the number of distinct client addresses that requested it;
+	// Users the number of distinct identified users.
 	Clients int `json:"clients"`
+	Users   int `json:"users"`
 	// Versions lists the distinct versions requested (a few).
 	Versions []string  `json:"versions,omitempty"`
 	Bytes    int64     `json:"bytes"`
@@ -95,9 +134,17 @@ type clientAgg struct {
 	identities map[string]struct{}
 }
 
+type userAgg struct {
+	UserSummary
+	packages  map[pkgKey]struct{}
+	addresses map[string]struct{}
+	links     map[string]struct{}
+}
+
 type packageAgg struct {
 	PackageSummary
 	clients  map[string]struct{}
+	users    map[string]struct{}
 	versions map[string]struct{}
 }
 
@@ -111,7 +158,7 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
-	sum := Summary{ByClient: []ClientSummary{}, ByPackage: []PackageSummary{}, ByEcosystem: []EcosystemSummary{}}
+	sum := Summary{ByClient: []ClientSummary{}, ByUser: []UserSummary{}, ByPackage: []PackageSummary{}, ByEcosystem: []EcosystemSummary{}}
 	if !l.Enabled() {
 		return sum, nil
 	}
@@ -123,6 +170,7 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 	}
 
 	clients := map[string]*clientAgg{}
+	users := map[string]*userAgg{}
 	packages := map[pkgKey]*packageAgg{}
 	ecosystems := map[string]*EcosystemSummary{}
 
@@ -174,6 +222,34 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 			c.identities[e.Subject] = struct{}{}
 		}
 
+		// An entry nobody was identified for has no user to be grouped under.
+		var u *userAgg
+		if e.Subject == "" {
+			sum.Unattributed++
+		} else {
+			u = users[e.Subject]
+			if u == nil {
+				u = &userAgg{
+					UserSummary: UserSummary{Subject: e.Subject, FirstSeen: e.Time},
+					packages:    map[pkgKey]struct{}{},
+					addresses:   map[string]struct{}{},
+					links:       map[string]struct{}{},
+				}
+				users[e.Subject] = u
+			}
+			u.Downloads++
+			u.Bytes += e.Bytes
+			u.LastSeen = e.Time
+			u.Tenant = e.Tenant
+			if e.Package != "" {
+				u.packages[key] = struct{}{}
+			}
+			u.addresses[e.ClientIP] = struct{}{}
+			if e.Link != "" && len(u.links) < maxSummaryLinks {
+				u.links[e.Link] = struct{}{}
+			}
+		}
+
 		eco := ecosystems[e.Ecosystem]
 		if eco == nil {
 			eco = &EcosystemSummary{Ecosystem: e.Ecosystem}
@@ -191,6 +267,7 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 				p = &packageAgg{
 					PackageSummary: PackageSummary{Ecosystem: e.Ecosystem, Package: e.Package},
 					clients:        map[string]struct{}{},
+					users:          map[string]struct{}{},
 					versions:       map[string]struct{}{},
 				}
 				packages[key] = p
@@ -199,6 +276,9 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 			p.Bytes += e.Bytes
 			p.LastSeen = e.Time
 			p.clients[e.ClientIP] = struct{}{}
+			if e.Subject != "" {
+				p.users[e.Subject] = struct{}{}
+			}
 			if e.Version != "" && len(p.versions) < maxSummaryVersions {
 				p.versions[e.Version] = struct{}{}
 			}
@@ -211,17 +291,48 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 			if p != nil {
 				p.Served++
 			}
+			if u != nil {
+				u.Served++
+			}
 		case OutcomeBlocked:
 			c.Blocked++
 			eco.Blocked++
 			if p != nil {
 				p.Blocked++
 			}
+			if u != nil {
+				u.Blocked++
+			}
 		}
 	}
 
 	sum.Clients = len(clients)
 	sum.Packages = len(packages)
+	sum.Users = len(users)
+
+	for _, u := range users {
+		u.Packages = len(u.packages)
+		u.Addresses = len(u.addresses)
+		u.ClientIPs = sortedKeys(u.addresses)
+		if len(u.ClientIPs) > maxSummaryAddresses {
+			u.ClientIPs = u.ClientIPs[:maxSummaryAddresses]
+		}
+		u.Links = sortedKeys(u.links)
+		sum.ByUser = append(sum.ByUser, u.UserSummary)
+	}
+	sort.Slice(sum.ByUser, func(i, j int) bool {
+		a, b := sum.ByUser[i], sum.ByUser[j]
+		if a.Downloads != b.Downloads {
+			return a.Downloads > b.Downloads
+		}
+		if !a.LastSeen.Equal(b.LastSeen) {
+			return a.LastSeen.After(b.LastSeen)
+		}
+		return a.Subject < b.Subject
+	})
+	if len(sum.ByUser) > top {
+		sum.ByUser = sum.ByUser[:top]
+	}
 
 	for _, c := range clients {
 		c.Packages = len(c.packages)
@@ -244,6 +355,7 @@ func (l *Log) Summarize(q Query, top int) (Summary, error) {
 
 	for _, p := range packages {
 		p.Clients = len(p.clients)
+		p.Users = len(p.users)
 		p.Versions = sortedKeys(p.versions)
 		sum.ByPackage = append(sum.ByPackage, p.PackageSummary)
 	}

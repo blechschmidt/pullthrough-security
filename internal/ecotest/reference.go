@@ -89,6 +89,13 @@ func GenerateReference() string {
 			b.WriteString("- **Download log:** asserted — each client run reaches the proxy from its own address; the log must show " +
 				"the installed package for each of them and the refused one as blocked ([download-log.md](download-log.md))\n")
 		}
+		if e.NoPersonalLink != "" {
+			fmt.Fprintf(&b, "- **Personal link:** not asserted here — %s\n", e.NoPersonalLink)
+		} else {
+			b.WriteString("- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address " +
+				"(`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user " +
+				"([user-links.md](user-links.md))\n")
+		}
 		if e.Notes != "" {
 			fmt.Fprintf(&b, "- **Note:** %s\n", e.Notes)
 		}

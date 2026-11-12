@@ -134,6 +134,47 @@ This screenshot was captured with clients on a private network pulling real
 crates, Go modules and npm packages through the proxy, two of them
 authenticating with tokens and two reaching it through a load balancer.
 
+![Downloads tab with users](images/admin-ui/downloads-users.png)
+
+Where the proxy knows **who** a client was — a [personal cache link](user-links.md),
+a token — the tab answers by person as well. The filter bar takes a **user** (a
+name, a pattern such as `*@example.com`, or `-` for the downloads nobody was
+identified for); a **Users** tile counts the identified users and the downloads
+without an identity; a **Users** panel lists the busiest users with the number
+of addresses each was seen on; and every entry shows its user, team and the
+personal link it came through. **Click a user** to see everything they pulled.
+In this screenshot every client ran on the same machine: one address, three
+people.
+
+---
+
+## User links — who holds a personal cache link
+
+![User links tab](images/admin-ui/user-links.png)
+
+The **User links** tab is the operator's view of [personal cache links](user-links.md):
+the per-user addresses of the package sources that cache users create after
+signing in through the identity provider, so that their downloads are recorded
+under their name.
+
+- **Stat tiles** — working links, users holding one, ended links (expired /
+  revoked), and whether the link registry is in sync with its store. When it is
+  not, a banner says so: links this replica does not already know are refused
+  until it is.
+- **Users** — each user with their working and total links and the most recent
+  use of any of them; *Downloads* opens the download log filtered to the user,
+  *Revoke all* ends everything issued to them — every link, on every replica,
+  and their session on the links page.
+- **Links** — every link: its user, the name they gave it, its state, when and
+  from where it was created, when it expires, and when, from which address and
+  with which client tool it was last used. *Revoke* ends one link. A link an
+  administrator issued (`ptctl userlinks issue`) says so.
+
+The search box matches user, team, name, link identifier and address; the state
+filter narrows to working, expired or revoked links; clicking a user narrows
+both lists to them. The tab shows no link itself: the proxy keeps only a hash of
+each, so a link can be revoked here but never displayed.
+
 ---
 
 ## Incident — the global kill-switch

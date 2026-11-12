@@ -128,6 +128,13 @@ type Ecosystem struct {
 	// own, so "which address" is something the proxy observed. It needs a bad
 	// package (the refused attempt is half of the assertion).
 	DownloadLog bool
+	// NoPersonalLink, when set, says why the personal-link check (Task 177) is
+	// not run for the ecosystem. Everywhere else the good package is installed
+	// once more with the client pointed at a user's personal address of the
+	// package source — "<proxy>/u/<link>/v1/<upstream>" in place of
+	// "<proxy>/v1/<upstream>" — and the proxy must record the install under
+	// that user.
+	NoPersonalLink string
 	// Notes documents anything a reader needs to know about the choices above.
 	Notes string
 }

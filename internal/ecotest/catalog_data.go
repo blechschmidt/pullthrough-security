@@ -106,6 +106,15 @@ var catalog = []Ecosystem{
 		Requests: []string{`^/v2/library/alpine/manifests/`, `^/v2/docker/library/alpine/manifests/`},
 		Notes: "Exercises both the explicit `<proxy>/<upstream>/<repository>` reference and registry-mirror mode. " +
 			"The daemon has no network, so a refused image cannot be fetched from Docker Hub instead.",
+		// The script pulls twice, and the second pull is the registry mirror: a
+		// mirror is configured as a host, a host has no path, and so a mirrored
+		// pull cannot carry a link. The explicit reference can
+		// ("<proxy>/u/<link>/<upstream>/<repository>"), and that is asserted with
+		// the real Docker Engine — as is `docker login` with the link as the
+		// password — by the hermetic suite in internal/e2e/userlinks.
+		NoPersonalLink: "this script's second pull uses the registry mirror, which is configured as a bare host and cannot carry a link; " +
+			"the personal image reference (`<proxy>/u/<link>/<upstream>/<repository>`) and `docker login` with the link are asserted " +
+			"with the real Docker Engine by the personal-links suite ([user-links.md](user-links.md#tests))",
 	},
 	{
 		ID:         "helm",

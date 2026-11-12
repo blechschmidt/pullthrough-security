@@ -263,6 +263,10 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 		if p.Method != "anonymous" {
 			entry.Subject = p.Subject
 		}
+		// The personal link the request came through (Task 177): the user may
+		// hold several — one per machine — and "which of them" is what tells a
+		// link that got out from one that did not.
+		entry.Link = personalLinkID(p)
 	}
 	entry.TraceID = tracing.TraceIDFromContext(r.Context())
 	log.Record(entry)

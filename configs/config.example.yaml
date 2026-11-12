@@ -1655,6 +1655,66 @@ downloadLog:
   # includeMetadata: false   # true also records index / version-list requests
 
 # ---------------------------------------------------------------------------
+# Personal cache links: downloads tracked per user (Task 177)
+# ---------------------------------------------------------------------------
+# An address is a machine, a NAT gateway or a shared build host. With personal
+# cache links, a cache user signs in through your OpenID Connect identity
+# provider on a self-service page (<server.publicUrl>/links/) and gets their own
+# address of every package source,
+#
+#     <server.publicUrl>/u/<link>/v1/<upstream>/…
+#
+# and every download through it is recorded under their name in the download
+# log, the audit log and the metrics. The same link also works as a password
+# (a bearer token, or the password of HTTP Basic) for clients that are better
+# off with a clean URL. Links are stored as hashes only, expire, and can be
+# revoked by their user (on the page) and by an operator (`ptctl userlinks`,
+# the dashboard's User links tab). With auth.enabled a link authenticates its
+# user, whose RBAC roles come from defaultRoles / roleMap. Off by default.
+# See docs/user-links.md.
+userLinks:
+  enabled: false             # default; requires server.publicUrl
+  # pathPrefix: /u           # first path segment of a personal URL
+  # uiPath: /links           # the self-service page
+  # linkTtl: 2160h           # how long a link works (90 days); "0s" = no expiry
+  # maxLinksPerUser: 10      # working links per user; -1 = no bound
+  # sessionTtl: 1h           # sign-in on the page; no bearing on links
+  # sessionKey signs the sign-in cookies. At least 32 bytes; every replica needs
+  # the same one. Generate with: openssl rand -base64 48
+  # sessionKey: ${PTS_USERLINKS_SESSION_KEY}
+  # syncInterval: 15s        # how long a revocation takes to reach another replica
+  #
+  # Where the link registry is kept. Left empty it follows the cache: the
+  # cache's S3 bucket (under <prefix>userlinks/) for cache.backend "s3",
+  # otherwise the directory <cache.dir>/userlinks. Every replica must use the
+  # same store.
+  # store:
+  #   backend: filesystem    # filesystem | s3 | memory
+  #   dir: /var/lib/pullthrough/userlinks
+  #   s3: {}                 # endpoint/region/bucket/prefix/credentials; default: cache.s3
+  #
+  # The identity provider users sign in at (authorization-code flow with PKCE).
+  # Register the redirect URI <server.publicUrl>/links/callback with it.
+  # oidc:
+  #   enabled: true
+  #   issuer: https://login.example.com/realms/corp
+  #   clientId: pullthrough-cache
+  #   clientSecret: ${PTS_USERLINKS_OIDC_SECRET}   # omit for a public client
+  #   scopes: [openid, profile, email]
+  #   subjectClaim: email    # what users are called in the download log
+  #   nameClaim: name
+  #   teamClaim: team
+  #   groupsClaim: groups
+  #   allowUnverifiedEmail: false
+  #
+  # defaultTeam: engineering          # team of a user whose ID token names none
+  # defaultRoles: [reader]            # RBAC roles (auth.roles) every signed-in user holds
+  # roleMap:                          # identity-provider group -> RBAC role
+  #   cache-admins: admin
+  # allowedGroups: [engineering]      # who may sign in (any one of these groups)
+  # allowedEmailDomains: [example.com]
+
+# ---------------------------------------------------------------------------
 # Disaster-recovery backup & restore (Task 44)
 # ---------------------------------------------------------------------------
 # Consistent, manifest-described, optionally-encrypted snapshots of the cache

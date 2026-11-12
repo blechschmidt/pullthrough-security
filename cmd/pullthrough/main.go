@@ -877,7 +877,28 @@ func run() error {
 		return err
 	}
 
-	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, logger)
+	// Personal cache links (Task 177): cache users sign in through an OIDC
+	// identity provider and get their own address for every package source, so
+	// that downloads are attributed to a person. Built after the audit log (it
+	// records sign-ins and link changes) and before the admin surface (which
+	// lists and revokes links) and the gateway (which serves them). Its registry
+	// is refreshed from the shared store for the lifetime of the server, and what
+	// it holds only in memory is written down on shutdown.
+	userLinksSvc, err := buildUserLinks(cfg, auditLog, clientIPResolver, logger)
+	if err != nil {
+		return err
+	}
+	if userLinksSvc.Enabled() {
+		userLinksSvc.Registry().SetLeaderGate(coordSvc.Guard("userlinks-cleanup").IsLeader)
+		go userLinksSvc.Run(ctx)
+		defer func() {
+			if cerr := userLinksSvc.Close(); cerr != nil {
+				logger.Error("closing the personal-link registry", "error", cerr)
+			}
+		}()
+	}
+
+	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, userLinksSvc, logger)
 
 	// Only the coordination leader emits expiry notifications (the scan still runs
 	// on every replica so each node's gauge is populated); then start the loop.
@@ -974,6 +995,7 @@ func run() error {
 		PullObserver:    newPrewarmPullObserver(prewarmSvc),
 		CacheFed:        cacheFed,
 		DownloadLog:     downloadLog,
+		UserLinks:       userLinksSvc,
 	}, proxy.Options{
 		HTTPAddr:         cfg.Server.HTTPAddr,
 		ReadTimeout:      cfg.Server.ReadTimeout,
@@ -992,6 +1014,8 @@ func run() error {
 		FIPSEnabled:      fipsMode.Enabled,
 		RegistryRoot:     buildRegistryRoot(cfg, logger),
 		ClientIP:         clientIPResolver,
+		PublicURL:        cfg.Server.PublicURL,
+		LinkBackends:     mountLinks.snapshot(),
 	})
 	if err != nil {
 		return err
@@ -1000,6 +1024,7 @@ func run() error {
 	// The gateway is built after the metrics collector, so its Range/streaming
 	// serve counters (Task 75) are bound here, once both exist.
 	bindServeMetrics(obs.collector, gateway)
+	bindPersonalLinkEdgeMetrics(obs.collector, gateway, userLinksSvc)
 
 	// Git LFS objects are served by the Git backend itself, not through the
 	// gateway's cached-artifact path, so the LLM package-content scan (Task 174)
@@ -1427,6 +1452,13 @@ func buildEnforcer(cfg *config.Config, mtlsAuth auth.Authenticator, logger *slog
 	var authenticator auth.Authenticator
 	if len(chain) > 0 {
 		authenticator = chain
+	} else if cfg.UserLinks.Enabled {
+		// Every client of this deployment is a user with a personal cache link
+		// (Task 177). Links are resolved by the gateway before it consults the
+		// enforcer, so the enforcer has nobody of its own to authenticate — and
+		// must say so for a request without a link, rather than refuse to be
+		// built. An empty chain declines every request.
+		authenticator = auth.Chain{}
 	}
 
 	quota := auth.NewQuotaManager(auth.QuotaOptions{
@@ -4264,14 +4296,22 @@ func upstreamDoer(cfg *config.Config, name string, up config.UpstreamConfig, cli
 func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, client upstream.Doer, creds upstream.Credentials) (backends.Backend, error) {
 	switch up.Type {
 	case "pip", "npm", "cargo", "go", "nuget":
-		return pkgmgr.Build(up.Type, pkgmgr.Options{
-			Name:          name,
-			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
-			Client:        client,
-			Credentials:   creds,
-			Settings:      up.Settings,
-		})
+		opts := pkgmgr.Options{
+			Name:        name,
+			UpstreamURL: up.URL,
+			Client:      client,
+			Credentials: creds,
+			Settings:    up.Settings,
+		}
+		// The GOPROXY protocol is path-relative: its adapter writes no links,
+		// and what it serves — a go.mod above all — is verified by the client
+		// against the checksum database. It is not told its public mount, and so
+		// is not among the backends whose documents the personal-link edge
+		// rewrites (see publicMount).
+		if up.Type != "go" {
+			opts.PublicBaseURL = publicMount(cfg, name)
+		}
+		return pkgmgr.Build(up.Type, opts)
 	case "maven":
 		return maven.New(maven.Options{
 			Name:        name,
@@ -4290,7 +4330,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return composer.New(composer.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4298,7 +4338,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return helm.New(helm.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 			OCI:           strings.EqualFold(strings.TrimSpace(up.Settings["oci"]), "true"),
@@ -4331,7 +4371,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return terraform.New(terraform.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4374,7 +4414,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return bazel.New(bazel.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4389,7 +4429,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return jsr.New(jsr.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4404,7 +4444,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return nix.New(nix.Options{
 			Name:              name,
 			UpstreamURL:       up.URL,
-			PublicBaseURL:     pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL:     publicMount(cfg, name),
 			TrustedPublicKeys: splitSettingList(up.Settings["trustedPublicKeys"]),
 			Client:            client,
 			Credentials:       creds,
@@ -4413,7 +4453,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return homebrew.New(homebrew.Options{
 			Name:              name,
 			UpstreamURL:       up.URL,
-			PublicBaseURL:     pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL:     publicMount(cfg, name),
 			BottleRegistryURL: strings.TrimSpace(up.Settings["bottleRegistryUrl"]),
 			Client:            client,
 			Credentials:       creds,
@@ -4425,7 +4465,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return ansible.New(ansible.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4433,7 +4473,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return puppet.New(puppet.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4448,7 +4488,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return openvsx.New(openvsx.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4463,7 +4503,7 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		return dart.New(dart.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicMount(cfg, name),
 			Client:        client,
 			Credentials:   creds,
 		})
@@ -4481,10 +4521,21 @@ func buildBackend(cfg *config.Config, name string, up config.UpstreamConfig, cli
 		if up.Generic == nil {
 			return nil, fmt.Errorf("generic upstream %q: a 'generic' configuration block is required", name)
 		}
+		// A generic backend writes links to its mount only on the routes the
+		// operator marked `rewrite`; one without such a route serves every
+		// document as it came, and is not among the backends whose documents the
+		// personal-link edge rewrites (see publicMount).
+		publicBase := pkgmgr.PublicBase(cfg.Server.PublicURL, name)
+		for _, route := range up.Generic.Routes {
+			if route.Rewrite {
+				publicBase = publicMount(cfg, name)
+				break
+			}
+		}
 		return generic.New(generic.Options{
 			Name:          name,
 			UpstreamURL:   up.URL,
-			PublicBaseURL: pkgmgr.PublicBase(cfg.Server.PublicURL, name),
+			PublicBaseURL: publicBase,
 			Client:        client,
 			Credentials:   creds,
 			Config:        *up.Generic,
@@ -4561,6 +4612,11 @@ func buildGitBackend(cfg *config.Config, name string, up config.UpstreamConfig, 
 		return nil, err
 	}
 	gitRT.upstreams[name] = gitUp
+	// The Git LFS batch API answers with the proxy's own address for each
+	// object; a personal cache link (Task 177) has to be kept on those.
+	if cfg.Git.LFS.Enabled {
+		mountLinks.add(name)
+	}
 
 	backend, err := git.NewBackend(git.BackendOptions{
 		Upstream:    gitUp,

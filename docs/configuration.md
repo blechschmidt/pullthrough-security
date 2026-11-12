@@ -867,6 +867,47 @@ default; bounded in entries and in time. Full guide:
 The client address is the TCP peer unless the peer is listed in
 [`server.trustedProxies`](#server).
 
+## `userLinks`
+
+Personal cache links (Task 177): cache users sign in through an OpenID Connect
+identity provider and get their own address of every package source
+(`<publicUrl>/u/<link>/v1/<upstream>/…`), so the download log records each
+download under a user and not only under a client address. Off by default.
+Full guide: [user-links.md](user-links.md).
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Serve the personal path prefix, accept a link's token as a credential and — with `oidc` — mount the self-service page. Requires [`server.publicUrl`](#server). |
+| `pathPrefix` | `/u` | First path segment of a personal URL. |
+| `uiPath` | `/links` | Where the self-service page (sign in, create and revoke links) is served. |
+| `linkTtl` | `2160h` | How long a link works (90 days). `0s` = links do not expire. |
+| `maxLinksPerUser` | `10` | Working links one user may hold (`0` = this default, `-1` = no bound). |
+| `sessionTtl` | `1h` | How long a sign-in on the page lasts. No bearing on links. |
+| `sessionKey` | — | Signs the sign-in cookies; at least 32 bytes, the same on every replica. Required with `oidc`. `${ENV}`, `enc:v1:` and secret references are supported. |
+| `insecureCookies` | `false` | Drop the `Secure` cookie attribute (plain-HTTP test set-ups only). |
+| `syncInterval` | `15s` | How often a replica refreshes the link registry — and so how long a revocation takes to reach another replica. |
+| `store.backend` | _(follows the cache)_ | `filesystem`, `s3` or `memory`. Empty: the cache's bucket for `cache.backend: s3`, otherwise `<cache.dir>/userlinks`. Every replica must use the same store. |
+| `store.dir` | `<cache.dir>/userlinks` | Directory of the filesystem store. |
+| `store.s3.*` | _(from `cache.s3`)_ | `endpoint`, `region`, `bucket`, `prefix`, `accessKeyId`, `secretAccessKey`, `sessionToken`, `usePathStyle`, `insecureSkipVerify`, `maxRetries`. |
+| `oidc.enabled` | `false` | Let users sign in. Without it links exist only when an administrator issues them (`ptctl userlinks issue`). |
+| `oidc.issuer`, `oidc.clientId` | — | The provider's issuer URL and the OAuth 2.0 client the proxy is registered as. Required with `oidc`. |
+| `oidc.clientSecret` | — | For a confidential client; empty = public client (PKCE only). |
+| `oidc.redirectUrl` | `<publicUrl><uiPath>/callback` | The callback registered with the provider. |
+| `oidc.scopes` | `openid profile email` | Requested at sign-in. |
+| `oidc.subjectClaim` | `email` | The claim users are called by in the download log (falls back to `sub`). |
+| `oidc.nameClaim`, `teamClaim`, `groupsClaim` | `name`, `team`, `groups` | Display name, team (tenant) and group membership. |
+| `oidc.allowUnverifiedEmail` | `false` | Accept an address the provider marks `email_verified: false`. |
+| `oidc.discoveryUrl`, `authorizationEndpoint`, `tokenEndpoint`, `jwksUrl`, `jwks` | _(discovered)_ | Override discovery; `jwks` pins the signing keys inline. |
+| `oidc.jwksCacheTtl`, `oidc.leeway` | `15m`, `60s` | Signing-key caching and tolerated clock skew. |
+| `defaultTeam` | — | Team of a user whose ID token names none. |
+| `defaultRoles` | — | RBAC roles (`auth.roles`) every signed-in user holds. |
+| `roleMap` | — | Identity-provider group → RBAC role. A group named like a role needs no entry. |
+| `allowedGroups`, `allowedEmailDomains` | — | Restrict who may sign in. |
+
+With [`auth.enabled`](#auth) a personal link is a way to authenticate, and its
+user needs a role to pull anything (`defaultRoles` / `roleMap`); personal links
+may be the only authentication mechanism configured.
+
 ## `observability`
 
 | Field | Default | Description |

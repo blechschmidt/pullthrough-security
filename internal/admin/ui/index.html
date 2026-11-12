@@ -34,6 +34,7 @@
     <button class="tab" role="tab" aria-selected="true" data-view="overview">Overview</button>
     <button class="tab" role="tab" aria-selected="false" data-view="secops">Security Ops</button>
     <button class="tab" role="tab" aria-selected="false" data-view="downloads">Downloads</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="userlinks">User links</button>
     <button class="tab" role="tab" aria-selected="false" data-view="query">Query</button>
     <button class="tab" role="tab" aria-selected="false" data-view="timeline">Timeline</button>
     <button class="tab" role="tab" aria-selected="false" data-view="dossier">Dossier</button>
@@ -128,6 +129,8 @@
         <input id="downloads-ip" class="input" type="search" placeholder="client IP or CIDR (10.0.0.0/8)" autocomplete="off" spellcheck="false" style="max-width:15rem">
         <label class="visually-hidden" for="downloads-package">Package</label>
         <input id="downloads-package" class="input" type="search" placeholder="package (name[@version], * wildcard)" autocomplete="off" spellcheck="false">
+        <label class="visually-hidden" for="downloads-subject">User</label>
+        <input id="downloads-subject" class="input" type="search" placeholder="user (alice@example.com, * wildcard, - for none)" autocomplete="off" spellcheck="false">
         <label class="visually-hidden" for="downloads-ecosystem">Ecosystem</label>
         <select id="downloads-ecosystem" class="input" style="max-width:10rem">
           <option value="" selected>All ecosystems</option>
@@ -157,16 +160,18 @@
         <button id="downloads-csv" class="btn btn-sm" type="button" title="Download every matching entry as CSV">Export CSV</button>
       </div>
       <p class="muted" style="margin:.2rem 0 .7rem">
-        Which package was downloaded from which address. One entry per request for an installable
-        artifact — a crate, a module, a wheel, an image layer, a Git fetch — with the client address,
-        the package coordinate, the outcome and (when clients authenticate) who it was. Requests an
+        Which package was downloaded from which address, and by whom. One entry per request for an
+        installable artifact — a crate, a module, a wheel, an image layer, a Git fetch — with the
+        client address, the package coordinate, the outcome and, where the proxy knows it, the user:
+        identities come from client authentication or from personal cache links. Requests an
         admission gate refused are listed too, with the gate that refused them. Click an address to
-        see everything it pulled, or a package to see everyone who pulled it. Enter applies.
+        see everything it pulled, a user to see everything they pulled, or a package to see everyone
+        who pulled it. Enter applies.
       </p>
       <div id="downloads-notice" class="panel" role="status" hidden></div>
       <div id="downloads-cards" class="stat-grid"></div>
 
-      <div class="secops-grid">
+      <div class="secops-grid two-up">
         <div class="panel">
           <h2>Client addresses <span class="muted">(most pulls first)</span></h2>
           <div class="table-wrap">
@@ -194,10 +199,29 @@
                   <th scope="col" class="num">Pulls</th>
                   <th scope="col" class="num">Blocked</th>
                   <th scope="col" class="num">Clients</th>
+                  <th scope="col" class="num">Users</th>
                   <th scope="col">Seen</th>
                 </tr>
               </thead>
               <tbody id="downloads-packages-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel wide">
+          <h2>Users <span class="muted">(most pulls first)</span></h2>
+          <div class="table-wrap">
+            <table id="downloads-users-table">
+              <thead>
+                <tr>
+                  <th scope="col">User</th>
+                  <th scope="col" class="num">Pulls</th>
+                  <th scope="col" class="num">Blocked</th>
+                  <th scope="col" class="num">Packages</th>
+                  <th scope="col" class="num">Addresses</th>
+                  <th scope="col">Seen</th>
+                </tr>
+              </thead>
+              <tbody id="downloads-users-body"></tbody>
             </table>
           </div>
         </div>
@@ -223,6 +247,78 @@
       </div>
       <div class="toolbar" style="margin-top:.7rem">
         <button id="downloads-more" class="btn btn-sm" type="button" hidden>Load older entries</button>
+      </div>
+    </section>
+
+    <!-- Personal cache links (Task 177): who holds a personal link, and the means to end it -->
+    <section id="view-userlinks" class="view" hidden aria-label="Personal cache links">
+      <div id="userlinks-notice" class="panel" role="status" hidden></div>
+      <div id="userlinks-main">
+        <div id="userlinks-sync" class="panel" role="status" hidden></div>
+        <p class="muted" style="margin:.2rem 0 .7rem">
+          Who holds a personal cache link. A personal link is the package-source URL under a prefix
+          that names a user — <span id="userlinks-example" class="mono">/u/&lt;token&gt;/v1/&lt;upstream&gt;/…</span> —
+          so that every download through it is recorded as theirs.
+          <span id="userlinks-howto">Users create their links on the self-service page after signing in.</span>
+          The proxy keeps no tokens: a link cannot be shown again, only revoked. “Last used” names the
+          address of the most recent download through a link. Click a user to see only their links.
+          Enter applies.
+        </p>
+        <div id="userlinks-cards" class="stat-grid"></div>
+
+        <!-- The cards count the whole registry; the filter is for the two lists under it. -->
+        <div class="toolbar">
+          <label class="visually-hidden" for="userlinks-search">Search the links</label>
+          <input id="userlinks-search" class="input" type="search" placeholder="search (user, team, label, link id, address)" autocomplete="off" spellcheck="false">
+          <label class="visually-hidden" for="userlinks-state">State</label>
+          <select id="userlinks-state" class="input" style="max-width:9.5rem">
+            <option value="" selected>All states</option>
+            <option value="active">Working</option>
+            <option value="expired">Expired</option>
+            <option value="revoked">Revoked</option>
+          </select>
+          <button id="userlinks-run" class="btn btn-sm btn-primary" type="button">Apply</button>
+          <button id="userlinks-reset" class="btn btn-sm" type="button">Reset</button>
+          <button id="userlinks-subject" class="btn btn-sm filter-chip" type="button" hidden title="Show the links of every user again"></button>
+        </div>
+
+        <div class="panel">
+          <h2>Users <span id="userlinks-users-meta" class="muted"></span></h2>
+          <div class="table-wrap capped">
+            <table id="userlinks-users-table">
+              <thead>
+                <tr>
+                  <th scope="col">User</th>
+                  <th scope="col" class="num">Working</th>
+                  <th scope="col" class="num">Links</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="userlinks-users-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Links <span id="userlinks-meta" class="muted" role="status" aria-live="polite"></span></h2>
+          <div class="table-wrap">
+            <table id="userlinks-table">
+              <thead>
+                <tr>
+                  <th scope="col">User</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Expires</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="userlinks-body"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 

@@ -1,11 +1,14 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/blechschmidt/pullthrough-security/internal/userlinks"
 )
 
 // RegistryRoot configures the host-root Docker/OCI Registry v2 alias.
@@ -173,7 +176,30 @@ func isRegistryRequest(p string) bool {
 func (g *Gateway) handleRegistryRoot(next http.Handler) http.Handler {
 	rr := g.opts.RegistryRoot
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		route, ok := rr.route(r.URL.Path, r.URL.Query())
+		path, ctx := r.URL.Path, r.Context()
+		// A personal cache link (Task 177) reaches the alias as the leading
+		// components of the repository — the one place a container client can
+		// put it: "/v2/u/<token>/<upstream>/<repository>/…". Take it off and
+		// remember it for the access-control check; the rest is routed as ever,
+		// and the response is treated as that of any personal request.
+		if token, rest, ok := g.registryPersonalPath(path); ok {
+			if _, already := userlinks.PathToken(ctx); already {
+				// "/u/<link>/v2/u/<link>/…": one request, one link. Taking either
+				// would leave the other unchecked.
+				http.Error(w, "a request can carry one personal cache link", http.StatusBadRequest)
+				return
+			}
+			path = rest
+			ctx = userlinks.WithPathToken(ctx, token)
+			if personalFrom(ctx) == nil {
+				pr := &personalRequest{prefix: g.deps.UserLinks.PathPrefix() + "/" + token, host: r.Host}
+				ctx = context.WithValue(ctx, personalRequestKey{}, pr)
+				pw := &personalWriter{ResponseWriter: w, g: g, pr: pr, head: r.Method == http.MethodHead}
+				defer pw.finish()
+				w = pw
+			}
+		}
+		route, ok := rr.route(path, r.URL.Query())
 		if !ok {
 			writeRegistryRootError(w, rr)
 			return
@@ -181,7 +207,7 @@ func (g *Gateway) handleRegistryRoot(next http.Handler) http.Handler {
 
 		// Rewrite on a shallow copy so the outer request-logging middleware still
 		// reports the path the client actually sent.
-		r2 := r.Clone(r.Context())
+		r2 := r.Clone(ctx)
 		r2.URL.Path = route.path
 		r2.URL.RawPath = ""
 		if route.stripNS {

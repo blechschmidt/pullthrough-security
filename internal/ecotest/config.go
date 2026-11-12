@@ -38,6 +38,12 @@ type RunConfig struct {
 // AuditLogPath is where the proxy of a run writes its audit log.
 func AuditLogPath(stateDir string) string { return filepath.Join(stateDir, "audit", "audit.log") }
 
+// AdminToken guards the admin API of the proxy under test. The harness reads
+// the proxy's state through that API, and issues the personal cache link of the
+// personal-link check with it — which an admin surface without authentication
+// refuses to do.
+const AdminToken = "ecotest-admin-token"
+
 // sourceRepoName is the name the fixture repository is watched under.
 const sourceRepoName = "ecotest-source"
 
@@ -99,7 +105,15 @@ func RenderConfig(rc RunConfig) ([]byte, error) {
 		"upstreams": upstreams,
 		// The admin API is how the harness observes the proxy (cache entries,
 		// scan verdicts, provenance links); metrics carry the counters it asserts.
-		"observability": map[string]any{"metrics": true, "admin": true},
+		"observability": map[string]any{"metrics": true, "admin": true, "adminToken": AdminToken},
+		// Personal cache links (Task 177): every package source is also served
+		// under a path prefix that names a user. There is no identity provider
+		// here; the link the suite uses is issued by the operator, through the
+		// admin API (`ptctl userlinks issue`).
+		"userLinks": map[string]any{
+			"enabled": true,
+			"store":   map[string]any{"backend": "filesystem", "dir": filepath.Join(rc.StateDir, "userlinks")},
+		},
 		// The tamper-evident audit log is the authoritative record of every
 		// admission decision; the harness reads the block it expects from there.
 		"audit": map[string]any{

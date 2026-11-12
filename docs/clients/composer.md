@@ -119,6 +119,10 @@ URL Composer downloads.
   proxy serves. If the audit fails with `curl error 6 … repo.packagist.org`,
   packagist.org is still configured (see above).
 - **`composer search` finds nothing**: the discovery APIs are not served.
+- **With a [personal cache link](../user-links.md)** configure the repositories
+  with `composer config --global`, not in `composer.json`. `composer.lock`
+  records the URL of every archive, link included, and the link works like a
+  password: do not commit a `composer.lock` written through a personal link.
 
 ## On the proxy
 

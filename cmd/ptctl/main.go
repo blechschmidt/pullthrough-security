@@ -14,8 +14,10 @@
 //   - `attest`     fetch (and summarize) the proxy's outbound attestation bundle
 //     for a served artifact.
 //   - `downloads`  show the download log — which package was downloaded from
-//     which client address — filtered by address, package, outcome
-//     or time, as a table, JSON or CSV.
+//     which client address, and by which user — filtered by address,
+//     user, package, outcome or time, as a table, JSON or CSV.
+//   - `userlinks`  list, revoke or issue personal cache links: the per-user
+//     addresses of the package sources that downloads are tracked by.
 //   - `completion` emit a shell-completion script (bash|zsh|fish).
 //
 // It talks to the proxy over HTTP only; it never needs the proxy's config file
@@ -92,7 +94,8 @@ func commands() []command {
 		{"timeline", "reconstruct the forensic incident timeline for a coordinate/tenant/identity/incident (Task 77)", runTimeline},
 		{"dossier", "show the complete per-coordinate security dossier / '360 view' (Task 87)", runDossier},
 		{"usage", "show per-tenant usage metering & chargeback report (Task 84)", runUsage},
-		{"downloads", "show the download log: which package was downloaded from which client address (Task 176)", runDownloads},
+		{"downloads", "show the download log: which package was downloaded from which client address — and by which user (Task 176)", runDownloads},
+		{"userlinks", "list, revoke or issue personal cache links — the per-user addresses downloads are tracked by (Task 177)", runUserLinks},
 		{"preset", "list/diff/apply curated compliance policy presets — SLSA/NIST SSDF/hardened (Task 88)", runPreset},
 		{"compaction", "report cache compression & cross-artifact dedup space savings (Task 125)", runCompaction},
 		{"cache-encryption", "report at-rest cache-encryption status or rotate the key-encryption key (Task 141)", runCacheEncryption},

@@ -94,6 +94,14 @@ func candidateTokens(r *http.Request) []string {
 	return out
 }
 
+// CandidateTokens returns every place a bearer-style credential might appear in
+// a request, in priority order: the Authorization header as "Bearer"/"token",
+// HTTP Basic (the password, then the username), and the X-Api-Token /
+// X-Auth-Token headers. It is the one definition of where a package manager may
+// have put a token, shared by every authenticator that accepts one — the static
+// token authenticator here, and the personal-link authenticator (Task 177).
+func CandidateTokens(r *http.Request) []string { return candidateTokens(r) }
+
 // looksLikeJWT reports whether a token has the three-segment JWS compact shape.
 // It lets the token authenticator skip JWTs (handled by the OIDC authenticator)
 // and vice versa.

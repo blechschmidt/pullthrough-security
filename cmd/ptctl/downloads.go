@@ -30,11 +30,14 @@ type downloadsSummary struct {
 }
 
 // runDownloads queries the proxy's download log (Task 176): which package was
-// downloaded from which client address. It is the command-line view of the
-// admin console's Downloads tab, for the two questions an incident starts with:
+// downloaded from which client address — and, where the proxy knows who the
+// client was (a personal cache link, a token; Task 177), by which user. It is
+// the command-line view of the admin console's Downloads tab, for the questions
+// an incident starts with:
 //
 //	ptctl downloads --package left-pad        # who pulled left-pad?
 //	ptctl downloads --ip 10.0.0.7             # what did 10.0.0.7 pull?
+//	ptctl downloads --user alice@example.com  # what did alice pull?
 //
 // and for exporting the answer (--format csv|json).
 func runDownloads(args []string) error {
@@ -47,22 +50,26 @@ func runDownloads(args []string) error {
 		ecosystem = fs.String("ecosystem", "", "ecosystem (cargo, go, npm, pip, docker, git, …)")
 		upstream  = fs.String("upstream", "", "configured upstream name")
 		outcome   = fs.String("outcome", "", "served | not_modified | blocked | not_found | error")
-		subject   = fs.String("subject", "", "authenticated subject (user, token name, key fingerprint)")
+		subject   = fs.String("subject", "", "identified client: a user, a token name, a key fingerprint; * is a wildcard (\"*@example.com\"), - selects downloads nobody was identified for")
+		user      = fs.String("user", "", "the same as --subject")
+		link      = fs.String("link", "", "personal cache link the download came through (its identifier, as `ptctl userlinks list` shows it)")
 		search    = fs.String("search", "", "free-text search across address, package, path, client tool, reason")
 		since     = fs.String("since", "", "only entries newer than this: an age (15m, 24h, 7d), RFC 3339, or unix seconds")
 		until     = fs.String("until", "", "only entries older than this (same forms as --since)")
 		limit     = fs.Int("limit", 50, "maximum number of entries to show")
 		all       = fs.Bool("all", false, "show every matching entry (pages through the log; overrides --limit)")
-		summary   = fs.Bool("summary", false, "show totals and the busiest client addresses and packages instead of entries")
-		top       = fs.Int("top", 10, "with --summary: how many clients and packages to list")
+		summary   = fs.Bool("summary", false, "show totals and the busiest client addresses, users and packages instead of entries")
+		top       = fs.Int("top", 10, "with --summary: how many clients, users and packages to list")
 		format    = fs.String("format", "table", "output format: table|json|csv")
 	)
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: ptctl downloads [flags]")
 		fmt.Fprintln(os.Stderr, "\nShow the proxy's download log: which package was downloaded from which client")
-		fmt.Fprintln(os.Stderr, "address (Task 176). Filters are ANDed. Examples:")
+		fmt.Fprintln(os.Stderr, "address, and by which user where one was identified. Filters are ANDed. Examples:")
 		fmt.Fprintln(os.Stderr, "\n  ptctl downloads --package left-pad            who pulled left-pad?")
 		fmt.Fprintln(os.Stderr, "  ptctl downloads --ip 10.0.0.7                 what did 10.0.0.7 pull?")
+		fmt.Fprintln(os.Stderr, "  ptctl downloads --user alice@example.com      what did alice pull?")
+		fmt.Fprintln(os.Stderr, "  ptctl downloads --user - --summary            what was pulled by nobody known?")
 		fmt.Fprintln(os.Stderr, "  ptctl downloads --outcome blocked --since 24h refused attempts of the last day")
 		fmt.Fprintln(os.Stderr, "  ptctl downloads --summary --ecosystem cargo   busiest addresses and crates")
 		fmt.Fprintln(os.Stderr, "  ptctl downloads --all --format csv > log.csv  export everything")
@@ -83,6 +90,12 @@ func runDownloads(args []string) error {
 	if *summary && *format == "csv" {
 		return fmt.Errorf("--summary has no CSV form; use --format json")
 	}
+	if *user != "" {
+		if *subject != "" && *subject != *user {
+			return fmt.Errorf("--user and --subject are the same filter; give one")
+		}
+		*subject = *user
+	}
 
 	c, err := newClient(g)
 	if err != nil {
@@ -100,6 +113,7 @@ func runDownloads(args []string) error {
 		"upstream":  *upstream,
 		"outcome":   *outcome,
 		"subject":   *subject,
+		"link":      *link,
 		"q":         *search,
 		"since":     *since,
 		"until":     *until,
@@ -247,6 +261,7 @@ func renderDownloadsSummary(w io.Writer, sum downloadsSummary) {
 	fmt.Fprintf(w, "Downloads: %d  (served %d, blocked %d, not modified %d, not found %d, errors %d)\n",
 		sum.Total, sum.Served, sum.Blocked, sum.NotModified, sum.NotFound, sum.Errors)
 	fmt.Fprintf(w, "Client addresses: %d   Packages: %d   Bytes sent: %d\n", sum.Clients, sum.Packages, sum.Bytes)
+	fmt.Fprintf(w, "Users: %d   Downloads without an identity: %d\n", sum.Users, sum.Unattributed)
 	if sum.First != nil && sum.Last != nil {
 		fmt.Fprintf(w, "Period: %s → %s\n", sum.First.UTC().Format(time.RFC3339), sum.Last.UTC().Format(time.RFC3339))
 	}
@@ -267,16 +282,36 @@ func renderDownloadsSummary(w io.Writer, sum downloadsSummary) {
 	}
 	tw.Flush()
 
+	// Users, where the log knows any: the same question as the addresses, asked
+	// by name.
+	if len(sum.ByUser) > 0 {
+		fmt.Fprintln(w, "\nUsers (most pulls first):")
+		uw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(uw, "USER\tTEAM\tPULLS\tSERVED\tBLOCKED\tPACKAGES\tADDRESSES\tLAST SEEN\tFROM")
+		for _, us := range sum.ByUser {
+			from := "-"
+			if len(us.ClientIPs) > 0 {
+				from = joinComma(us.ClientIPs)
+				if us.Addresses > len(us.ClientIPs) {
+					from += ", …"
+				}
+			}
+			fmt.Fprintf(uw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", us.Subject, dash(us.Tenant), us.Downloads, us.Served, us.Blocked,
+				us.Packages, us.Addresses, us.LastSeen.UTC().Format(time.RFC3339), from)
+		}
+		uw.Flush()
+	}
+
 	fmt.Fprintln(w, "\nPackages (most pulls first):")
 	pw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(pw, "ECOSYSTEM\tPACKAGE\tPULLS\tSERVED\tBLOCKED\tCLIENTS\tLAST SEEN\tVERSIONS")
+	fmt.Fprintln(pw, "ECOSYSTEM\tPACKAGE\tPULLS\tSERVED\tBLOCKED\tCLIENTS\tUSERS\tLAST SEEN\tVERSIONS")
 	for _, ps := range sum.ByPackage {
 		versions := "-"
 		if len(ps.Versions) > 0 {
 			versions = joinComma(ps.Versions)
 		}
-		fmt.Fprintf(pw, "%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n", ps.Ecosystem, ps.Package, ps.Downloads, ps.Served, ps.Blocked,
-			ps.Clients, ps.LastSeen.UTC().Format(time.RFC3339), versions)
+		fmt.Fprintf(pw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", ps.Ecosystem, ps.Package, ps.Downloads, ps.Served, ps.Blocked,
+			ps.Clients, ps.Users, ps.LastSeen.UTC().Format(time.RFC3339), versions)
 	}
 	pw.Flush()
 }

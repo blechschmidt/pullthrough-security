@@ -6,8 +6,8 @@
 # lab: lookups=docker.io
 #
 # The Docker Engine: an explicit reference to each registry upstream, then the
-# registry mirror. (The Engine cannot present a token to the proxy; see
-# docker-login.sh.)
+# registry mirror. (With access control on, the Engine presents a token through
+# `docker login`; see docker-login.sh.)
 set -eu
 echo "LAB_CLIENT_VERSION=$(docker version --format '{{.Server.Version}}')"
 

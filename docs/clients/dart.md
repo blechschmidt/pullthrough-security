@@ -86,6 +86,9 @@ package (below). `dart pub get -v` prints every request.
   serves has its archive URLs rewritten, and each archive is verified against
   the SHA-256 pub.dev publishes.
 - **Publishing does not go through the proxy** (`dart pub publish`).
+- **With a [personal cache link](../user-links.md)** `pubspec.lock` records the
+  hosted URL of every package, link included, and the link works like a
+  password: do not commit a `pubspec.lock` written through a personal link.
 
 ## On the proxy
 

@@ -43,9 +43,15 @@ type Query struct {
 	Outcome Outcome
 	// Kind selects by resource kind.
 	Kind Kind
-	// Subject and Tenant select by the authenticated client, exactly.
+	// Subject selects by the identified client — the user a download is
+	// attributed to. Without a "*" the match is exact; with one it is a pattern,
+	// matched ignoring case ("*@example.com"). The value "-" selects the entries
+	// nobody was identified for.
 	Subject string
-	Tenant  string
+	// Tenant selects by the client's team, exactly.
+	Tenant string
+	// Link selects by the personal cache link a request came through, exactly.
+	Link string
 	// Search is a free-text filter: an entry matches when any of its textual
 	// fields contains it, ignoring case.
 	Search string
@@ -82,8 +88,9 @@ type Result struct {
 //	upstream   upstream name
 //	outcome    served | not_modified | blocked | not_found | error
 //	kind       package | metadata | unclassified
-//	subject    authenticated subject
+//	subject    identified user ("*" is a wildcard; "-" selects unattributed entries)
 //	tenant     tenant / team
+//	link       personal cache link (its identifier)
 //	q          free-text search
 //	since      lower time bound: RFC 3339, unix seconds, or an age ("15m", "24h", "7d")
 //	until      upper time bound, same forms
@@ -101,6 +108,7 @@ func QueryFromValues(v url.Values, now time.Time) (Query, error) {
 		Upstream:  strings.TrimSpace(v.Get("upstream")),
 		Subject:   strings.TrimSpace(v.Get("subject")),
 		Tenant:    strings.TrimSpace(v.Get("tenant")),
+		Link:      strings.TrimSpace(v.Get("link")),
 		Search:    strings.TrimSpace(v.Get("q")),
 	}
 	if q.ClientIP != "" {
@@ -238,6 +246,10 @@ type matcher struct {
 	// "@" an npm scope starts with separates nothing).
 	pkgCoordinate bool
 	search        string // lower-cased
+	// subjectGlob is the lower-cased subject pattern, when the subject filter
+	// contains a "*"; subjectNone reports the filter "-": no subject at all.
+	subjectGlob string
+	subjectNone bool
 }
 
 // compile prepares q for matching. It fails only on an unparseable ClientIP.
@@ -255,7 +267,30 @@ func compile(q Query) (*matcher, error) {
 		m.pkgGlob = strings.Contains(m.pkg, "*")
 		m.pkgCoordinate = strings.LastIndexByte(m.pkg, '@') > 0
 	}
+	switch {
+	case q.Subject == NoSubject:
+		m.subjectNone = true
+	case strings.Contains(q.Subject, "*"):
+		m.subjectGlob = strings.ToLower(q.Subject)
+	}
 	return m, nil
+}
+
+// NoSubject is the Query.Subject value that selects the entries nobody was
+// identified for: downloads known by their address only.
+const NoSubject = "-"
+
+// matchSubject reports whether the entry's subject satisfies the subject
+// filter.
+func (m *matcher) matchSubject(e *Entry) bool {
+	switch {
+	case m.subjectNone:
+		return e.Subject == ""
+	case m.subjectGlob != "":
+		return e.Subject != "" && globMatch(m.subjectGlob, strings.ToLower(e.Subject))
+	default:
+		return e.Subject == m.q.Subject
+	}
 }
 
 // matchPackage reports whether the entry's package — its name, or its
@@ -307,10 +342,13 @@ func (m *matcher) match(e *Entry) bool {
 	if q.Version != "" && !strings.EqualFold(e.Version, q.Version) {
 		return false
 	}
-	if q.Subject != "" && e.Subject != q.Subject {
+	if q.Subject != "" && !m.matchSubject(e) {
 		return false
 	}
 	if q.Tenant != "" && e.Tenant != q.Tenant {
+		return false
+	}
+	if q.Link != "" && e.Link != q.Link {
 		return false
 	}
 	if m.search != "" && !m.searchMatch(e) {
@@ -323,7 +361,7 @@ func (m *matcher) match(e *Entry) bool {
 func (m *matcher) searchMatch(e *Entry) bool {
 	for _, field := range [...]string{
 		e.ClientIP, e.Package, e.Version, e.Artifact, e.Path, e.Ecosystem, e.Upstream,
-		e.Subject, e.Tenant, e.UserAgent, e.Gate, e.Code, e.Reason, e.ForwardedBy, e.Digest,
+		e.Subject, e.Tenant, e.UserAgent, e.Gate, e.Code, e.Reason, e.ForwardedBy, e.Digest, e.Link,
 	} {
 		if field != "" && containsFold(field, m.search) {
 			return true

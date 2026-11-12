@@ -201,6 +201,10 @@ each artifact is resolved from.
   timestamped ones are.
 - **Publishing does not go through the proxy** (`mvn deploy`,
   `gradle publish`): it is read-only.
+- **With a [personal cache link](../user-links.md)** the mirror belongs in your
+  own `~/.m2/settings.xml` (or a Gradle init script in your home directory),
+  never in a `pom.xml` or a build file that is committed: the link works like a
+  password.
 
 ## On the proxy
 
