@@ -551,7 +551,11 @@ func (b *Backend) handleLFSObject(w http.ResponseWriter, r *http.Request, repo, 
 		}
 	}
 
-	b.serveLFSObject(w, r, oid, entry)
+	cacheStatus := "MISS"
+	if hit {
+		cacheStatus = "HIT"
+	}
+	b.serveLFSObject(w, r, oid, entry, cacheStatus)
 }
 
 // wroteTracker notes whether anything was written to the response.
@@ -576,14 +580,17 @@ func (t *wroteTracker) Unwrap() http.ResponseWriter { return t.ResponseWriter }
 // serveLFSObject writes the cached blob to the client with full HTTP range
 // support (delegating to http.ServeContent when the body is seekable, which it
 // is for the filesystem and memory caches as well as the integrity-verifying
-// wrapper). Bytes written are metered.
-func (b *Backend) serveLFSObject(w http.ResponseWriter, r *http.Request, oid string, entry *cache.Entry) {
+// wrapper). Bytes written are metered. cacheStatus ("HIT" or "MISS") is
+// reported in X-Cache, as the gateway reports it for every other artifact: the
+// download log records it, and a client can tell a re-fetch from a cache hit.
+func (b *Backend) serveLFSObject(w http.ResponseWriter, r *http.Request, oid string, entry *cache.Entry, cacheStatus string) {
 	defer entry.Content.Close()
 
 	h := w.Header()
 	h.Set("Content-Type", "application/octet-stream")
 	h.Set("ETag", `"`+oid+`"`)
 	h.Set("Accept-Ranges", "bytes")
+	h.Set("X-Cache", cacheStatus)
 
 	cw := &countingResponseWriter{ResponseWriter: w}
 	if seeker, ok := entry.Content.(io.ReadSeeker); ok {

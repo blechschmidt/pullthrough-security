@@ -214,6 +214,9 @@ func TestLFSObjectCacheMissThenHit(t *testing.T) {
 	if got := atomic.LoadInt32(&up.storageHits); got != 1 {
 		t.Fatalf("storage hits after miss = %d, want 1", got)
 	}
+	if got := first.Header().Get("X-Cache"); got != "MISS" {
+		t.Errorf("first X-Cache = %q, want MISS", got)
+	}
 
 	// Second request: hit → no upstream storage contact.
 	second := doObject(b, oid, int64(len(blob)), "")
@@ -222,6 +225,9 @@ func TestLFSObjectCacheMissThenHit(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&up.storageHits); got != 1 {
 		t.Errorf("storage hits after hit = %d, want still 1 (served from cache)", got)
+	}
+	if got := second.Header().Get("X-Cache"); got != "HIT" {
+		t.Errorf("second X-Cache = %q, want HIT", got)
 	}
 
 	m := b.LFSMetrics()

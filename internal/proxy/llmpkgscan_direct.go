@@ -190,6 +190,16 @@ func (g *Gateway) GateLFSObject(w http.ResponseWriter, r *http.Request, upstream
 		return true
 	}
 	digest := "sha256:" + oid
+	// The Git backend serves its requests itself, ahead of the gateway's pull
+	// pipeline, so nothing has attached the per-request signal accumulator the
+	// findings layer reads. Attach one, and record the findings document on the
+	// way out: a refused LFS object leaves a finding (SARIF, dossier, SIEM) as a
+	// refusal on any other serve path does.
+	r = g.withAdmissionSignals(r, upstreamName, llmpkgscan.EcosystemGitLFS, &backends.Resolved{
+		Coordinate: backends.Coordinate{Name: repo, Version: oid},
+		Digest:     digest,
+	})
+	defer g.recordFindings(r)
 	admitted := g.admitLLMPkgScan(w, r, llmScanSubject{
 		backend:   upstreamName,
 		ecosystem: llmpkgscan.EcosystemGitLFS,

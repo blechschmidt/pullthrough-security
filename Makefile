@@ -58,6 +58,28 @@ test-integration: ## Run integration tests (needs MinIO/Git fixtures; see docs)
 test-download-log: ## Download-log integration suite: real cargo & go through the proxy, one address per client (hermetic)
 	$(GO) test -tags integration -count=1 -v ./internal/e2e/downloadlog/
 
+# --- LLM package-content scan, every ecosystem end to end (Task 175) ---------
+#
+# For every upstream type the configuration accepts, the real `pullthrough`
+# binary — started from a configuration file with llmPackageScan enabled —
+# pulls packages in that ecosystem's own format from a stub registry, while a
+# mock LLM endpoint (Anthropic and OpenAI wire formats) stands in for the model:
+# a benign package is served and the model saw its marker file; a flagged one
+# is refused (403), quarantined, recorded as a finding and in the audit log;
+# verdicts are reused across pulls and restarts; failMode closed/open with a
+# provider error and a timeout; a prompt injection inside the package does not
+# turn the verdict. Git rows: LFS objects, and the commit scan still gating the
+# packages built from a flagged commit. Writes the ecosystem × scenario matrix
+# (llm-package-scan-matrix.{md,json}) to PT_TEST_REPORT_DIR and fails when an
+# upstream type has no fully passing row. Hermetic (loopback only, no LLM API).
+#
+#   make test-llm-package-scan                                  # every ecosystem
+#   make test-llm-package-scan PKGSCAN_ECOSYSTEMS="npm docker"   # a selection
+PKGSCAN_ECOSYSTEMS ?=
+.PHONY: test-llm-package-scan
+test-llm-package-scan: ## LLM package-scan e2e suite: every ecosystem through the real proxy with a mock LLM (hermetic)
+	PT_PKGSCAN_ECOSYSTEMS="$(PKGSCAN_ECOSYSTEMS)" $(GO) test -tags integration -count=1 -v ./internal/e2e/pkgscan/
+
 # --- Ecosystem tests: real package managers through the proxy (Task 170) -----
 #
 # For every supported ecosystem, run the ecosystem's REAL client (npm, pip,

@@ -45,14 +45,26 @@ func (g *Gateway) recordFindings(r *http.Request) {
 	s.mu.Lock()
 	in := s.input
 	opts := findings.Options{Risk: s.risk, Policy: s.policy}
+	unnamed := s.unnamed
 	s.mu.Unlock()
 
-	// Only retain a document that has an addressable artifact; a bare path with no
-	// resolved coordinate would be unaddressable by the lookup endpoint anyway.
+	// Only retain a document that has an addressable artifact. An artifact its
+	// backend names no coordinate for — a file of a generic upstream — is
+	// addressed by its file name, the name the gates and the break-glass review
+	// give it, and only when a gate found something: a refusal must be explained
+	// (SARIF, dossier, SIEM) like a refusal of any named package, while an empty
+	// document under a bare file name would be clutter nobody looks up.
+	byFileName := false
 	if in.Artifact.Name == "" {
-		return
+		if unnamed == "" {
+			return
+		}
+		in.Artifact.Name, byFileName = unnamed, true
 	}
 	doc := findings.FromInput(in, opts)
+	if byFileName && len(doc.Findings) == 0 {
+		return
+	}
 
 	// De-duplicate overlapping findings before recording (Task 165): multiple
 	// gates can emit the same logical finding for one coordinate+digest (a secret

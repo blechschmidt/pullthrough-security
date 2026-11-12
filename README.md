@@ -55,6 +55,19 @@ metrics plus an admin dashboard.
 > host and every name a client looks up is recorded. A test fails when a
 > snippet and its script drift apart.
 >
+> **Every package is read before it is served — in every ecosystem, proven.**
+> With `llmPackageScan` enabled, a language model reviews the unpacked contents
+> of each artifact a client pulls — in a sandbox: nothing is executed, the model
+> has three read-only tools over an in-memory copy and no network — and the
+> proxy refuses what it judges malicious, quarantines it, and records a finding.
+> A CI suite proves it for every upstream type the proxy fronts, through the
+> real proxy binary with a mock model: a benign package is served and the model
+> saw its contents, a flagged one is refused and stays refused, verdicts are
+> reused, both fail modes behave, and a prompt injection inside a package does
+> not turn the verdict. See
+> [docs/llm-package-scan.md](docs/llm-package-scan.md); the ecosystem × scenario
+> matrix is attached to every CI run.
+>
 > **Who pulled what.** The admin console's Downloads tab (and
 > `GET /admin/api/downloads`, `ptctl downloads`) lists every package download
 > with the client address it came from — and every attempt an admission gate

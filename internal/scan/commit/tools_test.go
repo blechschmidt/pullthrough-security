@@ -617,3 +617,46 @@ func TestClaudeRequestTimeoutFollowsTheContext(t *testing.T) {
 		t.Errorf("the request outlived its context by far: %v", took)
 	}
 }
+
+// "No retries" means one request, whichever provider is configured. The
+// OpenAI-compatible provider has always read a negative MaxRetries that way;
+// the Claude provider used to leave the SDK's own default (two more attempts)
+// in force, so `maxRetries: -1` still made three requests and spent the backoff
+// between them.
+func TestClaudeNegativeMaxRetriesDisablesTheSDKRetries(t *testing.T) {
+	const overloaded = `{"type":"error","error":{"type":"api_error","message":"overloaded"}}`
+	attempts := func(maxRetries int) int {
+		t.Helper()
+		var mu sync.Mutex
+		n := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			mu.Lock()
+			n++
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			// Ask for an immediate retry so the test does not sit out a backoff.
+			w.Header().Set("Retry-After-Ms", "1")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, overloaded)
+		}))
+		defer srv.Close()
+		p, err := NewClaudeProvider(ClaudeOptions{APIKey: "k", BaseURL: srv.URL, MaxRetries: maxRetries})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := p.Complete(context.Background(), Request{Model: "claude-opus-4-8", User: "x", MaxTokens: 256}); err == nil {
+			t.Fatal("a failing endpoint returned no error")
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return n
+	}
+
+	if got := attempts(-1); got != 1 {
+		t.Errorf("MaxRetries -1 made %d requests, want exactly 1", got)
+	}
+	if got := attempts(1); got != 2 {
+		t.Errorf("MaxRetries 1 made %d requests, want 2 (one retry)", got)
+	}
+}

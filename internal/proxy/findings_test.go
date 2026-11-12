@@ -111,3 +111,45 @@ func TestRecordFindingsSkipsUnaddressable(t *testing.T) {
 		t.Error("recording without an accumulator should store nothing")
 	}
 }
+
+// A backend that names no package coordinate — a file of a generic upstream —
+// still has a refusal explained: what the gates found is kept under the file
+// name the gates and the break-glass review know the artifact by. An unnamed
+// artifact nothing was found in leaves no document.
+func TestRecordFindingsKeepsAnUnnamedArtifactsFindingsUnderItsFileName(t *testing.T) {
+	store := findings.NewStore(findings.StoreOptions{})
+	g := newFindingsGateway(t, store, nil)
+	resolved := &backends.Resolved{UpstreamURL: "https://downloads.example/releases/1.4.2/tool-1.4.2.tar.gz?sig=x"}
+	pull := func(l *policyengine.LLMPackageInput) {
+		r := g.withAdmissionSignals(httptest.NewRequest(http.MethodGet, "/v1/tools/releases/1.4.2/tool-1.4.2.tar.gz", nil), "tools", "generic", resolved)
+		s := signalsFrom(r.Context())
+		if s == nil {
+			t.Fatal("no signal accumulator was attached")
+		}
+		s.input.LLMPackage = l
+		g.recordFindings(r)
+	}
+
+	pull(&policyengine.LLMPackageInput{Scanned: true, Verdict: "benign", Disposition: "benign"})
+	if n := store.Len(); n != 0 {
+		t.Fatalf("a clean unnamed artifact left %d findings document(s)", n)
+	}
+
+	pull(&policyengine.LLMPackageInput{
+		Scanned: true, Verdict: "malicious", Disposition: "malicious", Confidence: 0.97,
+		Findings: []policyengine.LLMPackageFinding{{
+			RuleID: findings.RuleLLMMaliciousPackage, Category: "malicious-package", Severity: "critical",
+			Title: "the package downloads and runs a remote script", File: "tool-1.4.2/install.sh", Line: 3,
+		}},
+	})
+	doc, ok := store.Get("", "tool-1.4.2.tar.gz")
+	if !ok {
+		t.Fatalf("the refusal of an unnamed artifact left no findings document (%d documents)", store.Len())
+	}
+	if doc.Artifact.Name != "tool-1.4.2.tar.gz" || doc.Artifact.Ecosystem != "generic" || doc.Artifact.Backend != "tools" {
+		t.Errorf("document artifact = %+v, want the file name under the generic upstream", doc.Artifact)
+	}
+	if len(doc.Findings) != 1 || doc.Findings[0].RuleID != findings.RuleLLMMaliciousPackage || doc.Findings[0].Location.File != "tool-1.4.2/install.sh" {
+		t.Errorf("findings = %+v, want the malicious-package finding at tool-1.4.2/install.sh", doc.Findings)
+	}
+}

@@ -330,11 +330,13 @@ jobs:
           cargo --version
           go version
 
+      # Every suite under internal/e2e but the LLM package-scan suite, which has
+      # a job of its own (llm-package-scan, below).
       - name: Run the per-ecosystem pipeline, LLM-scan admission and download-log suites
         env:
           PT_TEST_REPORT_DIR: ${{ runner.temp }}/integration-report
           PT_DOWNLOADLOG_CLIENTS: real
-        run: go test -race -tags integration ./internal/e2e/...
+        run: go test -race -tags integration $(go list -tags integration ./internal/e2e/... | grep -v '/internal/e2e/pkgscan$')
 
       - name: Publish matrices
         if: always()
@@ -352,6 +354,74 @@ jobs:
         with:
           name: integration-report
           path: ${{ runner.temp }}/integration-report
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------- #
+  # LLM package-content scan, every ecosystem end to end (Task 175,
+  # internal/e2e/pkgscan). For every upstream type the configuration accepts, the
+  # real `pullthrough` binary — started from a configuration file with
+  # llmPackageScan enabled — pulls packages in that ecosystem's own format (a
+  # wheel, a crate, a .deb, an .rpm, an OCI image, a NAR, a Helm chart, a model
+  # file, …) from a stub registry speaking its protocol, while a mock LLM
+  # endpoint speaking the Anthropic and OpenAI wire formats stands in for the
+  # model. Per ecosystem: a benign package is served and the model was shown the
+  # marker file from inside it; a flagged one is refused (403,
+  # X-Policy-Code: llm-package-malicious), quarantined, recorded as a finding and
+  # in the audit log, and refused again — from the stored verdict — on a retry,
+  # after a restart and from the cache; a second pull costs no LLM call;
+  # failMode closed refuses and failMode open serves (annotated) on a provider
+  # error and on a timeout; a prompt injection inside the package does not turn
+  # the verdict. Git: LFS objects go through the same scenarios, and the LLM
+  # commit scan still refuses the package built from a flagged commit.
+  #
+  # Hermetic: stubs and the mock LLM listen on loopback, the proxy's egress guard
+  # allows nothing else, and no LLM API is called. The suite fails when any
+  # upstream type has no fully passing row, so a backend added later cannot stay
+  # outside it. The ecosystem × scenario matrix is published to the job summary
+  # and uploaded as the `llm-package-scan-matrix` artifact.
+  llm-package-scan:
+    name: LLM package-scan suite, every ecosystem (hermetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # The Git rows drive the real git (and `git http-backend` as the stub
+      # server); it ships with the hosted runner image.
+      - name: Show the git the suite drives
+        run: git --version
+
+      - name: Build the proxy under test
+        run: go build -o "$RUNNER_TEMP/pullthrough" ./cmd/pullthrough
+
+      - name: Run the LLM package-scan suite
+        env:
+          PT_PKGSCAN_PROXY_BIN: ${{ runner.temp }}/pullthrough
+          PT_TEST_REPORT_DIR: ${{ runner.temp }}/llm-package-scan-report
+        run: go test -race -tags integration -count=1 -v ./internal/e2e/pkgscan/
+
+      - name: Publish the matrix
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/llm-package-scan-report/llm-package-scan-matrix.md"
+          if [ -f "$f" ]; then
+            cat "$f" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The suite wrote no matrix: it stopped before the ecosystems ran." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-package-scan-matrix
+          path: ${{ runner.temp }}/llm-package-scan-report
           if-no-files-found: ignore
 
   # ----------------------------------------------------------------------- #
@@ -591,7 +661,7 @@ jobs:
     # only the extended-fuzzing job, not the image publish pipeline.
     if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
-    needs: [test, redteam, integration, lint-manifests]
+    needs: [test, redteam, integration, llm-package-scan, lint-manifests]
     permissions:
       contents: read
       packages: write

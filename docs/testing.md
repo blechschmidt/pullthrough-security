@@ -7,6 +7,7 @@ default developer loop stays fast and deterministic.
 | ---- | --------- | ---------- | ------------ |
 | Unit + component | _(none)_ | `make test` | every PR, locally |
 | Integration | `integration` | `make test-integration` | on demand (needs Git/MinIO fixtures); the hermetic per-ecosystem suites in `internal/e2e` run on every PR (`integration` job) |
+| LLM package scan, every ecosystem | `integration` | `make test-llm-package-scan` | every PR (`llm-package-scan` job; gates the image build) |
 | Ecosystem (real package managers) | `ecosystem` | `make test-ecosystems` | every PR and nightly, one CI job per ecosystem (needs Docker + network) |
 | Client lab (the client guide, executed) | _(scripts)_ | `make client-lab` | nightly, on demand, and when the lab or the guide changes, one CI job per client image (needs Docker + network) |
 | Fuzz | `fuzz` | `make fuzz` / `make fuzz-seed` | seed corpora on every PR; extended nightly |
@@ -43,6 +44,28 @@ run instead of passing unnoticed. `go test ./internal/clientguide/` (part of
 names the scripts that execute it, and a line that none of them executes fails
 the test — as does a script that was edited after its result was recorded on
 the lab's page. See [client-lab.md](client-lab.md).
+
+The **LLM package-scan suite** (`internal/e2e/pkgscan`, Task 175) proves that
+the [LLM package-content scan](llm-package-scan.md) gates every upstream type
+the proxy fronts. For each, the real `pullthrough` binary — started from a
+configuration file with `llmPackageScan` enabled — pulls packages in the
+ecosystem's own format from a stub registry speaking its protocol, while a mock
+LLM endpoint (Anthropic and OpenAI wire formats) stands in for the model: a
+benign package is served and the model saw its marker file; a flagged one is
+refused, quarantined, recorded as a finding and in the audit log, and stays
+refused across retries, restarts and the cache; verdicts are reused; failMode
+closed and open each behave on a provider error and a timeout; a prompt
+injection inside the package does not turn the verdict. Git: LFS objects go
+through the same scenarios, and the commit scan still refuses the package built
+from a flagged commit. It writes an ecosystem × scenario matrix
+(`llm-package-scan-matrix.{md,json}`) and fails when any upstream type has no
+fully passing row. Hermetic; CI runs it in its own `llm-package-scan` job. See
+[llm-package-scan.md](llm-package-scan.md#testing).
+
+```sh
+make test-llm-package-scan                                 # go test -tags integration ./internal/e2e/pkgscan/
+make test-llm-package-scan PKGSCAN_ECOSYSTEMS="npm docker"  # a selection
+```
 
 The hermetic **per-ecosystem integration suites** (`internal/e2e`, Tasks 144 and
 168) drive an in-process gateway over a recorded upstream for every ecosystem:

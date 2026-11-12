@@ -37,6 +37,9 @@ type ClaudeOptions struct {
 	BaseURL string
 	// MaxRetries bounds the SDK's own transient-error retries. The pipeline adds
 	// an outer retry/backoff loop on top; this is the inner, per-request bound.
+	// Zero keeps the SDK's default; a negative value disables the SDK's retries,
+	// as it does for the OpenAI-compatible provider — so that a caller's "no
+	// retries" means one request, whichever provider is configured.
 	MaxRetries int
 }
 
@@ -52,8 +55,11 @@ func NewClaudeProvider(opts ClaudeOptions) (*ClaudeProvider, error) {
 	if opts.BaseURL != "" {
 		clientOpts = append(clientOpts, option.WithBaseURL(opts.BaseURL))
 	}
-	if opts.MaxRetries > 0 {
+	switch {
+	case opts.MaxRetries > 0:
 		clientOpts = append(clientOpts, option.WithMaxRetries(opts.MaxRetries))
+	case opts.MaxRetries < 0:
+		clientOpts = append(clientOpts, option.WithMaxRetries(0))
 	}
 	return &ClaudeProvider{client: anthropic.NewClient(clientOpts...)}, nil
 }

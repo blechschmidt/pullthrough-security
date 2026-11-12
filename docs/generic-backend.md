@@ -177,6 +177,12 @@ lookup has no ecosystem mapping for an arbitrary generic source). Those gates
 simply no-op for a generic artifact they cannot interpret; the content-bytes
 gates (`contentscan`, `avscan`) apply to any cached artifact.
 
+A generic artifact has no package coordinate — the backend knows no package
+grammar — so a refusal names no package and version. What the gates found is
+still recorded (findings, SARIF, the SIEM forward), under the artifact's **file
+name**, the name its break-glass review carries too; an artifact nothing was
+found in leaves no findings document.
+
 ### The LLM package scan on a generic route
 
 One identifier in `gates` does more than record intent. A route that lists

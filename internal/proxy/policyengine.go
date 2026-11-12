@@ -51,6 +51,11 @@ type admissionSignals struct {
 	// gates as they run; nil when that gate did not run.
 	risk   *findings.RiskSignal
 	policy *findings.PolicySignal
+	// unnamed is the file name of an artifact its backend gives no package
+	// coordinate (a generic upstream's file): the name the gates and the
+	// break-glass review know it by, under which recordFindings keeps what the
+	// gates found. Empty when the artifact has a coordinate.
+	unnamed string
 }
 
 // withAdmissionSignals attaches a fresh signal accumulator to the request,
@@ -78,6 +83,9 @@ func (g *Gateway) withAdmissionSignals(r *http.Request, name, ecosystem string, 
 	}}
 	if p, ok := auth.FromContext(r.Context()); ok && p != nil {
 		sig.input.Tenant = p.Team
+	}
+	if resolved.Coordinate.Name == "" {
+		sig.unnamed = resolved.ArtifactFilename()
 	}
 	ctx := context.WithValue(r.Context(), signalsKey{}, sig)
 	return r.WithContext(ctx)
