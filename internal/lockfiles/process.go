@@ -116,7 +116,10 @@ func finish(files []*File, proxy *Proxy) {
 }
 
 // dedupe collapses repeated dependencies onto their first entry, merging the
-// digests, and orders the rest by line.
+// digests, and orders the rest by line. An entry that names no registry joins
+// the one entry of the same package version that does (npm records "resolved"
+// for some places of a package in node_modules and not for others); with two
+// different registries named, it is left on its own.
 func dedupe(deps []Dependency) []Dependency {
 	if len(deps) == 0 {
 		return deps
@@ -126,20 +129,41 @@ func dedupe(deps []Dependency) []Dependency {
 	for _, d := range deps {
 		k := d.Key()
 		if i, ok := index[k]; ok {
-			out[i].Digests = mergeDigests(out[i].Digests, d.Digests)
-			if d.Line > 0 && (out[i].Line == 0 || d.Line < out[i].Line) {
-				out[i].Line = d.Line
-			}
-			out[i].Dev = out[i].Dev && d.Dev
-			if out[i].URL == "" {
-				out[i].URL = d.URL
-			}
+			mergeInto(&out[i], d)
 			continue
 		}
 		index[k] = len(out)
 		d.Digests = mergeDigests(nil, d.Digests)
 		out = append(out, d)
 	}
+
+	// Entries without a registry, onto their one sibling with a registry.
+	withRegistry := map[string][]int{}
+	for i, d := range out {
+		if d.Registry != "" {
+			base := d
+			base.Registry = ""
+			withRegistry[base.Key()] = append(withRegistry[base.Key()], i)
+		}
+	}
+	merged := make([]bool, len(out))
+	for i, d := range out {
+		if d.Registry != "" {
+			continue
+		}
+		if targets := withRegistry[d.Key()]; len(targets) == 1 {
+			mergeInto(&out[targets[0]], d)
+			merged[i] = true
+		}
+	}
+	kept := out[:0]
+	for i, d := range out {
+		if !merged[i] {
+			kept = append(kept, d)
+		}
+	}
+	out = kept
+
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Line != out[j].Line {
 			return out[i].Line < out[j].Line
@@ -150,6 +174,19 @@ func dedupe(deps []Dependency) []Dependency {
 		return out[i].Version < out[j].Version
 	})
 	return out
+}
+
+// mergeInto folds a duplicate entry into the one kept: the digests of both,
+// the earlier line, development-only only if both are, a URL if one has it.
+func mergeInto(keep *Dependency, d Dependency) {
+	keep.Digests = mergeDigests(keep.Digests, d.Digests)
+	if d.Line > 0 && (keep.Line == 0 || d.Line < keep.Line) {
+		keep.Line = d.Line
+	}
+	keep.Dev = keep.Dev && d.Dev
+	if keep.URL == "" {
+		keep.URL = d.URL
+	}
 }
 
 // mergeDigests appends the digests of b not already in a (or earlier in b),

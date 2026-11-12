@@ -491,3 +491,26 @@ func TestManyDigestsMergeInLinearTime(t *testing.T) {
 		}
 	})
 }
+
+func TestDedupeMergesEntriesWithoutRegistry(t *testing.T) {
+	sha := func(c string) []Digest { return []Digest{{Algorithm: "sha1", Value: strings.Repeat(c, 40)}} }
+	deps := dedupe([]Dependency{
+		{Type: "npm", Name: "semver", Version: "6.3.1", Line: 9, Registry: "https://registry.npmjs.org", Digests: sha("a"), Dev: true},
+		{Type: "npm", Name: "semver", Version: "6.3.1", Line: 4, Digests: sha("a"), Dev: true},
+		// Two registries for one version: an entry without one cannot be placed.
+		{Type: "npm", Name: "x", Version: "1.0.0", Line: 20, Registry: "https://a.example"},
+		{Type: "npm", Name: "x", Version: "1.0.0", Line: 21, Registry: "https://b.example"},
+		{Type: "npm", Name: "x", Version: "1.0.0", Line: 22},
+		// A Git dependency is not merged with a registry one.
+		{Type: "npm", Name: "y", Version: "1.0.0", Line: 30, Registry: "https://registry.npmjs.org"},
+		{Type: "npm", Name: "y", Version: "1.0.0", Line: 31, Source: SourceGit, Revision: strings.Repeat("c", 40)},
+	})
+	var got []string
+	for _, d := range deps {
+		got = append(got, fmt.Sprintf("%s@%s:%d:%s:%d", d.Name, d.Version, d.Line, d.Registry, len(d.Digests)))
+	}
+	want := "semver@6.3.1:4:https://registry.npmjs.org:1,x@1.0.0:20:https://a.example:0,x@1.0.0:21:https://b.example:0,x@1.0.0:22::0,y@1.0.0:30:https://registry.npmjs.org:0,y@1.0.0:31::0"
+	if strings.Join(got, ",") != want {
+		t.Errorf("dedupe:\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
+}
