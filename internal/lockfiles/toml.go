@@ -126,24 +126,29 @@ func (t *tomlTable) strings(key string) []string {
 	return out
 }
 
-// Limits of the reader.
+// Limits of the reader. Every table and value counts against a budget of
+// one per four bytes of input (real lock files have one per ten bytes or
+// more), and tables — the costly nodes — against one per thirty-two.
 const (
 	maxTOMLDepth = 64
-	maxTOMLKeys  = 1 << 20
 )
 
 type tomlParser struct {
-	data  []byte
-	pos   int
-	line  int
-	root  *tomlTable
-	cur   *tomlTable
-	depth int
-	count int
+	data   []byte
+	pos    int
+	line   int
+	root   *tomlTable
+	cur    *tomlTable
+	depth  int
+	count  int // tables and values made
+	tables int // tables made
 }
 
 // parseTOML parses a TOML document.
 func parseTOML(data []byte) (*tomlTable, error) {
+	if len(data) > maxTreeInput {
+		return nil, errTreeInputTooLarge
+	}
 	if !utf8.Valid(data) {
 		return nil, errors.New("TOML document is not valid UTF-8")
 	}
@@ -293,7 +298,10 @@ func (p *tomlParser) header() error {
 		v := t.get(k)
 		switch {
 		case v == nil:
-			nt := newTOMLTable(line)
+			nt, err := p.newTable(line)
+			if err != nil {
+				return err
+			}
 			t.set(k, &tomlValue{kind: tkTable, tab: nt, line: line})
 			t = nt
 		case v.kind == tkTable && !v.tab.inline:
@@ -315,15 +323,21 @@ func (p *tomlParser) header() error {
 		default:
 			return fmt.Errorf("key %q is not an array of tables", last)
 		}
-		nt := newTOMLTable(line)
+		nt, err := p.newTable(line)
+		if err != nil {
+			return err
+		}
 		nt.defined = true
 		v.arr = append(v.arr, &tomlValue{kind: tkTable, tab: nt, line: line})
 		p.cur = nt
-		return p.counted()
+		return nil
 	}
 	switch {
 	case v == nil:
-		nt := newTOMLTable(line)
+		nt, err := p.newTable(line)
+		if err != nil {
+			return err
+		}
 		nt.defined = true
 		t.set(last, &tomlValue{kind: tkTable, tab: nt, line: line})
 		p.cur = nt
@@ -334,16 +348,28 @@ func (p *tomlParser) header() error {
 	default:
 		return fmt.Errorf("table %q is defined twice", last)
 	}
-	return p.counted()
+	return nil
 }
 
-// counted bounds the number of keys and tables in a document.
+// counted bounds the number of keys and values in a document.
 func (p *tomlParser) counted() error {
 	p.count++
-	if p.count > maxTOMLKeys {
-		return errors.New("too many keys")
+	if p.count > len(p.data)/4+4096 {
+		return errors.New("too many values for the size of the document")
 	}
 	return nil
+}
+
+// newTable makes a table, counted against the budgets.
+func (p *tomlParser) newTable(line int) (*tomlTable, error) {
+	p.tables++
+	if p.tables > len(p.data)/32+1024 {
+		return nil, errors.New("too many tables for the size of the document")
+	}
+	if err := p.counted(); err != nil {
+		return nil, err
+	}
+	return newTOMLTable(line), nil
 }
 
 // key reads a dotted key.
@@ -417,7 +443,10 @@ func (p *tomlParser) keyValue(t *tomlTable) error {
 		cur := t.get(k)
 		switch {
 		case cur == nil:
-			nt := newTOMLTable(line)
+			nt, err := p.newTable(line)
+			if err != nil {
+				return err
+			}
 			nt.dotted = true
 			t.set(k, &tomlValue{kind: tkTable, tab: nt, line: line})
 			t = nt
@@ -519,7 +548,10 @@ func (p *tomlParser) array() (*tomlValue, error) {
 // accepted (TOML 1.1).
 func (p *tomlParser) inlineTable() (*tomlValue, error) {
 	line := p.line
-	t := newTOMLTable(line)
+	t, err := p.newTable(line)
+	if err != nil {
+		return nil, err
+	}
 	t.defined = true
 	if err := p.enter(); err != nil {
 		return nil, err

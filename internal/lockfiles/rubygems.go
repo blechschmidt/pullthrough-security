@@ -41,8 +41,11 @@ func (gemfileLock) Parse(data []byte) (*Result, error) {
 	inSpecs := false
 	checksums := map[string][]Digest{}
 	sawSection := false
-	for i, raw := range strings.Split(string(data), "\n") {
-		lineNo := i + 1
+	for it := newLineIter(string(data)); ; {
+		raw, lineNo, more := it.next()
+		if !more {
+			break
+		}
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "" {
 			inSpecs = false

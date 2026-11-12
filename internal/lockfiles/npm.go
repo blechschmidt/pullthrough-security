@@ -19,17 +19,6 @@ func (p npmLock) Detect(path string) bool {
 	return baseName(path) == p.file
 }
 
-// npmPackageEntry is an entry of "packages" (v2, v3).
-type npmPackageEntry struct {
-	Name      lenientString `json:"name"`
-	Version   lenientString `json:"version"`
-	Resolved  lenientString `json:"resolved"`
-	Integrity lenientString `json:"integrity"`
-	Link      lenientBool   `json:"link"`
-	Dev       lenientBool   `json:"dev"`
-	InBundle  lenientBool   `json:"inBundle"`
-}
-
 func (p npmLock) Parse(data []byte) (*Result, error) {
 	doc := newJSONDoc(data)
 	res := &Result{}
@@ -48,16 +37,21 @@ func (p npmLock) Parse(data []byte) (*Result, error) {
 			if doc.peekKind() != '{' {
 				return doc.skip()
 			}
+			// A repeated key keeps its last value, as npm's JSON.parse does.
 			sawPackages = true
+			byPath := map[string]int{}
+			packages = nil
 			return doc.object(func(installPath string, line int) error {
-				var e npmPackageEntry
-				if doc.peekKind() != '{' {
-					return doc.skip()
-				}
-				if err := doc.value(&e); err != nil {
+				e, err := doc.fields()
+				if err != nil || e == nil {
 					return err
 				}
-				if d, ok := npmPackageDependency(res, installPath, line, e); ok {
+				d, ok := npmPackageDependency(res, installPath, line, e)
+				if i, dup := byPath[installPath]; dup {
+					packages[i] = Dependency{} // superseded
+				}
+				if ok {
+					byPath[installPath] = len(packages)
 					packages = append(packages, d)
 				}
 				return nil
@@ -66,7 +60,9 @@ func (p npmLock) Parse(data []byte) (*Result, error) {
 			if doc.peekKind() != '{' {
 				return doc.skip()
 			}
-			return npmLegacyDependencies(doc, res, &legacy)
+			var err error
+			legacy, err = npmLegacyDependencies(doc, res)
+			return err
 		default:
 			return doc.skip()
 		}
@@ -78,7 +74,7 @@ func (p npmLock) Parse(data []byte) (*Result, error) {
 		return nil, err
 	}
 	if sawPackages {
-		res.Dependencies = packages
+		res.Dependencies = dropSuperseded(packages)
 	} else {
 		res.Dependencies = legacy
 	}
@@ -92,8 +88,8 @@ func (p npmLock) Parse(data []byte) (*Result, error) {
 // ("") is the project itself; an entry outside node_modules is a workspace's
 // own folder; a link points at one; a bundled package ships inside its parent's
 // tarball. None of those is fetched.
-func npmPackageDependency(res *Result, installPath string, line int, e npmPackageEntry) (Dependency, bool) {
-	if installPath == "" || bool(e.Link) || bool(e.InBundle) {
+func npmPackageDependency(res *Result, installPath string, line int, e jsonFields) (Dependency, bool) {
+	if installPath == "" || e.flag("link") || e.flag("inBundle") {
 		return Dependency{}, false
 	}
 	i := strings.LastIndex(installPath, "node_modules/")
@@ -101,14 +97,25 @@ func npmPackageDependency(res *Result, installPath string, line int, e npmPackag
 		return Dependency{}, false
 	}
 	name := installPath[i+len("node_modules/"):]
-	if e.Name != "" {
-		name = string(e.Name)
+	if n := e.str("name"); n != "" {
+		name = n
 	}
 	if !validPackageName(name) {
 		res.warnf("line %d: an entry has no usable package name", line)
 		return Dependency{}, false
 	}
-	return npmDependency(res, name, string(e.Version), string(e.Resolved), string(e.Integrity), bool(e.Dev), line)
+	return npmDependency(res, name, e.str("version"), e.str("resolved"), e.str("integrity"), e.flag("dev"), line)
+}
+
+// dropSuperseded removes the entries a repeated key replaced.
+func dropSuperseded(deps []Dependency) []Dependency {
+	out := deps[:0]
+	for _, d := range deps {
+		if d.Name != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // npmDependency builds a dependency from what an npm lock file records for it.
@@ -126,7 +133,11 @@ func npmDependency(res *Result, name, version, resolved, integrity string, dev b
 		}
 	case isHTTPURL(resolved):
 		d.URL = cleanURL(resolved)
-		d.Registry = npmRegistryBase(resolved, name)
+		if base, ok := npmRegistryBase(resolved, name); ok {
+			d.Registry = base
+		} else {
+			d.Source = SourceURL // a tarball URL, not a registry's "/<name>/-/" download
+		}
 	case resolved != "":
 		res.warnf("%s %s: unrecognised resolved location", name, version)
 	}
@@ -149,14 +160,19 @@ func isGitSpec(s string) bool {
 }
 
 // npmLegacyDependencies reads a lockfileVersion 1 "dependencies" object,
-// recursing into the nested ones.
-func npmLegacyDependencies(doc *jsonDoc, res *Result, out *[]Dependency) error {
-	return doc.object(func(name string, line int) error {
+// recursing into the nested ones. A name repeated in one object keeps its last
+// entry (and that entry's nested dependencies), as npm's JSON.parse does.
+func npmLegacyDependencies(doc *jsonDoc, res *Result) ([]Dependency, error) {
+	type group struct{ deps []Dependency }
+	var order []string
+	groups := map[string]*group{}
+	err := doc.object(func(name string, line int) error {
 		if doc.peekKind() != '{' {
 			return doc.skip()
 		}
 		var version, resolved, integrity string
 		var dev, bundled bool
+		var nested []Dependency
 		err := doc.object(func(field string, _ int) error {
 			var err error
 			switch field {
@@ -167,25 +183,29 @@ func npmLegacyDependencies(doc *jsonDoc, res *Result, out *[]Dependency) error {
 			case "integrity":
 				integrity, err = doc.stringValue()
 			case "dev":
-				var b lenientBool
-				err = doc.value(&b)
-				dev = bool(b)
+				dev, err = doc.boolValue()
 			case "bundled":
-				var b lenientBool
-				err = doc.value(&b)
-				bundled = bool(b)
+				bundled, err = doc.boolValue()
 			case "dependencies":
 				if doc.peekKind() != '{' {
 					return doc.skip()
 				}
-				return npmLegacyDependencies(doc, res, out)
+				nested, err = npmLegacyDependencies(doc, res)
 			default:
 				err = doc.skip()
 			}
 			return err
 		})
-		if err != nil || bundled {
+		if err != nil {
 			return err
+		}
+		g := &group{deps: nested}
+		if _, seen := groups[name]; !seen {
+			order = append(order, name)
+		}
+		groups[name] = g
+		if bundled {
+			return nil
 		}
 		realName := name
 		// An alias: the version names the real package ("npm:string-width@4.2.3").
@@ -194,14 +214,20 @@ func npmLegacyDependencies(doc *jsonDoc, res *Result, out *[]Dependency) error {
 				realName, version = n, v
 			}
 		}
-		// A Git dependency: the version is the repository location.
-		if isGitSpec(version) {
+		switch {
+		case isGitSpec(version):
+			// A Git dependency: the version is the repository location.
 			if resolved == "" {
 				resolved = version
 			}
 			version = ""
-		}
-		if strings.HasPrefix(version, "file:") {
+		case isHTTPURL(version):
+			// A tarball URL dependency (npm 6 writes the URL as the version).
+			if resolved == "" {
+				resolved = version
+			}
+			version = npmTarballVersion(realName, version)
+		case strings.HasPrefix(version, "file:"):
 			resolved = version
 		}
 		if !validPackageName(realName) {
@@ -209,8 +235,31 @@ func npmLegacyDependencies(doc *jsonDoc, res *Result, out *[]Dependency) error {
 			return nil
 		}
 		if d, ok := npmDependency(res, realName, version, resolved, integrity, dev, line); ok {
-			*out = append(*out, d)
+			g.deps = append([]Dependency{d}, g.deps...)
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	var out []Dependency
+	for _, name := range order {
+		out = append(out, groups[name].deps...)
+	}
+	return out, nil
+}
+
+// npmTarballVersion takes the version of a tarball URL dependency from the
+// file name ("…/foo-1.2.3.tgz" for foo is 1.2.3), or the file name without
+// its extension when the name does not say.
+func npmTarballVersion(name, url string) string {
+	file := fileNameOf(url)
+	for _, ext := range []string{".tgz", ".tar.gz"} {
+		file = strings.TrimSuffix(file, ext)
+	}
+	short := name[strings.LastIndex(name, "/")+1:]
+	if v, ok := strings.CutPrefix(file, short+"-"); ok && v != "" {
+		return v
+	}
+	return file
 }

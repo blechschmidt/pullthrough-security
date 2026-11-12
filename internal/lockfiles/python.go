@@ -1,8 +1,8 @@
 package lockfiles
 
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -86,10 +86,10 @@ func (requirementsTxt) Parse(data []byte) (*Result, error) {
 	}
 	res := &Result{}
 	index := ""
-	for _, ll := range logicalLines(string(data)) {
+	forEachLogicalLine(string(data), func(ll logicalLine) {
 		line := stripReqComment(ll.text)
 		if line == "" {
-			continue
+			return
 		}
 		if strings.HasPrefix(line, "-") {
 			opt, value := reqOption(line)
@@ -105,12 +105,12 @@ func (requirementsTxt) Parse(data []byte) (*Result, error) {
 					res.warnf("line %d: an editable install from a local path, not fetched", ll.line)
 				}
 			}
-			continue
+			return
 		}
 		if d, ok := reqRequirement(res, line, index, ll.line); ok {
 			res.Dependencies = append(res.Dependencies, d)
 		}
-	}
+	})
 	return res, nil
 }
 
@@ -120,28 +120,39 @@ type logicalLine struct {
 	line int
 }
 
-func logicalLines(s string) []logicalLine {
-	var out []logicalLine
+// forEachLogicalLine calls fn for every logical line of s that is not blank.
+func forEachLogicalLine(s string, fn func(logicalLine)) {
 	var cur strings.Builder
 	start := 0
-	for i, raw := range strings.Split(s, "\n") {
+	for it := newLineIter(s); ; {
+		raw, n, more := it.next()
+		if !more {
+			break
+		}
 		raw = strings.TrimRight(raw, "\r")
 		if cur.Len() == 0 {
-			start = i + 1
+			start = n
 		}
 		if strings.HasSuffix(raw, "\\") {
 			cur.WriteString(strings.TrimSuffix(raw, "\\"))
 			cur.WriteByte(' ')
 			continue
 		}
+		if cur.Len() == 0 {
+			if strings.TrimSpace(raw) != "" {
+				fn(logicalLine{text: raw, line: start})
+			}
+			continue
+		}
 		cur.WriteString(raw)
-		out = append(out, logicalLine{text: cur.String(), line: start})
+		if text := cur.String(); strings.TrimSpace(text) != "" {
+			fn(logicalLine{text: text, line: start})
+		}
 		cur.Reset()
 	}
-	if cur.Len() > 0 {
-		out = append(out, logicalLine{text: cur.String(), line: start})
+	if cur.Len() > 0 && strings.TrimSpace(cur.String()) != "" {
+		fn(logicalLine{text: cur.String(), line: start})
 	}
-	return out
 }
 
 // stripReqComment removes a comment: "#" at the start of a line or after
@@ -292,85 +303,66 @@ func (pipfileLock) Type() string            { return "pip" }
 func (pipfileLock) Format() string          { return "Pipfile.lock" }
 func (pipfileLock) Detect(path string) bool { return baseName(path) == "Pipfile.lock" }
 
-type pipfileEntry struct {
-	Version lenientString  `json:"version"`
-	Hashes  lenientStrings `json:"hashes"`
-	Index   lenientString  `json:"index"`
-	Git     lenientString  `json:"git"`
-	Ref     lenientString  `json:"ref"`
-	File    lenientString  `json:"file"`
-	Path    lenientString  `json:"path"`
-}
-
-type pipfileSource struct {
-	Name lenientString `json:"name"`
-	URL  lenientString `json:"url"`
-}
-
 func (pipfileLock) Parse(data []byte) (*Result, error) {
 	doc := newJSONDoc(data)
 	res := &Result{}
 	type pending struct {
 		name  string
-		entry pipfileEntry
+		entry jsonFields
 		line  int
 		dev   bool
 	}
-	var entries []pending
+	// A repeated key keeps its last value, as Pipenv's json.load does: a
+	// section, and a package within a section.
+	sections := map[string][]pending{}
 	sources := map[string]string{}
 	firstSource := ""
 	err := doc.object(func(key string, _ int) error {
 		switch key {
 		case "_meta":
-			if doc.peekKind() != '{' {
-				return doc.skip()
+			meta, err := doc.fields()
+			if err != nil || meta == nil {
+				return err
 			}
-			return doc.object(func(field string, _ int) error {
-				switch field {
-				case "pipfile-spec":
-					var v any
-					if err := doc.value(&v); err != nil {
-						return err
+			if v, ok := meta["pipfile-spec"]; ok {
+				res.FormatVersion = strings.Trim(string(v), `"`)
+			}
+			sources, firstSource = map[string]string{}, ""
+			var list []map[string]json.RawMessage
+			if json.Unmarshal(meta["sources"], &list) == nil {
+				for _, src := range list {
+					f := jsonFields(src)
+					if f.str("url") == "" {
+						continue
 					}
-					res.FormatVersion = fmt.Sprint(v)
-					return nil
-				case "sources":
-					var list []pipfileSource
-					if doc.peekKind() != '[' {
-						return doc.skip()
+					sources[f.str("name")] = f.str("url")
+					if firstSource == "" {
+						firstSource = f.str("url")
 					}
-					if err := doc.value(&list); err != nil {
-						return err
-					}
-					for _, s := range list {
-						if s.URL == "" {
-							continue
-						}
-						sources[string(s.Name)] = string(s.URL)
-						if firstSource == "" {
-							firstSource = string(s.URL)
-						}
-					}
-					return nil
 				}
-				return doc.skip()
-			})
+			}
+			return nil
 		case "default", "develop":
 			if doc.peekKind() != '{' {
 				return doc.skip()
 			}
 			dev := key == "develop"
-			return doc.object(func(name string, line int) error {
-				if doc.peekKind() != '{' {
-					return doc.skip()
-				}
-				var e pipfileEntry
-				if err := doc.value(&e); err != nil {
+			var entries []pending
+			byName := map[string]int{}
+			err := doc.object(func(name string, line int) error {
+				e, err := doc.fields()
+				if err != nil || e == nil {
 					return err
 				}
+				if i, dup := byName[name]; dup {
+					entries[i].entry = nil // superseded
+				}
+				byName[name] = len(entries)
 				entries = append(entries, pending{name: name, entry: e, line: line, dev: dev})
 				return nil
 			})
+			sections[key] = entries
+			return err
 		}
 		return doc.skip()
 	})
@@ -380,7 +372,10 @@ func (pipfileLock) Parse(data []byte) (*Result, error) {
 	if err := doc.end(); err != nil {
 		return nil, err
 	}
-	for _, p := range entries {
+	for _, p := range append(sections["default"], sections["develop"]...) {
+		if p.entry == nil {
+			continue
+		}
 		name := pyNormalize(p.name)
 		if !pyNameRE.MatchString(p.name) {
 			res.warnf("line %d: an entry has no usable project name", p.line)
@@ -388,30 +383,30 @@ func (pipfileLock) Parse(data []byte) (*Result, error) {
 		}
 		e := p.entry
 		d := Dependency{Name: name, Dev: p.dev, Line: p.line}
-		for _, h := range e.Hashes {
+		for _, h := range e.strs("hashes") {
 			if dg, ok := prefixedDigest(h, ""); ok {
 				d.Digests = append(d.Digests, dg)
 			}
 		}
 		switch {
-		case e.Git != "":
-			gs := parseGitURL(string(e.Git))
+		case e.str("git") != "":
+			gs := parseGitURL(e.str("git"))
 			d.Source, d.Registry = SourceGit, gs.repo
-			if isCommitID(string(e.Ref)) {
-				d.Revision = strings.ToLower(string(e.Ref))
+			if isCommitID(e.str("ref")) {
+				d.Revision = strings.ToLower(e.str("ref"))
 			}
-			d.Version = strings.TrimPrefix(string(e.Version), "==")
+			d.Version = strings.TrimPrefix(e.str("version"), "==")
 			if d.Version == "" {
 				d.Version = d.Revision
 			}
-		case e.File != "" && isHTTPURL(string(e.File)):
-			d.Source, d.URL = SourceURL, cleanURL(string(e.File))
-			d.Version = pyFileVersion(fileNameOf(string(e.File)))
-		case e.Path != "" || e.File != "":
+		case e.str("file") != "" && isHTTPURL(e.str("file")):
+			d.Source, d.URL = SourceURL, cleanURL(e.str("file"))
+			d.Version = pyFileVersion(fileNameOf(e.str("file")))
+		case e.str("path") != "" || e.str("file") != "":
 			res.warnf("%s: installed from a local path, not fetched", name)
 			continue
 		default:
-			v := string(e.Version)
+			v := e.str("version")
 			switch {
 			case strings.HasPrefix(v, "==="):
 				v = v[3:]
@@ -422,7 +417,7 @@ func (pipfileLock) Parse(data []byte) (*Result, error) {
 				continue
 			}
 			d.Version = v
-			if url, ok := sources[string(e.Index)]; ok {
+			if url, ok := sources[e.str("index")]; ok {
 				d.Registry = cleanURL(url)
 			} else if firstSource != "" {
 				d.Registry = cleanURL(firstSource)

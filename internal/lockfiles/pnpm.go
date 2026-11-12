@@ -3,6 +3,7 @@ package lockfiles
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -34,6 +35,9 @@ const maxYAMLDocuments = 16
 // the package manager's own installation first, then the project's lock file
 // — and both are packages pnpm downloads.
 func (pnpmLock) Parse(data []byte) (*Result, error) {
+	if err := checkYAMLInput(data); err != nil {
+		return nil, fmt.Errorf("pnpm-lock.yaml: %w", err)
+	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	res := &Result{}
 	documents := 0
@@ -49,6 +53,9 @@ func (pnpmLock) Parse(data []byte) (*Result, error) {
 		documents++
 		if documents > maxYAMLDocuments {
 			return nil, errors.New("pnpm-lock.yaml: too many YAML documents")
+		}
+		if err := yamlCheck(&root, false); err != nil {
+			return nil, fmt.Errorf("pnpm-lock.yaml: %w", err)
 		}
 		m := yamlMapping(&root)
 		if m == nil {
@@ -143,10 +150,10 @@ func pnpmDependency(res *Result, key, entry *yaml.Node, major int) (Dependency, 
 		d.Source, d.Registry, d.Revision, d.URL = SourceGit, "https://github.com/"+owner+"/"+repo, commit, cleanURL(tarball)
 	case isHTTPURL(tarball):
 		d.URL = cleanURL(tarball)
-		if isHTTPURL(keyVersion) {
-			d.Source = SourceURL // a dependency on a tarball URL, not a registry
+		if base, ok := npmRegistryBase(tarball, name); ok && !isHTTPURL(keyVersion) {
+			d.Registry = base
 		} else {
-			d.Registry = npmRegistryBase(tarball, name)
+			d.Source = SourceURL // a dependency on a tarball URL, not a registry
 		}
 	case tarball != "":
 		res.warnf("%s: unrecognised tarball location", name)

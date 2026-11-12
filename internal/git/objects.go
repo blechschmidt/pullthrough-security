@@ -170,6 +170,8 @@ func OpenObjectReader(dir string, opts ObjectReaderOptions) (*ObjectReader, erro
 	// context: a cancelled request kills it explicitly (see roundTrip).
 	cmd := exec.Command(resolved, "-C", dir, "cat-file", "--batch-command")
 	cmd.Env = objectReaderEnv(opts.AllowLazyFetch)
+	ownProcessGroup(cmd)
+	cmd.WaitDelay = processWaitDelay
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("git: starting object reader: %w", err)
@@ -222,11 +224,15 @@ func (r *ObjectReader) Close() error {
 	select {
 	case <-r.done:
 	case <-time.After(5 * time.Second):
-		_ = r.cmd.Process.Kill()
+		_ = killProcessGroup(r.cmd)
 		<-r.done
 	}
 	return nil
 }
+
+// processWaitDelay bounds how long waiting for a killed git process may take
+// when something it started still holds its pipes.
+const processWaitDelay = 5 * time.Second
 
 // HexLen returns the length of an object ID in hex: 40 in a SHA-1
 // repository, 64 in a SHA-256 one, or 0 before the first object was read.
@@ -319,7 +325,7 @@ func (r *ObjectReader) roundTrip(ctx context.Context, fn func() error) error {
 	if r.err != nil {
 		return r.err
 	}
-	stop := context.AfterFunc(ctx, func() { _ = r.cmd.Process.Kill() })
+	stop := context.AfterFunc(ctx, func() { _ = killProcessGroup(r.cmd) })
 	err := fn()
 	if !stop() {
 		// The context ended during the exchange and the process is gone.
@@ -618,6 +624,8 @@ func LocateRepository(ctx context.Context, dir, gitBinary string) (Repository, e
 	}
 	cmd := exec.CommandContext(ctx, resolved, "-C", dir, "rev-parse", "--absolute-git-dir", "--show-prefix")
 	cmd.Env = append(os.Environ(), baseGitEnv...)
+	isolateProcess(cmd)
+	cmd.WaitDelay = processWaitDelay
 	var stderr boundedBuffer
 	stderr.max = 4 << 10
 	cmd.Stderr = &stderr
@@ -696,7 +704,12 @@ func CloneForScan(ctx context.Context, opts ScanCloneOptions) (string, error) {
 
 	run := func(args ...string) (string, error) {
 		cmd := exec.CommandContext(ctx, resolved, args...)
-		cmd.Env = append(os.Environ(), baseGitEnv...)
+		// A server that stops sending ends the fetch after a minute, and a
+		// cancelled context kills git with every helper it started.
+		cmd.Env = append(append(os.Environ(), baseGitEnv...),
+			"GIT_HTTP_LOW_SPEED_LIMIT=1000", "GIT_HTTP_LOW_SPEED_TIME=60")
+		isolateProcess(cmd)
+		cmd.WaitDelay = processWaitDelay
 		var out boundedBuffer
 		out.max = 8 << 10
 		cmd.Stdout = &out

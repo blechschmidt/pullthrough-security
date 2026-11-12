@@ -37,8 +37,11 @@ func (gradleLock) Parse(data []byte) (*Result, error) {
 		return nil, errors.New("gradle lock file is not valid UTF-8")
 	}
 	res := &Result{}
-	for i, raw := range strings.Split(string(data), "\n") {
-		lineNo := i + 1
+	for it := newLineIter(string(data)); ; {
+		raw, lineNo, more := it.next()
+		if !more {
+			break
+		}
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -116,7 +119,7 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 	res := &Result{}
 	props := map[string]string{}
 	var project struct{ groupID, version, parentGroup, parentVersion string }
-	var repos []string
+	var repos, pluginRepos []string
 	var records []*pomCoord
 	var stack []string
 	var open []*pomCoord // records being read, innermost last
@@ -144,7 +147,10 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 				sawProject = true
 			}
 			text.Reset()
-			p := strings.Join(stack, "/")
+			p, ok := pomPath(stack)
+			if !ok {
+				continue
+			}
 			if kind, ok := pomRecordPaths[p]; ok {
 				line, _ := dec.InputPos()
 				rec := &pomCoord{kind: kind, path: p, lineNo: line, managed: strings.Contains(p, "dependencyManagement")}
@@ -156,9 +162,15 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 				text.Write(t)
 			}
 		case xml.EndElement:
-			p := strings.Join(stack, "/")
+			p, interesting := pomPath(stack)
 			value := strings.TrimSpace(text.String())
 			text.Reset()
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			if !interesting {
+				continue
+			}
 			switch {
 			case len(open) > 0 && open[len(open)-1].path == p:
 				open = open[:len(open)-1]
@@ -174,7 +186,7 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 				case "scope":
 					rec.scope = value
 				}
-			case len(stack) == 3 && stack[1] == "properties":
+			case strings.HasPrefix(p, "project/properties/") && strings.Count(p, "/") == 2:
 				props[t.Name.Local] = value
 			case p == "project/groupId":
 				project.groupID = value
@@ -182,15 +194,14 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 				project.version = value
 			case p == "project/repositories/repository/url":
 				repos = append(repos, value)
+			case p == "project/pluginRepositories/pluginRepository/url":
+				pluginRepos = append(pluginRepos, value)
 			}
 			if p == "project/parent/groupId" {
 				project.parentGroup = value
 			}
 			if p == "project/parent/version" {
 				project.parentVersion = value
-			}
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
 			}
 		}
 	}
@@ -213,9 +224,14 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 	}
 	resolve := func(s string) (string, bool) { return pomResolve(s, props, builtin) }
 
-	registry := ""
+	// One repository named: it is where the dependencies come from (plugins
+	// come from the plugin repositories). With several, the file does not say.
+	registry, pluginRegistry := "", ""
 	if len(repos) == 1 {
 		registry = cleanURL(repos[0])
+	}
+	if len(pluginRepos) == 1 {
+		pluginRegistry = cleanURL(pluginRepos[0])
 	}
 	for _, rec := range records {
 		if rec.managed && rec.scope != "import" {
@@ -244,11 +260,42 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 			res.warnf("line %d: %s is not pinned to a fixed version (%s)", rec.lineNo, name, why)
 			continue
 		}
+		reg := registry
+		if strings.Contains(rec.path, "/plugins/") {
+			reg = pluginRegistry
+		}
 		res.Dependencies = append(res.Dependencies, Dependency{
-			Name: name, Version: version, Registry: registry, Line: rec.lineNo, Dev: rec.scope == "test",
+			Name: name, Version: version, Registry: reg, Line: rec.lineNo, Dev: rec.scope == "test",
 		})
 	}
 	return res, nil
+}
+
+// pomPath returns the element path of the innermost element ("project/
+// dependencies/dependency"), when it can be one the reader looks for: no
+// such path is deeper than nine elements or has a name longer than 64 bytes,
+// and building longer paths for every element would make reading a crafted
+// POM quadratic in the length of its names.
+func pomPath(stack []string) (string, bool) {
+	if len(stack) > 9 {
+		return "", false
+	}
+	n := 0
+	for _, name := range stack {
+		if len(name) > 64 {
+			return "", false
+		}
+		n += len(name) + 1
+	}
+	var b strings.Builder
+	b.Grow(n)
+	for i, name := range stack {
+		if i > 0 {
+			b.WriteByte('/')
+		}
+		b.WriteString(name)
+	}
+	return b.String(), true
 }
 
 // pomResolve replaces ${property} references, up to a fixed depth of

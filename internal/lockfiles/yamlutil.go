@@ -2,6 +2,7 @@ package lockfiles
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -59,6 +60,44 @@ func yamlScalar(n *yaml.Node) string {
 		return ""
 	}
 	return n.Value
+}
+
+// yamlCheck refuses YAML whose meaning depends on the reader. A key repeated
+// in one mapping is the last value to Yarn and the first to a naive reader,
+// and Compose refuses it; anchors, aliases and merge keys (refused when
+// allowAliases is false) are followed by pnpm's and Yarn's readers — no tool
+// writes them into a lock file, so a lock file that has them was edited to
+// show a scanner something other than what the package manager reads.
+func yamlCheck(root *yaml.Node, allowAliases bool) error {
+	stack := []*yaml.Node{root}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == nil {
+			continue
+		}
+		if !allowAliases && (n.Anchor != "" || n.Kind == yaml.AliasNode) {
+			return fmt.Errorf("line %d: a YAML anchor or alias, which lock files do not use", n.Line)
+		}
+		if n.Kind == yaml.MappingNode {
+			seen := make(map[string]bool, len(n.Content)/2)
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k := n.Content[i]
+				if k.Kind != yaml.ScalarNode {
+					continue
+				}
+				if !allowAliases && k.ShortTag() == "!!merge" {
+					return fmt.Errorf("line %d: a YAML merge key, which lock files do not use", k.Line)
+				}
+				if seen[k.Value] {
+					return fmt.Errorf("line %d: a key repeated in one mapping", k.Line)
+				}
+				seen[k.Value] = true
+			}
+		}
+		stack = append(stack, n.Content...)
+	}
+	return nil
 }
 
 // yamlError describes a YAML syntax error by its first line.

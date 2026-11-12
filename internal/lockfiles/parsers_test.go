@@ -2,8 +2,10 @@ package lockfiles
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -239,10 +241,11 @@ func TestGoModSyntax(t *testing.T) {
 
 func TestGoSumMergesIntoGoMod(t *testing.T) {
 	mod := parseOne(goMod{}, "svc/go.mod", []byte("module m\n\nrequire example.com/a v1.0.0\n"))
+	h := func(c string) string { return "h1:" + strings.Repeat(c, 43) + "=" }
 	sum := parseOne(goSum{}, "svc/go.sum", []byte(
-		"example.com/a v1.0.0 h1:AAAA=\nexample.com/a v1.0.0/go.mod h1:BBBB=\n"+
-			"example.com/b v2.0.0 h1:CCCC=\nexample.com/old v0.1.0/go.mod h1:DDDD=\n"))
-	other := parseOne(goSum{}, "other/go.sum", []byte("example.com/a v1.0.0 h1:AAAA=\n"))
+		"example.com/a v1.0.0 "+h("A")+"\nexample.com/a v1.0.0/go.mod "+h("B")+"\n"+
+			"example.com/b v2.0.0 "+h("C")+"\nexample.com/old v0.1.0/go.mod "+h("D")+"\n"))
+	other := parseOne(goSum{}, "other/go.sum", []byte("example.com/a v1.0.0 "+h("A")+"\n"))
 	finish([]*File{mod, sum, other}, nil)
 	if len(mod.Dependencies) != 1 || len(mod.Dependencies[0].Digests) != 2 {
 		t.Fatalf("go.mod dependencies %+v", mod.Dependencies)
@@ -385,17 +388,23 @@ func TestParseGitURL(t *testing.T) {
 }
 
 func TestNpmRegistryBase(t *testing.T) {
-	cases := map[[2]string]string{
-		{"https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz", "lodash"}:             "https://registry.npmjs.org",
-		{"https://registry.npmjs.org/@types/node/-/node-1.0.0.tgz", "@types/node"}:       "https://registry.npmjs.org",
-		{"https://npm.example.com/repo/@types%2fnode/-/node-1.0.0.tgz", "@types/node"}:   "https://npm.example.com/repo",
-		{"https://npm.example.com/repo/%40types%2fnode/-/node-1.0.0.tgz", "@types/node"}: "https://npm.example.com/repo",
-		{"https://u:p@npm.example.com/r/lodash/-/lodash-1.0.0.tgz?x=1", "lodash"}:        "https://npm.example.com/r",
-		{"https://pkgs.example.com/download/lodash/1.0.0/abc", "lodash"}:                 "https://pkgs.example.com",
+	cases := []struct {
+		url, name, base string
+		registry        bool
+	}{
+		{"https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz", "lodash", "https://registry.npmjs.org", true},
+		{"https://registry.npmjs.org/@types/node/-/node-1.0.0.tgz", "@types/node", "https://registry.npmjs.org", true},
+		{"https://npm.example.com/repo/@types%2fnode/-/node-1.0.0.tgz", "@types/node", "https://npm.example.com/repo", true},
+		{"https://npm.example.com/repo/%40types%2fnode/-/node-1.0.0.tgz", "@types/node", "https://npm.example.com/repo", true},
+		{"https://u:p@npm.example.com/r/lodash/-/lodash-1.0.0.tgz?x=1", "lodash", "https://npm.example.com/r", true},
+		// Not a registry's download: a tarball somewhere.
+		{"https://pkgs.example.com/download/lodash/1.0.0/abc", "lodash", "https://pkgs.example.com", false},
+		{"https://example.com/other/-/lodash-1.0.0.tgz", "lodash", "https://example.com", false},
 	}
-	for in, want := range cases {
-		if got := npmRegistryBase(in[0], in[1]); got != want {
-			t.Errorf("npmRegistryBase(%q, %q) = %q, want %q", in[0], in[1], got, want)
+	for _, c := range cases {
+		base, ok := npmRegistryBase(c.url, c.name)
+		if base != c.base || ok != c.registry {
+			t.Errorf("npmRegistryBase(%q, %q) = %q, %v; want %q, %v", c.url, c.name, base, ok, c.base, c.registry)
 		}
 	}
 }
@@ -423,8 +432,8 @@ func timeBound(t *testing.T, what string, fn func()) {
 }
 
 // TestAliasesCannotMultiplyWork: lock files written by tools never contain
-// YAML aliases; one that does gets nothing from them. A hundred thousand
-// entries aliasing one huge mapping would otherwise be quadratic work.
+// YAML aliases; one that does is refused — quickly: a hundred thousand entries
+// aliasing one huge mapping would be quadratic work to follow.
 func TestAliasesCannotMultiplyWork(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("__metadata:\n  version: 8\n\"real@npm:1\": &big\n  version: 1.0.0\n  resolution: \"real@npm:1.0.0\"\n")
@@ -435,9 +444,8 @@ func TestAliasesCannotMultiplyWork(t *testing.T) {
 		fmt.Fprintf(&b, "\"alias%d@npm:1\": *big\n", i)
 	}
 	timeBound(t, "yarn.lock with aliases", func() {
-		res := parseWith(t, yarnLock{}, b.String())
-		if len(res.Dependencies) != 1 {
-			t.Errorf("%d dependencies; aliases must give nothing", len(res.Dependencies))
+		if _, err := (yarnLock{}).Parse([]byte(b.String())); err == nil || !strings.Contains(err.Error(), "anchor or alias") {
+			t.Errorf("a yarn.lock with aliases: %v; want it refused", err)
 		}
 	})
 	pnpm := strings.Replace(strings.Replace(b.String(), "__metadata:\n  version: 8\n", "lockfileVersion: '9.0'\npackages:\n", 1), "\"real@npm:1\": &big", "  real@1.0.0: &big", 1)
@@ -527,7 +535,7 @@ func (panicMerger) Merge([]*File) {
 }
 
 func TestAPanickingMergerFailsItsFileOnly(t *testing.T) {
-	sum := parseOne(panicMerger{}, "a/go.sum", []byte("example.com/a v1.0.0 h1:AAAA=\n"))
+	sum := parseOne(panicMerger{}, "a/go.sum", []byte("example.com/a v1.0.0 h1:"+strings.Repeat("A", 43)+"=\n"))
 	mod := parseOne(goMod{}, "a/go.mod", []byte("module m\nrequire example.com/a v1.0.0\n"))
 	finish([]*File{mod, sum}, nil)
 	if !strings.Contains(sum.Error, "failed") || mod.Error != "" || len(mod.Dependencies) != 1 {
@@ -564,4 +572,207 @@ func TestByteOrderMarksAndCRLF(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestJSONKeysAreReadAsTheToolsReadThem: keys match exactly (encoding/json's
+// struct decoding would match "Resolved" and "reſolved" for "resolved"), and a
+// repeated key or entry keeps its last value, as JSON.parse, json.load and
+// json_decode do. Otherwise a lock file could show the scanner one artifact
+// while the package manager installs another.
+func TestJSONKeysAreReadAsTheToolsReadThem(t *testing.T) {
+	good := "sha512-" + strings.Repeat("A", 86) + "=="
+	evil := "sha512-" + strings.Repeat("B", 86) + "=="
+	lock := `{"lockfileVersion": 3, "packages": {
+  "node_modules/lodash": {"version": "4.17.21",
+    "resolved": "https://evil.example/l.tgz", "integrity": "` + evil + `",
+    "Resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz", "Integrity": "` + good + `",
+    "reſolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"},
+  "node_modules/ms": {"version": "1.0.0", "resolved": "https://registry.npmjs.org/ms/-/ms-1.0.0.tgz",
+    "resolved": "https://evil.example/ms.tgz"},
+  "node_modules/dup": {"version": "1.0.0"},
+  "node_modules/dup": {"version": "2.0.0"}
+}}`
+	f := ParseFile(nil, nil, "package-lock.json", []byte(lock))
+	got := map[string]Dependency{}
+	for _, d := range f.Dependencies {
+		got[d.Name] = d
+	}
+	if d := got["lodash"]; d.URL != "https://evil.example/l.tgz" || d.Source != SourceURL || len(d.Digests) != 1 || !strings.HasPrefix(d.Digests[0].Value, "0410") {
+		t.Errorf("lodash = %+v; want what npm installs: the evil tarball", d)
+	}
+	if d := got["ms"]; d.URL != "https://evil.example/ms.tgz" {
+		t.Errorf("ms = %+v; want the last \"resolved\"", d)
+	}
+	if d := got["dup"]; d.Version != "2.0.0" || len(f.Dependencies) != 3 {
+		t.Errorf("dup = %+v (%d dependencies); want the last entry only", d, len(f.Dependencies))
+	}
+
+	pipfile := `{"_meta": {"sources": [{"name": "good", "url": "https://pypi.org/simple"}, {"name": "evil", "url": "https://evil.example/simple"}]},
+"default": {"requests": {"version": "==2.32.3", "index": "evil", "Index": "good", "hashes": ["sha256:` + strings.Repeat("e", 64) + `"], "Hashes": ["sha256:` + strings.Repeat("a", 64) + `"]}}}`
+	f = ParseFile(nil, nil, "Pipfile.lock", []byte(pipfile))
+	if d := f.Dependencies[0]; d.Registry != "https://evil.example/simple" || d.Digests[0].Value != strings.Repeat("e", 64) {
+		t.Errorf("Pipfile.lock: %+v", d)
+	}
+
+	composer := `{"packages": [{"name": "v/p", "version": "1.0.0",
+  "dist": {"type": "zip", "url": "https://evil.example/p.zip", "Url": "https://repo.packagist.org/p.zip", "shasum": "` + strings.Repeat("e", 40) + `", "Shasum": "` + strings.Repeat("a", 40) + `"}}]}`
+	f = ParseFile(nil, nil, "composer.lock", []byte(composer))
+	if d := f.Dependencies[0]; d.URL != "https://evil.example/p.zip" || d.Digests[0].Value != strings.Repeat("e", 40) {
+		t.Errorf("composer.lock: %+v", d)
+	}
+
+	nuget := `{"version": 1, "dependencies": {"net8.0": {"A": {"type": "Direct", "resolved": "1.0.0", "Resolved": "9.9.9"}}}}`
+	f = ParseFile(nil, nil, "packages.lock.json", []byte(nuget))
+	if d := f.Dependencies[0]; d.Version != "1.0.0" {
+		t.Errorf("packages.lock.json: %+v", d)
+	}
+}
+
+func TestTarballURLDependencies(t *testing.T) {
+	v1 := `{"lockfileVersion": 1, "dependencies": {"foo": {"version": "https://u:secret@files.example.com/foo-1.2.3.tgz?access_token=SECRET", "integrity": "sha1-AAAAAAAAAAAAAAAAAAAAAAAAAAA="}}}`
+	f := ParseFile(nil, nil, "package-lock.json", []byte(v1))
+	if len(f.Dependencies) != 1 {
+		t.Fatalf("%+v", f)
+	}
+	d := f.Dependencies[0]
+	if d.Source != SourceURL || d.Version != "1.2.3" || d.URL != "https://files.example.com/foo-1.2.3.tgz" || d.Registry != "" {
+		t.Errorf("npm 6 tarball dependency: %+v", d)
+	}
+	yarn := "# yarn lockfile v1\n\nfoo@https://files.example.com/foo-1.2.3.tgz:\n  version \"1.2.3\"\n  resolved \"https://files.example.com/foo-1.2.3.tgz#" + strings.Repeat("a", 40) + "\"\n"
+	f = ParseFile(nil, nil, "yarn.lock", []byte(yarn))
+	if d := f.Dependencies[0]; d.Source != SourceURL || d.Registry != "" {
+		t.Errorf("yarn tarball dependency: %+v", d)
+	}
+	out, _ := json.Marshal(f)
+	if bytes.Contains(out, []byte("SECRET")) || bytes.Contains(out, []byte("secret")) {
+		t.Errorf("credentials survived: %s", out)
+	}
+}
+
+// TestYAMLLockFilesReadOnlyWhatTheToolsRead: anchors, aliases, merge keys and
+// repeated keys would be read differently by pnpm's and Yarn's own readers;
+// such a lock file is refused, never read in a way the tool would not.
+func TestYAMLLockFilesReadOnlyWhatTheToolsRead(t *testing.T) {
+	integrity := "{integrity: sha512-" + strings.Repeat("A", 86) + "==}"
+	pnpm := map[string]string{
+		"alias":          "lockfileVersion: '9.0'\npackages:\n  a@1.0.0: &e\n    resolution: " + integrity + "\n  b@1.0.0: *e\n",
+		"merge":          "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    <<: {resolution: {tarball: https://evil.example/a.tgz}}\n    resolution: " + integrity + "\n",
+		"repeated key":   "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: " + integrity + "\n    resolution: {tarball: https://evil.example/a.tgz}\n",
+		"repeated entry": "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: " + integrity + "\n  a@1.0.0:\n    resolution: " + integrity + "\n",
+	}
+	for name, src := range pnpm {
+		if _, err := (pnpmLock{}).Parse([]byte(src)); err == nil {
+			t.Errorf("pnpm-lock.yaml with a %s was read", name)
+		}
+	}
+	berry := "__metadata:\n  version: 8\n\"a@npm:1\":\n  version: 1.0.0\n  resolution: \"a@npm:1.0.0\"\n  checksum: 10c0/" + strings.Repeat("a", 128) + "\n  checksum: 10c0/" + strings.Repeat("b", 128) + "\n"
+	if _, err := (yarnLock{}).Parse([]byte(berry)); err == nil {
+		t.Error("a yarn.lock with a repeated checksum was read")
+	}
+	compose := "services:\n  web:\n    image: alpine@sha256:" + strings.Repeat("a", 64) + "\n    image: evil@sha256:" + strings.Repeat("b", 64) + "\n"
+	if _, err := (composeFile{}).Parse([]byte(compose)); err == nil {
+		t.Error("a compose file with a repeated key was read")
+	}
+}
+
+func TestGoSumAcceptsOnlyRealHashes(t *testing.T) {
+	src := "a v1.0.0 h1:" + testToken + "\nb v1.0.0 h1:https://user:secret@host/x\nc v1.0.0 h1:" + strings.Repeat("A", 43) + "=\n"
+	res := parseWith(t, goSum{}, src)
+	if len(res.Dependencies) != 1 || res.Dependencies[0].Name != "c" || len(res.Warnings) != 2 {
+		t.Fatalf("dependencies %+v, warnings %v", res.Dependencies, res.Warnings)
+	}
+	out, _ := json.Marshal(res)
+	if bytes.Contains(out, []byte("ptl1")) || bytes.Contains(out, []byte("secret")) {
+		t.Errorf("hash text survived: %s", out)
+	}
+}
+
+// TestDockerfileHeredocsAsBuildKitReadsThem: only an unquoted shell word
+// "[n]<<[-]WORD" of RUN, COPY or ADD opens a heredoc; anything else that
+// contains "<<" must not swallow the FROM lines after it.
+func TestDockerfileHeredocsAsBuildKitReadsThem(t *testing.T) {
+	digest := "@sha256:" + strings.Repeat("a", 64)
+	for _, line := range []string{
+		"RUN cat <<<hello",
+		"RUN echo $((1<<n))",
+		`RUN echo "x<<EOF"`,
+		"RUN echo 'a <<EOF b'",
+		"LABEL note=<<EOF",
+		"ENV A=<<EOF",
+	} {
+		src := "FROM base" + digest + "\n" + line + "\nFROM later" + digest + "\n"
+		res := parseWith(t, dockerfile{}, src)
+		if len(res.Dependencies) != 2 {
+			t.Errorf("%q hid the FROM after it: %+v %v", line, res.Dependencies, res.Warnings)
+		}
+	}
+	for _, opener := range []string{"RUN <<EOF", "RUN 3<<-'EOF' cat", `COPY <<"EOF" /x`} {
+		src := "FROM base" + digest + "\n" + opener + "\nFROM inside-the-heredoc" + digest + "\n\tEOF\nEOF\nFROM later" + digest + "\n"
+		res := parseWith(t, dockerfile{}, src)
+		var names []string
+		for _, d := range res.Dependencies {
+			names = append(names, d.Name)
+		}
+		if strings.Join(names, ",") != "library/base,library/later" {
+			t.Errorf("%q: images %v", opener, names)
+		}
+	}
+	res := parseWith(t, dockerfile{}, "FROM base"+digest+"\nRUN <<EOF\nFROM never-closed"+digest+"\n")
+	if len(res.Dependencies) != 1 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "never closed") {
+		t.Errorf("an unclosed heredoc: %+v %v", res.Dependencies, res.Warnings)
+	}
+}
+
+// allocated returns the bytes fn allocates.
+func allocated(fn func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	fn()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// TestMemoryStaysProportional: inputs crafted to make a parser hold many
+// times their size in memory are read in bounded memory or refused.
+func TestMemoryStaysProportional(t *testing.T) {
+	newlines := bytes.Repeat([]byte("\n"), 2<<20)
+	for _, p := range []Parser{requirementsTxt{}, yarnLock{}, gemfileLock{}, gradleLock{}, goMod{}, goSum{}, dockerfile{}} {
+		if n := allocated(func() { _, _ = p.Parse(newlines) }); n > 24<<20 {
+			t.Errorf("%s allocated %d MiB for 2 MiB of empty lines", p.Format(), n>>20)
+		}
+	}
+	var dotted strings.Builder
+	for i := 0; dotted.Len() < 1<<20; i++ {
+		fmt.Fprintf(&dotted, "%s.k%d = 1\n", strings.TrimSuffix(strings.Repeat("a.", 60), "."), i)
+	}
+	if n := allocated(func() { _, _ = parseTOML([]byte(dotted.String())) }); n > 64<<20 {
+		t.Errorf("1 MiB of dotted keys allocated %d MiB", n>>20)
+	}
+	dense := []byte("lockfileVersion: '9.0'\npackages: [" + strings.Repeat("1,", 1<<19) + "1]\n")
+	if _, err := (pnpmLock{}).Parse(dense); err == nil || !strings.Contains(err.Error(), "dense") {
+		t.Errorf("dense YAML: %v", err)
+	}
+	if _, err := (pnpmLock{}).Parse(append([]byte("lockfileVersion: '9.0'\n#"), bytes.Repeat([]byte("x"), maxTreeInput)...)); err == nil {
+		t.Error("a YAML lock file over the tree limit was read")
+	}
+}
+
+// TestPOMWithDeepLongNamesIsLinear: element paths are built only where they
+// can match, so long names nested deep cost nothing per element.
+func TestPOMWithDeepLongNamesIsLinear(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<project>")
+	name := strings.Repeat("n", 800)
+	for i := 0; i < 200; i++ {
+		b.WriteString("<" + name + ">")
+	}
+	for i := 0; i < 20000; i++ {
+		b.WriteString("<v>1</v>")
+	}
+	for i := 0; i < 200; i++ {
+		b.WriteString("</" + name + ">")
+	}
+	b.WriteString("</project>")
+	timeBound(t, "a POM of deep long names", func() { _, _ = (pomXML{}).Parse([]byte(b.String())) })
 }

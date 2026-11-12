@@ -175,33 +175,34 @@ var npmScopedEscape = regexp.MustCompile(`(?i)%2f`)
 
 // npmRegistryBase derives the registry base URL from an npm tarball URL
 // ("https://registry.npmjs.org/@types/node/-/node-20.14.10.tgz" →
-// "https://registry.npmjs.org"): what comes before "/<name>/-/". A URL of
-// another shape yields its origin.
-func npmRegistryBase(tarball, name string) string {
+// "https://registry.npmjs.org"): what comes before "/<name>/-/". ok is false
+// for a URL of another shape — a tarball somewhere, not a registry's download
+// — whose origin is returned.
+func npmRegistryBase(tarball, name string) (base string, ok bool) {
 	clean := cleanURL(tarball)
 	i := strings.LastIndex(clean, "/-/")
 	if i < 0 {
-		return originOf(clean)
+		return originOf(clean), false
 	}
 	before := clean[:i]
 	for _, spelled := range []string{name, strings.Replace(name, "/", "%2f", 1), strings.Replace(name, "/", "%2F", 1)} {
 		if spelled != "" && strings.HasSuffix(before, "/"+spelled) {
-			return strings.TrimSuffix(before, "/"+spelled)
+			return strings.TrimSuffix(before, "/"+spelled), true
 		}
 	}
 	// "%40scope%2fname" and other spellings: unescape the last segments.
 	if j := strings.LastIndex(before, "/"); j >= 0 {
 		seg := npmScopedEscape.ReplaceAllString(before[j+1:], "/")
 		if u, err := url.PathUnescape(seg); err == nil && u == name {
-			return before[:j]
+			return before[:j], true
 		}
 		if k := strings.LastIndex(before[:j], "/"); k >= 0 && strings.HasPrefix(name, "@") {
 			if u, err := url.PathUnescape(before[k+1:]); err == nil && u == name {
-				return before[:k]
+				return before[:k], true
 			}
 		}
 	}
-	return originOf(clean)
+	return originOf(clean), false
 }
 
 // splitNameAt splits "name@rest" at the first "@" that is not the first

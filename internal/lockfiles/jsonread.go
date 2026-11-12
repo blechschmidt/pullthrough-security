@@ -126,6 +126,15 @@ func (j *jsonDoc) peekKind() byte {
 	return j.data[off]
 }
 
+// boolValue decodes the next value: true, or false for anything else.
+func (j *jsonDoc) boolValue() (bool, error) {
+	var raw json.RawMessage
+	if err := j.value(&raw); err != nil {
+		return false, err
+	}
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("true")), nil
+}
+
 // value decodes the next value into v.
 func (j *jsonDoc) value(v any) error {
 	if err := j.dec.Decode(v); err != nil {
@@ -185,33 +194,74 @@ func syntaxError(err error) error {
 	return fmt.Errorf("JSON document: %w", err)
 }
 
+// jsonFields is a JSON object's members by exact key. A key that appears
+// twice keeps its last value — what JavaScript's JSON.parse, Python's json and
+// PHP's json_decode do, and so what npm, Pipenv, Composer and NuGet read.
+// Decoding into a Go struct would not do: encoding/json matches field names
+// ignoring case, so {"resolved": a, "Resolved": b} would show the scanner b
+// while npm installs a.
+type jsonFields map[string]json.RawMessage
+
+// fields decodes the next value as an object's members; anything but an
+// object is skipped and yields nil.
+func (j *jsonDoc) fields() (jsonFields, error) {
+	if j.peekKind() != '{' {
+		return nil, j.skip()
+	}
+	var m map[string]json.RawMessage
+	if err := j.value(&m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// str returns the member's string value, or "" when it is absent or not a
+// string.
+func (f jsonFields) str(key string) string {
+	raw, ok := f[key]
+	if !ok {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
+}
+
+// flag reports whether the member is true.
+func (f jsonFields) flag(key string) bool {
+	return bytes.Equal(bytes.TrimSpace(f[key]), []byte("true"))
+}
+
+// strs returns the member's string elements (a lone string as one).
+func (f jsonFields) strs(key string) []string {
+	raw, ok := f[key]
+	if !ok {
+		return nil
+	}
+	var l lenientStrings
+	_ = l.UnmarshalJSON(raw)
+	return l
+}
+
+// obj returns the member as an object's members, or nil.
+func (f jsonFields) obj(key string) jsonFields {
+	raw, ok := f[key]
+	if !ok {
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	return m
+}
+
 // discard is a JSON value that is read and dropped.
 type discard struct{}
 
 func (*discard) UnmarshalJSON([]byte) error { return nil }
-
-// lenientString decodes a JSON string, and anything else as "" — lock files
-// are generated, but a field that changes type between tool versions must not
-// fail a whole file.
-type lenientString string
-
-func (s *lenientString) UnmarshalJSON(b []byte) error {
-	var v string
-	if json.Unmarshal(b, &v) == nil {
-		*s = lenientString(v)
-	} else {
-		*s = ""
-	}
-	return nil
-}
-
-// lenientBool decodes true, and anything else as false.
-type lenientBool bool
-
-func (v *lenientBool) UnmarshalJSON(b []byte) error {
-	*v = lenientBool(bytes.Equal(bytes.TrimSpace(b), []byte("true")))
-	return nil
-}
 
 // lenientStrings decodes an array of strings (non-strings dropped), a single
 // string as a one-element list, and anything else as nothing.

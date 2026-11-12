@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/blechschmidt/pullthrough-security/internal/config"
 	"github.com/blechschmidt/pullthrough-security/internal/git"
@@ -104,6 +105,7 @@ func lockfilesScan(args []string, stdout, stderr io.Writer) error {
 	linkPrefix := fs.String("link-prefix", "", "the personal-link path prefix (default /u, or the --config value)")
 	discover := fs.Bool("discover", true, "with --url, ask the proxy's admin API which upstreams it has")
 	timeout := fs.Duration("scan-timeout", 10*time.Minute, "give up on the whole scan (fetch included) after this long")
+	allowFetch := fs.Bool("allow-fetch", false, "in a local partial clone, let git fetch the objects it lacks from the repository's remote (this runs the repository's own fetch configuration)")
 	positional, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
@@ -139,7 +141,7 @@ func lockfilesScan(args []string, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	objs, scanRev, cleanup, err := openLockfilesRepo(ctx, target, *rev, *maxFileSize, &opts, stderr)
+	objs, scanRev, cleanup, err := openLockfilesRepo(ctx, target, *rev, *maxFileSize, *allowFetch, &opts, stderr)
 	if err != nil {
 		return err
 	}
@@ -149,6 +151,9 @@ func lockfilesScan(args []string, stdout, stderr io.Writer) error {
 	// run then.
 	cleanup()
 	if err != nil {
+		if strings.Contains(err.Error(), "promisor remote") && !*allowFetch {
+			err = fmt.Errorf("%w (the repository is a partial clone without these objects; --allow-fetch lets git fetch them)", err)
+		}
 		return fmt.Errorf("scanning %s: %w", redactRepo(target, proxy), err)
 	}
 	if *asJSON {
@@ -163,7 +168,7 @@ func lockfilesScan(args []string, stdout, stderr io.Writer) error {
 // openLockfilesRepo opens target: a local repository (bare, or a working
 // tree or a directory in one) or a remote one, fetched into a temporary
 // directory. It returns the revision to scan and a cleanup function.
-func openLockfilesRepo(ctx context.Context, target, rev string, maxFileSize int64, opts *lockfiles.Options, stderr io.Writer) (*git.ObjectReader, string, func(), error) {
+func openLockfilesRepo(ctx context.Context, target, rev string, maxFileSize int64, allowFetch bool, opts *lockfiles.Options, stderr io.Writer) (*git.ObjectReader, string, func(), error) {
 	if fi, err := os.Stat(target); err == nil && fi.IsDir() {
 		repo, err := git.LocateRepository(ctx, target, "")
 		if err != nil {
@@ -174,9 +179,9 @@ func openLockfilesRepo(ctx context.Context, target, rev string, maxFileSize int6
 		} else if repo.Prefix != "" {
 			opts.Root = repo.Prefix + "/" + strings.Trim(opts.Root, "/")
 		}
-		// A partial clone of the user's own fetches what it lacks, like any
-		// git command run in it would.
-		objs, err := git.OpenObjectReader(repo.GitDir, git.ObjectReaderOptions{AllowLazyFetch: true})
+		// A fetch in a partial clone runs the repository's own configuration
+		// (its remote, its ssh command): only when asked to.
+		objs, err := git.OpenObjectReader(repo.GitDir, git.ObjectReaderOptions{AllowLazyFetch: allowFetch})
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -275,10 +280,12 @@ func proxyFromConfig(cfg *config.Config) *lockfiles.Proxy {
 }
 
 // printLockfilesReport prints a scan as a table, then what was not read.
+// Everything that comes from the repository is printed through printable: a
+// file name or a version can carry terminal escapes.
 func printLockfilesReport(w io.Writer, repo string, r *lockfiles.Report) {
-	fmt.Fprintf(w, "Repository %s, commit %s", repo, r.Commit)
+	fmt.Fprintf(w, "Repository %s, commit %s", printable(repo), printable(r.Commit))
 	if r.Root != "" {
-		fmt.Fprintf(w, ", directory %s", r.Root)
+		fmt.Fprintf(w, ", directory %s", printable(r.Root))
 	}
 	fmt.Fprintln(w)
 	deps := r.Dependencies()
@@ -287,7 +294,8 @@ func printLockfilesReport(w io.Writer, repo string, r *lockfiles.Report) {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "LOCATION\tTYPE\tNAME\tVERSION\tFROM\tDIGEST")
 		for _, d := range deps {
-			fmt.Fprintf(tw, "%s:%d\t%s\t%s\t%s\t%s\t%s\n", d.File, d.Line, d.Type, d.Name, shorten(d.Version, 40), dependencySource(d), digestSummary(d.Digests))
+			fmt.Fprintf(tw, "%s:%d\t%s\t%s\t%s\t%s\t%s\n", printable(d.File), d.Line, printable(d.Type), printable(d.Name),
+				printable(shorten(d.Version, 40)), printable(dependencySource(d)), printable(digestSummary(d.Digests)))
 		}
 		_ = tw.Flush()
 	}
@@ -296,10 +304,10 @@ func printLockfilesReport(w io.Writer, repo string, r *lockfiles.Report) {
 	var problems []string
 	for _, f := range r.Files {
 		if f.Error != "" {
-			problems = append(problems, fmt.Sprintf("  %s: not read: %s", f.Path, f.Error))
+			problems = append(problems, fmt.Sprintf("  %s: not read: %s", printable(f.Path), printable(f.Error)))
 		}
 		for _, warn := range f.Warnings {
-			problems = append(problems, fmt.Sprintf("  %s: %s", f.Path, warn))
+			problems = append(problems, fmt.Sprintf("  %s: %s", printable(f.Path), printable(warn)))
 		}
 	}
 	if len(problems) > 0 {
@@ -311,7 +319,7 @@ func printLockfilesReport(w io.Writer, repo string, r *lockfiles.Report) {
 	if len(r.Skipped) > 0 {
 		fmt.Fprintln(w, "\nNot read:")
 		for _, s := range r.Skipped {
-			fmt.Fprintf(w, "  %s: %s\n", s.Path, s.Reason)
+			fmt.Fprintf(w, "  %s: %s\n", printable(s.Path), printable(s.Reason))
 		}
 		if r.Stats.SkippedDirs > len(r.Skipped) {
 			fmt.Fprintf(w, "  … %d directories skipped in all\n", r.Stats.SkippedDirs)
@@ -320,12 +328,49 @@ func printLockfilesReport(w io.Writer, repo string, r *lockfiles.Report) {
 	if len(r.Submodules) > 0 {
 		fmt.Fprintln(w, "\nSubmodules:")
 		for _, s := range r.Submodules {
-			fmt.Fprintf(w, "  %s at %s\n", s.Path, s.Commit)
+			fmt.Fprintf(w, "  %s at %s\n", printable(s.Path), printable(s.Commit))
 		}
 	}
 	if r.Truncated != "" {
-		fmt.Fprintf(w, "\nThe scan stopped early: %s.\n", r.Truncated)
+		fmt.Fprintf(w, "\nThe scan stopped early: %s.\n", printable(r.Truncated))
 	}
+}
+
+// printable escapes what a terminal would act on in text from a repository:
+// control characters (escape sequences, carriage returns, tabs that would
+// shift the table) and the Unicode controls that reorder or hide text.
+func printable(s string) string {
+	clean := true
+	for _, r := range s {
+		if unprintable(r) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unprintable(r) {
+			fmt.Fprintf(&b, "\\u%04x", r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func unprintable(r rune) bool {
+	switch {
+	case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f:
+		return true
+	case r == 0x200e, r == 0x200f, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+		return true
+	case r == utf8.RuneError:
+		return true
+	}
+	return false
 }
 
 // dependencySource says where a dependency comes from, in a few words.

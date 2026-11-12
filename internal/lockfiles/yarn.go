@@ -3,6 +3,7 @@ package lockfiles
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -28,10 +29,16 @@ func (yarnLock) Parse(data []byte) (*Result, error) {
 // isYarnBerry reports whether a yarn.lock is Berry's: it has a top-level
 // "__metadata" key.
 func isYarnBerry(data []byte) bool {
-	for _, line := range bytes.Split(data, []byte("\n")) {
-		line = bytes.TrimRight(line, "\r")
-		if bytes.HasPrefix(line, []byte("__metadata:")) || bytes.HasPrefix(line, []byte(`"__metadata":`)) {
-			return true
+	for _, key := range [][]byte{[]byte("__metadata:"), []byte(`"__metadata":`)} {
+		for i := bytes.Index(data, key); i >= 0; {
+			if i == 0 || data[i-1] == '\n' {
+				return true
+			}
+			j := bytes.Index(data[i+1:], key)
+			if j < 0 {
+				break
+			}
+			i += 1 + j
 		}
 	}
 	return false
@@ -66,8 +73,11 @@ func parseYarnClassic(data []byte) (*Result, error) {
 		cur = nil
 	}
 	sawHeader := false
-	for i, raw := range strings.Split(string(data), "\n") {
-		lineNo := i + 1
+	for it := newLineIter(string(data)); ; {
+		raw, lineNo, more := it.next()
+		if !more {
+			break
+		}
 		line := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -213,7 +223,11 @@ func yarnClassicDependency(res *Result, e *yarnEntry) (Dependency, bool) {
 		d.Source, d.Registry, d.Revision = SourceGit, gs.repo, gs.revision
 	case isHTTPURL(resolved):
 		d.URL = cleanURL(resolved)
-		d.Registry = npmRegistryBase(resolved, name)
+		if base, ok := npmRegistryBase(resolved, name); ok && !isHTTPURL(rng) {
+			d.Registry = base
+		} else {
+			d.Source = SourceURL // a dependency on a tarball URL, not a registry
+		}
 		if sha1, ok := hexDigest("sha1", frag, ""); ok {
 			d.Digests = append(d.Digests, sha1)
 		}
@@ -248,9 +262,15 @@ func codeloadParts(u string) (owner, repo, commit string) {
 // patched copy of a package that has an entry of its own; a URL of a Git
 // host is a Git dependency.
 func parseYarnBerry(data []byte) (*Result, error) {
+	if err := checkYAMLInput(data); err != nil {
+		return nil, fmt.Errorf("yarn.lock: %w", err)
+	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, yamlError(err)
+	}
+	if err := yamlCheck(&root, false); err != nil {
+		return nil, fmt.Errorf("yarn.lock: %w", err)
 	}
 	m := yamlMapping(&root)
 	if m == nil {

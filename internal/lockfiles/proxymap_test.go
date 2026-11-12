@@ -34,8 +34,10 @@ func TestMapURL(t *testing.T) {
 		// Not token-shaped: not taken for a link, but redacted all the same
 		// (a mistyped token is still most of a token).
 		{"https://cache.example/u/not-a-token/v1/npm/x", "https://cache.example/u/<link>/v1/npm/x", "", ""},
-		// Interception: the links sit on the upstream host.
-		{"https://registry.npmjs.org/_pullthrough/v1/npm/x", "https://proxy.example.com/v1/npm/x", "npm", "https://registry.npmjs.org/"},
+		// Interception: the links sit on the upstream host, and stay there; the
+		// configured upstream is credited only on its own host.
+		{"https://registry.npmjs.org/_pullthrough/v1/npm/x", "https://registry.npmjs.org/_pullthrough/v1/npm/x", "npm", "https://registry.npmjs.org/"},
+		{"https://evil.example/_pullthrough/v1/npm/lodash/-/lodash.tgz", "https://evil.example/_pullthrough/v1/npm/lodash/-/lodash.tgz", "npm", ""},
 		// Not the proxy: kept, minus credentials, query and fragment.
 		{"https://user:secret@registry.npmjs.org/lodash/-/lodash.tgz?token=abc#frag", "https://registry.npmjs.org/lodash/-/lodash.tgz", "", ""},
 		{"https://registry.npmjs.org/v1/npm/x", "https://registry.npmjs.org/v1/npm/x", "", ""},
@@ -129,5 +131,18 @@ func TestFinishImage(t *testing.T) {
 		if strings.Contains(d.Name+d.Registry, "ptl1") {
 			t.Errorf("%s: the token survived: %+v", c.ref, d)
 		}
+	}
+}
+
+func TestRedactTextUserinfoWithQuotes(t *testing.T) {
+	out := redactText("https://user:pa'ss@host.example/x", "/u")
+	if strings.Contains(out, "pa'ss") || strings.Contains(out, "user") {
+		t.Errorf("credentials survived: %s", out)
+	}
+	if got := cleanIfURL("https://u:p@h.example/foo-1.0.0.tgz?access_token=SECRET#x"); got != "https://h.example/foo-1.0.0.tgz" {
+		t.Errorf("cleanIfURL = %q", got)
+	}
+	if got := cleanIfURL("1.2.3-beta"); got != "1.2.3-beta" {
+		t.Errorf("a plain version changed: %q", got)
 	}
 }

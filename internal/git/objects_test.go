@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -414,5 +416,53 @@ func TestMirrorOpenObjects(t *testing.T) {
 	}
 	if _, err := m.OpenObjects(context.Background(), up, "../escape", ObjectReaderOptions{}); err == nil {
 		t.Fatal("a traversing repository path was accepted")
+	}
+}
+
+// TestCloneForScanHonoursItsContext: a server that accepts and never answers
+// must not hold the caller past its deadline, nor leave git's helpers running.
+func TestCloneForScanHonoursItsContext(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var held []net.Conn
+	var mu sync.Mutex
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, c) // never answered
+			mu.Unlock()
+		}
+	}()
+	defer func() {
+		mu.Lock()
+		for _, c := range held {
+			c.Close()
+		}
+		mu.Unlock()
+	}()
+	url := "http://" + ln.Addr().String() + "/stall.git"
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err = CloneForScan(ctx, ScanCloneOptions{URL: url, Dir: filepath.Join(t.TempDir(), "c.git")})
+	if err == nil {
+		t.Fatal("a stalled fetch succeeded")
+	}
+	if d := time.Since(start); d > 2*time.Second+processWaitDelay+3*time.Second {
+		t.Fatalf("CloneForScan returned %s after its 2s deadline", d)
+	}
+	out, _ := exec.Command("pgrep", "-f", ln.Addr().String()).Output()
+	if pids := strings.TrimSpace(string(out)); pids != "" {
+		t.Fatalf("git helpers still running for the stalled URL: %s", pids)
 	}
 }

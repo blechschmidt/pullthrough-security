@@ -24,12 +24,6 @@ func (nugetLock) Detect(path string) bool {
 	return name == "packages.lock.json" || (strings.HasPrefix(name, "packages.") && strings.HasSuffix(name, ".lock.json"))
 }
 
-type nugetEntry struct {
-	Type        lenientString `json:"type"`
-	Resolved    lenientString `json:"resolved"`
-	ContentHash lenientString `json:"contentHash"`
-}
-
 func (nugetLock) Parse(data []byte) (*Result, error) {
 	doc := newJSONDoc(data)
 	res := &Result{}
@@ -48,33 +42,39 @@ func (nugetLock) Parse(data []byte) (*Result, error) {
 				return doc.skip()
 			}
 			sawDeps = true
+			res.Dependencies = nil                          // a repeated key keeps its last value
 			return doc.object(func(_ string, _ int) error { // target framework
 				if doc.peekKind() != '{' {
 					return doc.skip()
 				}
-				return doc.object(func(id string, line int) error {
-					if doc.peekKind() != '{' {
-						return doc.skip()
-					}
-					var e nugetEntry
-					if err := doc.value(&e); err != nil {
+				byID := map[string]int{}
+				first := len(res.Dependencies)
+				err := doc.object(func(id string, line int) error {
+					e, err := doc.fields()
+					if err != nil || e == nil {
 						return err
 					}
-					if strings.EqualFold(string(e.Type), "Project") {
+					if i, dup := byID[id]; dup {
+						res.Dependencies[i] = Dependency{} // superseded
+					}
+					if strings.EqualFold(e.str("type"), "Project") {
 						return nil // a project reference, built here
 					}
 					name := strings.ToLower(id)
-					if !validPackageName(name) || !validVersion(string(e.Resolved)) {
+					if !validPackageName(name) || !validVersion(e.str("resolved")) {
 						res.warnf("line %d: a package without a usable id or resolved version", line)
 						return nil
 					}
-					d := Dependency{Name: name, Version: string(e.Resolved), Line: line}
-					if dg, ok := base64Digest("sha512", string(e.ContentHash), "nuget-content"); ok {
+					d := Dependency{Name: name, Version: e.str("resolved"), Line: line}
+					if dg, ok := base64Digest("sha512", e.str("contentHash"), "nuget-content"); ok {
 						d.Digests = append(d.Digests, dg)
 					}
+					byID[id] = len(res.Dependencies)
 					res.Dependencies = append(res.Dependencies, d)
 					return nil
 				})
+				res.Dependencies = append(res.Dependencies[:first], dropSuperseded(res.Dependencies[first:])...)
+				return err
 			})
 		}
 		return doc.skip()

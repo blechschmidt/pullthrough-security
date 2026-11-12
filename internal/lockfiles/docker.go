@@ -2,6 +2,7 @@ package lockfiles
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -127,8 +128,8 @@ func (dockerfile) Parse(data []byte) (*Result, error) {
 	if !utf8.Valid(data) {
 		return nil, errors.New("Dockerfile is not valid UTF-8")
 	}
-	instructions := dockerInstructions(string(data))
 	res := &Result{}
+	instructions := dockerInstructions(string(data), res)
 	globalArgs := map[string]string{}
 	stages := map[string]bool{}
 	sawFrom := false
@@ -209,19 +210,101 @@ func atoiSmall(s string) (int, bool) {
 	return n, true
 }
 
-// heredocRE finds the heredocs an instruction opens ("<<EOF", "<<-'EOT'").
-var heredocRE = regexp.MustCompile(`<<(-?)(["']?)([A-Za-z_][A-Za-z0-9_]*)(["']?)`)
+// heredocWordRE is BuildKit's test for a word that opens a heredoc:
+// "[fd]<<[-]DELIMITER", the delimiter optionally quoted.
+var heredocWordRE = regexp.MustCompile(`^(\d*)<<(-?)([^<]*)$`)
+
+// heredocDelimiters returns the heredocs a RUN, COPY or ADD line opens, as
+// BuildKit finds them: in the line's shell words — quotes kept, so "x<<EOF"
+// in quotes, $((1<<n)) and the herestring <<<word open nothing.
+func heredocDelimiters(keyword, args string) []heredoc {
+	switch keyword {
+	case "RUN", "COPY", "ADD":
+	default:
+		return nil
+	}
+	var out []heredoc
+	for _, word := range shellWords(args) {
+		m := heredocWordRE.FindStringSubmatch(word)
+		if m == nil || m[3] == "" {
+			continue
+		}
+		delim := m[3]
+		if q := delim[0]; q == '"' || q == '\'' {
+			if len(delim) < 2 || delim[len(delim)-1] != q {
+				continue
+			}
+			delim = delim[1 : len(delim)-1]
+		}
+		if delim == "" {
+			continue
+		}
+		out = append(out, heredoc{delimiter: delim, chomp: m[2] == "-"})
+		if len(out) == 8 {
+			break
+		}
+	}
+	return out
+}
+
+type heredoc struct {
+	delimiter string
+	chomp     bool // "<<-": leading tabs of the body are removed
+}
+
+// shellWords splits s at blanks outside quotes, keeping the quotes.
+func shellWords(s string) []string {
+	var words []string
+	var cur strings.Builder
+	var quote byte
+	escaped := false
+	flush := func() {
+		if cur.Len() > 0 {
+			words = append(words, cur.String())
+			cur.Reset()
+		}
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case escaped:
+			cur.WriteByte(c)
+			escaped = false
+		case c == '\\' && quote != '\'':
+			cur.WriteByte(c)
+			escaped = true
+		case quote != 0:
+			cur.WriteByte(c)
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			cur.WriteByte(c)
+			quote = c
+		case c == ' ' || c == '\t':
+			flush()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	flush()
+	return words
+}
 
 // dockerInstructions splits a Dockerfile into instructions: comments and
 // blank lines dropped, continuation lines joined (the escape character can be
 // changed by a parser directive), heredoc bodies skipped.
-func dockerInstructions(src string) []dockerInstruction {
-	lines := strings.Split(src, "\n")
+func dockerInstructions(src string, res *Result) []dockerInstruction {
+	it := newLineIter(src)
 	escape := byte('\\')
 	var out []dockerInstruction
 	directives := true
-	for i := 0; i < len(lines); i++ {
-		line := strings.TrimRight(lines[i], "\r")
+	for {
+		raw, n, more := it.next()
+		if !more {
+			break
+		}
+		line := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(line)
 		if directives {
 			// Parser directives ("# escape=`", "# syntax=…") lead the file.
@@ -243,43 +326,59 @@ func dockerInstructions(src string) []dockerInstruction {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		start := i + 1
+		start := n
 		var b strings.Builder
 		for {
 			t := strings.TrimRight(line, " \t\r")
-			if len(t) > 0 && t[len(t)-1] == escape {
-				b.WriteString(t[:len(t)-1])
-				b.WriteByte(' ')
-				i++
-				// Comment lines inside a continuation are dropped.
-				for i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
-					i++
-				}
-				if i >= len(lines) {
+			if len(t) == 0 || t[len(t)-1] != escape {
+				b.WriteString(line)
+				break
+			}
+			b.WriteString(t[:len(t)-1])
+			b.WriteByte(' ')
+			// The next line that is not a comment continues the instruction.
+			next := ""
+			found := false
+			for {
+				l, _, ok := it.next()
+				if !ok {
 					break
 				}
-				line = strings.TrimRight(lines[i], "\r")
-				continue
+				if strings.HasPrefix(strings.TrimSpace(l), "#") {
+					continue
+				}
+				next, found = strings.TrimRight(l, "\r"), true
+				break
 			}
-			b.WriteString(line)
-			break
+			if !found {
+				break
+			}
+			line = next
 		}
 		text := strings.TrimSpace(b.String())
 		keyword, args, _ := strings.Cut(text, " ")
 		in := dockerInstruction{keyword: strings.ToUpper(keyword), args: strings.TrimSpace(args), line: start}
 		out = append(out, in)
 		// Skip heredoc bodies: their lines are data, not instructions.
-		for _, m := range heredocRE.FindAllStringSubmatch(in.args, 8) {
-			word, strip := m[3], m[1] == "-"
-			for i+1 < len(lines) {
-				i++
-				body := strings.TrimRight(lines[i], "\r")
-				if strip {
-					body = strings.TrimLeft(body, "\t")
-				}
-				if body == word {
+		for _, h := range heredocDelimiters(in.keyword, in.args) {
+			closed := false
+			for {
+				body, _, ok := it.next()
+				if !ok {
 					break
 				}
+				body = strings.TrimRight(body, "\r")
+				if h.chomp {
+					body = strings.TrimLeft(body, "\t")
+				}
+				if body == h.delimiter {
+					closed = true
+					break
+				}
+			}
+			if !closed {
+				res.warnf("line %d: a heredoc that is never closed; the rest of the file was read as its body", start)
+				return out
 			}
 		}
 	}
@@ -379,9 +478,15 @@ func (composeFile) Detect(path string) bool {
 }
 
 func (composeFile) Parse(data []byte) (*Result, error) {
+	if err := checkYAMLInput(data); err != nil {
+		return nil, fmt.Errorf("compose file: %w", err)
+	}
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, yamlError(err)
+	}
+	if err := yamlCheck(&root, true); err != nil {
+		return nil, fmt.Errorf("compose file: %w", err)
 	}
 	res := &Result{}
 	c := newComposeResolver()

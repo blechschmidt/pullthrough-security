@@ -46,7 +46,7 @@ several NuGet target frameworks) are one dependency.
 
 | Type | Files | Read |
 | ---- | ----- | ---- |
-| `npm` | `package-lock.json`, `npm-shrinkwrap.json` | lockfileVersion 1 (the nested `dependencies` tree), 2 and 3 (`packages`); aliases resolve to the real package; workspace folders, `link`s, bundled and `file:` packages are not fetched and are left out. |
+| `npm` | `package-lock.json`, `npm-shrinkwrap.json` | lockfileVersion 1 (the nested `dependencies` tree), 2 and 3 (`packages`); aliases resolve to the real package; a tarball URL that is not a registry's `/<name>/-/` download is `source: url`; workspace folders, `link`s, bundled and `file:` packages are not fetched and are left out. |
 | `npm` | `yarn.lock` | Yarn Classic (`# yarn lockfile v1`; registry, sha1 from the `resolved` fragment, `integrity`) and Yarn Berry (`__metadata` version 6 to 10; `npm:` resolutions, `checksum`); `workspace:`, `patch:`, `file:`, `link:`, `portal:` and `exec:` entries are left out. |
 | `npm` | `pnpm-lock.yaml` | lockfileVersion 5.x, 6.x and 9.x (each spells package keys differently), registry tarballs, Git and tarball-URL dependencies; every YAML document — pnpm 10 and later write two when the project pins its package manager, the package manager's own installation first. |
 | `pip` | `requirements*.txt`, `*-requirements.txt`, `constraints.txt`, `requirements/*.txt` | `==` and `===` pins with their `--hash`es, the `--index-url`, direct URLs and VCS references pinned to a commit. A range, a wildcard, an editable local path is a warning. `-r`/`-c` includes are not followed — the scan reads those files on its own. |
@@ -58,14 +58,24 @@ several NuGet target frameworks) are one dependency.
 | `go` | `go.mod`, `go.sum` | go.mod's requirements after its `replace` directives (a local-directory replacement is not fetched); go.sum's `h1:` hashes are merged into the go.mod of the same directory, and a module only go.sum names stays a dependency of its own. `/go.mod`-only lines are hashes of go.mod files, not of code that is downloaded. |
 | `nuget` | `packages.lock.json`, `packages.<project>.lock.json` | every target framework; `Project` references are left out. |
 | `maven` | `gradle.lockfile`, `*-gradle.lockfile`, `gradle/dependency-locks/*.lockfile` | every module; dependencies only test configurations use are `dev`. Gradle records no hashes. |
-| `maven` | `pom.xml` | Fixed versions only: a literal, or a property defined in the same POM (`${guava.version}`, `${project.version}`). Read: the parent, `<dependencies>` (profiles too), build plugins and their dependencies, BOMs imported in `<dependencyManagement>`. A version managed elsewhere, a range, a `SNAPSHOT`, `LATEST`/`RELEASE` or an undefined property is a warning. |
+| `maven` | `pom.xml` | Fixed versions only: a literal, or a property defined in the same POM (`${guava.version}`, `${project.version}`). Read: the parent, `<dependencies>` (profiles too), build plugins and their dependencies, BOMs imported in `<dependencyManagement>`. A version managed elsewhere, a range, a `SNAPSHOT`, `LATEST`/`RELEASE` or an undefined property is a warning. The registry is the one `<repository>` named (plugins: the one `<pluginRepository>`), if just one is. |
 | `rubygems` | `Gemfile.lock`, `gems.locked` | `GEM` and `GIT` sections, every platform variant, Bundler's `CHECKSUMS`; `PATH` gems are left out. Gemfile.lock does not record groups. |
 | `composer` | `composer.lock` | `packages` and `packages-dev`, the dist URL and its `shasum` (Packagist leaves it empty for GitHub archives), the commit; `path` packages are left out. |
-| `docker` | `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, `Containerfile` | `FROM` images and `COPY --from=<image>`, with global `ARG` defaults expanded; earlier stages, `scratch` and heredoc bodies are not images. |
+| `docker` | `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, `Containerfile` | `FROM` images and `COPY --from=<image>`, with global `ARG` defaults expanded; earlier stages, `scratch` and heredoc bodies are not images (a heredoc is opened as BuildKit opens one: an unquoted `[n]<<[-]WORD` word of `RUN`, `COPY` or `ADD`; one never closed is a warning). |
 | `docker` | `compose.yaml`, `docker-compose.yml` and their `.<variant>.yml` forms | every service's `image`, through YAML anchors and `<<` merges and `${VAR:-default}`, in the current and the version 1 layout. |
 
 Only images pinned by digest are dependencies: a tag can be moved, so an image without a
 digest is a warning. `ptctl lockfiles formats` prints the same table from the code.
+
+**Read as the package manager reads it.** A lock file edited to show a scanner one artifact
+while the package manager installs another must not succeed, so each format is read with its
+tool's semantics. JSON keys match exactly (not case-insensitively, as Go's struct decoding
+would) and a repeated key or entry keeps its last value, as `JSON.parse`, Python's `json` and
+PHP's `json_decode` do. YAML lock files (`pnpm-lock.yaml`, Yarn Berry's `yarn.lock`) with an
+anchor, an alias, a merge key or a key repeated in one mapping are refused with an error: no
+tool writes them, and pnpm's and Yarn's own readers would give them a meaning. Compose files may
+use anchors and `<<` merges (followed with a work budget) but not repeated keys, which Compose
+refuses too. go.sum `h1:` values are accepted only as the base64 of a SHA-256.
 
 ### Types without a parser
 
@@ -105,12 +115,16 @@ The scan reads **objects at a commit** through the object access of `internal/gi
 are not seen, and a lock file is read exactly as the commit holds it.
 
 - **A local path** — a working tree, a directory in one (only that directory is scanned),
-  a `.git` directory or a bare repository — is read at `HEAD` or `--rev`.
+  a `.git` directory or a bare repository — is read at `HEAD` or `--rev`. Objects a partial
+  clone left out are not fetched unless `--allow-fetch` is given: a fetch runs the repository's
+  own configuration (its remote, its ssh command).
 - **A remote** (`https://`, `ssh://`, `git://`, `file://`, `user@host:path`) is fetched into
-  a temporary directory, removed afterwards: one commit deep, as a partial clone that leaves
-  out every file larger than `--max-file-size`, so a huge file is never downloaded. A commit
-  ID the server will not hand out directly is found by fetching its branches and tags.
-  Remote-helper URLs (`ext::…`) are refused.
+  a temporary directory, removed before anything is printed: one commit deep, as a partial
+  clone that leaves out every file larger than `--max-file-size`, so a huge file is never
+  downloaded. A commit ID the server will not hand out directly is found by fetching its
+  branches and tags. Remote-helper URLs (`ext::…`) are refused. A server that stops sending
+  ends the fetch after a minute, and `--scan-timeout` or Ctrl-C ends git with every helper it
+  started (it runs in a process group of its own).
 
 The walk:
 
@@ -118,7 +132,7 @@ The walk:
 | ----- | ------- | ---- |
 | Skip globs | `DefaultSkip` (below) | `--skip GLOB` (repeatable, adds), `--no-default-skip` |
 | Directory depth | 24 | `--max-depth` |
-| Largest lock file read | 32 MiB (its size is asked for first) | `--max-file-size` |
+| Largest lock file read | 32 MiB (its size is asked for first); 16 MiB for the YAML and TOML formats, which are read into a tree | `--max-file-size` |
 | Lock files | 2000 | `--max-files` |
 | Bytes of lock files | 512 MiB | — |
 | Tree entries seen | 2 000 000 | — |
@@ -152,13 +166,14 @@ The scanner maps such URLs back to the upstream they stand for. Three shapes are
 | Shape | Recognised |
 | ----- | ---------- |
 | `<base>/u/<token>/v1/<upstream>/…` (personal link) | under a configured public URL, whatever the token looks like; on any other host, when the segment is spelled like a token (`ptl1…`) |
-| `https://<upstream host>/_pullthrough/v1/<upstream>/…` (TLS interception) | on any host |
+| `https://<upstream host>/_pullthrough/v1/<upstream>/…` (TLS interception) | on any host; the URL keeps its host, and the configured upstream is credited only on that upstream's own host (or the proxy's) |
 | `<public URL>/v1/<upstream>/…` (the plain mount) | under a configured public URL |
 | `<proxy host>/[u/<token>/]<upstream>/<repository>@sha256:…` (container registry alias) | for the proxy's host, or a token-shaped link on any host |
 
 The dependency then records `upstream`, `registry` — the upstream's own URL when the
 configuration is known, the proxy's token-free mount of it otherwise — and the `url` in the
-proxy's canonical, token-free form. A lock file that resolves a package through an upstream
+proxy's canonical, token-free form (an intercepted URL stays on the host it names: a lock file
+cannot move a download from `evil.example` onto the npm upstream by spelling its path like one). A lock file that resolves a package through an upstream
 of another type is kept, with a warning.
 
 The token is never kept or printed: parsers cut anything spelled like a token out of a URL
@@ -195,9 +210,11 @@ Every parser is pure — no network, no file system, no processes — and:
 - has a fuzz target in the fuzz harness (`make fuzz`; a test fails for a parser without one),
   checking that no input panics it, that its output is deterministic and well-formed, and
   that no link token survives;
-- reads JSON as a stream (a 30 MB `package-lock.json` is not turned into a tree), TOML
-  through a strict reader with bounded nesting, YAML without expanding aliases (Compose's
-  `<<` merges are followed to a bounded depth), XML without DTD entities;
+- reads JSON as a stream (a 30 MB `package-lock.json` is not turned into a tree), text
+  formats line by line, TOML through a strict reader whose tables and values are budgeted by
+  the size of the input, YAML only when it is not denser than a real lock file (a document
+  that is all structure would make a tree a hundred times its size), XML without DTD
+  entities and without building element paths that cannot match;
 - runs under a recover in the walk: a parser that fails on a file fails that file, not the
   scan.
 

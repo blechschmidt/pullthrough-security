@@ -364,7 +364,7 @@ func TestScanSurvivesHostileTrees(t *testing.T) {
 			},
 		},
 		blobs: map[string][]byte{
-			"sum":     []byte("example.com/a v1.0.0 h1:AAAA=\n"),
+			"sum":     []byte("example.com/a v1.0.0 h1:" + strings.Repeat("A", 43) + "=\n"),
 			"panicky": []byte("version = 4\n[[package]]\nname = \"x\"\nversion = \"1\"\nsource = \"registry+https://a\"\n"),
 		},
 		errs: map[string]error{

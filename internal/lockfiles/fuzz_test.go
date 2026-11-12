@@ -20,6 +20,7 @@ package lockfiles
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -112,6 +113,21 @@ func fuzzParser(f *testing.F, p Parser, path string, seeds ...string) {
 		if file == nil {
 			t.Fatal("the registry does not detect the path")
 		}
+		// Digest values are validated hashes (hex, or base64 of the hash's
+		// length): random bytes, which may spell anything, never a URL.
+		for i := range file.Dependencies {
+			for j := range file.Dependencies[i].Digests {
+				dg := &file.Dependencies[i].Digests[j]
+				if dg.Algorithm == "h1" {
+					if raw, err := base64.StdEncoding.DecodeString(dg.Value); err != nil || len(raw) != 32 {
+						t.Fatalf("an h1 digest that is not a SHA-256: %q", dg.Value)
+					}
+				} else if !isHex(dg.Value) {
+					t.Fatalf("a %s digest that is not hex: %q", dg.Algorithm, dg.Value)
+				}
+				dg.Value = ""
+			}
+		}
 		out, _ := json.Marshal(file)
 		// The path is the caller's, not the input's.
 		out = bytes.ReplaceAll(out, []byte(path), nil)
@@ -196,7 +212,8 @@ func FuzzGoMod(f *testing.F) {
 }
 
 func FuzzGoSum(f *testing.F) {
-	fuzzParser(f, goSum{}, "go.sum", "a v1.0.0 h1:AAAA=\na v1.0.0/go.mod h1:BBBB=\nb v2.0.0/go.mod h1:CCCC=\n")
+	h1 := func(c string) string { return " h1:" + strings.Repeat(c, 43) + "=\n" }
+	fuzzParser(f, goSum{}, "go.sum", "a v1.0.0"+h1("A")+"a v1.0.0/go.mod"+h1("B")+"b v2.0.0/go.mod"+h1("C")+"c v1.0.0 h1:"+testToken+"\n")
 }
 
 func FuzzNuGetLock(f *testing.F) {

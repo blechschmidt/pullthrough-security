@@ -261,3 +261,28 @@ func TestLockfilesFormats(t *testing.T) {
 		t.Fatalf("JSON table: %v (%d entries)", err, len(table))
 	}
 }
+
+func TestLockfilesTableEscapesRepositoryText(t *testing.T) {
+	r := &lockfiles.Report{
+		Commit: strings.Repeat("a", 40),
+		Files: []*lockfiles.File{{
+			Path: "evil\x1b[2Jdir/package-lock.json",
+			Dependencies: []lockfiles.Dependency{{
+				Type: "npm", Name: "a\u202eb", Version: "1.0.0\r", File: "evil\x1b[2Jdir/package-lock.json", Line: 1,
+			}},
+			Warnings: []string{"tab\there"},
+		}},
+		Skipped:    []lockfiles.Skipped{{Path: "x\ny/", Reason: "matches a skip glob"}},
+		Submodules: []lockfiles.Submodule{{Path: "sub\x07", Commit: strings.Repeat("b", 40)}},
+	}
+	var out bytes.Buffer
+	printLockfilesReport(&out, "repo", r)
+	for _, c := range []string{"\x1b", "\u202e", "\r", "\x07", "x\ny"} {
+		if strings.Contains(out.String(), c) {
+			t.Errorf("the table prints %q raw:\n%s", c, out.String())
+		}
+	}
+	if !strings.Contains(out.String(), `evil\u001b[2Jdir/package-lock.json`) {
+		t.Errorf("escaped path missing:\n%s", out.String())
+	}
+}

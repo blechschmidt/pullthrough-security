@@ -153,33 +153,43 @@ func (p *Proxy) mapURL(raw string) (m mapped, ok bool) {
 		return mapped{url: redactText(plain, prefix)}, true
 	}
 
-	// The proxy's canonical, token-free URL for the resource: under the
-	// public base when one is configured, else under the base the URL used.
-	var canonical string
-	switch {
-	case intercepted && underBase:
-		canonical = origin + basePath
-	case intercepted:
-		if bases := p.publicBases(); len(bases) > 0 {
-			canonical = bases[0].Scheme + "://" + bases[0].Host + bases[0].EscapedPath()
-		} else {
-			canonical = origin + interceptPrefix
+	if intercepted {
+		// Interception moved the link onto the host the client talked to. The
+		// URL stays as written — it names the host a client fetches from — and
+		// the configured upstream is credited only when that host is the
+		// upstream's own, or the proxy's: "https://evil.example/_pullthrough/
+		// v1/npm/…" is evil.example's, not the npm upstream's.
+		mount := origin + basePath + interceptPrefix + "/v1/" + name
+		m = mapped{url: redactText(plain, prefix), upstream: name, mount: redactText(mount, prefix)}
+		if p != nil {
+			if up, known := p.Upstreams[name]; known && (underBase || sameHost(up.URL, host)) {
+				m.upstreamURL = redactText(sanitizeURL(up.URL), prefix)
+				m.upstreamType = CanonicalType(up.Type)
+			}
 		}
-	default:
-		canonical = origin + basePath
+		return m, true
 	}
-	mount := strings.TrimRight(canonical, "/") + "/v1/" + name
+
+	// The proxy's canonical, token-free URL for the resource, under the base
+	// the URL used.
+	mount := strings.TrimRight(origin+basePath, "/") + "/v1/" + name
 	m = mapped{url: redactText(mount+tail, prefix), upstream: name, mount: redactText(mount, prefix)}
 	// The configured upstreams are this deployment's: they describe a URL
-	// under its public URL, or one interception moved onto an upstream host —
-	// not a personal link on a host nobody named, which may be another one.
-	if p != nil && (underBase || intercepted) {
+	// under its public URL — not a personal link on a host nobody named, which
+	// may be another deployment's.
+	if p != nil && underBase {
 		if up, known := p.Upstreams[name]; known {
 			m.upstreamURL = redactText(sanitizeURL(up.URL), prefix)
 			m.upstreamType = CanonicalType(up.Type)
 		}
 	}
 	return m, true
+}
+
+// sameHost reports whether rawURL is on host (host[:port], lower case).
+func sameHost(rawURL, host string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	return err == nil && u.Host != "" && strings.EqualFold(u.Host, host)
 }
 
 // splitMount splits "<upstream>/<rest>" into the upstream name and "/<rest>"
@@ -207,7 +217,7 @@ func validUpstreamName(s string) bool {
 		}
 	}
 	// A token where an upstream name belongs is a token, not a name.
-	return s != "." && s != ".." && !strings.HasPrefix(s, linkTokenPrefix)
+	return s != "." && s != ".." && !strings.Contains(s, linkTokenPrefix)
 }
 
 // sanitizeURL removes credentials, query and fragment from a URL. Text that
@@ -235,7 +245,7 @@ func sanitizeURL(raw string) string {
 var sshUserRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
 // urlUserinfo matches the userinfo part of a URL ("scheme://user:secret@").
-var urlUserinfo = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s"'<>]*@`)
+var urlUserinfo = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s"<>]*@`)
 
 // stripUserinfo removes the userinfo of every URL in s, except the bare user
 // of an ssh URL ("ssh://git@…"), which names an account and is no secret.

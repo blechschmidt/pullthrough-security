@@ -269,8 +269,8 @@ func (p *Proxy) finishDependency(d *Dependency) string {
 			d.URL = redactText(sanitizeURL(d.URL), prefix)
 		}
 	}
-	d.Name = redactText(d.Name, prefix)
-	d.Version = redactText(d.Version, prefix)
+	d.Name = redactText(cleanIfURL(d.Name), prefix)
+	d.Version = redactText(cleanIfURL(d.Version), prefix)
 	d.Revision = redactText(d.Revision, prefix)
 	for i := range d.Digests {
 		// A file name taken from a URL can be the URL's last segment.
@@ -289,6 +289,16 @@ func (p *Proxy) finishDependency(d *Dependency) string {
 			d.Name, d.Version, m.upstream, m.upstreamType)
 	}
 	return ""
+}
+
+// cleanIfURL cleans a name or version that is a URL (npm 6 writes a tarball
+// dependency's URL as its version) as cleanURL cleans URLs. Names and versions
+// hold no blanks, so such a value is the URL and nothing else.
+func cleanIfURL(s string) string {
+	if strings.Contains(s, "://") {
+		return cleanURL(s)
+	}
+	return s
 }
 
 // cleanURL strips what a parser must not pass on from a URL it read: the

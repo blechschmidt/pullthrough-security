@@ -1,6 +1,7 @@
 package lockfiles
 
 import (
+	"encoding/base64"
 	"errors"
 	"strconv"
 	"strings"
@@ -41,8 +42,11 @@ func (goMod) Parse(data []byte) (*Result, error) {
 	all := map[string]goReplacement{}   // "path" → replacement
 	sawModule := false
 	block := ""
-	for i, raw := range strings.Split(string(data), "\n") {
-		lineNo := i + 1
+	for it := newLineIter(string(data)); ; {
+		raw, lineNo, more := it.next()
+		if !more {
+			break
+		}
 		tokens, err := goModTokens(raw)
 		if err != nil {
 			return nil, errors.New("go.mod line " + strconv.Itoa(lineNo) + ": " + err.Error())
@@ -185,8 +189,11 @@ func (goSum) Parse(data []byte) (*Result, error) {
 	res := &Result{}
 	modHashes := map[string]Digest{} // "path version" → hash of the go.mod
 	index := map[string]int{}        // "path version" → dependency
-	for i, raw := range strings.Split(string(data), "\n") {
-		lineNo := i + 1
+	for it := newLineIter(string(data)); ; {
+		raw, lineNo, more := it.next()
+		if !more {
+			break
+		}
 		f := strings.Fields(raw)
 		if len(f) == 0 {
 			continue
@@ -196,10 +203,17 @@ func (goSum) Parse(data []byte) (*Result, error) {
 		}
 		path, version, hash := f[0], f[1], f[2]
 		alg, value, ok := strings.Cut(hash, ":")
-		if !ok || alg != "h1" || value == "" {
+		if !ok || alg != "h1" {
 			res.warnf("line %d: a hash that is not h1", lineNo)
 			continue
 		}
+		// h1 is the base64 of a SHA-256; nothing else is kept from the line.
+		sum, err := base64.StdEncoding.DecodeString(value)
+		if err != nil || len(sum) != 32 {
+			res.warnf("line %d: a malformed h1 hash", lineNo)
+			continue
+		}
+		value = base64.StdEncoding.EncodeToString(sum)
 		if !validGoModulePath(path) {
 			res.warnf("line %d: not a module path", lineNo)
 			continue
