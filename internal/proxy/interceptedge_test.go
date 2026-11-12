@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blechschmidt/pullthrough-security/internal/auth"
 	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
@@ -372,4 +373,109 @@ func tail(s string, n int) string {
 		return s
 	}
 	return s[len(s)-n:]
+}
+
+// With client authentication on, an intercepted client is identified by what it
+// presented to the proxy — the credentials of its forward-proxy URL, sent on the
+// CONNECT — and by nothing it addressed to the registry. A NAT client presents
+// nothing and is anonymous.
+func TestInterceptedClientsAreIdentifiedByWhatTheyGaveTheProxy(t *testing.T) {
+	const token = "static-token-0123456789abcdef"
+	az, err := auth.NewAuthorizer([]auth.Role{
+		{Name: "npm-reader", Ecosystems: []string{"npm"}, Upstreams: []string{"*"}},
+		{Name: "anon", Ecosystems: []string{"go"}, Upstreams: []string{"*"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ta, err := auth.NewTokenAuthenticator([]auth.TokenEntry{{Name: "ci", Team: "t", Roles: []string{"npm-reader"}, Secret: token}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enforcer, err := auth.NewEnforcer(auth.EnforcerOptions{
+		Authenticator: ta, Authorizer: az, Quota: auth.NewQuotaManager(auth.QuotaOptions{}),
+		AllowAnonymous: true, Anonymous: &auth.Principal{Subject: "anonymous", Method: "anonymous", Roles: []string{"anon"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := newPersonalGateway(t, personalOptions{enforcer: enforcer})
+
+	dir := t.TempDir()
+	ca, err := intercept.LoadOrGenerateCA(intercept.CAOptions{CertFile: dir + "/ca.crt", KeyFile: dir + "/ca.key", Generate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := intercept.New(intercept.Options{
+		Router: intercept.NewRouter(map[string]string{"registry.npmjs.org": "npm", "proxy.golang.org": "go"}),
+		CA:     ca,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fwd, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nat, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); _ = p.Serve(ctx, fwd, g.handler) }()
+	go func() { defer wg.Done(); _ = p.ServeNAT(ctx, nat, g.handler) }()
+	t.Cleanup(func() { cancel(); wg.Wait() })
+
+	withProxyAuth := interceptedClient(t, ca, fwd.Addr().String(), "", "")
+	withProxyAuth.Transport.(*http.Transport).ProxyConnectHeader = http.Header{"Proxy-Authorization": {"Bearer " + token}}
+	plainForward := interceptedClient(t, ca, fwd.Addr().String(), "", "")
+	natClient := interceptedClient(t, ca, "", nat.Addr().String(), nat.Addr().String())
+
+	status := func(c *http.Client, target string, header ...string) int {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, target, nil)
+		for i := 0; i+1 < len(header); i += 2 {
+			req.Header.Set(header[i], header[i+1])
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", target, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	const tarball = "https://registry.npmjs.org/_pullthrough/v1/npm/left-pad/-/left-pad-1.3.0.tgz"
+
+	// The token given to the proxy admits the npm download, as that principal.
+	if got := status(withProxyAuth, tarball); got != http.StatusOK {
+		t.Fatalf("with the token on the CONNECT: %d", got)
+	}
+	var served *downloadlog.Entry
+	for _, e := range g.entries() {
+		if e.Outcome == downloadlog.OutcomeServed {
+			e := e
+			served = &e
+			break
+		}
+	}
+	if served == nil || served.Subject != "ci" || served.Via != downloadlog.ViaIntercept {
+		t.Fatalf("the download was recorded as %+v, want subject ci via intercept", served)
+	}
+
+	// The same token sent to the registry — the client's own Authorization
+	// header — is not a credential the proxy accepts: the request is anonymous,
+	// and the anonymous role has no npm.
+	if got := status(plainForward, tarball, "Authorization", "Bearer "+token); got != http.StatusForbidden {
+		t.Fatalf("with the token only in the client's Authorization header: %d, want 403", got)
+	}
+	// A NAT client is anonymous: npm is refused, go — the anonymous role's — is served.
+	if got := status(natClient, tarball); got != http.StatusForbidden {
+		t.Fatalf("NAT client, npm: %d, want 403", got)
+	}
+	if got := status(natClient, "https://proxy.golang.org/rsc.io/quote/@v/list"); got != http.StatusOK {
+		t.Fatalf("NAT client, go: %d, want 200", got)
+	}
 }

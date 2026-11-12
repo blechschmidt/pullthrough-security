@@ -116,9 +116,12 @@ credentials, exactly like an explicit request's `Authorization` header.
 The client's own `Authorization` header is addressed to the registry, not to
 the proxy. It is removed from an intercepted request and never sent anywhere —
 the proxy fetches with its own upstream credentials, as always. A NAT client
-presents nothing to the proxy; with client authentication enabled it is served
-under the anonymous role ([access-control-and-audit.md](access-control-and-audit.md)),
-so a NAT deployment identifies its clients by their network.
+presents nothing to the proxy: with client authentication enabled it is served
+only when `auth.allowAnonymous` admits unauthenticated requests (under
+`auth.anonymousTeam`/`anonymousRoles`,
+[access-control-and-audit.md](access-control-and-audit.md)). A NAT deployment
+identifies its clients by their network — the download and audit logs record
+each client's own address.
 
 ### Distributing the CA
 
@@ -156,7 +159,8 @@ ecosystem's interception script in
 | Deno | `DENO_CERT` |
 | Homebrew | `cacert` in a curlrc named by `HOMEBREW_CURLRC` |
 | huggingface_hub | `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` |
-| Dart, cabal, mix/Hex | the system trust store (Hex also `HEX_CACERTS_PATH`) |
+| Dart, cabal | the system trust store |
+| mix/Hex | the system CA bundle Erlang reads (`/etc/ssl/certs/ca-certificates.crt`), and `HEX_CACERTS_PATH` |
 | APT, DNF, cpanm over `http://` | none — the archive's own signatures are verified |
 
 ## TLS interception (forward proxy)

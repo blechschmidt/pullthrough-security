@@ -40,7 +40,8 @@ metrics plus an admin dashboard.
 > configured to use the proxy, with no other network route — against the real
 > proxy binary and registries: a good
 > package installs (and re-installs from the cache), and a package whose source
-> commit the LLM scan flagged malicious is refused. See
+> commit the LLM scan flagged malicious is refused — explicitly configured, through
+> TLS interception, and in NAT mode. See
 > [docs/ecosystem-tests.md](docs/ecosystem-tests.md); the verified client
 > configuration for each ecosystem is in
 > [docs/ecosystem-tests-reference.md](docs/ecosystem-tests-reference.md).
@@ -82,6 +83,16 @@ metrics plus an admin dashboard.
 > it is recorded under their name. Tested end to end with the real `npm`,
 > `pip`, `cargo`, `go`, Docker Engine and `git`. See
 > [docs/user-links.md](docs/user-links.md).
+>
+> **Or with no client configuration at all.** Besides the explicit package
+> sources, the proxy intercepts TLS: clients keep `registry.npmjs.org`,
+> `pypi.org`, `repo.maven.apache.org`, … and either use the proxy as their
+> `HTTPS_PROXY` or — in NAT mode — are sent to it by the network (a NAT redirect,
+> or DNS), trusting only the proxy's CA. Requests are routed by host and path
+> into the same cache and admission pipeline, and the download links in what
+> the proxy serves stay on the host the client asked for. Every ecosystem's real
+> client runs in both modes in CI, the NAT leg with nothing reachable but the
+> registry hostnames. See [docs/intercept-mode.md](docs/intercept-mode.md).
 
 ## Architecture
 
