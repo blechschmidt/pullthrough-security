@@ -628,7 +628,7 @@ jobs:
   # some 110 targets at 5 minutes each take over nine hours one after another,
   # and a hosted job is stopped at six. A shard is about an hour.
   fuzz:
-    name: Extended fuzzing (shard ${{ matrix.shard }})
+    name: Extended fuzzing
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 120
