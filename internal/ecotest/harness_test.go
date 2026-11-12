@@ -1841,6 +1841,13 @@ func (r *run) runClient(step string, pkg Package) (*clientResult, error) {
 		out, runErr = r.runInContainer(ctx, name, scratch, env, bridge)
 	}
 	_ = os.WriteFile(logPath, out, 0o644)
+	// What the client left in its scratch directory (installed packages, its
+	// own caches — for conda a copy of the channel's repodata per run) is not
+	// evidence: the log above is. Remove it now rather than at the end of the
+	// ecosystem, so three legs of client runs fit a CI runner's disk.
+	if !r.s.keep {
+		r.removeScratch(scratch)
+	}
 
 	res := &clientResult{output: string(out), logPath: logPath, addr: bridge.addr}
 	if r.s.openNetwork && r.e.runner() != RunnerDind && r.mode == modeExplicit {
@@ -2320,6 +2327,19 @@ func (r *run) teardown() {
 	if r.toolDir != "" {
 		_ = os.RemoveAll(r.toolDir)
 	}
+}
+
+// removeScratch deletes one client step's scratch directory. Its files belong
+// to the container's user; what the test process may not delete is removed
+// from inside a container of the same image.
+func (r *run) removeScratch(dir string) {
+	if os.RemoveAll(dir) == nil {
+		return
+	}
+	args := []string{"run", "--rm", "--network", "none", "--user", "0",
+		"-v", dir + ":/cleanup", "--entrypoint", "sh", r.e.Image, "-c", "rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null; true"}
+	_ = exec.Command("docker", args...).Run()
+	_ = os.RemoveAll(dir)
 }
 
 // removeWorkspace deletes the ecosystem's workspace. The client scratch
