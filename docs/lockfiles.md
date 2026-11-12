@@ -48,7 +48,7 @@ several NuGet target frameworks) are one dependency.
 | ---- | ----- | ---- |
 | `npm` | `package-lock.json`, `npm-shrinkwrap.json` | lockfileVersion 1 (the nested `dependencies` tree), 2 and 3 (`packages`); aliases resolve to the real package; workspace folders, `link`s, bundled and `file:` packages are not fetched and are left out. |
 | `npm` | `yarn.lock` | Yarn Classic (`# yarn lockfile v1`; registry, sha1 from the `resolved` fragment, `integrity`) and Yarn Berry (`__metadata` version 6 to 10; `npm:` resolutions, `checksum`); `workspace:`, `patch:`, `file:`, `link:`, `portal:` and `exec:` entries are left out. |
-| `npm` | `pnpm-lock.yaml` | lockfileVersion 5.x, 6.x and 9.x (each spells package keys differently), registry tarballs, Git and tarball-URL dependencies. |
+| `npm` | `pnpm-lock.yaml` | lockfileVersion 5.x, 6.x and 9.x (each spells package keys differently), registry tarballs, Git and tarball-URL dependencies; every YAML document — pnpm 10 and later write two when the project pins its package manager, the package manager's own installation first. |
 | `pip` | `requirements*.txt`, `*-requirements.txt`, `constraints.txt`, `requirements/*.txt` | `==` and `===` pins with their `--hash`es, the `--index-url`, direct URLs and VCS references pinned to a commit. A range, a wildcard, an editable local path is a warning. `-r`/`-c` includes are not followed — the scan reads those files on its own. |
 | `pip` | `Pipfile.lock` | `default` and `develop`, the index each entry names, Git and file entries. |
 | `pip` | `poetry.lock` | lock-version 1.x (`[metadata.files]`, `category`) and 2.x (inline `files`, `groups`), `[package.source]`. |
@@ -125,7 +125,7 @@ The walk:
 
 A glob without `/` matches a name at any depth (`node_modules`); one with `/` matches the path
 from the repository root, `**` standing for any number of directories (`**/test/data`,
-`docs/examples/*`). The defaults skip vendored code — `node_modules`, `bower_components`,
+`docs/examples/*`). Matching ignores case (`fixtures` skips `Fixtures`). The defaults skip vendored code — `node_modules`, `bower_components`,
 `jspm_packages`, `.pnpm-store`, `.yarn`, `vendor`, `third_party`, `.venv`, `venv`,
 `site-packages`, `__pypackages__`, `.tox`, `.nox`, `.bundle`, `Pods`, `Carthage`,
 `.terraform`, `target` — and test fixtures — `testdata`, `test-data`, `fixtures`,

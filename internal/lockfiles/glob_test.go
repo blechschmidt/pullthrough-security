@@ -68,3 +68,15 @@ func TestDefaultSkipCompiles(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGlobsIgnoreCase(t *testing.T) {
+	globs, err := compileGlobs([]string{"fixtures", "Docs/Examples/*", "**/TEST/data"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"tests/Composer/Test/Fixtures", "docs/examples/one", "a/Test/Data"} {
+		if !matchAny(globs, p, baseName(p)) {
+			t.Errorf("%q not matched", p)
+		}
+	}
+}

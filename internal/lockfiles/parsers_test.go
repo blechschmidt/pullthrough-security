@@ -1,8 +1,10 @@
 package lockfiles
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // detectCases maps paths to the format that must detect them ("" for none).
@@ -405,4 +407,87 @@ func TestResultWarningsAreBounded(t *testing.T) {
 	if len(res.Warnings) != maxWarnings+1 {
 		t.Fatalf("%d warnings kept", len(res.Warnings))
 	}
+}
+
+// timeBound fails when fn takes longer than a generous bound: these inputs
+// are small, and only a super-linear algorithm makes them slow.
+func timeBound(t *testing.T, what string, fn func()) {
+	t.Helper()
+	start := time.Now()
+	fn()
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("%s took %s", what, d)
+	}
+}
+
+// TestAliasesCannotMultiplyWork: lock files written by tools never contain
+// YAML aliases; one that does gets nothing from them. A hundred thousand
+// entries aliasing one huge mapping would otherwise be quadratic work.
+func TestAliasesCannotMultiplyWork(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("__metadata:\n  version: 8\n\"real@npm:1\": &big\n  version: 1.0.0\n  resolution: \"real@npm:1.0.0\"\n")
+	for i := 0; i < 20000; i++ {
+		fmt.Fprintf(&b, "  k%d: v\n", i)
+	}
+	for i := 0; i < 20000; i++ {
+		fmt.Fprintf(&b, "\"alias%d@npm:1\": *big\n", i)
+	}
+	timeBound(t, "yarn.lock with aliases", func() {
+		res := parseWith(t, yarnLock{}, b.String())
+		if len(res.Dependencies) != 1 {
+			t.Errorf("%d dependencies; aliases must give nothing", len(res.Dependencies))
+		}
+	})
+	pnpm := strings.Replace(strings.Replace(b.String(), "__metadata:\n  version: 8\n", "lockfileVersion: '9.0'\npackages:\n", 1), "\"real@npm:1\": &big", "  real@1.0.0: &big", 1)
+	timeBound(t, "pnpm-lock.yaml with aliases", func() { _, _ = (pnpmLock{}).Parse([]byte(pnpm)) })
+}
+
+// TestComposeMergesAreBounded: merge keys that fan out at every level would be
+// exponential to follow naively; each mapping is visited once, within a budget.
+func TestComposeMergesAreBounded(t *testing.T) {
+	var b strings.Builder
+	const width, levels = 60, 8
+	for l := 0; l < levels; l++ {
+		for i := 0; i < width; i++ {
+			fmt.Fprintf(&b, "x-l%d-%d: &l%d_%d\n", l, i, l, i)
+			if l == 0 {
+				b.WriteString("  other: 1\n")
+				continue
+			}
+			b.WriteString("  <<: [")
+			for j := 0; j < width; j++ {
+				if j > 0 {
+					b.WriteString(", ")
+				}
+				fmt.Fprintf(&b, "*l%d_%d", l-1, j)
+			}
+			b.WriteString("]\n")
+		}
+	}
+	b.WriteString("services:\n")
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&b, "  s%d:\n    <<: *l%d_0\n", i, levels-1)
+	}
+	timeBound(t, "compose merges", func() {
+		res, err := (composeFile{}).Parse([]byte(b.String()))
+		if err == nil && len(res.Dependencies) != 0 {
+			t.Errorf("dependencies %+v", res.Dependencies)
+		}
+	})
+}
+
+func TestManyDigestsMergeInLinearTime(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("a==1.0")
+	for i := 0; i < 200000; i++ {
+		fmt.Fprintf(&b, " --hash=sha256:%064x", i)
+	}
+	b.WriteString("\n")
+	line := b.String()
+	timeBound(t, "200 000 hashes, twice", func() {
+		f := ParseFile(nil, nil, "requirements.txt", []byte(line+line))
+		if len(f.Dependencies) != 1 || len(f.Dependencies[0].Digests) != 200000 {
+			t.Errorf("%d dependencies", len(f.Dependencies))
+		}
+	})
 }

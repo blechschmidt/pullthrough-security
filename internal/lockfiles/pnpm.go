@@ -1,7 +1,9 @@
 package lockfiles
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"strconv"
 	"strings"
 
@@ -24,32 +26,58 @@ func (pnpmLock) Type() string            { return "npm" }
 func (pnpmLock) Format() string          { return "pnpm-lock.yaml" }
 func (pnpmLock) Detect(path string) bool { return baseName(path) == "pnpm-lock.yaml" }
 
+// maxYAMLDocuments bounds the documents read from one lock file.
+const maxYAMLDocuments = 16
+
+// Parse reads every document of the file: when a project pins its package
+// manager ("packageManager" in package.json), pnpm 10 and later write two —
+// the package manager's own installation first, then the project's lock file
+// — and both are packages pnpm downloads.
 func (pnpmLock) Parse(data []byte) (*Result, error) {
-	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, yamlError(err)
-	}
-	m := yamlMapping(&root)
-	if m == nil {
-		return nil, errors.New("pnpm-lock.yaml: not a YAML mapping")
-	}
-	res := &Result{FormatVersion: yamlScalar(yamlGet(m, "lockfileVersion"))}
-	if res.FormatVersion == "" {
-		return nil, errors.New("pnpm-lock.yaml: no lockfileVersion")
-	}
-	major, _ := strconv.Atoi(strings.SplitN(strings.Trim(res.FormatVersion, `'"`), ".", 2)[0])
-	packages := yamlMapping(yamlGet(m, "packages"))
-	if packages == nil {
-		return res, nil
-	}
-	for i := 0; i+1 < len(packages.Content); i += 2 {
-		key, entry := packages.Content[i], yamlMapping(packages.Content[i+1])
-		if entry == nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	res := &Result{}
+	documents := 0
+	for {
+		var root yaml.Node
+		err := dec.Decode(&root)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, yamlError(err)
+		}
+		documents++
+		if documents > maxYAMLDocuments {
+			return nil, errors.New("pnpm-lock.yaml: too many YAML documents")
+		}
+		m := yamlMapping(&root)
+		if m == nil {
+			return nil, errors.New("pnpm-lock.yaml: not a YAML mapping")
+		}
+		version := yamlScalar(yamlGet(m, "lockfileVersion"))
+		if version == "" {
+			return nil, errors.New("pnpm-lock.yaml: no lockfileVersion")
+		}
+		if res.FormatVersion == "" {
+			res.FormatVersion = version
+		}
+		major, _ := strconv.Atoi(strings.SplitN(strings.Trim(version, `'"`), ".", 2)[0])
+		packages := yamlMapping(yamlGet(m, "packages"))
+		if packages == nil {
 			continue
 		}
-		if d, ok := pnpmDependency(res, key, entry, major); ok {
-			res.Dependencies = append(res.Dependencies, d)
+		for i := 0; i+1 < len(packages.Content); i += 2 {
+			key, entry := packages.Content[i], yamlMapping(packages.Content[i+1])
+			if entry == nil {
+				continue
+			}
+			if d, ok := pnpmDependency(res, key, entry, major); ok {
+				res.Dependencies = append(res.Dependencies, d)
+			}
 		}
+	}
+	if documents == 0 {
+		return nil, errors.New("pnpm-lock.yaml: empty")
 	}
 	return res, nil
 }

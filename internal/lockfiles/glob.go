@@ -40,7 +40,7 @@ func compileGlobs(patterns []string) ([]glob, error) {
 			if _, err := path.Match(p, ""); err != nil {
 				return nil, fmt.Errorf("lockfiles: skip glob %q: %w", raw, err)
 			}
-			out = append(out, glob{name: p})
+			out = append(out, glob{name: strings.ToLower(p)})
 			continue
 		}
 		segs := strings.Split(p, "/")
@@ -61,14 +61,20 @@ func compileGlobs(patterns []string) ([]glob, error) {
 				return nil, fmt.Errorf("lockfiles: skip glob %q: %w", raw, err)
 			}
 		}
+		for i := range segs {
+			segs[i] = strings.ToLower(segs[i])
+		}
 		out = append(out, glob{segs: segs})
 	}
 	return out, nil
 }
 
 // matchAny reports whether any glob matches the path p (whose last element is
-// name).
+// name). Matching ignores case: "Fixtures" and "Vendor" are skipped as
+// "fixtures" and "vendor" are, as on the case-insensitive file systems many of
+// these trees are checked out on.
 func matchAny(globs []glob, p, name string) bool {
+	p, name = strings.ToLower(p), strings.ToLower(name)
 	var segs []string
 	for _, g := range globs {
 		if g.segs == nil {

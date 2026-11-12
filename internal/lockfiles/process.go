@@ -152,22 +152,22 @@ func dedupe(deps []Dependency) []Dependency {
 	return out
 }
 
-// mergeDigests appends the digests of b not already in a.
+// mergeDigests appends the digests of b not already in a (or earlier in b),
+// in linear time: one requirement can carry thousands of hashes.
 func mergeDigests(a, b []Digest) []Digest {
+	if len(b) == 0 {
+		return a
+	}
+	seen := make(map[Digest]bool, len(a)+len(b))
+	for _, d := range a {
+		seen[d] = true
+	}
 	for _, d := range b {
-		if d.Algorithm == "" || d.Value == "" {
+		if d.Algorithm == "" || d.Value == "" || seen[d] {
 			continue
 		}
-		dup := false
-		for _, e := range a {
-			if e == d {
-				dup = true
-				break
-			}
-		}
-		if !dup {
-			a = append(a, d)
-		}
+		seen[d] = true
+		a = append(a, d)
 	}
 	return a
 }

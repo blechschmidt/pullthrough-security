@@ -378,74 +378,60 @@ func (composeFile) Detect(path string) bool {
 	return false
 }
 
-// maxMergeDepth bounds how deeply "<<" merge keys are followed.
-const maxMergeDepth = 8
-
 func (composeFile) Parse(data []byte) (*Result, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, yamlError(err)
 	}
 	res := &Result{}
-	top := yamlMapping(&root)
+	c := newComposeResolver()
+	top := c.mapping(&root)
 	if top == nil {
 		if yamlResolve(&root) == nil {
 			return res, nil // an empty document
 		}
 		return nil, errors.New("compose file: not a YAML mapping")
 	}
-	services := yamlMapping(yamlGet(top, "services"))
-	if services == nil && yamlGet(top, "services") == nil && yamlGet(top, "version") == nil {
-		services = top // the version 1 format: services at the top level
+	servicesNode, err := c.get(top, "services")
+	if err != nil {
+		return nil, err
+	}
+	services := c.mapping(servicesNode)
+	if servicesNode == nil {
+		version, err := c.get(top, "version")
+		if err != nil {
+			return nil, err
+		}
+		if version == nil {
+			services = top // the version 1 format: services at the top level
+		}
 	}
 	if services == nil {
 		return res, nil
 	}
 	for i := 0; i+1 < len(services.Content); i += 2 {
-		svc := yamlMapping(services.Content[i+1])
+		svc := c.mapping(services.Content[i+1])
 		if svc == nil {
 			continue
 		}
-		img := yamlGetMerged(svc, "image", 0)
-		ref := yamlScalar(img)
-		if ref == "" {
+		img, err := c.get(svc, "image")
+		if err != nil {
+			return nil, err
+		}
+		img = c.resolve(img)
+		if img == nil || img.Kind != yaml.ScalarNode || img.Value == "" {
 			continue // built from a Dockerfile, which is scanned on its own
 		}
-		expanded, ok := expandVars(ref, nil)
+		expanded, ok := expandVars(img.Value, nil)
 		if !ok {
 			res.warnf("line %d: the image depends on an environment variable", img.Line)
 			continue
 		}
-		if d, ok := imageDependency(res, expanded, yamlResolve(img).Line); ok {
+		if d, ok := imageDependency(res, expanded, img.Line); ok {
 			res.Dependencies = append(res.Dependencies, d)
 		}
 	}
 	return res, nil
-}
-
-// yamlGetMerged looks key up in mapping m and, failing that, in the mappings
-// merged into it with "<<".
-func yamlGetMerged(m *yaml.Node, key string, depth int) *yaml.Node {
-	if v := yamlGet(m, key); v != nil {
-		return v
-	}
-	if depth >= maxMergeDepth {
-		return nil
-	}
-	merge := yamlResolve(yamlGet(m, "<<"))
-	if merge == nil {
-		return nil
-	}
-	sources := []*yaml.Node{merge}
-	if merge.Kind == yaml.SequenceNode {
-		sources = merge.Content
-	}
-	for _, src := range sources {
-		if v := yamlGetMerged(yamlMapping(src), key, depth+1); v != nil {
-			return v
-		}
-	}
-	return nil
 }
 
 // finishImage maps an image dependency whose registry is the proxy — the

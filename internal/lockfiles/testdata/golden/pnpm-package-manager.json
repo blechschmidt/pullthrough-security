@@ -1,0 +1,140 @@
+[
+  {
+    "path": "pnpm-lock.yaml",
+    "type": "npm",
+    "format": "pnpm-lock.yaml",
+    "formatVersion": "9.0",
+    "dependencies": [
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.darwin-arm64",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "3c0c94a25f13d7effe5623a25c0b79d44080f909df5c2ab3e9fa0be1b5be2eca17d0d7157795d510cda6450bbe2d5e2873bb91cfdcdff54d0ff9715fb9078303"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 15
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.darwin-x64",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "7f13fd24293409dc9ef9e3ee8fe18924b314313a8719645d6f576dbf81e8c3cefab90d9e871bde9e98226008abfdc78ef4fb185199054edc99771fab46ee5038"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 20
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.linux-arm64-musl",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "1413add3fef27ba3baab802595557940cbe207aa84e9faa479ccd5ffe303590b26a3e409ae57ec87a5fb0a91ffb42955a41644c886e3a54a13f1b36109807112"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 25
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.linux-arm64",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "b7bd40540ecb46a88a4f2679c4c61a65cda7e437dda4c6dfa2466e8883971c138cd371029c5d2de226306810ea26056394a6143b0685fdb4506a318d038709e3"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 31
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.linux-x64-musl",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "44f9a4ec96ff698685bcbda2c8337f02d318fa1504b2e7bbdf65a65e972e43db41a4c9c6c80e69cbb677f9efaa990689d3363fe278bd8c98b23c1407ba39afeb"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 37
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.linux-x64",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "d99a8e9523e47f05f5879711f853e259ff3e17eda1653ff74ef8542b9b22807ab06900888aaf11ec21b186774ab3adc9b5c2e2d9ad50a68fb05ff128c9f8f225"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 43
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.win32-arm64",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "00dcab1eacaa728e925c1cac513445ef88ad0f2cab69e6bb21b16c28574d5d38dc1677f27130f1dfb130ba17693d814d488876261506e1f072725b117e21d7ef"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 49
+      },
+      {
+        "type": "npm",
+        "name": "@pnpm/exe.win32-x64",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "587fcaa813d8fe1ab64dbed281096d119cad8a672380a45a0912ff68cf4223473aee229ce535661d484888bdd4c7d141e1b5a7dfa8ba5dec1471271023ecc6f3"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 54
+      },
+      {
+        "type": "npm",
+        "name": "pnpm",
+        "version": "12.3.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "961aa41fb077da3a04a441d9f8e15ebc0c96da8ef710b2eb67bf9ee7cb0610eabd48f1fd85f51cffe73846785fa0f87c56a3a872a1d893f8446741b5cce45457"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 59
+      },
+      {
+        "type": "npm",
+        "name": "ms",
+        "version": "2.1.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "e85973b9b4cb646dc9d9afcd542025784863ceae68c601f268253dc985ef70bb2fa1568726afece715c8ebf5d73fab73ed1f7100eb479d23bfb57b45dd645394"
+          }
+        ],
+        "file": "pnpm-lock.yaml",
+        "line": 118
+      }
+    ]
+  }
+]
