@@ -201,3 +201,18 @@ func itoa(n int) string {
 	b, _ := json.Marshal(n)
 	return string(b)
 }
+
+// TestFixturesSayHowTheyWereMade: every fixture records its origin — the
+// tool, version and command, or that it was written by hand and why.
+func TestFixturesSayHowTheyWereMade(t *testing.T) {
+	for _, name := range fixtureNames(t) {
+		data, err := os.ReadFile(filepath.Join("testdata/fixtures", name, "GENERATED.md"))
+		if err != nil {
+			t.Errorf("%s has no GENERATED.md", name)
+			continue
+		}
+		if len(bytes.TrimSpace(data)) < 80 {
+			t.Errorf("%s/GENERATED.md says too little", name)
+		}
+	}
+}
