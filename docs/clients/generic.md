@@ -9,7 +9,7 @@ depends on the registry's own protocol — this page says what stays the same.
 | Upstream type | `generic` |
 | Package source | `https://proxy.example.com/v1/<name>/…`, with the paths the operator's routes allow |
 | Clients | whatever speaks the registry's protocol |
-| Tested | **Not tested with a real client.** A generic upstream is deployment-specific: its routes, and with them its clients, are the operator's. The backend is covered by protocol-level tests. |
+| Tested | Alpine's `apk` 2.14, through a generic upstream in front of Alpine's package mirror: [in CI on every push](../ecosystem-tests-reference.md#generic). Any other registry: not tested — its routes, and with them its clients, are the operator's. |
 
 ## Configure
 
@@ -24,6 +24,21 @@ other path is refused.
 https://repo.example.com/packages/tool/tool-1.2.tar.gz
 https://proxy.example.com/v1/mysource/packages/tool/tool-1.2.tar.gz
 ```
+
+For example, Alpine's package mirror has no backend of its own. Behind a
+generic upstream named `alpine` — its routes are under
+[On the proxy](#on-the-proxy) — `apk` needs only its repository address
+changed:
+
+<!-- verified: ci:generic -->
+
+```sh
+echo "https://proxy.example.com/v1/alpine/v3.20/main" > /etc/apk/repositories
+```
+
+`apk add` then works as with the mirror: apk checks the repository index
+against Alpine's signing keys and each package against the index, so a generic
+route that only passes the files through loses none of that.
 
 Two things decide whether that is all:
 
@@ -81,6 +96,25 @@ upstreams:
             algorithm: sha256
             source: sidecar
             sidecarSuffix: .sha256
+```
+
+The upstream behind the Alpine example: the indexes are served live, the
+packages cached.
+
+<!-- proxy-config -->
+
+```yaml
+upstreams:
+  alpine:
+    type: generic
+    url: https://dl-cdn.alpinelinux.org/alpine
+    generic:
+      routes:
+        - name: index
+          match: '^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/APKINDEX\.tar\.gz$'
+        - name: package
+          match: '^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/[A-Za-z0-9._+-]+\.apk$'
+          cacheable: true
 ```
 
 The full field reference, digest verification and content-gate selection are

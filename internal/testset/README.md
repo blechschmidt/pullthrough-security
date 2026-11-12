@@ -5,10 +5,11 @@ package/artifact ecosystem the pull-through proxy fronts (Task 99).
 
 The same ecosystems are exercised with their **real package managers** against
 the real proxy binary by `internal/ecotest` (see
-[docs/ecosystem-tests.md](../../docs/ecosystem-tests.md)); a unit test keeps the
-two sets identical. Two backends are in neither set because there is no public
-upstream to pull from: `swift` (no public SE-0292 package registry exists) and
-`generic` (declarative, deployment-specific routes).
+[docs/ecosystem-tests.md](../../docs/ecosystem-tests.md)); a unit test keeps
+every ecosystem of this set in that suite. The real-client suite covers two
+upstream types this set has no build for: `swift` (SwiftPM, against Tuist's
+public registry) and `generic` (Alpine's `apk`, through a generic upstream in
+front of Alpine's package mirror).
 
 Each fixture is a native, buildable minimal project that declares exactly **one
 tiny, well-known, real upstream dependency**, paired with the representative

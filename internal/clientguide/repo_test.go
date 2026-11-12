@@ -307,8 +307,7 @@ func TestSnippetsAreVerified(t *testing.T) {
 			}
 		}
 		if strings.HasPrefix(rel, pagesDir+"/") && verified == 0 {
-			// A page with nothing verified is a page of claims. The two backends
-			// without a public registry say so instead.
+			// A page with nothing verified is a page of claims, and has to say so.
 			if !strings.Contains(string(readRepo(t, rel)), "**Not tested with a real client.**") {
 				t.Errorf("%s: no verified block, and the page does not say \"**Not tested with a real client.**\"", rel)
 			}
@@ -391,12 +390,12 @@ func checkProxyConfig(t *testing.T, at, text string) {
 	walk("", doc)
 }
 
-// untestedUpstreams are the example names of the two upstream types the lab
-// cannot front — there is no public registry to put behind them. Their pages say
-// "Not tested with a real client".
+// untestedUpstreams are example upstream names the guide uses for an
+// illustration no client can reach, which the lab proxy therefore does not have.
 var untestedUpstreams = map[string]bool{
-	"swiftpm":  true, // swift: no public Swift package registry exists
-	"mysource": true, // generic: routes are deployment-specific
+	// generic: the page's own example of routes over an imaginary registry (a
+	// real one, Alpine's mirror, is the lab's "alpine" upstream).
+	"mysource": true,
 }
 
 var guideMountRE = regexp.MustCompile(`proxy\.example\.com/v1/([A-Za-z0-9._-]+)`)
@@ -545,9 +544,6 @@ func TestLabProxyCoversEveryUpstreamType(t *testing.T) {
 	}
 	for _, typ := range config.UpstreamTypes() {
 		slug := PageFor(typ)
-		if slug == "swift" || slug == "generic" {
-			continue // no public registry to front
-		}
 		if !have[slug] {
 			t.Errorf("the lab proxy (%s/proxy.yaml) has no upstream of type %q", labDir, slug)
 		}
@@ -666,6 +662,9 @@ func TestLabResultsAreCurrent(t *testing.T) {
 var heldGenerators = []string{
 	"ansible", "bazel", "conda-forge", "cpan", "crates", "hackage", "hex", "homebrew",
 	"huggingface", "julia", "maven", "nix", "nuget", "opentofu", "terraform",
+	// A generic upstream gets no client configuration: only a note to point
+	// the client at the mount.
+	"alpine",
 }
 
 // looseGenerators are the upstreams whose snippet is not held to the lab yet,
@@ -692,6 +691,7 @@ var looseGenerators = map[string]string{
 	"pypi":           "the token as a user name alone (it works: tried by hand), where the lab uses pullthrough:<token>",
 	"rocky":          "a repository section of its own naming",
 	"rubygems":       "the token as a user name alone (it works: tried by hand)",
+	"swiftpm":        "no lab script runs SwiftPM yet (the ecosystem tests do, without a token)",
 }
 
 // unverifiedGeneratorLines returns the lines `ptctl config` prints for an

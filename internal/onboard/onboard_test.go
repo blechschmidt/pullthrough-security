@@ -344,3 +344,24 @@ func TestPersonalSnippetsUseThePersonalAddress(t *testing.T) {
 		}
 	}
 }
+
+// The Swift snippet prints SwiftPM commands that exist: the ecosystem test runs
+// `swift package-registry set` and `swift package resolve` with the real client
+// (internal/ecotest/clients/swift.sh). It once printed
+// `swift package-registry resolve`, which SwiftPM rejects ("Unexpected argument
+// 'resolve'").
+func TestSwiftSnippetUsesRealCommands(t *testing.T) {
+	c := Context{ProxyBase: "https://proxy.example.com", Host: "proxy.example.com"}
+	body := For(c, Backend{Name: "swiftpm", Type: "swift"})[0].Body
+	for _, want := range []string{
+		"swift package-registry set https://proxy.example.com/v1/swiftpm\n",
+		"swift package resolve\n",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("swift snippet missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "package-registry resolve") {
+		t.Errorf("swift snippet prints `swift package-registry resolve`, which is not a SwiftPM command:\n%s", body)
+	}
+}

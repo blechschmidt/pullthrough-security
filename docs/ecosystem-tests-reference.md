@@ -41,6 +41,7 @@ hostnames resolve to the proxy's NAT listeners and nothing else is reachable.
 | [cran](#cran) | R install.packages | `r-base:4.4.1` | https://cloud.r-project.org | `R6` | `praise` | ✓ | ✓ |
 | [dart](#dart) | dart pub | `dart:3.5` | https://pub.dev | `path@1.9.0` | `collection@1.18.0` | ✓ | ✓ |
 | [docker](#docker) | docker | `docker:27-dind` | https://registry-1.docker.io | `library/alpine@3.19` | `library/busybox@1.36` | ✓ | ✓ |
+| [generic](#generic) | apk (Alpine Linux) | `alpine:3.20` | https://dl-cdn.alpinelinux.org/alpine | `tree` | — (no package coordinate) | ✓ | ✓ |
 | [git](#git) | git | `alpine/git:2.49.1` | https://github.com | `octocat/Hello-World` | — (no package coordinate) | ✓ | ✓ |
 | [go](#go) | go | `golang:1.24-alpine` | https://proxy.golang.org | `rsc.io/quote@v1.5.2` | `github.com/pkg/errors@v0.9.1` | ✓ | ✓ |
 | [hackage](#hackage) | cabal | `haskell:9-slim` | https://hackage.haskell.org | `text@2.1` | `split@0.2.5` | ✓ | ✓ |
@@ -58,6 +59,7 @@ hostnames resolve to the proxy's NAT listeners and nothing else is reachable.
 | [pip](#pip) | pip | `python:3.12-slim` | https://pypi.org | `six@1.16.0` | `toml@0.10.2` | ✓ | ✓ |
 | [puppet](#puppet) | r10k | `ruby:3.3-slim` | https://forgeapi.puppet.com | `puppetlabs-stdlib@9.4.1` | `puppetlabs-concat@9.0.2` | ✓ | ✓ |
 | [rubygems](#rubygems) | bundler | `ruby:3.3-slim` | https://rubygems.org | `rake@13.1.0` | `rainbow@3.1.1` | ✓ | ✓ |
+| [swift](#swift) | swift package (SwiftPM) | `swift:6.4-noble` | https://tuist.dev/api/registry/swift | `apple.swift-argument-parser@1.3.1` | `onevcat.rainbow@4.0.1` | ✓ | ✓ |
 | [terraform](#terraform) | terraform | `hashicorp/terraform:1.9` | https://registry.terraform.io | `hashicorp/null@3.2.2` | `hashicorp/random@3.6.0` | ✓ | ✓ |
 | [yum](#yum) | dnf | `rockylinux:9` | https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os | `tree` | `zip` | ✓ | ✓ |
 
@@ -751,11 +753,73 @@ docker pull "$PKG_NAME:$PKG_VERSION"
 docker run --rm --network none "$PKG_NAME:$PKG_VERSION" true
 ```
 
+## generic
+
+- **Client:** apk (Alpine Linux), in `alpine:3.20`
+- **Upstream:** `generic` (type `generic`) → https://dl-cdn.alpinelinux.org/alpine
+
+  ```yaml
+  upstreams:
+    generic:
+      generic:
+        routes:
+          - match: ^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/APKINDEX\.tar\.gz$
+            name: index
+          - cacheable: true
+            match: ^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/[A-Za-z0-9._+-]+\.apk$
+            name: package
+      type: generic
+      url: https://dl-cdn.alpinelinux.org/alpine
+  ```
+
+- **Installs:** `tree`
+- **Refused:** not applicable — the ecosystem has no package coordinate for the admission policy to gate
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
+- **Note:** Stands for every `type: generic` upstream: a registry without a dedicated backend, fronted by the routes an operator writes. No package is refused because a generic upstream has no package coordinate.
+
+```sh
+#!/bin/sh
+# generic — Alpine's apk through a generic upstream that fronts the Alpine
+# package mirror (a registry with no dedicated backend).
+set -eu
+echo "ECOTEST_CLIENT_VERSION=$(apk --version | awk '{ print $2 }' | tr -d ,)"
+
+# The generic upstream maps the mirror's paths one to one: what the mirror
+# serves under https://dl-cdn.alpinelinux.org/alpine/… the proxy serves under
+# $MOUNT/…, for the paths its routes allow — the repository indexes (served
+# live) and the packages (cached). apk checks each index's signature against
+# the keys in /etc/apk/keys and each package against the index, exactly as it
+# does with the mirror.
+echo "$MOUNT/v3.20/main" > /etc/apk/repositories
+apk add --no-cache "$PKG_NAME"
+apk info -e "$PKG_NAME"
+```
+
+### generic — interception and NAT
+
+- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs the package through the forward proxy, out of the cache entry the explicit install filled
+- **NAT:** asserted — the same with nothing but the CA: the registry's hostnames lead to the proxy's NAT listeners, and nothing else (not even the proxy's own address) is reachable
+
+```sh
+#!/bin/sh
+# generic — apk from the Alpine mirror, intercepted by the proxy.
+set -eu
+echo "ECOTEST_CLIENT_VERSION=$(apk --version | awk '{ print $2 }' | tr -d ,)"
+
+# /etc/apk/repositories stays as the image ships it: the main and community
+# repositories on dl-cdn.alpinelinux.org. apk reads the system CA bundle, so
+# the proxy's CA is appended to it; through a forward proxy it reads
+# HTTPS_PROXY.
+cat "$PT_CA_CERT" >> /etc/ssl/certs/ca-certificates.crt
+apk add --no-cache "$PKG_NAME"
+apk info -e "$PKG_NAME"
+```
+
 ## git
 
 - **Client:** git, in `alpine/git:2.49.1`
 - **Upstream:** `git` (type `git`) → https://github.com
-- **Installs:** `octocat/Hello-World` — pinned as `{ecosystem: git, name: octocat/Hello-World}`
+- **Installs:** `octocat/Hello-World`
 - **Refused:** not applicable — the ecosystem has no package coordinate for the admission policy to gate
 - **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
 
@@ -777,7 +841,7 @@ git -C repo log --oneline -1
 
 ### git — interception and NAT
 
-- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs the good package through the forward proxy, out of the cache entry the explicit install filled, and the bad package is refused
+- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs the package through the forward proxy
 - **NAT:** asserted — the same with nothing but the CA: the registry's hostnames lead to the proxy's NAT listeners, and nothing else (not even the proxy's own address) is reachable
 
 ```sh
@@ -1716,6 +1780,105 @@ GEMFILE
 bundle config set --local path vendor/bundle
 bundle install
 bundle exec ruby -e 'puts Gem.loaded_specs.keys.sort.join(" ")'
+```
+
+## swift
+
+- **Client:** swift package (SwiftPM), in `swift:6.4-noble`
+- **Upstream:** `swift` (type `swift`) → https://tuist.dev/api/registry/swift
+- **Transport:** HTTPS with a test CA (the client refuses a plain-HTTP source)
+- **Installs:** `apple.swift-argument-parser@1.3.1` — pinned as `{ecosystem: swift, name: apple.swift-argument-parser, version: 1.3.1}`
+- **Refused:** `onevcat.rainbow@4.0.1` — pinned as `{ecosystem: swift, name: onevcat.rainbow, version: 4.0.1}`
+- **Personal link:** asserted — the install is repeated with `$MOUNT` being a user's personal address (`$PROXY_URL/u/<link>/v1/<upstream>`); the client must never leave it, and the download log must name the user ([user-links.md](user-links.md))
+- **Note:** Served over HTTPS with a test CA: SwiftPM accepts a plain-HTTP registry only with `--allow-insecure-http`. The upstream is [Tuist's public registry](https://tuist.dev/blog/2025/11/26/opening-registry); the script builds and runs a program against the package it resolved.
+
+```sh
+#!/bin/sh
+# swift — use the proxy as the Swift package registry (SwiftPM, SE-0292).
+set -eu
+echo "ECOTEST_CLIENT_VERSION=$(swift --version 2>/dev/null | awk '/Swift version/ { print $3; exit }')"
+
+# SwiftPM accepts a registry only over HTTPS, so the proxy serves it over TLS.
+# Trust the proxy's CA (a corporate CA in a real deployment) in the system
+# store, which SwiftPM's HTTP client reads.
+cp "$PT_CA_CERT" /usr/local/share/ca-certificates/pullthrough.crt
+update-ca-certificates >/dev/null
+
+# A dependency declared by registry identity (scope.name) is resolved from the
+# package's registry; one declared by Git URL would be cloned instead.
+# $PKG_PRODUCT is the library product the package vends.
+mkdir app
+cd app
+cat > Package.swift <<PACKAGE
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "ecotest",
+    dependencies: [
+        .package(id: "$PKG_NAME", exact: "$PKG_VERSION"),
+    ],
+    targets: [
+        .executableTarget(name: "ecotest", dependencies: [
+            .product(name: "$PKG_PRODUCT", package: "$PKG_NAME"),
+        ]),
+    ]
+)
+PACKAGE
+mkdir -p Sources/ecotest
+printf 'import %s\nprint("ok")\n' "$PKG_PRODUCT" > Sources/ecotest/main.swift
+
+# `swift package-registry set` writes .swiftpm/configuration/registries.json
+# (add --global for every package of the user). Resolving fetches the release
+# metadata, the manifest and the source archive from the proxy; SwiftPM checks
+# the archive against the checksum in the release metadata.
+swift package-registry set "$MOUNT"
+swift package resolve
+swift run ecotest
+```
+
+### swift — interception and NAT
+
+- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs the good package through the forward proxy, out of the cache entry the explicit install filled, and the bad package is refused
+- **NAT:** asserted — the same with nothing but the CA: the registry's hostnames lead to the proxy's NAT listeners, and nothing else (not even the proxy's own address) is reachable
+
+```sh
+#!/bin/sh
+# swift — resolve from the Tuist registry, intercepted by the proxy.
+set -eu
+echo "ECOTEST_CLIENT_VERSION=$(swift --version 2>/dev/null | awk '/Swift version/ { print $3; exit }')"
+
+# SwiftPM has no built-in registry: the package keeps the one it uses anyway,
+# Tuist's public registry. SwiftPM's HTTP client reads the system trust store,
+# so the proxy's CA is added to it; through a forward proxy it reads
+# HTTPS_PROXY.
+cp "$PT_CA_CERT" /usr/local/share/ca-certificates/pullthrough-intercept.crt
+update-ca-certificates >/dev/null
+
+mkdir app
+cd app
+cat > Package.swift <<PACKAGE
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "ecotest",
+    dependencies: [
+        .package(id: "$PKG_NAME", exact: "$PKG_VERSION"),
+    ],
+    targets: [
+        .executableTarget(name: "ecotest", dependencies: [
+            .product(name: "$PKG_PRODUCT", package: "$PKG_NAME"),
+        ]),
+    ]
+)
+PACKAGE
+mkdir -p Sources/ecotest
+printf 'import %s\nprint("ok")\n' "$PKG_PRODUCT" > Sources/ecotest/main.swift
+
+swift package-registry set https://tuist.dev/api/registry/swift
+swift package resolve
+swift run ecotest
 ```
 
 ## terraform

@@ -27,24 +27,42 @@ func TestCatalogIsValid(t *testing.T) {
 	}
 }
 
+// upstreamAliases are the upstream types the configuration accepts as second
+// names of another type.
+var upstreamAliases = map[string]string{"deb": "apt", "rpm": "yum", "pub": "dart"}
+
 // TestCatalogCoversEverySupportedEcosystem ties the real-client suite to the
-// authoritative ecosystem list (internal/testset): adding a backend without a
-// real-client test fails here, on the default test run.
+// upstream types the proxy's configuration accepts: adding a backend without a
+// real-client test fails here, on the default test run — as does a catalog
+// entry for a type the proxy does not have.
 func TestCatalogCoversEverySupportedEcosystem(t *testing.T) {
 	have := map[string]bool{}
 	for _, id := range IDs() {
 		have[id] = true
 	}
 	want := map[string]bool{}
-	for _, id := range testset.Ecosystems() {
-		want[id] = true
-		if !have[id] {
-			t.Errorf("supported ecosystem %q has no real-client test in the ecotest catalog", id)
+	for _, typ := range config.UpstreamTypes() {
+		if canonical, ok := upstreamAliases[typ]; ok {
+			typ = canonical
+		}
+		want[typ] = true
+		if !have[typ] {
+			t.Errorf("upstream type %q has no real-client test in the ecotest catalog", typ)
 		}
 	}
 	for id := range have {
 		if !want[id] {
-			t.Errorf("ecotest catalog entry %q is not a supported ecosystem (internal/testset)", id)
+			t.Errorf("ecotest catalog entry %q is not an upstream type the configuration accepts", id)
+		}
+		if e, _ := Lookup(id); e.Upstream.Type != id {
+			t.Errorf("ecotest catalog entry %q tests an upstream of type %q", id, e.Upstream.Type)
+		}
+	}
+	// The minimal real builds of internal/testset are a subset: every one of
+	// them has a real-client test too.
+	for _, id := range testset.Ecosystems() {
+		if !have[id] {
+			t.Errorf("testset ecosystem %q has no real-client test in the ecotest catalog", id)
 		}
 	}
 }
@@ -857,11 +875,26 @@ func TestGenerateReference(t *testing.T) {
 		if !strings.Contains(ref, e.Image) || !strings.Contains(ref, e.Upstream.URL) {
 			t.Errorf("%s: image or upstream URL missing", e.ID)
 		}
-		if !strings.Contains(ref, pinLabel(e.Upstream.Type, e.Good)) {
-			t.Errorf("%s: the good package's pin is missing", e.ID)
+		// The packages are pinned only where the run gates them: with no package
+		// to refuse (git, generic) the proxy runs no admission chain.
+		if e.Bad != nil {
+			if !strings.Contains(ref, pinLabel(e.Upstream.Type, e.Good)) {
+				t.Errorf("%s: the good package's pin is missing", e.ID)
+			}
+			if !strings.Contains(ref, pinLabel(e.Upstream.Type, *e.Bad)) {
+				t.Errorf("%s: the bad package's pin is missing", e.ID)
+			}
+		} else if strings.Contains(ref, pinLabel(e.Upstream.Type, e.Good)) {
+			t.Errorf("%s: the reference shows a pin, but the run configures none", e.ID)
 		}
-		if e.Bad != nil && !strings.Contains(ref, pinLabel(e.Upstream.Type, *e.Bad)) {
-			t.Errorf("%s: the bad package's pin is missing", e.ID)
+		// Configuration beyond type and URL is part of what makes the client
+		// work: a generic upstream's routes are shown.
+		if routes, ok := e.Upstream.Config["generic"].(map[string]any); ok {
+			for _, r := range routes["routes"].([]any) {
+				if match := r.(map[string]any)["match"].(string); !strings.Contains(ref, match) {
+					t.Errorf("%s: the route %s is not shown", e.ID, match)
+				}
+			}
 		}
 	}
 

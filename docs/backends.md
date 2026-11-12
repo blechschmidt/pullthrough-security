@@ -897,7 +897,10 @@ Client configuration: [clients/swift.md](clients/swift.md).
 A Swift registry upstream (`type: swift`) is proxied under `/v1/<name>`. The
 backend speaks the **Swift Package Registry API** (SE-0292 — the `/{scope}/{name}`,
 `/{scope}/{name}/{version}`, `Package.swift`, and `/{scope}/{name}/{version}.zip`
-endpoints the swiftlang reference server and the Swift Package Index implement).
+endpoints the swiftlang reference server, the Swift Package Index and
+[Tuist's public registry](https://tuist.dev/blog/2025/11/26/opening-registry)
+implement). The ecosystem tests run the real SwiftPM through it against Tuist's
+registry.
 
 A published release is immutable, so its metadata, manifest, and source archive
 are cached **content-addressably** beneath their `{scope}/{name}/{version}`
@@ -909,9 +912,17 @@ On a cache miss for a source archive the proxy fetches the release metadata,
 reads the SHA-256 `checksum` it records for the `source-archive` resource, and
 **verifies** the fetched `.zip` against it before the bytes are cached or served
 (recorded as `X-Checksum-Verified: sha256` on success); a mismatch is refused.
-The registry's `Content-Version` and `Digest: sha-256=...` headers are passed
-through unchanged. The package's source-repository URL (from the release
-metadata) is associated for provenance.
+A registry that redirects the archive download (Tuist sends it to its object
+store) is followed by the proxy. The registry's `Content-Version` and
+`Digest: sha-256=...` headers are passed through; `Content-Version` — which
+SwiftPM requires — and a manifest's `Link` header (its Swift-version-specific
+variants) are kept with the cached resource and sent on every cache hit. The
+package's source-repository URL (from the release metadata) is associated for
+provenance.
+
+`swift package-registry login` checks a token by posting it to the registry
+address (or to `/login` below it). The proxy answers that itself — `200` once its
+access control has admitted the caller — and never forwards it to the upstream.
 
 <!-- proxy-config -->
 
@@ -919,7 +930,7 @@ metadata) is associated for provenance.
 upstreams:
   swiftpm:
     type: swift
-    url: https://swiftpackageregistry.example.com
+    url: https://tuist.dev/api/registry/swift
 ```
 
 ## dart
@@ -1487,7 +1498,9 @@ clients point at `https://proxy.example.com/v1/mysource/…`. The route set is a
 allowlist (an unmatched path is refused), artifacts are content-verified on
 fetch, and unsafe configs are rejected at load time. See
 [generic-backend.md](generic-backend.md) for the full field reference,
-path-embedded digests, content-gate selection, and metrics.
+path-embedded digests, content-gate selection, and metrics. The ecosystem tests
+run Alpine's `apk` through a generic upstream in front of Alpine's package
+mirror; its routes are in [clients/generic.md](clients/generic.md#on-the-proxy).
 
 ## git
 

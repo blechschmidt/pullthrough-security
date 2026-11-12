@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // GenerateReference renders the ecosystem test reference as Markdown: for every
@@ -83,6 +85,26 @@ func GenerateReference() string {
 				fmt.Fprintf(&b, "  - setting `%s: %s`\n", k, e.Upstream.Settings[k])
 			}
 		}
+		if len(e.Upstream.Config) > 0 {
+			// The configuration beyond type and URL (a generic upstream's route
+			// table) is part of what makes the client work: show the entry.
+			var doc strings.Builder
+			enc := yaml.NewEncoder(&doc)
+			enc.SetIndent(2)
+			err := enc.Encode(map[string]any{"upstreams": map[string]any{e.Upstream.Name: upstreamEntry(e.Upstream)}})
+			if err == nil {
+				err = enc.Close()
+			}
+			if err != nil {
+				fmt.Fprintf(&b, "  - _(configuration not renderable: %v)_\n", err)
+			} else {
+				b.WriteString("\n  ```yaml\n")
+				for _, line := range strings.Split(strings.TrimRight(doc.String(), "\n"), "\n") {
+					b.WriteString("  " + line + "\n")
+				}
+				b.WriteString("  ```\n\n")
+			}
+		}
 		for _, u := range e.Extra {
 			fmt.Fprintf(&b, "- **Also uses:** upstream `%s` (type `%s`) → %s, for the client's own tooling\n", u.Name, u.Type, u.URL)
 		}
@@ -92,7 +114,13 @@ func GenerateReference() string {
 		if e.TLS {
 			b.WriteString("- **Transport:** HTTPS with a test CA (the client refuses a plain-HTTP source)\n")
 		}
-		fmt.Fprintf(&b, "- **Installs:** `%s` — pinned as %s\n", packageLabel(e.Good), pinLabel(e.Upstream.Type, e.Good))
+		if e.Bad != nil {
+			fmt.Fprintf(&b, "- **Installs:** `%s` — pinned as %s\n", packageLabel(e.Good), pinLabel(e.Upstream.Type, e.Good))
+		} else {
+			// Without a package to refuse, the proxy runs no admission chain and
+			// nothing is pinned.
+			fmt.Fprintf(&b, "- **Installs:** `%s`\n", packageLabel(e.Good))
+		}
 		if e.Bad != nil {
 			fmt.Fprintf(&b, "- **Refused:** `%s` — pinned as %s\n", packageLabel(*e.Bad), pinLabel(e.Upstream.Type, *e.Bad))
 		} else {
@@ -137,8 +165,20 @@ func writeTransparentReference(b *strings.Builder, e Ecosystem) {
 	if e.NoIntercept != "" {
 		fmt.Fprintf(b, "- **TLS interception:** not asserted — %s\n", e.NoIntercept)
 	} else {
-		b.WriteString("- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs the good " +
-			"package through the forward proxy, out of the cache entry the explicit install filled, and the bad package is refused\n")
+		// What the leg asserts depends on what the explicit run has: a cache
+		// entry to be served from, a package to refuse.
+		what := "the package"
+		if e.Bad != nil {
+			what = "the good package"
+		}
+		what += " through the forward proxy"
+		if e.Artifact != "" {
+			what += ", out of the cache entry the explicit install filled"
+		}
+		if e.Bad != nil {
+			what += ", and the bad package is refused"
+		}
+		fmt.Fprintf(b, "- **TLS interception:** asserted — the client, given only `HTTPS_PROXY` and the CA, installs %s\n", what)
 	}
 	if e.NoNAT != "" {
 		fmt.Fprintf(b, "- **NAT:** not asserted — %s\n", e.NoNAT)

@@ -120,7 +120,10 @@ type Backend struct {
 	metrics *Metrics
 }
 
-var _ backends.Backend = (*Backend)(nil)
+var (
+	_ backends.Backend     = (*Backend)(nil)
+	_ backends.LoginProber = (*Backend)(nil)
+)
 
 // New validates opts and constructs a Backend.
 func New(opts Options) (*Backend, error) {
@@ -254,6 +257,14 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 	if dg := resp.Header.Get("Digest"); dg != "" {
 		header.Set("Digest", dg)
 	}
+	// A cacheable resource is served from its cache entry — on the fetch that
+	// fills it as much as on every hit — and an entry carries only the headers a
+	// backend declares part of the resource. SwiftPM refuses release metadata
+	// and a package manifest whose response lacks "Content-Version: 1", and it
+	// learns a release's version-specific manifests (Package@swift-5.8.swift)
+	// only from the Link header of the manifest response: without it a client
+	// silently builds against a different manifest than the registry serves it.
+	declareResponseHeaders(resolved.Metadata, resp.Header)
 
 	// Non-archive resources (release list, metadata, manifest, identifiers) are
 	// proxied without content verification.
@@ -344,6 +355,37 @@ func (b *Backend) fetchExpectedChecksum(ctx context.Context, resolved *backends.
 		return expectedChecksum{}, false
 	}
 	return expectedChecksum{hex: hex}, true
+}
+
+// LoginProbe implements backends.LoginProber. `swift package-registry login`
+// checks the credentials it is given by POSTing them to the registry's login
+// endpoint (SE-0378): to "/login" below a registry URL without a path, and to
+// the URL itself when it has one — which a proxy mount always has, so that is
+// a POST to the mount. The proxy answers either: the caller was admitted by
+// its access control, so the credentials are good for this registry. Swift
+// clients then send them with every request.
+func (b *Backend) LoginProbe(method, repoPath string) (http.Header, bool) {
+	if method != http.MethodPost {
+		return nil, false
+	}
+	switch repoPath {
+	case "", "/", "/login":
+		return http.Header{contentVersion: {"1"}}, true
+	}
+	return nil, false
+}
+
+// declareResponseHeaders records, in a resolved resource's metadata, the
+// upstream response headers that are part of the Swift registry protocol and
+// must therefore accompany the resource whenever the proxy serves it (see
+// backends.SetResponseHeader): the API version, and — on a manifest — the
+// alternate-manifest links. Several Link header lines are folded into one
+// comma-separated value, which RFC 8288 makes equivalent and SwiftPM splits.
+func declareResponseHeaders(meta map[string]string, h http.Header) {
+	backends.SetResponseHeader(meta, contentVersion, h.Get(contentVersion))
+	if meta[metaKind] == "manifest" {
+		backends.SetResponseHeader(meta, "Link", strings.Join(h.Values("Link"), ", "))
+	}
 }
 
 // recordKindMetric counts served non-archive resources by their class.

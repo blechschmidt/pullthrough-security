@@ -84,8 +84,8 @@ network problem from a rejected token.
 | [Dart, Flutter](clients/dart.md) | dart pub | `PUB_HOSTED_URL` | ✔ |
 | [R](clients/cran.md) | R | `options(repos = …)` | ✔ |
 | [Puppet](clients/puppet.md) | r10k, puppet module | `forge.baseurl` | ✔ |
-| [Swift](clients/swift.md) | swift | `swift package-registry set` | not tested |
-| [Anything else](clients/generic.md) | — | the upstream's address | — |
+| [Swift](clients/swift.md) | swift | `swift package-registry set` | ✔ (tried by hand) |
+| [Anything else](clients/generic.md) | the registry's own (tested: apk, for Alpine's mirror) | the upstream's address | — |
 
 **Token**: whether the client can present a proxy token, where access control
 is on (✘: see [below](#clients-that-cannot-present-a-token)).
@@ -344,9 +344,11 @@ and prefer the forms that keep a token out of project files (`~/.npmrc`,
 ## How this guide is verified
 
 - **In CI, on every push** — the [ecosystem tests](ecosystem-tests.md): the
-  real client of each of 30 ecosystems installs a package through the real
-  proxy, re-installs it from the cache, and is refused a blocked one (Git, which
-  has no package to refuse, is cloned). Their scripts are in the
+  real client of every ecosystem — 32 of them, Swift against Tuist's public
+  registry and a generic upstream with Alpine's apk among them — installs a
+  package through the real proxy, re-installs it from the cache, and is refused
+  a blocked one (Git and the generic upstream, which have no package to refuse,
+  only install). Their scripts are in the
   [reference](ecosystem-tests-reference.md).
 - **In the client lab** — [client-lab.md](client-lab.md): the scripts in
   [`scripts/client-lab/clients`](../scripts/client-lab/clients), each run with
@@ -358,8 +360,9 @@ and prefer the forms that keep a token out of project files (`~/.npmrc`,
   in another order than the script's, when an upstream type has no page, when
   a page leaves the common structure or when a link does not resolve. The test
   cannot tell whether a block is complete: a block may show part of a file.
-- **Not tested, and marked so**: Swift (no public registry implements its
-  protocol); the proxy's SSH endpoint for Git; containerd's CRI plugin (the
+- **Not tested, and marked so**: signing in to the Swift registry with a
+  token (tried by hand; the lab runs no Swift client yet); the proxy's SSH
+  endpoint for Git; containerd's CRI plugin (the
   lab reads the same `hosts.toml` files through `ctr`); Podman, Buildah and
   CRI-O (skopeo stands in for the library they share); and the clients each
   page lists as not tested.

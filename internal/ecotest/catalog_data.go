@@ -371,6 +371,54 @@ var catalog = []Ecosystem{
 		Artifact: `^cran:src/contrib/R6_[0-9.]+\.tar\.gz$`,
 	},
 	{
+		ID:     "swift",
+		Client: "swift package (SwiftPM)",
+		Image:  "swift:6.4-noble",
+		// SwiftPM accepts a plain-HTTP registry only with --allow-insecure-http.
+		TLS: true,
+		// Tuist's registry implements the Swift Package Registry API (SE-0292)
+		// for the packages of the Swift Package Index, without an account. It
+		// answers a source-archive request with a redirect to its object store,
+		// which the proxy follows itself.
+		Upstream: Upstream{Name: "swift", Type: "swift", URL: "https://tuist.dev/api/registry/swift"},
+		// The proxy reports a registry package by its identity, scope.name.
+		Good: Package{Name: "apple.swift-argument-parser", Version: "1.3.1", CoordinateVersion: "1.3.1",
+			Env: map[string]string{"PKG_PRODUCT": "ArgumentParser"}},
+		Bad: &Package{Name: "onevcat.rainbow", Version: "4.0.1", CoordinateVersion: "4.0.1",
+			Env: map[string]string{"PKG_PRODUCT": "Rainbow"}},
+		Artifact: `^swift:apple/swift-argument-parser/1\.3\.1\.zip$`,
+		Notes: "Served over HTTPS with a test CA: SwiftPM accepts a plain-HTTP registry only with `--allow-insecure-http`. " +
+			"The upstream is [Tuist's public registry](https://tuist.dev/blog/2025/11/26/opening-registry); the script builds " +
+			"and runs a program against the package it resolved.",
+	},
+	{
+		ID:     "generic",
+		Client: "apk (Alpine Linux)",
+		Image:  "alpine:3.20",
+		// A generic upstream is the operator's route table over a registry that
+		// has no dedicated backend; Alpine's package mirror is one, and apk a
+		// real client of it. The indexes are signed by Alpine and checked by apk,
+		// so they are served live; the packages are immutable and cached.
+		Upstream: Upstream{Name: "generic", Type: "generic", URL: "https://dl-cdn.alpinelinux.org/alpine",
+			Config: map[string]any{"generic": map[string]any{"routes": []any{
+				map[string]any{"name": "index", "match": `^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/APKINDEX\.tar\.gz$`},
+				map[string]any{"name": "package", "match": `^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/[A-Za-z0-9._+-]+\.apk$`,
+					"cacheable": true},
+			}}}},
+		// apk installs the version the index currently lists.
+		Good: Package{Name: "tree"},
+		// A generic route table knows paths, not packages: the backend derives no
+		// package coordinate, so there is nothing for the admission policy to
+		// pin or block. (What the content gates refuse on a generic route is
+		// asserted by the hermetic LLM package-scan suite, internal/e2e/pkgscan.)
+		Bad:      nil,
+		Artifact: `^generic:v3\.20/main/x86_64/tree-[^/]+\.apk$`,
+		// The index is served too, not only the package the cache shows.
+		Requests: []string{`^/v1/generic/v3\.20/main/x86_64/APKINDEX\.tar\.gz$`},
+		Notes: "Stands for every `type: generic` upstream: a registry without a dedicated backend, fronted by the routes " +
+			"an operator writes. No package is refused because a generic upstream has no package coordinate.",
+	},
+	{
 		ID:       "puppet",
 		Client:   "r10k",
 		Image:    "ruby:3.3-slim",

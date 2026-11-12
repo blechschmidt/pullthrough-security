@@ -394,3 +394,67 @@ func TestFetchUpstreamErrorPropagated(t *testing.T) {
 		t.Errorf("status = %d, want 404", se.Status)
 	}
 }
+
+// TestCachedResourcesDeclareProtocolHeaders pins the headers a cached Swift
+// resource must be served with. A cacheable resource is always served from its
+// cache entry, which carries only the headers the backend declares
+// (backends.SetResponseHeader). SwiftPM refuses release metadata and a manifest
+// without "Content-Version: 1" — found by running the real client through the
+// proxy — and reads a release's version-specific manifests from the Link header
+// of the manifest response. Link headers of release metadata (latest-version,
+// successor-version) change when a release is published and are not replayed.
+func TestCachedResourcesDeclareProtocolHeaders(t *testing.T) {
+	fr := newFakeRegistry(t)
+	zip := seedArchive(t, fr, false)
+	// The archive comes from an object store the registry redirects to, which
+	// sends no Content-Version (SwiftPM treats it as optional there).
+	fr.hdrs["/mona/LinkedList/1.1.1.zip"] = http.Header{}
+	fr.hdrs["/mona/LinkedList/1.1.1"] = http.Header{
+		contentVersion: {"1"},
+		"Link":         {`<https://registry.example/mona/LinkedList/1.2.0>; rel="latest-version"`},
+	}
+	fr.files["/mona/LinkedList/1.1.1/Package.swift"] = []byte("// swift-tools-version:5.7\n")
+	fr.hdrs["/mona/LinkedList/1.1.1/Package.swift"] = http.Header{
+		contentVersion: {"1"},
+		"Link": {
+			`</mona/LinkedList/1.1.1/Package.swift?swift-version=5.8>; rel="alternate"; filename="Package@swift-5.8.swift"; swift-tools-version="5.8"`,
+			`</mona/LinkedList/1.1.1/Package.swift?swift-version=6.0>; rel="alternate"; filename="Package@swift-6.swift"; swift-tools-version="6.0"`,
+		},
+	}
+	b := newTestBackend(t, fr, &Metrics{})
+
+	cases := []struct {
+		path string
+		want map[string]string
+	}{
+		{"/mona/LinkedList/1.1.1", map[string]string{"Content-Version": "1"}},
+		{"/mona/LinkedList/1.1.1/Package.swift", map[string]string{
+			"Content-Version": "1",
+			"Link": `</mona/LinkedList/1.1.1/Package.swift?swift-version=5.8>; rel="alternate"; filename="Package@swift-5.8.swift"; swift-tools-version="5.8", ` +
+				`</mona/LinkedList/1.1.1/Package.swift?swift-version=6.0>; rel="alternate"; filename="Package@swift-6.swift"; swift-tools-version="6.0"`,
+		}},
+		{"/mona/LinkedList/1.1.1.zip", nil},
+	}
+	for _, c := range cases {
+		fres, body, err := resolveFetch(t, b, c.path)
+		if err != nil {
+			t.Fatalf("%s: %v", c.path, err)
+		}
+		if !fres.Resolved.Cacheable {
+			t.Errorf("%s: not cacheable — the test would not cover the cache path", c.path)
+		}
+		if c.path == "/mona/LinkedList/1.1.1.zip" && !bytes.Equal(body, zip) {
+			t.Errorf("%s: archive body mismatch", c.path)
+		}
+		got := backends.ResponseHeaders(fres.Resolved.Metadata)
+		if len(got) != len(c.want) {
+			t.Errorf("%s: declared response headers %v, want %v", c.path, got, c.want)
+			continue
+		}
+		for name, value := range c.want {
+			if got[name] != value {
+				t.Errorf("%s: declared %s = %q, want %q", c.path, name, got[name], value)
+			}
+		}
+	}
+}

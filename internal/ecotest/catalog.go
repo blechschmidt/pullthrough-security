@@ -42,6 +42,10 @@ type Upstream struct {
 	URL string
 	// Settings are backend-specific settings.
 	Settings map[string]string
+	// Config holds further keys of the upstream's configuration entry, rendered
+	// verbatim beside type, url and settings: for a generic upstream, its route
+	// table (`generic:`), which is all that backend knows of the registry.
+	Config map[string]any
 }
 
 // Package is a package the client is asked to install, together with the
@@ -264,6 +268,11 @@ func Validate() error {
 				add("%s: duplicate upstream name %q", e.ID, u.Name)
 			}
 			names[u.Name] = true
+			for _, key := range []string{"type", "url", "settings"} {
+				if _, ok := u.Config[key]; ok {
+					add("%s: upstream %q sets %q in Config; use the field of that name", e.ID, u.Name, key)
+				}
+			}
 		}
 		if e.RegistryDefault != "" && !names[e.RegistryDefault] {
 			add("%s: RegistryDefault %q is not one of the run's upstreams", e.ID, e.RegistryDefault)

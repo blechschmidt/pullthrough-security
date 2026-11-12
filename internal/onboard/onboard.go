@@ -782,8 +782,11 @@ func swiftSnippet(ctx Context, b Backend) Snippet {
 	if ctx.Token != "" {
 		fmt.Fprintf(&sb, "swift package-registry login %s --token %s\n", mount, ctx.Token)
 	}
-	sb.WriteString("# Opt a package in: add it as a registry dependency, then\n")
-	sb.WriteString("swift package-registry resolve\n")
+	// SwiftPM has no "package-registry resolve": resolving is a package
+	// command, and it uses the registry for dependencies declared by registry
+	// identity, .package(id: "scope.name", ...).
+	sb.WriteString("# Declare dependencies by registry identity: .package(id: \"scope.name\", from: \"1.0.0\")\n")
+	sb.WriteString("swift package resolve\n")
 	return Snippet{
 		Title: fmt.Sprintf("Swift Package Manager — %s", b.Name),
 		File:  "swift-registry.sh",

@@ -67,13 +67,26 @@ cannot do without a setting — Maven reads its proxy from `settings.xml`, DNF's
 mirror list names hosts the proxy cannot know — the script says so. The
 published scripts are the verified interception setup for each client.
 
-Git is the one ecosystem with no package coordinate to gate and, in
-pass-through mode, nothing immutable to cache; its row checks that a real `git`
-client can clone through the proxy.
+Git is an ecosystem with no package coordinate to gate and, in pass-through
+mode, nothing immutable to cache; its row checks that a real `git` client can
+clone through the proxy.
 
-Two backends have no row because there is no public upstream to pull from:
-`swift` (no public SE-0292 package registry exists) and `generic` (declarative,
-deployment-specific routes).
+Two rows need an upstream chosen with care:
+
+- **`swift`** pulls from [Tuist's public registry](https://tuist.dev/blog/2025/11/26/opening-registry),
+  which serves the Swift Package Registry API (SE-0292) for the packages of the
+  Swift Package Index without an account. SwiftPM takes a registry only over
+  HTTPS, so the proxy is served with a test CA, as for NuGet. Tuist answers an
+  archive download with a redirect to its object store; the proxy follows it,
+  the client never sees it.
+- **`generic`** stands for every `type: generic` upstream — a registry without
+  a dedicated backend, fronted by routes the operator writes. The row uses one
+  with a real client: Alpine's package mirror behind two routes (the signed
+  repository indexes, served live; the packages, cached), installed from with
+  `apk`. A generic route table knows paths, not packages: the backend reports
+  no package coordinate, so, as for Git, there is no package to refuse. What the
+  content gates refuse on a generic route is asserted by the hermetic
+  [LLM package-scan suite](llm-package-scan.md#testing).
 
 ## How a run works
 
@@ -283,6 +296,17 @@ Running real clients surfaced behaviour that matters when deploying the proxy:
   passed regardless; the [client lab](client-lab.md), which records the names a
   client looks up, showed it. The script now switches packagist.org off and
   runs `composer audit`, which fails when a repository it asks is unreachable.
+- **SwiftPM checks the registry's API version on every response** and refuses
+  release metadata or a manifest without `Content-Version: 1`. The proxy served
+  those from its cache without the header; it now keeps the header with the
+  cached resource, as it does for Hugging Face, and the manifest's `Link`
+  header too — SwiftPM learns a release's Swift-version-specific manifests only
+  from it, and would otherwise build against a different manifest than the
+  registry's.
+- **SwiftPM takes a registry only over HTTPS** (`--allow-insecure-http` aside),
+  and its `swift package-registry login` checks a token by posting it to the
+  registry address, which the proxy now answers itself once its access control
+  has admitted the caller.
 - **The first pull of a large package can outlast a client's timeout.** The
   proxy scans an artifact before it serves the first byte, so the time to first
   byte includes the upstream download and the content scan. `pip`'s default read
@@ -296,7 +320,10 @@ Running real clients surfaced behaviour that matters when deploying the proxy:
    the client image (pinned to an explicit tag), the upstream, a small package
    that must install and an unrelated one that must be refused, and a pattern for
    the good artifact's cache key. Spell `Coordinate` the way the backend reports
-   the package (the `package` field of a policy audit record).
+   the package (the `package` field of a policy audit record). A backend that
+   reports no package coordinate (Git, generic) has nothing to refuse: leave
+   `Bad` nil. Configuration of the upstream beyond its type, URL and
+   `settings` — a generic upstream's routes — goes in `Upstream.Config`.
 2. Add `internal/ecotest/clients/<id>.sh`: configure the client to use `$MOUNT`,
    install `$PKG_NAME`. See
    [`clients/README.md`](../internal/ecotest/clients/README.md) for the contract.
@@ -308,6 +335,6 @@ Running real clients surfaced behaviour that matters when deploying the proxy:
 4. `make ecosystem-reference-gen` and commit the regenerated reference.
 5. `make test-ecosystems ECOSYSTEMS=<id> ECOTEST_KEEP=1`.
 
-`go test ./...` fails until a supported ecosystem (`internal/testset`) has a
-catalog entry and a script, so an ecosystem cannot be added without its
-real-client test.
+`go test ./...` fails until every upstream type the configuration accepts
+(`config.UpstreamTypes`, aliases aside) has a catalog entry and a script, so an
+ecosystem cannot be added without its real-client test.

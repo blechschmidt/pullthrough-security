@@ -52,6 +52,25 @@ type DownloadDescriber interface {
 	DescribeDownload(r *http.Request, repoPath string) (Download, bool)
 }
 
+// LoginProber is an optional capability of a backend whose clients check their
+// credentials with a request of their own before they use them: SwiftPM's
+// `swift package-registry login` POSTs to the registry's login endpoint
+// (SE-0378) and stores the credentials only when that answers 200.
+//
+// The proxy core answers such a request itself and never forwards it. It
+// reaches the backend only after access control has admitted the caller, so
+// the credentials the client presented are good for the proxy — which is all
+// the client asks. Forwarded, the request would be answered for the proxy's
+// own upstream credentials, or — where a login endpoint issues a session —
+// hand the caller a session of the proxy's account.
+//
+// LoginProbe reports whether a request (its method, and its path below the
+// "/v1/<backend>" mount, as Resolve would receive it) is the client's
+// credential check, and the response headers to answer it with.
+type LoginProber interface {
+	LoginProbe(method, repoPath string) (http.Header, bool)
+}
+
 type refusalRecorderKey struct{}
 
 // WithRefusalRecorder returns a context through which a backend can report that

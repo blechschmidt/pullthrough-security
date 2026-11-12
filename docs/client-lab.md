@@ -13,7 +13,7 @@ it:
 | | Ecosystem tests | Client lab |
 |---|---|---|
 | Runs | on every push | nightly, on demand, and when the lab or the guide changes |
-| Clients | one per ecosystem (30) | every client the guide documents: also Yarn, pnpm, Bun, uv, Poetry, PDM, Gradle, containerd, skopeo, OpenTofu, micromamba, gem, `puppet module`, … |
+| Clients | one per ecosystem (32) | every client the guide documents: also Yarn, pnpm, Bun, uv, Poetry, PDM, Gradle, containerd, skopeo, OpenTofu, micromamba, gem, `puppet module`, … |
 | Proxy address | `http://127.0.0.1:<port>` | `https://proxy.example.com`, with a certificate from a private CA |
 | Access control | off | off, on (a token is required), and on with an anonymous role |
 | Asserts | install, cache hit, refusal of a blocked package | the configuration works — CA, token and all; lock files say what the guide says they do; a limitation the guide states is still there |
@@ -36,10 +36,11 @@ it:
 ```
 
 - **The proxy** is the binary built from the checkout, with
-  [`proxy.yaml`](../scripts/client-lab/proxy.yaml): every upstream type that
-  has a public registry to put behind it (all but `swift` and `generic`), under
-  the names the guide uses, served as `https://proxy.example.com` with a
-  certificate from a CA the lab creates. There are three of them, one per
+  [`proxy.yaml`](../scripts/client-lab/proxy.yaml): every upstream type —
+  `swift` in front of Tuist's public registry, `generic` in front of Alpine's
+  package mirror (no lab script runs SwiftPM or apk yet; the ecosystem tests
+  do) — under the names the guide uses, served as `https://proxy.example.com`
+  with a certificate from a CA the lab creates. There are three of them, one per
   **mode**, each on a network of its own:
 
   | Mode | Access control |

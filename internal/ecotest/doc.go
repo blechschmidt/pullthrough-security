@@ -15,7 +15,8 @@
 //  2. cache — a second install from a pristine client is served from the proxy's
 //     cache without the artifact being fetched from the upstream again;
 //  3. bad package — a package whose source commit the LLM flagged malicious is
-//     refused by the proxy, and the real client fails the install.
+//     refused by the proxy, and the real client fails the install (where the
+//     backend reports a package coordinate: Git and generic upstreams do not).
 //
 // The LLM is a mock (MockLLM) that speaks the Anthropic Messages and OpenAI Chat
 // Completions wire formats, so the proxy's real provider client, prompt

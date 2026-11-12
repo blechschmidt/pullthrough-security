@@ -74,3 +74,19 @@ upstreams:
   jsr: { type: jsr, url: https://jsr.io }
   hackage: { type: hackage, url: https://hackage.haskell.org }
   github: { type: git, url: https://github.com }
+  # Tuist's public Swift package registry. No lab script runs SwiftPM yet; the
+  # ecosystem tests do (internal/ecotest/clients/swift.sh).
+  swiftpm: { type: swift, url: https://tuist.dev/api/registry/swift }
+  # A generic upstream: Alpine's package mirror, which has no dedicated backend.
+  # No lab script runs apk yet; the ecosystem tests do
+  # (internal/ecotest/clients/generic.sh).
+  alpine:
+    type: generic
+    url: https://dl-cdn.alpinelinux.org/alpine
+    generic:
+      routes:
+        - name: index
+          match: '^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/APKINDEX\.tar\.gz$'
+        - name: package
+          match: '^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/[A-Za-z0-9._+-]+\.apk$'
+          cacheable: true

@@ -446,16 +446,17 @@ jobs:
   # client — npm, pip, cargo, go, dotnet, mvn, the Docker Engine, helm, bundler,
   # composer, terraform, conan, conda, apt-get, dnf, git, mix, bazel, julia,
   # cpanm, R, dart pub, ovsx, nix, deno, cabal, brew, ansible-galaxy, r10k,
-  # huggingface_hub — configured to use the
-  # pull-through proxy instead of the public registry, against the real proxy
-  # binary fronting the real upstream. Per ecosystem they assert:
+  # huggingface_hub, SwiftPM, and apk through a generic upstream — configured to
+  # use the pull-through proxy instead of the public registry, against the real
+  # proxy binary fronting the real upstream. Per ecosystem they assert:
   #
   #   1. the client installs a package through the proxy, the artifact lands in
   #      the proxy's cache, and its admission was decided by the LLM scan of the
   #      source commit it is pinned to (benign);
   #   2. a second install from a pristine client is served from the cache;
   #   3. a package whose source commit the LLM flagged malicious is refused, and
-  #      the real client fails;
+  #      the real client fails (where the backend reports a package coordinate:
+  #      not for Git or a generic upstream);
   #   4. for cargo and go: the proxy's download log attributes the installed
   #      package to the address of each client run that installed it, and the
   #      refused one — as blocked — to the run that tried (Task 176). Every

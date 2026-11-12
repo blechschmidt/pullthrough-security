@@ -872,6 +872,19 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A client's credential check (SwiftPM's registry login) is answered here:
+	// access control has admitted the caller, and that is the whole answer. It
+	// never reaches the upstream (see backends.LoginProber).
+	if lp, ok := backend.(backends.LoginProber); ok {
+		if header, ok := lp.LoginProbe(r.Method, rest); ok {
+			for k, vs := range header {
+				w.Header()[k] = vs
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+
 	// A pull-through proxy serves idempotent reads only. Publishing/uploads are
 	// out of scope for this core and handled (if at all) by specific backends.
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
