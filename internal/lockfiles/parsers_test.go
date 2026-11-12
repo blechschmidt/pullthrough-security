@@ -514,3 +514,21 @@ func TestDedupeMergesEntriesWithoutRegistry(t *testing.T) {
 		t.Errorf("dedupe:\n got %s\nwant %s", strings.Join(got, ","), want)
 	}
 }
+
+// panicMerger is a parser whose Merge panics.
+type panicMerger struct{ goSum }
+
+func (panicMerger) Format() string { return "go.sum" }
+func (panicMerger) Merge([]*File) {
+	var m map[string]int
+	m["boom"]++
+}
+
+func TestAPanickingMergerFailsItsFileOnly(t *testing.T) {
+	sum := parseOne(panicMerger{}, "a/go.sum", []byte("example.com/a v1.0.0 h1:AAAA=\n"))
+	mod := parseOne(goMod{}, "a/go.mod", []byte("module m\nrequire example.com/a v1.0.0\n"))
+	finish([]*File{mod, sum}, nil)
+	if !strings.Contains(sum.Error, "failed") || mod.Error != "" || len(mod.Dependencies) != 1 {
+		t.Fatalf("go.sum error %q, go.mod %+v", sum.Error, mod)
+	}
+}

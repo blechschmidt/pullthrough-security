@@ -91,7 +91,7 @@ func finish(files []*File, proxy *Proxy) {
 		group := byDir[d]
 		for _, f := range group {
 			if m, ok := f.parser.(Merger); ok && f.Error == "" {
-				m.Merge(group)
+				safeMerge(m, f, group)
 			}
 		}
 	}
@@ -100,7 +100,7 @@ func finish(files []*File, proxy *Proxy) {
 	for _, f := range files {
 		for i := range f.Dependencies {
 			if w := proxy.finishDependency(&f.Dependencies[i]); w != "" {
-				f.Warnings = append(f.Warnings, w)
+				f.addWarning(w)
 			}
 		}
 		f.Dependencies = dedupe(f.Dependencies)
@@ -112,6 +112,27 @@ func finish(files []*File, proxy *Proxy) {
 		if f.Dependencies == nil {
 			f.Dependencies = []Dependency{}
 		}
+	}
+}
+
+// safeMerge runs a Merger as parseOne runs a parser: one that panics fails its
+// own file, not the scan.
+func safeMerge(m Merger, f *File, group []*File) {
+	defer func() {
+		if r := recover(); r != nil {
+			f.Error = fmt.Sprintf("merging %s with its neighbours failed", f.Format)
+		}
+	}()
+	m.Merge(group)
+}
+
+// addWarning appends a warning within the per-file bound.
+func (f *File) addWarning(w string) {
+	switch {
+	case len(f.Warnings) < maxWarnings:
+		f.Warnings = append(f.Warnings, w)
+	case len(f.Warnings) == maxWarnings:
+		f.Warnings = append(f.Warnings, "further warnings omitted")
 	}
 }
 
