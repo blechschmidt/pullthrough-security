@@ -1,0 +1,48 @@
+[
+  {
+    "path": "Cargo.lock",
+    "type": "cargo",
+    "format": "Cargo.lock",
+    "formatVersion": "4",
+    "dependencies": [
+      {
+        "type": "cargo",
+        "name": "itoa",
+        "version": "1.0.11",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
+          }
+        ],
+        "registry": "https://github.com/rust-lang/crates.io-index",
+        "file": "Cargo.lock",
+        "line": 21
+      },
+      {
+        "type": "cargo",
+        "name": "ryu",
+        "version": "1.0.18",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
+          }
+        ],
+        "registry": "https://github.com/rust-lang/crates.io-index",
+        "file": "Cargo.lock",
+        "line": 27
+      },
+      {
+        "type": "cargo",
+        "name": "semver",
+        "version": "1.0.23",
+        "registry": "https://github.com/dtolnay/semver",
+        "source": "git",
+        "revision": "69efd3cc770ead273a06ad1788477b3092996d29",
+        "file": "Cargo.lock",
+        "line": 33
+      }
+    ]
+  }
+]

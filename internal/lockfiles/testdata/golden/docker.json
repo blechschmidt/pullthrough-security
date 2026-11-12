@@ -1,0 +1,129 @@
+[
+  {
+    "path": "Dockerfile",
+    "type": "docker",
+    "format": "Dockerfile",
+    "dependencies": [
+      {
+        "type": "docker",
+        "name": "library/golang",
+        "version": "sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "file": "Dockerfile",
+        "line": 6
+      },
+      {
+        "type": "docker",
+        "name": "library/alpine",
+        "version": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "file": "Dockerfile",
+        "line": 8
+      },
+      {
+        "type": "docker",
+        "name": "distroless/static-debian12",
+        "version": "sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab"
+          }
+        ],
+        "registry": "https://gcr.io",
+        "file": "Dockerfile",
+        "line": 17
+      }
+    ],
+    "warnings": [
+      "line 20: image docker.io/library/alpine is not pinned by digest",
+      "line 21: the image is chosen by a build argument without a default"
+    ]
+  },
+  {
+    "path": "compose.yaml",
+    "type": "docker",
+    "format": "compose",
+    "dependencies": [
+      {
+        "type": "docker",
+        "name": "library/postgres",
+        "version": "sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "file": "compose.yaml",
+        "line": 2
+      },
+      {
+        "type": "docker",
+        "name": "library/redis",
+        "version": "sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "file": "compose.yaml",
+        "line": 9
+      },
+      {
+        "type": "docker",
+        "name": "library/alpine",
+        "version": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "upstream": "dockerhub",
+        "file": "compose.yaml",
+        "line": 15
+      }
+    ],
+    "warnings": [
+      "line 13: image docker.io/library/nginx is not pinned by digest"
+    ]
+  },
+  {
+    "path": "legacy/docker-compose.yml",
+    "type": "docker",
+    "format": "compose",
+    "dependencies": [
+      {
+        "type": "docker",
+        "name": "library/alpine",
+        "version": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "file": "legacy/docker-compose.yml",
+        "line": 3
+      }
+    ]
+  }
+]

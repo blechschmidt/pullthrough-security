@@ -1,0 +1,164 @@
+[
+  {
+    "path": "Fixture.Lib/packages.lock.json",
+    "type": "nuget",
+    "format": "packages.lock.json",
+    "formatVersion": "1",
+    "dependencies": [
+      {
+        "type": "nuget",
+        "name": "netstandard.library",
+        "version": "2.0.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "b2de3b3e8b19487ae3102763788cd941bce2bd804916fe8fda7bf8723db2a5d236d380cefaf67b979ada18c897e1e5cc279dd17ce220fbfb380c7559e7836ed8",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 5
+      },
+      {
+        "type": "nuget",
+        "name": "newtonsoft.json",
+        "version": "13.0.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "1eb0b9057765d3420ff73795fb467ce3c4163c0a02afd3f76c311982e23e8242dc04a00ec62c7fb4b1000070be52f0cd3efe1ad9dd7c94e45e1cc39a80f6becd",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 14
+      },
+      {
+        "type": "nuget",
+        "name": "serilog",
+        "version": "4.0.1",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "a7378345776948b4ac8011e965c9a9203c6a332f38e406f8b3e75f9c1834b0df61f2aff85a8def0287b440218fcded50d3a115b443eea52f94bcb9bc8974264d",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 20
+      },
+      {
+        "type": "nuget",
+        "name": "microsoft.netcore.platforms",
+        "version": "1.1.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "933d0f116da586aca07a123f77a5ec3c24330fb7dfee050969518f5444d7eb5d5e69d1ac03703cefb19d4a55342d154c0931fff8fde8da20d36a4f92d3c576f8",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 30
+      },
+      {
+        "type": "nuget",
+        "name": "system.buffers",
+        "version": "4.5.1",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "470ee28f2975aaa452d18403fd6c9c36cb7c85450c82b307e050a7d67366dbb3385717216758ecddf56341a00d1cee5fdec3788acbcfe1af8c7adf58e18a2602",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 35
+      },
+      {
+        "type": "nuget",
+        "name": "system.diagnostics.diagnosticsource",
+        "version": "8.0.1",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "bdaa168ef906d5a7a74765dd8da562be5095f5f0037e0ca15b96d9b574f6dea68479ad255a25258dd42ecdee04df5bca33b65625a494b1b608284deb9f37d952",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 40
+      },
+      {
+        "type": "nuget",
+        "name": "system.memory",
+        "version": "4.5.5",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5c85a20ef28f5da4ef79a07b1d581a9c394e091a23d3797e8ebc0dbdc81efedf2f84660abea57e74cbfa1b84805f6368366374c197d53d302517065c66f54e53",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 49
+      },
+      {
+        "type": "nuget",
+        "name": "system.numerics.vectors",
+        "version": "4.4.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5222f32d6f8bc3a1cb79dd47720fbc8d246db6b6ee5efec300d563d0390bf60e849e7cdb2fbe4407b116b30e6e45b87177fe18746f258b95e2cc659ea661b73d",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 59
+      },
+      {
+        "type": "nuget",
+        "name": "system.runtime.compilerservices.unsafe",
+        "version": "6.0.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "fe251e3f7b6ad52d1774d368333e42f6dc0b4ab33f4c7faa1251e45d668fbee34eb7ef7d1bbe4dad5d0e4b612a1f1e7030dee9a29623a5cf284e30b5cb5e832e",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 64
+      },
+      {
+        "type": "nuget",
+        "name": "system.threading.channels",
+        "version": "8.0.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "08c685afbbfee7b456eee65f6643c4c6c3c1ea58f0ce18c00965b581f537e58e7aae4ef607f5aefac4eac559864a4e1215494f73772378a343d3392dce2ca304",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 69
+      },
+      {
+        "type": "nuget",
+        "name": "system.threading.tasks.extensions",
+        "version": "4.5.4",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "ced793f86f31b86bba992fa6cc3cd85dbcd2eeb7772ba1636fd46266562524f6a6dbf854ec9081641544732c0db91fa86759dc4ef73f72ad1f691af73f4d4e56",
+            "of": "nuget-content"
+          }
+        ],
+        "file": "Fixture.Lib/packages.lock.json",
+        "line": 77
+      }
+    ]
+  }
+]

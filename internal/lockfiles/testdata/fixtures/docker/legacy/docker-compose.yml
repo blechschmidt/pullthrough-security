@@ -1,0 +1,7 @@
+# Compose file format version 1: services at the top level.
+web:
+  image: alpine@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  ports:
+    - "8080:80"
+worker:
+  build: ./worker

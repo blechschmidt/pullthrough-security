@@ -1,0 +1,18 @@
+[project]
+name = "lockfixture-uv"
+version = "0.1.0"
+description = "Lock-file fixture for internal/lockfiles (uv)"
+requires-python = ">=3.9"
+dependencies = [
+    "requests==2.32.3",
+    "packaging==24.1",
+    "sampleproject",
+]
+
+[dependency-groups]
+dev = [
+    "iniconfig==2.0.0",
+]
+
+[tool.uv.sources]
+sampleproject = { git = "https://github.com/pypa/sampleproject", branch = "main" }

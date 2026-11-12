@@ -1,0 +1,34 @@
+[
+  {
+    "path": "Cargo.lock",
+    "type": "cargo",
+    "format": "Cargo.lock",
+    "formatVersion": "1",
+    "dependencies": [
+      {
+        "type": "cargo",
+        "name": "itoa",
+        "version": "1.0.11",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
+          }
+        ],
+        "registry": "https://github.com/rust-lang/crates.io-index",
+        "file": "Cargo.lock",
+        "line": 9
+      },
+      {
+        "type": "cargo",
+        "name": "semver",
+        "version": "1.0.23",
+        "registry": "https://github.com/dtolnay/semver",
+        "source": "git",
+        "revision": "69efd3cc770ead273a06ad1788477b3092996d29",
+        "file": "Cargo.lock",
+        "line": 14
+      }
+    ]
+  }
+]

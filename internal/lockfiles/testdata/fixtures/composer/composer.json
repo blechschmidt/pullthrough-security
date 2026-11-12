@@ -1,0 +1,11 @@
+{
+    "name": "pullthrough/lockfile-fixture",
+    "description": "Lock-file parser fixture",
+    "type": "project",
+    "require": {
+        "monolog/monolog": "3.7.0"
+    },
+    "require-dev": {
+        "psr/container": "2.0.2"
+    }
+}

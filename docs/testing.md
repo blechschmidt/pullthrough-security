@@ -208,6 +208,12 @@ up by default.
 | `internal/git` | `FuzzFetchSniffer` | a Git client's SSH session stream (pkt-lines) |
 | `internal/git` | `FuzzDescribeDownload` | a Git `upload-pack` request body, plain or gzip |
 | `internal/git` | `FuzzAsksForNothingButRefs` | the decision that keeps a Git request out of the download log |
+| `internal/git` | `FuzzParseTree` | Git tree objects read from a repository by the lock-file scanner |
+| `internal/lockfiles` | `FuzzPackageLock`, `FuzzNpmShrinkwrap`, `FuzzYarnLock`, `FuzzPnpmLock` | npm lock files: package-lock.json, npm-shrinkwrap.json, yarn.lock (Classic and Berry), pnpm-lock.yaml |
+| `internal/lockfiles` | `FuzzRequirementsTxt`, `FuzzPipfileLock`, `FuzzPoetryLock`, `FuzzUVLock`, `FuzzPDMLock` | Python lock files |
+| `internal/lockfiles` | `FuzzCargoLock`, `FuzzGoMod`, `FuzzGoSum`, `FuzzNuGetLock`, `FuzzGradleLock`, `FuzzPOM`, `FuzzGemfileLock`, `FuzzComposerLock`, `FuzzDockerfile`, `FuzzCompose` | the other lock files, POMs, Dockerfiles and Compose files |
+| `internal/lockfiles` | `FuzzTOML` | the TOML reader behind Cargo.lock, poetry.lock, uv.lock and pdm.lock |
+| `internal/lockfiles` | `FuzzProxyMapping` | lock-file URLs mapped back from the proxy: a personal link's token never survives |
 
 Each target seeds its corpus (`f.Add`) with real-world samples and a battery of
 known-malformed inputs (truncated archives, unterminated grammars, deeply nested
@@ -240,14 +246,18 @@ go test -tags fuzz -run='^$' -fuzz=FuzzParseExpression -fuzztime=30s ./internal/
   crasher so a fix can't silently regress, but it does **not** generate new
   inputs.
 - **Nightly** (and via manual `workflow_dispatch`) the `fuzz` job runs
-  `make fuzz FUZZTIME=5m`, generating new inputs. Set the `fuzztime` dispatch
-  input to fuzz longer (e.g. `30m`). A discovered crasher is written under the
-  package's `testdata/fuzz/<Target>/` directory and uploaded as the
-  `fuzz-crashers` artifact.
+  `make fuzz FUZZTIME=5m`, generating new inputs, in nine parallel shards
+  (`FUZZ_SHARDS=9 FUZZ_SHARD=0…8`; target *i* is in shard *i* mod 9): over a
+  hundred targets at five minutes each take longer than a hosted CI job may
+  run. The scheduled run has a concurrency group of its own, so a push to
+  `main` does not cancel it. Set the `fuzztime` dispatch input to fuzz longer
+  (e.g. `30m`). A discovered crasher is written under the package's
+  `testdata/fuzz/<Target>/` directory and uploaded as the
+  `fuzz-crashers-<shard>` artifact.
 
 ### Triage workflow for a discovered crasher
 
-1. Download the `fuzz-crashers` artifact (or, locally, find the file `go test`
+1. Download the `fuzz-crashers-<shard>` artifact (or, locally, find the file `go test`
    reports under `testdata/fuzz/<Target>/`).
 2. Reproduce deterministically — the corpus file is itself the regression test:
    ```sh

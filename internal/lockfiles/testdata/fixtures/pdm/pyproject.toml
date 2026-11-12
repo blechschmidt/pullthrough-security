@@ -1,0 +1,18 @@
+[project]
+name = "lockfixture-pdm"
+version = "0.1.0"
+description = "Lock-file fixture for internal/lockfiles (pdm)"
+requires-python = ">=3.9"
+dependencies = [
+    "requests==2.32.3",
+    "packaging==24.1",
+    "sampleproject @ git+https://github.com/pypa/sampleproject@main",
+]
+
+[dependency-groups]
+dev = [
+    "iniconfig==2.0.0",
+]
+
+[tool.pdm]
+distribution = false

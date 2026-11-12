@@ -1,0 +1,15 @@
+[project]
+name = "lockfixture-pdm-old"
+version = "0.1.0"
+description = "Lock-file fixture for internal/lockfiles (old pdm, [metadata.files] layout)"
+requires-python = ">=3.9"
+dependencies = [
+    "requests==2.32.3",
+    "packaging==24.1",
+    "sampleproject @ git+https://github.com/pypa/sampleproject@main",
+]
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "iniconfig==2.0.0",
+]

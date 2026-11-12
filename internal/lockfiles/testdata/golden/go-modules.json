@@ -1,0 +1,78 @@
+[
+  {
+    "path": "go.mod",
+    "type": "go",
+    "format": "go.mod",
+    "dependencies": [
+      {
+        "type": "go",
+        "name": "golang.org/x/text",
+        "version": "v0.15.0",
+        "digests": [
+          {
+            "algorithm": "h1",
+            "value": "h1V/4gjBv8v9cjcR6+AR5+/cIYK5N/WAgiv4xlsEtAk="
+          },
+          {
+            "algorithm": "h1",
+            "value": "18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=",
+            "of": "go.mod"
+          }
+        ],
+        "file": "go.mod",
+        "line": 7
+      },
+      {
+        "type": "go",
+        "name": "rsc.io/quote",
+        "version": "v1.5.2",
+        "digests": [
+          {
+            "algorithm": "h1",
+            "value": "w5fcysjrx7yqtD/aO+QwRjYZOKnaM9Uh2b40tElTs3Y="
+          },
+          {
+            "algorithm": "h1",
+            "value": "LzX7hefJvL54yjefDEDHNONDjII0t9xZLPXsUe+TKr0=",
+            "of": "go.mod"
+          }
+        ],
+        "file": "go.mod",
+        "line": 8
+      },
+      {
+        "type": "go",
+        "name": "rsc.io/sampler",
+        "version": "v1.3.0",
+        "digests": [
+          {
+            "algorithm": "h1",
+            "value": "7uVkIFmeBqHfdjD+gZwtXXI+RODJ2Wc4O7MPEh/QiW4="
+          },
+          {
+            "algorithm": "h1",
+            "value": "T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=",
+            "of": "go.mod"
+          }
+        ],
+        "file": "go.mod",
+        "line": 11
+      }
+    ],
+    "warnings": [
+      "example.com/local v0.0.0: replaced by a local directory, not fetched"
+    ]
+  },
+  {
+    "path": "go.sum",
+    "type": "go",
+    "format": "go.sum",
+    "dependencies": []
+  },
+  {
+    "path": "local/go.mod",
+    "type": "go",
+    "format": "go.mod",
+    "dependencies": []
+  }
+]

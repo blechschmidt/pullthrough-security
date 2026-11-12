@@ -1,0 +1,6 @@
+--index-url https://proxy.example.com/u/ptl1abcdefghijklmnopqrstuvwxyz234567qwertyz/v1/pypi/simple
+certifi==2026.10.23 \
+    --hash=sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd \
+    --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1
+idna==3.10 \
+    --hash=sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3

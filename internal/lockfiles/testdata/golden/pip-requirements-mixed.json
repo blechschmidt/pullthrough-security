@@ -1,0 +1,112 @@
+[
+  {
+    "path": "requirements/constraints.txt",
+    "type": "pip",
+    "format": "requirements.txt",
+    "dependencies": [
+      {
+        "type": "pip",
+        "name": "urllib3",
+        "version": "2.2.3",
+        "file": "requirements/constraints.txt",
+        "line": 1
+      }
+    ]
+  },
+  {
+    "path": "requirements/dev.txt",
+    "type": "pip",
+    "format": "requirements.txt",
+    "dependencies": [
+      {
+        "type": "pip",
+        "name": "django",
+        "version": "4.2.16",
+        "registry": "https://pypi.example.com/simple",
+        "file": "requirements/dev.txt",
+        "line": 7
+      },
+      {
+        "type": "pip",
+        "name": "requests",
+        "version": "2.32.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "70761cfe03c773ceb22aa2f671b4757976145175cdfca038c02654d061d6dcc6"
+          }
+        ],
+        "registry": "https://pypi.example.com/simple",
+        "file": "requirements/dev.txt",
+        "line": 8
+      },
+      {
+        "type": "pip",
+        "name": "numpy",
+        "version": "1.26.4",
+        "registry": "https://pypi.example.com/simple",
+        "file": "requirements/dev.txt",
+        "line": 10
+      },
+      {
+        "type": "pip",
+        "name": "zope-interface",
+        "version": "7.0.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "00b5c3e9744dcdc9e84c24ed6646d5cf0cf66551347b310b3ffd70f056535854"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "3fcdc76d0cde1c09c37b7c6b0f8beba2d857d8417b055d4f47df9c34ec518bdd"
+          }
+        ],
+        "registry": "https://pypi.example.com/simple",
+        "file": "requirements/dev.txt",
+        "line": 11
+      },
+      {
+        "type": "pip",
+        "name": "my-weird-name",
+        "version": "0.1",
+        "registry": "https://pypi.example.com/simple",
+        "file": "requirements/dev.txt",
+        "line": 15
+      },
+      {
+        "type": "pip",
+        "name": "sampleproject",
+        "version": "621e4974ca25ce531773def586ba3ed8e736b3fc",
+        "registry": "https://github.com/pypa/sampleproject",
+        "source": "git",
+        "revision": "621e4974ca25ce531773def586ba3ed8e736b3fc",
+        "file": "requirements/dev.txt",
+        "line": 16
+      },
+      {
+        "type": "pip",
+        "name": "six",
+        "version": "1.17.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
+            "of": "six-1.17.0-py2.py3-none-any.whl"
+          }
+        ],
+        "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+        "source": "url",
+        "file": "requirements/dev.txt",
+        "line": 19
+      }
+    ],
+    "warnings": [
+      "line 4: includes another requirements file, read on its own if the scan finds it",
+      "line 5: includes another requirements file, read on its own if the scan finds it",
+      "line 9: flask is not pinned to an exact version",
+      "line 14: black is not pinned to an exact version",
+      "line 18: an editable install from a local path, not fetched"
+    ]
+  }
+]

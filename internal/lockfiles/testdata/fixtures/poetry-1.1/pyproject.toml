@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "lockfixture-poetry11"
+version = "0.1.0"
+description = "Lock-file fixture for internal/lockfiles (poetry 1.1)"
+authors = ["Lock Fixture <lockfixture@example.invalid>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+requests = "2.32.3"
+packaging = "24.1"
+sampleproject = { git = "https://github.com/pypa/sampleproject", branch = "main" }
+
+[tool.poetry.dev-dependencies]
+iniconfig = "2.0.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

@@ -310,6 +310,29 @@ ptctl intercept hosts --address 10.0.0.5 >> /etc/hosts # …as hosts-file lines
 
 All three need the admin `read` capability. `status` takes `--format table|json`.
 
+### `ptctl lockfiles` — the exact dependencies of a repository
+
+Reads a Git repository at a commit — never a working tree — finds every lock file
+(package-lock.json, yarn.lock, pnpm-lock.yaml, requirements.txt, Pipfile.lock, poetry.lock,
+uv.lock, pdm.lock, Cargo.lock, go.mod/go.sum, packages.lock.json, gradle.lockfile, pom.xml,
+Gemfile.lock, composer.lock, Dockerfiles and Compose files) and lists the exact dependencies
+they pin, each with its digests, registry and the lock file line it came from. Works offline;
+a remote repository is fetched one commit deep into a temporary directory.
+
+```bash
+ptctl lockfiles scan .                                  # this repository at HEAD
+ptctl lockfiles scan ./services/api --rev v1.4.0        # one directory, at a tag
+ptctl lockfiles scan https://github.com/org/repo --json
+ptctl lockfiles scan . --config /etc/pullthrough/config.yaml  # map proxy URLs to upstreams
+ptctl lockfiles formats                                 # what is read, per upstream type
+```
+
+Vendored code and test fixtures are skipped (`--skip GLOB` adds a glob,
+`--no-default-skip` drops the defaults); `--max-depth`, `--max-file-size` and `--max-files`
+bound the walk. Lock files resolved through the proxy — through a personal link too — are
+mapped back to the upstream, and the link's token is never printed. See
+[lockfiles.md](lockfiles.md).
+
 ### `ptctl completion` — shell completion
 
 Emits a static completion script for `bash`, `zsh`, or `fish`:

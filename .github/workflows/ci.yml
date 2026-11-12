@@ -31,8 +31,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# A newer push to a ref cancels the older run of that ref. The nightly fuzzing
+# (event "schedule") has a group of its own: a push to main must not cancel it.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -621,10 +623,19 @@ jobs:
   # schedule or manual dispatch (never on PRs, which use the fast seed-corpus
   # regression above). A discovered crasher is written under testdata/fuzz and
   # uploaded so it can be committed as a permanent regression seed.
+  #
+  # The targets run in nine parallel shards (make fuzz FUZZ_SHARDS/FUZZ_SHARD):
+  # some 110 targets at 5 minutes each take over nine hours one after another,
+  # and a hosted job is stopped at six. A shard is about an hour.
   fuzz:
-    name: Extended fuzzing
+    name: Extended fuzzing (shard ${{ matrix.shard }})
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
 
@@ -635,13 +646,13 @@ jobs:
           cache: true
 
       - name: Run fuzz targets
-        run: make fuzz FUZZTIME=${{ github.event.inputs.fuzztime || '5m' }}
+        run: make fuzz FUZZTIME=${{ github.event.inputs.fuzztime || '5m' }} FUZZ_SHARDS=9 FUZZ_SHARD=${{ matrix.shard }}
 
       - name: Upload discovered crashers
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-crashers
+          name: fuzz-crashers-${{ matrix.shard }}
           path: "**/testdata/fuzz/**"
           if-no-files-found: ignore
 

@@ -1,0 +1,89 @@
+[
+  {
+    "path": "pom.xml",
+    "type": "maven",
+    "format": "pom.xml",
+    "dependencies": [
+      {
+        "type": "maven",
+        "name": "org.springframework.boot:spring-boot-starter-parent",
+        "version": "3.3.2",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 7
+      },
+      {
+        "type": "maven",
+        "name": "com.fasterxml.jackson:jackson-bom",
+        "version": "2.17.2",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 36
+      },
+      {
+        "type": "maven",
+        "name": "com.google.guava:guava",
+        "version": "33.2.1-jre",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 52
+      },
+      {
+        "type": "maven",
+        "name": "org.junit.jupiter:junit-jupiter",
+        "version": "5.10.3",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "dev": true,
+        "file": "pom.xml",
+        "line": 62
+      },
+      {
+        "type": "maven",
+        "name": "com.example:fixture-model",
+        "version": "1.0.0",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 73
+      },
+      {
+        "type": "maven",
+        "name": "org.apache.maven.plugins:maven-compiler-plugin",
+        "version": "3.13.0",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 92
+      },
+      {
+        "type": "maven",
+        "name": "org.codehaus.mojo:exec-maven-plugin",
+        "version": "3.3.0",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 100
+      },
+      {
+        "type": "maven",
+        "name": "org.ow2.asm:asm",
+        "version": "9.7",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 105
+      },
+      {
+        "type": "maven",
+        "name": "org.postgresql:postgresql",
+        "version": "42.7.3",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "file": "pom.xml",
+        "line": 119
+      }
+    ],
+    "warnings": [
+      "line 58: com.fasterxml.jackson.core:jackson-databind has no version in this file (managed elsewhere)",
+      "line 68: commons-io:commons-io is not pinned to a fixed version (a range)",
+      "line 78: com.example:in-progress is not pinned to a fixed version (a SNAPSHOT)",
+      "line 83: org.example:from-settings: its version comes from a property not defined in this file",
+      "line 96: org.springframework.boot:spring-boot-maven-plugin has no version in this file (managed elsewhere)"
+    ]
+  }
+]

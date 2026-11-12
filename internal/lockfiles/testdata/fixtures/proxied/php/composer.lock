@@ -1,0 +1,22 @@
+{
+    "_readme": ["This file locks the dependencies of your project to a known state"],
+    "content-hash": "0123456789abcdef0123456789abcdef",
+    "packages": [
+        {
+            "name": "psr/log",
+            "version": "3.0.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/php-fig/log.git",
+                "reference": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://proxy.example.com/u/ptl1abcdefghijklmnopqrstuvwxyz234567qwertyz/v1/packagist/dist/psr/log/f16e1d5863e37f8d8c2a01719f5b34baa2b714d3.zip",
+                "reference": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+                "shasum": ""
+            }
+        }
+    ],
+    "packages-dev": []
+}

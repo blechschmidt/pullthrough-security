@@ -1,0 +1,167 @@
+[
+  {
+    "path": "yarn.lock",
+    "type": "npm",
+    "format": "yarn.lock",
+    "formatVersion": "6",
+    "dependencies": [
+      {
+        "type": "npm",
+        "name": "@types/node",
+        "version": "20.14.10",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "2f397d393de8cddb126e0b7999402ea450215ac69d49666ddef4f730a73325054499ce7345f86095e7b935c55b2e02139f3b8b9afc72fb978ed29edf6bb956b0",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 8
+      },
+      {
+        "type": "npm",
+        "name": "ansi-regex",
+        "version": "5.0.1",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "2aa4bb54caf2d622f1afdad09441695af2a83aa3fe8b8afa581d205e57ed4261c183c4d3877cee25794443fde5876417d859c108078ab788d6af7e4fe52eb66b",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 17
+      },
+      {
+        "type": "npm",
+        "name": "emoji-regex",
+        "version": "8.0.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "d4c5c39d5a9868b5fa152f00cada8a936868fd3367f33f71be515ecee4c803132d11b31a6222b2571b1e5f7e13890156a94880345594d0ce7e3c9895f560f192",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 24
+      },
+      {
+        "type": "npm",
+        "name": "is-fullwidth-code-point",
+        "version": "3.0.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "44a30c29457c7fb8f00297bce733f0a64cd22eca270f83e58c105e0d015e45c019491a4ab2faef91ab51d4738c670daff901c799f6a700e27f7314029e99e348",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 47
+      },
+      {
+        "type": "npm",
+        "name": "is-number",
+        "version": "7.0.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "1628623c135ec8c5ccf8a73ffbb091a9d4b54326d8be2c105d5f29c526944f91f3aaef40c9086abaadae5ef8437c98210d98da647605a67d68a301e5512eaefa",
+            "of": "yarn-cache"
+          }
+        ],
+        "registry": "https://github.com/jonschlinkert/is-number.git",
+        "source": "git",
+        "revision": "98e8ff1da1a89f93d1397a24d7413ed15421c139",
+        "file": "yarn.lock",
+        "line": 54
+      },
+      {
+        "type": "npm",
+        "name": "left-pad",
+        "version": "1.3.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "13fa96e17b70a54836490de22d4bab706e2ed508338bbabecfac72ecce445a74139c5b009a8112252cab8fc4ab7ac4ebd870e5b35bd236b443b12be96f8745ac",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 61
+      },
+      {
+        "type": "npm",
+        "name": "lodash",
+        "version": "4.17.21",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "eb835a2e51d381e561e508ce932ea50a8e5a68f4ebdd771ea240d3048244a8d13658acbd502cd4829768c56f2e16bdd4340b9ea141297d472517b83868e677f7",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 68
+      },
+      {
+        "type": "npm",
+        "name": "ms",
+        "version": "2.1.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "aa92de608021b242401676e35cfa5aa42dd70cbdc082b916da7fb925c542173e36bce97ea3e804923fe92c0ad991434e4a38327e15a1b5b5f945d66df615ae6d",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 75
+      },
+      {
+        "type": "npm",
+        "name": "string-width",
+        "version": "4.2.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "e52c10dc3fbfcd6c3a15f159f54a90024241d0f149cf8aed2982a2d801d2e64df0bf1dc351cf8e95c3319323f9f220c16e740b06faecd53e2462df1d2b5443fb",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 82
+      },
+      {
+        "type": "npm",
+        "name": "strip-ansi",
+        "version": "6.0.1",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "f3cd25890aef3ba6e1a74e20896c21a46f482e93df4a06567cebf2b57edabb15133f1f94e57434e0a958d61186087b1008e89c94875d019910a213181a14fc8c",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 93
+      },
+      {
+        "type": "npm",
+        "name": "undici-types",
+        "version": "5.26.5",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "3192ef6f3fd5df652f2dc1cd782b49d6ff14dc98e5dced492aa8a8c65425227da5da6aafe22523c67f035a272c599bb89cfe803c1db6311e44bed3042fc25487",
+            "of": "yarn-cache"
+          }
+        ],
+        "file": "yarn.lock",
+        "line": 102
+      }
+    ]
+  }
+]

@@ -18,6 +18,9 @@
 //     user, package, outcome or time, as a table, JSON or CSV.
 //   - `userlinks`  list, revoke or issue personal cache links: the per-user
 //     addresses of the package sources that downloads are tracked by.
+//   - `lockfiles`  scan a Git repository's lock files at a commit and list
+//     the exact dependencies they pin (works offline; --config or --url
+//     maps URLs that point at the proxy back to its upstreams).
 //   - `completion` emit a shell-completion script (bash|zsh|fish).
 //
 // It talks to the proxy over HTTP only; it never needs the proxy's config file
@@ -97,6 +100,7 @@ func commands() []command {
 		{"downloads", "show the download log: which package was downloaded from which client address — and by which user (Task 176)", runDownloads},
 		{"userlinks", "list, revoke or issue personal cache links — the per-user addresses downloads are tracked by (Task 177)", runUserLinks},
 		{"intercept", "show TLS-interception/NAT status, fetch the interception CA, or list the hostnames to send to the proxy (Task 172)", runIntercept},
+		{"lockfiles", "list the exact dependencies a Git repository's lock files pin, read at a commit (Task 178)", runLockfiles},
 		{"preset", "list/diff/apply curated compliance policy presets — SLSA/NIST SSDF/hardened (Task 88)", runPreset},
 		{"compaction", "report cache compression & cross-artifact dedup space savings (Task 125)", runCompaction},
 		{"cache-encryption", "report at-rest cache-encryption status or rotate the key-encryption key (Task 141)", runCacheEncryption},

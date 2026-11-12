@@ -1,0 +1,99 @@
+[
+  {
+    "path": "package-lock.json",
+    "type": "npm",
+    "format": "package-lock.json",
+    "formatVersion": "1",
+    "dependencies": [
+      {
+        "type": "npm",
+        "name": "debug",
+        "version": "2.6.9",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "6c2ec496b7496899cf6c03fed44a2d62fa99b1bdde725e708ba05f8ba0494d470da30a7a72fb298348d7ce74532838e6fc4ec076014155e00f54c35c286b0730"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/debug/-/debug-2.6.9.tgz",
+        "file": "package-lock.json",
+        "line": 7
+      },
+      {
+        "type": "npm",
+        "name": "ms",
+        "version": "2.0.0",
+        "digests": [
+          {
+            "algorithm": "sha1",
+            "value": "5608aeadfc00be6c2901df5f9861788de0d597c8"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/ms/-/ms-2.0.0.tgz",
+        "file": "package-lock.json",
+        "line": 15
+      },
+      {
+        "type": "npm",
+        "name": "is-number",
+        "version": "98e8ff1da1a89f93d1397a24d7413ed15421c139",
+        "registry": "https://github.com/jonschlinkert/is-number",
+        "source": "git",
+        "revision": "98e8ff1da1a89f93d1397a24d7413ed15421c139",
+        "file": "package-lock.json",
+        "line": 22
+      },
+      {
+        "type": "npm",
+        "name": "ms",
+        "version": "2.1.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "e85973b9b4cb646dc9d9afcd542025784863ceae68c601f268253dc985ef70bb2fa1568726afece715c8ebf5d73fab73ed1f7100eb479d23bfb57b45dd645394"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+        "dev": true,
+        "file": "package-lock.json",
+        "line": 29
+      },
+      {
+        "type": "npm",
+        "name": "pack-with-bundle",
+        "version": "1.0.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5c8e4c3f354d0298c0ca1433a615fc06498ab0a5310f82ddc8adb88997901a29c137dc93413ddb165081cbf695c761eb35ca901ac768b7c821ae3cabbcc0a810"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/pack-with-bundle/-/pack-with-bundle-1.0.0.tgz",
+        "file": "package-lock.json",
+        "line": 35
+      },
+      {
+        "type": "npm",
+        "name": "string-width",
+        "version": "4.2.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "c0ac90450a63274b08a7ad84ad265d1ac8cc256b1aa79a1136284786ee86ec954effd8c807a5327af2feb57b8eaab9e0f23fdcc4a4d6c96530bd24eb8a2673fe"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/string-width/-/string-width-4.2.3.tgz",
+        "file": "package-lock.json",
+        "line": 46
+      }
+    ],
+    "warnings": [
+      "local-helper: installed from a local path, not fetched"
+    ]
+  }
+]

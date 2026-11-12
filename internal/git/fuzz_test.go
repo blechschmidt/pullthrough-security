@@ -19,7 +19,9 @@ package git
 
 import (
 	"bytes"
+	"encoding/hex"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -184,6 +186,52 @@ func FuzzDescribeDownload(f *testing.F) {
 		}
 		if !bytes.Equal(rest, body) {
 			t.Fatalf("the body was altered by examining it: %d bytes sent, %d left", len(body), len(rest))
+		}
+	})
+}
+
+// FuzzParseTree: a tree object comes from a repository nobody vouched for (the
+// lock-file scanner of Task 178 walks commits through ObjectReader). The parser
+// never panics, accepts only entries a checkout could produce, and reads its
+// own canonical writing of what it accepted back to the same entries.
+func FuzzParseTree(f *testing.F) {
+	hash := bytes.Repeat([]byte{0xab}, 20)
+	entry := func(mode, name string) []byte { return append([]byte(mode+" "+name+"\x00"), hash...) }
+	f.Add(bytes.Join([][]byte{entry("100644", "a"), entry("40000", "d"), entry("160000", "m"), entry("120000", "s")}, nil), 20)
+	f.Add(entry("100755", "package-lock.json"), 20)
+	f.Add(entry("040000", "zero-padded"), 20)
+	f.Add(append([]byte("100644 x\x00"), bytes.Repeat([]byte{1}, 32)...), 32)
+	f.Add([]byte("40000 ..\x00"), 20)
+	f.Add([]byte("100644 a/b\x00"), 20)
+	f.Add([]byte{}, 20)
+	f.Fuzz(func(t *testing.T, data []byte, hashLen int) {
+		if hashLen != 20 && hashLen != 32 {
+			hashLen = 20
+		}
+		entries, err := parseTree(data, hashLen)
+		if err != nil {
+			return
+		}
+		var canonical []byte
+		for _, e := range entries {
+			if validEntryName(e.Name) != nil || len(e.ID) != 2*hashLen || !isHexID(e.ID) {
+				t.Fatalf("accepted entry %+v", e)
+			}
+			raw, err := hex.DecodeString(e.ID)
+			if err != nil || len(raw) != hashLen {
+				t.Fatalf("entry ID %q is not %d bytes of hex", e.ID, hashLen)
+			}
+			canonical = append(canonical, []byte(strconv.FormatUint(uint64(e.Mode), 8)+" "+e.Name+"\x00")...)
+			canonical = append(canonical, raw...)
+		}
+		again, err := parseTree(canonical, hashLen)
+		if err != nil || len(again) != len(entries) {
+			t.Fatalf("the canonical form does not parse: %v", err)
+		}
+		for i := range again {
+			if again[i] != entries[i] {
+				t.Fatalf("entry %d: %+v, then %+v", i, entries[i], again[i])
+			}
 		}
 	})
 }

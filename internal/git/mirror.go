@@ -136,6 +136,26 @@ func (m *Mirror) Ensure(ctx context.Context, up *Upstream, repoPath string) (str
 	return dir, nil
 }
 
+// OpenObjects makes the mirror of (up, repoPath) present and fresh, as Ensure
+// does, and opens an ObjectReader over it: read access to the mirrored
+// repository's commits, trees and files, without a checkout. The lock-file
+// scanner (internal/lockfiles) reads mirrored repositories through it. The
+// caller closes the reader.
+func (m *Mirror) OpenObjects(ctx context.Context, up *Upstream, repoPath string, opts ObjectReaderOptions) (*ObjectReader, error) {
+	clean, err := sanitizeRepoPath(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := m.Ensure(ctx, up, clean)
+	if err != nil {
+		return nil, err
+	}
+	if opts.GitBinary == "" {
+		opts.GitBinary = m.gitBin
+	}
+	return OpenObjectReader(dir, opts)
+}
+
 func (m *Mirror) clone(ctx context.Context, up *Upstream, dir, repoPath string) error {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
 		return fmt.Errorf("git: creating mirror parent dir: %w", err)

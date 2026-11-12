@@ -1,0 +1,13 @@
+GEM
+  remote: https://proxy.example.com/u/ptl1abcdefghijklmnopqrstuvwxyz234567qwertyz/v1/rubygems/
+  specs:
+    rack (3.1.8)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  rack (= 3.1.8)
+
+BUNDLED WITH
+   2.6.9

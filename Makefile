@@ -340,14 +340,46 @@ FUZZ_TARGETS := \
 	internal/userlinks:FuzzDecodeCookie \
 	internal/userlinks:FuzzLoadLink \
 	internal/proxy:FuzzLinkRewriter \
-	internal/proxy:FuzzRedactPersonalPath
+	internal/proxy:FuzzRedactPersonalPath \
+	internal/git:FuzzParseTree \
+	internal/lockfiles:FuzzPackageLock \
+	internal/lockfiles:FuzzNpmShrinkwrap \
+	internal/lockfiles:FuzzYarnLock \
+	internal/lockfiles:FuzzPnpmLock \
+	internal/lockfiles:FuzzRequirementsTxt \
+	internal/lockfiles:FuzzPipfileLock \
+	internal/lockfiles:FuzzPoetryLock \
+	internal/lockfiles:FuzzUVLock \
+	internal/lockfiles:FuzzPDMLock \
+	internal/lockfiles:FuzzCargoLock \
+	internal/lockfiles:FuzzGoMod \
+	internal/lockfiles:FuzzGoSum \
+	internal/lockfiles:FuzzNuGetLock \
+	internal/lockfiles:FuzzGradleLock \
+	internal/lockfiles:FuzzPOM \
+	internal/lockfiles:FuzzGemfileLock \
+	internal/lockfiles:FuzzComposerLock \
+	internal/lockfiles:FuzzDockerfile \
+	internal/lockfiles:FuzzCompose \
+	internal/lockfiles:FuzzTOML \
+	internal/lockfiles:FuzzProxyMapping
+
+# The targets can be split into FUZZ_SHARDS slices, FUZZ_SHARD (0-based)
+# selecting one: target i belongs to shard i mod FUZZ_SHARDS. The nightly CI
+# job runs the slices in parallel — one after another, the targets take longer
+# than a CI job may run.
+FUZZ_SHARDS ?= 1
+FUZZ_SHARD ?= 0
 
 .PHONY: fuzz
-fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m)
-	@set -e; for t in $(FUZZ_TARGETS); do \
-		pkg=$${t%%:*}; fn=$${t##*:}; \
-		echo "==> fuzzing $$fn ($$pkg) for $(FUZZTIME)"; \
-		$(GO) test -tags fuzz -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) ./$$pkg/; \
+fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m; FUZZ_SHARDS=4 FUZZ_SHARD=1 runs a quarter)
+	@set -e; i=0; for t in $(FUZZ_TARGETS); do \
+		if [ $$((i % $(FUZZ_SHARDS))) -eq $(FUZZ_SHARD) ]; then \
+			pkg=$${t%%:*}; fn=$${t##*:}; \
+			echo "==> fuzzing $$fn ($$pkg) for $(FUZZTIME)"; \
+			$(GO) test -tags fuzz -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) ./$$pkg/; \
+		fi; \
+		i=$$((i + 1)); \
 	done
 
 .PHONY: fuzz-seed

@@ -1,0 +1,16 @@
+[project]
+name = "lockfixture-poetry2"
+version = "0.1.0"
+description = "Lock-file fixture for internal/lockfiles (poetry 2.x)"
+requires-python = ">=3.9"
+dependencies = [
+    "requests==2.32.3",
+    "packaging==24.1",
+    "sampleproject @ git+https://github.com/pypa/sampleproject@main",
+]
+
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.group.dev.dependencies]
+iniconfig = "2.0.0"

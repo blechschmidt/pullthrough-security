@@ -1,0 +1,19 @@
+# Hand-maintained requirements, the way people write them.
+-i https://ci-user:s3cret-index-password@pypi.example.com/simple
+--extra-index-url https://pypi.org/simple
+-r ../requirements.txt
+-c constraints.txt
+
+Django==4.2.16 ; python_version >= "3.8"
+requests[socks]==2.32.3 --hash=sha256:70761cfe03c773ceb22aa2f671b4757976145175cdfca038c02654d061d6dcc6
+flask>=2.0
+numpy===1.26.4
+zope.interface == 7.0.3 \
+    --hash=sha256:00b5c3e9744dcdc9e84c24ed6646d5cf0cf66551347b310b3ffd70f056535854 \
+    --hash=sha256:3fcdc76d0cde1c09c37b7c6b0f8beba2d857d8417b055d4f47df9c34ec518bdd
+black==24.*
+my_Weird.Name==0.1  # trailing comment
+sampleproject @ git+https://github.com/pypa/sampleproject@621e4974ca25ce531773def586ba3ed8e736b3fc
+-e git+https://github.com/pypa/sampleproject@621e4974ca25ce531773def586ba3ed8e736b3fc#egg=sampleproject
+-e ./local-package
+six @ https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl#sha256=4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274

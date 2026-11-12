@@ -1,0 +1,265 @@
+[
+  {
+    "path": "api/requirements.txt",
+    "type": "pip",
+    "format": "requirements.txt",
+    "dependencies": [
+      {
+        "type": "pip",
+        "name": "certifi",
+        "version": "2026.10.23",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1"
+          }
+        ],
+        "registry": "https://pypi.org/simple",
+        "upstream": "pypi",
+        "file": "api/requirements.txt",
+        "line": 2
+      },
+      {
+        "type": "pip",
+        "name": "idna",
+        "version": "3.10",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3"
+          }
+        ],
+        "registry": "https://pypi.org/simple",
+        "upstream": "pypi",
+        "file": "api/requirements.txt",
+        "line": 5
+      }
+    ]
+  },
+  {
+    "path": "java/pom.xml",
+    "type": "maven",
+    "format": "pom.xml",
+    "dependencies": [
+      {
+        "type": "maven",
+        "name": "org.slf4j:slf4j-api",
+        "version": "2.0.13",
+        "registry": "https://repo.maven.apache.org/maven2",
+        "upstream": "central",
+        "file": "java/pom.xml",
+        "line": 14
+      }
+    ]
+  },
+  {
+    "path": "php/composer.lock",
+    "type": "composer",
+    "format": "composer.lock",
+    "dependencies": [
+      {
+        "type": "composer",
+        "name": "psr/log",
+        "version": "3.0.2",
+        "registry": "https://repo.packagist.org",
+        "url": "https://proxy.example.com/v1/packagist/dist/psr/log/f16e1d5863e37f8d8c2a01719f5b34baa2b714d3.zip",
+        "upstream": "packagist",
+        "revision": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+        "file": "php/composer.lock",
+        "line": 6
+      }
+    ]
+  },
+  {
+    "path": "ruby/Gemfile.lock",
+    "type": "rubygems",
+    "format": "Gemfile.lock",
+    "formatVersion": "2.6.9",
+    "dependencies": [
+      {
+        "type": "rubygems",
+        "name": "rack",
+        "version": "3.1.8",
+        "registry": "https://rubygems.org",
+        "upstream": "rubygems",
+        "file": "ruby/Gemfile.lock",
+        "line": 4
+      }
+    ]
+  },
+  {
+    "path": "svc/Cargo.lock",
+    "type": "cargo",
+    "format": "Cargo.lock",
+    "formatVersion": "4",
+    "dependencies": [
+      {
+        "type": "cargo",
+        "name": "itoa",
+        "version": "1.0.11",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
+          }
+        ],
+        "registry": "https://index.crates.io/",
+        "upstream": "crates",
+        "file": "svc/Cargo.lock",
+        "line": 5
+      }
+    ]
+  },
+  {
+    "path": "svc/Dockerfile",
+    "type": "docker",
+    "format": "Dockerfile",
+    "dependencies": [
+      {
+        "type": "docker",
+        "name": "library/alpine",
+        "version": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
+          }
+        ],
+        "registry": "https://registry-1.docker.io",
+        "upstream": "dockerhub",
+        "file": "svc/Dockerfile",
+        "line": 1
+      }
+    ],
+    "warnings": [
+      "line 2: image proxy.example.com/u/\u003clink\u003e/dockerhub/library/redis is not pinned by digest"
+    ]
+  },
+  {
+    "path": "web/package-lock.json",
+    "type": "npm",
+    "format": "package-lock.json",
+    "formatVersion": "3",
+    "dependencies": [
+      {
+        "type": "npm",
+        "name": "@types/node",
+        "version": "20.14.10",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "31d8977fe9c3b8cbd8d2024ac727d9effe9416c1133bb986285e783150ff7a4252e87745b69645060ae1e8fb1ebbae174dbd8c2f214f95b5ba863f0761140d39"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://proxy.example.com/v1/npm/@types/node/-/node-20.14.10.tgz",
+        "upstream": "npm",
+        "file": "web/package-lock.json",
+        "line": 16
+      },
+      {
+        "type": "npm",
+        "name": "lodash",
+        "version": "4.17.21",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "bf690311ee7b95e713ba568322e3533f2dd1cb880b189e99d4edef13592b81764daec43e2c54c61d5c558dc5cfb35ecb85b65519e74026ff17675b6f8f916f4a"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://proxy.example.com/v1/npm/lodash/-/lodash-4.17.21.tgz",
+        "upstream": "npm",
+        "file": "web/package-lock.json",
+        "line": 21
+      },
+      {
+        "type": "npm",
+        "name": "ms",
+        "version": "2.1.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "e85973b9b4cb646dc9d9afcd542025784863ceae68c601f268253dc985ef70bb2fa1568726afece715c8ebf5d73fab73ed1f7100eb479d23bfb57b45dd645394"
+          }
+        ],
+        "registry": "https://cache.internal.example/v1/npm-mirror",
+        "url": "https://cache.internal.example/v1/npm-mirror/ms/-/ms-2.1.3.tgz",
+        "upstream": "npm-mirror",
+        "file": "web/package-lock.json",
+        "line": 26
+      },
+      {
+        "type": "npm",
+        "name": "undici-types",
+        "version": "5.26.5",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "26508c3be7a174420aaa517193a21f568014566833edc53bcc3fe1f57674ab37a8b121e650954ecd242fbd84985979055c2f887cb29221f7e1bf4b1566ea7aa4"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://proxy.example.com/v1/npm/undici-types/-/undici-types-5.26.5.tgz",
+        "upstream": "npm",
+        "file": "web/package-lock.json",
+        "line": 31
+      }
+    ]
+  },
+  {
+    "path": "web/yarn.lock",
+    "type": "npm",
+    "format": "yarn.lock",
+    "formatVersion": "1",
+    "dependencies": [
+      {
+        "type": "npm",
+        "name": "left-pad",
+        "version": "1.3.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5c8e4c3f354d0298c0ca1433a615fc06498ab0a5310f82ddc8adb88997901a29c137dc93413ddb165081cbf695c761eb35ca901ac768b7c821ae3cabbcc0a810"
+          },
+          {
+            "algorithm": "sha1",
+            "value": "5b8a3a7765dfe001261dde915589e782f8c94d1e"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://proxy.example.com/v1/npm/left-pad/-/left-pad-1.3.0.tgz",
+        "upstream": "npm",
+        "file": "web/yarn.lock",
+        "line": 5
+      },
+      {
+        "type": "npm",
+        "name": "lodash",
+        "version": "4.17.21",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "bf690311ee7b95e713ba568322e3533f2dd1cb880b189e99d4edef13592b81764daec43e2c54c61d5c558dc5cfb35ecb85b65519e74026ff17675b6f8f916f4a"
+          },
+          {
+            "algorithm": "sha1",
+            "value": "679591c564c3bffaae8454cf0b3df370c3d6911c"
+          }
+        ],
+        "registry": "https://pypi.org/simple",
+        "url": "https://proxy.example.com/v1/pypi/lodash/-/lodash-4.17.21.tgz",
+        "upstream": "pypi",
+        "file": "web/yarn.lock",
+        "line": 10
+      }
+    ],
+    "warnings": [
+      "lodash 4.17.21: the lock file resolves it through proxy upstream \"pypi\", which is a pip upstream"
+    ]
+  }
+]

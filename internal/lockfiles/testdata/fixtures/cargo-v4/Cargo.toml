@@ -1,0 +1,12 @@
+[package]
+name = "fixture-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+itoa = "=1.0.11"
+semver = { git = "https://github.com/dtolnay/semver", tag = "1.0.23" }
+helper = { path = "crates/helper" }
+
+[workspace]
+members = ["crates/helper"]

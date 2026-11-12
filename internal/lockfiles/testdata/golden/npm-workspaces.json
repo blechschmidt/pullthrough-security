@@ -1,0 +1,56 @@
+[
+  {
+    "path": "package-lock.json",
+    "type": "npm",
+    "format": "package-lock.json",
+    "formatVersion": "3",
+    "dependencies": [
+      {
+        "type": "npm",
+        "name": "left-pad",
+        "version": "1.3.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5c8e4c3f354d0298c0ca1433a615fc06498ab0a5310f82ddc8adb88997901a29c137dc93413ddb165081cbf695c761eb35ca901ac768b7c821ae3cabbcc0a810"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+        "dev": true,
+        "file": "package-lock.json",
+        "line": 25
+      },
+      {
+        "type": "npm",
+        "name": "lodash",
+        "version": "4.17.21",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "bf690311ee7b95e713ba568322e3533f2dd1cb880b189e99d4edef13592b81764daec43e2c54c61d5c558dc5cfb35ecb85b65519e74026ff17675b6f8f916f4a"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz",
+        "file": "package-lock.json",
+        "line": 33
+      },
+      {
+        "type": "npm",
+        "name": "ms",
+        "version": "2.1.3",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "e85973b9b4cb646dc9d9afcd542025784863ceae68c601f268253dc985ef70bb2fa1568726afece715c8ebf5d73fab73ed1f7100eb479d23bfb57b45dd645394"
+          }
+        ],
+        "registry": "https://registry.npmjs.org",
+        "url": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+        "file": "package-lock.json",
+        "line": 39
+      }
+    ]
+  }
+]
