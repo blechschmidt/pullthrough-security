@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/git"
@@ -79,6 +80,8 @@ type GitSource struct {
 	opts   GitSourceOptions
 	gitBin string
 	locks  keyedMutex
+	// emptyTrees caches each mirror's empty-tree id (see emptyTree).
+	emptyTrees sync.Map
 }
 
 // NewGitSource validates opts, verifies the git binary exists, and returns a
@@ -358,13 +361,43 @@ func (g *GitSource) buildCommit(ctx context.Context, dir string, repo RepoRef, s
 	}
 	c.RepositoryURL = repo.URL
 
+	// The diff is read with the repository's own attributes switched off. A
+	// .gitattributes line such as `dist/** -diff` (which projects set on
+	// generated or bundled code, and GitHub honours) makes git print "Binary
+	// files differ" for a text file: a change to it would reach the model as
+	// "binary file; contents omitted". tj-actions/changed-files was compromised in
+	// exactly such a file (dist/index.js). Since git 2.41 a bare repository reads
+	// the attributes of HEAD, which is what makes this reach a mirror; pointing
+	// attr.tree at the empty tree leaves git's own content test (a NUL byte)
+	// to decide what is binary. Older gits ignore the key and do not read tree
+	// attributes in a bare repository at all.
 	patch, err := g.run(ctx, dir, g.opts.CommandTimeout,
+		"-c", "attr.tree="+g.emptyTree(ctx, dir),
 		"show", "--format=", "--no-color", "--no-renames", "--unified=3", sha)
 	if err != nil {
 		return nil, fmt.Errorf("watch: reading commit %s diff: %w", sha, err)
 	}
 	c.Files = parsePatch(patch, g.opts.MaxFilesPerCommit, g.opts.MaxPatchBytes)
 	return c, nil
+}
+
+// sha1EmptyTree is the id of the empty tree in a SHA-1 repository.
+const sha1EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// emptyTree returns the id of the empty tree in dir's hash algorithm (a SHA-256
+// repository has another), as git itself computes it.
+func (g *GitSource) emptyTree(ctx context.Context, dir string) string {
+	if v, ok := g.emptyTrees.Load(dir); ok {
+		return v.(string)
+	}
+	id := sha1EmptyTree
+	if out, err := g.run(ctx, dir, g.opts.CommandTimeout, "hash-object", "-t", "tree", "/dev/null"); err == nil {
+		if got := strings.TrimSpace(out); len(got) >= 40 && len(got) <= 64 {
+			id = got
+		}
+	}
+	g.emptyTrees.Store(dir, id)
+	return id
 }
 
 // parseCommitMeta parses the metaFormat output into a Commit (without diff).

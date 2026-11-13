@@ -58,6 +58,30 @@ test-integration: ## Run integration tests (needs MinIO/Git fixtures; see docs)
 test-download-log: ## Download-log integration suite: real cargo & go through the proxy, one address per client (hermetic)
 	$(GO) test -tags integration -count=1 -v ./internal/e2e/downloadlog/
 
+# --- Known malware vs a REAL model (Task 184) --------------------------------
+#
+# Reconstructions of real supply-chain attacks (internal/e2e/livescan/testdata/
+# corpus: Trivy/TeamPCP, LiteLLM, event-stream, ua-parser-js, nx, GlassWorm,
+# tj-actions, …) pulled through the real binary with a real model behind the
+# LLM gates: every malicious release must be refused as malicious, every clean
+# release served, every attacker commit flagged. NOT hermetic and NOT free: it
+# calls the model (~30 calls for the whole corpus, USD 0.5-1.2 at list price,
+# about 2 minutes). Credentials, first found wins:
+# ANTHROPIC_API_KEY (the API, tool mode), CLAUDE_CODE_OAUTH_TOKEN (a
+# subscription token, through Claude Code in bundle mode; needs `claude`), or
+# PT_LIVESCAN_CLAUDE_CREDENTIALS=<Claude Code .credentials.json> (that file's
+# access token, read and never refreshed). See docs/llm-live-scan.md.
+#
+#   make test-live-llm-scan                                        # the whole corpus
+#   make test-live-llm-scan LIVESCAN_SAMPLES="litellm-1.82.8 ctx-0.2.6"
+#   make test-live-llm-scan-hermetic                               # the machinery, with a fake model (free)
+LIVESCAN_SAMPLES ?=
+.PHONY: test-live-llm-scan test-live-llm-scan-hermetic
+test-live-llm-scan: ## Known-malware corpus vs a REAL model (needs a credential, costs model calls; see docs/llm-live-scan.md)
+	PT_LIVESCAN_SAMPLES="$(LIVESCAN_SAMPLES)" $(GO) test -tags livellm -count=1 -v -timeout 120m -run TestKnownMalwareLive ./internal/e2e/livescan/
+test-live-llm-scan-hermetic: ## The live LLM suite's machinery with a fake model: no credential, no model call
+	PT_LIVESCAN_SAMPLES="$(LIVESCAN_SAMPLES)" $(GO) test -tags integration -count=1 -v -run TestKnownMalwareHermetic ./internal/e2e/livescan/
+
 # --- LLM package-content scan, every ecosystem end to end (Task 175) ---------
 #
 # For every upstream type the configuration accepts, the real `pullthrough`

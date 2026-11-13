@@ -754,6 +754,7 @@ func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request
 		Digest:              "sha256:" + hexDigest,
 		Verdict:             run.verdict.Verdict,
 		Confidence:          run.verdict.Confidence,
+		ConfidenceUnstated:  run.verdict.ConfidenceUnstated,
 		Reasons:             run.verdict.Reasons,
 		Evidence:            run.verdict.Evidence,
 		Injection:           injection,

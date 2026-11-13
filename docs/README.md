@@ -39,6 +39,7 @@ pull-through proxy focused on software supply-chain security.
 | Have an LLM review the contents of every downloaded package before it is served (sandboxed, cached per digest, budgeted) | [llm-package-scan.md](llm-package-scan.md) |
 | See exactly which request paths, artifact formats and serve paths of each ecosystem the LLM scans cover (generated from the code) | [llm-package-scan-coverage.md](llm-package-scan-coverage.md) |
 | See the proof that the LLM package scan gates every ecosystem: the end-to-end suite and its ecosystem × scenario matrix | [llm-package-scan.md#testing](llm-package-scan.md#testing) |
+| See whether a real model recognises real attacks (the Trivy/TeamPCP campaign, LiteLLM, …): the known-malware corpus run through the proxy, what the live runs found, and how to switch the gated CI job on | [llm-live-scan.md](llm-live-scan.md) |
 | Decorate PRs / fail CI with unified SARIF findings | [findings.md](findings.md) |
 | Test policy/risk changes against real traffic before rollout | [simreplay.md](simreplay.md) |
 | Add custom admission gates with sandboxed WASM modules | [extensions.md](extensions.md) |

@@ -694,9 +694,9 @@ as hostile data at every step.
   ```
 
   Prose around it, a second object, duplicate or unknown keys, a missing verdict
-  or confidence, a truncated reply, a request for a tool after the allowance was
-  spent — each is a **scan error**. A scan error is never read as benign; only
-  `failMode` decides what happens next.
+  (or a missing confidence, except on a `malicious` verdict), a truncated reply,
+  a request for a tool after the allowance was spent — each is a **scan error**. A scan
+  error is never read as benign; only `failMode` decides what happens next.
 - A canary string is planted in the system prompt. If it appears in the answer
   the model was talked into disclosing its instructions, and the answer is
   discarded (`injection-suspected`).
@@ -727,7 +727,7 @@ inside a single Markdown code fence, nothing before or after it:
 | Key | Type | Rules |
 |-----|------|-------|
 | `verdict` | string | required; `malicious`, `suspicious` or `benign` |
-| `confidence` | number | required; finite; clamped to `[0, 1]` (clamping cannot change which verdict was given) |
+| `confidence` | number | required; finite; clamped to `[0, 1]` (clamping cannot change which verdict was given). The one exception is a `malicious` verdict that leaves it out: it is read as an unqualified one — confidence 1, stored with `confidenceUnstated: true` — because rejecting it would turn a detection into "unscanned", which `failMode: open` serves (Claude Opus 4.8 did this on a correct malicious verdict in the [live known-malware run](llm-live-scan.md)). The reading is never weaker than the rejection it replaces: such a verdict is refused wherever the action refuses malicious ones, and under `failMode: closed` — where the rejection refused — it is refused whatever the action. A `suspicious` or `benign` verdict without a confidence stays malformed |
 | `reasons` | array of strings | optional; at most 10 kept, each cut to 400 characters and stripped of control characters |
 | `evidence` | array of `{path, line, excerpt}` | optional; at most 20 kept; `path` names a file of the unpacked package, `line` a whole number (a nonsensical one is dropped, not the citation), `excerpt` is cut to 300 characters; no other keys, and an item with neither path nor excerpt is ignored |
 
@@ -1190,6 +1190,21 @@ state); a failing row's is always kept, and the test log names it together with
 the requests the stub registry received. Adding a backend means adding
 `internal/e2e/pkgscan/eco_<type>.go`: a stub registry and the requests a client
 makes, registered from `init`.
+
+### Known attacks against a real model
+
+The suite above proves the wiring with a stand-in model. Whether a real model
+*recognises* real attacks is a different question, asked by
+[`internal/e2e/livescan`](llm-live-scan.md): reconstructions of publicly
+documented malicious releases and commits (Trivy and the TeamPCP campaign that
+followed it, LiteLLM, event-stream, ua-parser-js, nx, GlassWorm, tj-actions, …)
+are pulled through the real binary with a model behind the gate, and each must be
+refused as malicious while the last clean release of the same package is served.
+It needs a credential and costs model calls, so CI runs it only when switched on
+(`.github/workflows/live-llm-scan.yml`); what it found about real models — among
+them that a provider's own safeguards can decline to read an attack, and that raw
+invisible characters can trigger that — is recorded in
+[llm-live-scan.md](llm-live-scan.md#what-the-first-live-runs-found).
 
 ### Unit and component tests
 

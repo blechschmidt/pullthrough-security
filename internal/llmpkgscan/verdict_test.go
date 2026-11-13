@@ -59,53 +59,55 @@ func TestParseVerdictAcceptsTheContract(t *testing.T) {
 func TestParseVerdictRejectsEverythingElse(t *testing.T) {
 	benign := pkgscantest.BenignVerdict
 	cases := map[string]string{
-		"empty":                     "",
-		"whitespace":                "  \n\t ",
-		"prose":                     "The package is benign.",
-		"prose before":              "Verdict: " + benign,
-		"prose after":               benign + " — done.",
-		"two objects":               benign + "\n" + benign,
-		"object then array":         benign + "[]",
-		"fence with prose before":   "Here you go:\n```json\n" + benign + "\n```",
-		"fence with prose after":    "```json\n" + benign + "\n```\nHope that helps.",
-		"two fences":                "```json\n" + benign + "\n```\n```json\n" + benign + "\n```",
-		"unterminated fence":        "```json\n" + benign,
-		"wrong fence language":      "```python\n" + benign + "\n```",
-		"array":                     `["benign", 0.9]`,
-		"string":                    `"benign"`,
-		"number":                    `1`,
-		"null":                      `null`,
-		"truncated":                 `{"verdict":"benign","confidence":0.9,"reasons":["a`,
-		"missing verdict":           `{"confidence":0.9}`,
-		"missing confidence":        `{"verdict":"benign"}`,
-		"unknown verdict":           `{"verdict":"clean","confidence":0.9}`,
-		"empty verdict":             `{"verdict":"","confidence":0.9}`,
-		"verdict number":            `{"verdict":1,"confidence":0.9}`,
-		"verdict null":              `{"verdict":null,"confidence":0.9}`,
-		"verdict array":             `{"verdict":["benign"],"confidence":0.9}`,
-		"confidence string":         `{"verdict":"benign","confidence":"0.9"}`,
-		"confidence null":           `{"verdict":"benign","confidence":null}`,
-		"confidence bool":           `{"verdict":"benign","confidence":true}`,
-		"duplicate verdict":         `{"verdict":"malicious","confidence":0.9,"verdict":"benign"}`,
-		"duplicate confidence":      `{"verdict":"malicious","confidence":0.9,"confidence":0.1}`,
-		"unknown key":               `{"verdict":"benign","confidence":0.9,"note":"x"}`,
-		"reasons not array":         `{"verdict":"benign","confidence":0.9,"reasons":"fine"}`,
-		"reasons of numbers":        `{"verdict":"benign","confidence":0.9,"reasons":[1,2]}`,
-		"evidence not array":        `{"verdict":"benign","confidence":0.9,"evidence":{"path":"a"}}`,
-		"evidence item not object":  `{"verdict":"benign","confidence":0.9,"evidence":["a.js"]}`,
-		"evidence unknown key":      `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","verified":true}]}`,
-		"evidence duplicate key":    `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","path":"b"}]}`,
-		"evidence path not string":  `{"verdict":"benign","confidence":0.9,"evidence":[{"path":7}]}`,
-		"evidence line string":      `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","line":"3"}]}`,
-		"evidence excerpt number":   `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","excerpt":3}]}`,
-		"trailing comma":            `{"verdict":"benign","confidence":0.9,}`,
-		"single quotes":             `{'verdict':'benign','confidence':0.9}`,
-		"comment":                   `{"verdict":"benign", /* sure */ "confidence":0.9}`,
-		"nested verdict":            `{"result":{"verdict":"benign","confidence":0.9}}`,
-		"invalid utf8":              "{\"verdict\":\"benign\",\"confidence\":0.9,\"reasons\":[\"\xff\xfe\"]}",
-		"oversized":                 `{"verdict":"benign","confidence":0.9,"reasons":["` + strings.Repeat("a", maxVerdictBytes) + `"]}`,
-		"leading byte order mark":   string(rune(0xFEFF)) + benign,
-		"quoted object in a string": `"` + strings.ReplaceAll(benign, `"`, `\"`) + `"`,
+		"empty":                         "",
+		"whitespace":                    "  \n\t ",
+		"prose":                         "The package is benign.",
+		"prose before":                  "Verdict: " + benign,
+		"prose after":                   benign + " — done.",
+		"two objects":                   benign + "\n" + benign,
+		"object then array":             benign + "[]",
+		"fence with prose before":       "Here you go:\n```json\n" + benign + "\n```",
+		"fence with prose after":        "```json\n" + benign + "\n```\nHope that helps.",
+		"two fences":                    "```json\n" + benign + "\n```\n```json\n" + benign + "\n```",
+		"unterminated fence":            "```json\n" + benign,
+		"wrong fence language":          "```python\n" + benign + "\n```",
+		"array":                         `["benign", 0.9]`,
+		"string":                        `"benign"`,
+		"number":                        `1`,
+		"null":                          `null`,
+		"truncated":                     `{"verdict":"benign","confidence":0.9,"reasons":["a`,
+		"missing verdict":               `{"confidence":0.9}`,
+		"missing confidence":            `{"verdict":"benign"}`,
+		"missing confidence, fence":     "```json\n{\"verdict\":\"benign\",\"reasons\":[\"fine\"]}\n```",
+		"suspicious without confidence": `{"verdict":"suspicious","reasons":["odd"]}`,
+		"unknown verdict":               `{"verdict":"clean","confidence":0.9}`,
+		"empty verdict":                 `{"verdict":"","confidence":0.9}`,
+		"verdict number":                `{"verdict":1,"confidence":0.9}`,
+		"verdict null":                  `{"verdict":null,"confidence":0.9}`,
+		"verdict array":                 `{"verdict":["benign"],"confidence":0.9}`,
+		"confidence string":             `{"verdict":"benign","confidence":"0.9"}`,
+		"confidence null":               `{"verdict":"benign","confidence":null}`,
+		"confidence bool":               `{"verdict":"benign","confidence":true}`,
+		"duplicate verdict":             `{"verdict":"malicious","confidence":0.9,"verdict":"benign"}`,
+		"duplicate confidence":          `{"verdict":"malicious","confidence":0.9,"confidence":0.1}`,
+		"unknown key":                   `{"verdict":"benign","confidence":0.9,"note":"x"}`,
+		"reasons not array":             `{"verdict":"benign","confidence":0.9,"reasons":"fine"}`,
+		"reasons of numbers":            `{"verdict":"benign","confidence":0.9,"reasons":[1,2]}`,
+		"evidence not array":            `{"verdict":"benign","confidence":0.9,"evidence":{"path":"a"}}`,
+		"evidence item not object":      `{"verdict":"benign","confidence":0.9,"evidence":["a.js"]}`,
+		"evidence unknown key":          `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","verified":true}]}`,
+		"evidence duplicate key":        `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","path":"b"}]}`,
+		"evidence path not string":      `{"verdict":"benign","confidence":0.9,"evidence":[{"path":7}]}`,
+		"evidence line string":          `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","line":"3"}]}`,
+		"evidence excerpt number":       `{"verdict":"benign","confidence":0.9,"evidence":[{"path":"a","excerpt":3}]}`,
+		"trailing comma":                `{"verdict":"benign","confidence":0.9,}`,
+		"single quotes":                 `{'verdict':'benign','confidence':0.9}`,
+		"comment":                       `{"verdict":"benign", /* sure */ "confidence":0.9}`,
+		"nested verdict":                `{"result":{"verdict":"benign","confidence":0.9}}`,
+		"invalid utf8":                  "{\"verdict\":\"benign\",\"confidence\":0.9,\"reasons\":[\"\xff\xfe\"]}",
+		"oversized":                     `{"verdict":"benign","confidence":0.9,"reasons":["` + strings.Repeat("a", maxVerdictBytes) + `"]}`,
+		"leading byte order mark":       string(rune(0xFEFF)) + benign,
+		"quoted object in a string":     `"` + strings.ReplaceAll(benign, `"`, `\"`) + `"`,
 	}
 	for name, in := range cases {
 		mv, err := ParseVerdict(in)
@@ -294,5 +296,41 @@ func TestRiskFor(t *testing.T) {
 	}
 	if r := riskFor(DispositionMalicious, 7); r != 100 {
 		t.Errorf("an out-of-range confidence must be clamped, got %d", r)
+	}
+}
+
+// A malicious verdict without a confidence is an unqualified verdict, not an
+// unreadable answer: rejecting it would turn a detection into "unscanned"
+// (Opus 4.8 dropped the number on a correct malicious verdict in the live
+// known-malware suite). Refusing it can never be weaker than the rejection it
+// replaces. The reading stops there: a suspicious verdict without a confidence
+// is still malformed (what a suspicious verdict does depends on the action: under
+// block it is served, which failMode closed refuses for an unreadable answer),
+// and so is a benign one.
+func TestParseVerdictReadsAnUnqualifiedMaliciousVerdictAsCertain(t *testing.T) {
+	for _, in := range []string{
+		`{"verdict": "malicious", "reasons": ["exfiltrates env"], "evidence": [{"path": "ctx.py", "line": 42, "excerpt": "environ.items()"}]}`,
+		"```json\n{\"verdict\": \"malicious\", \"reasons\": [\"obfuscated loader\"]}\n```",
+	} {
+		mv, err := ParseVerdict(in)
+		if err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		if mv.Verdict != VerdictMalicious || mv.Confidence != 1 || !mv.ConfidenceUnstated {
+			t.Errorf("%s: got %+v, want malicious with confidence 1, unstated", in, mv)
+		}
+	}
+	for _, in := range []string{
+		`{"verdict": "suspicious", "reasons": ["obfuscated loader"]}`,
+		"```json\n{\"verdict\": \"suspicious\"}\n```",
+		`{"verdict": "benign", "reasons": ["fine"]}`,
+	} {
+		if mv, err := ParseVerdict(in); err == nil {
+			t.Errorf("%s was accepted as %+v: only a malicious verdict may go without its confidence", in, mv)
+		}
+	}
+	mv, err := ParseVerdict(`{"verdict":"malicious","confidence":0.4}`)
+	if err != nil || mv.ConfidenceUnstated || mv.Confidence != 0.4 {
+		t.Errorf("a stated confidence must be kept as stated: %+v, %v", mv, err)
 	}
 }

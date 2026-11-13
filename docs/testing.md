@@ -8,6 +8,7 @@ default developer loop stays fast and deterministic.
 | Unit + component | _(none)_ | `make test` | every PR, locally |
 | Integration | `integration` | `make test-integration` | on demand (needs Git/MinIO fixtures); the hermetic per-ecosystem suites in `internal/e2e` run on every PR (`integration` job) |
 | LLM package scan, every ecosystem | `integration` | `make test-llm-package-scan` | every PR (`llm-package-scan` job; gates the image build) |
+| Known malware vs a real model | `livellm` | `make test-live-llm-scan` | off until a repository variable and a credential are set (the gated `live-llm-scan` workflow); its hermetic twin, `make test-live-llm-scan-hermetic`, runs on every PR (`integration` job) |
 | Ecosystem (real package managers) | `ecosystem` | `make test-ecosystems` | every PR and nightly, one CI job per ecosystem (needs Docker + network) |
 | Client lab (the client guide, executed) | _(scripts)_ | `make client-lab` | nightly, on demand, and when the lab or the guide changes, one CI job per client image (needs Docker + network) |
 | Fuzz | `fuzz` | `make fuzz` / `make fuzz-seed` | seed corpora on every PR; extended nightly |
@@ -65,6 +66,22 @@ fully passing row. Hermetic; CI runs it in its own `llm-package-scan` job. See
 ```sh
 make test-llm-package-scan                                 # go test -tags integration ./internal/e2e/pkgscan/
 make test-llm-package-scan PKGSCAN_ECOSYSTEMS="npm docker"  # a selection
+```
+
+The **known-malware suite** (`internal/e2e/livescan`, Task 184) asks the
+question that suite cannot: does a *real* model recognise real attacks?
+Reconstructions of publicly documented malicious releases and commits (the
+Trivy/TeamPCP campaign, LiteLLM, ctx, ultralytics, and more, each with its
+sources) are pulled through the real binary with a real model behind the LLM
+gates: every malicious release must be refused as malicious and stay refused,
+every clean release served byte for byte, every attacker commit flagged. It
+needs a credential and costs model calls, so it is switched off by default: a
+hermetic twin with a fake model runs on every PR, and the real run is the gated
+`live-llm-scan` workflow. See [llm-live-scan.md](llm-live-scan.md).
+
+```sh
+make test-live-llm-scan-hermetic                                 # the machinery, a fake model, free
+PT_LIVESCAN_CLAUDE_CREDENTIALS=… make test-live-llm-scan          # the whole corpus, a real model
 ```
 
 The hermetic **per-ecosystem integration suites** (`internal/e2e`, Tasks 144 and

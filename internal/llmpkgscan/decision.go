@@ -391,7 +391,19 @@ func (s *Service) Decide(rep *Report) Decision {
 	}
 	if !action.refusesDisposition(rep.Disposition) {
 		// Served with the verdict on record: annotate, or a suspicious artifact
-		// under block.
+		// under block. Except that a verdict the model gave without its
+		// confidence (read as certain, see ParseVerdict) is not served under
+		// failMode closed: the malformed answer it replaces was refused there,
+		// and an answer is not served for having lost a number.
+		if rep.Verdict != nil && rep.Verdict.ConfidenceUnstated && s.cfg.FailMode == FailClosed {
+			return Decision{
+				Outcome:    OutcomeRefuse,
+				Action:     "fail-closed",
+				Code:       CodeMalformedOutput,
+				PolicyCode: PolicyCodeUnscanned,
+				Reason:     "the model judged the package " + string(rep.Disposition) + " without stating a confidence; refused under the fail-closed policy",
+			}
+		}
 		return d
 	}
 	// Refused. The artifact is evicted in either mode; what differs is which

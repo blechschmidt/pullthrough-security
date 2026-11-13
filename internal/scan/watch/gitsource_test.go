@@ -5,7 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/blechschmidt/pullthrough-security/internal/scan/commit"
 )
 
 // gitRepo is a throwaway origin repository driven by the real git binary.
@@ -306,5 +309,63 @@ func TestRefSnapshotOfARefspecMirror(t *testing.T) {
 	}
 	if !gs.HasCommit(ctx, ref, first) {
 		t.Fatal("a kept commit was lost when its tags were pruned")
+	}
+}
+
+// A change in a file the project marks `-diff` (generated or bundled code, the
+// way tj-actions/changed-files keeps dist/index.js) must still reach the commit
+// scan as a text diff. With the repository's attributes honoured git prints
+// "Binary files differ", and the model would be told "binary file; contents
+// omitted" about the file the attacker changed.
+func TestGitSourceShowsChangesToFilesMarkedNoDiff(t *testing.T) {
+	origin := newGitRepo(t)
+	if err := os.MkdirAll(filepath.Join(origin.dir, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origin.commit(".gitattributes", "dist/** -diff\n", "mark dist as not diffable")
+	origin.commit("dist/index.js", "function a() { return 1 }\n", "bundle")
+	origin.commit("dist/index.js", "function a() { return 1 }\nfunction updateFeatures() { return 2 }\n", "rebundle")
+	// A real binary is still reported as one, and its bytes are not shown.
+	if err := os.WriteFile(filepath.Join(origin.dir, "logo.png"), []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x01"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origin.git("add", "logo.png")
+	origin.git("commit", "--quiet", "-m", "add a logo")
+
+	gs := newTestGitSource(t)
+	batch, err := gs.NewCommits(context.Background(), RepoRef{Name: "test", URL: origin.dir}, nil, nil, 100)
+	if err != nil {
+		t.Fatalf("NewCommits: %v", err)
+	}
+	bySubject := map[string]*commit.Commit{}
+	for _, c := range batch.Commits {
+		bySubject[c.Subject()] = c
+	}
+	rebundle := bySubject["rebundle"]
+	if rebundle == nil || len(rebundle.Files) != 1 {
+		t.Fatalf("the rebundle commit: %+v", rebundle)
+	}
+	f := rebundle.Files[0]
+	if f.Binary || !strings.Contains(f.Patch, "+function updateFeatures()") {
+		t.Errorf("dist/index.js (marked -diff) reached the scan as binary=%v with patch %q, want its text diff", f.Binary, f.Patch)
+	}
+	logo := bySubject["add a logo"]
+	if logo == nil || len(logo.Files) != 1 || !logo.Files[0].Binary || logo.Files[0].Patch != "" {
+		t.Errorf("a real binary file must stay binary with no patch: %+v", logo)
+	}
+}
+
+// The empty tree is whatever git says it is for the repository's hash
+// algorithm, and the answer is cached per mirror.
+func TestGitSourceEmptyTree(t *testing.T) {
+	origin := newGitRepo(t)
+	origin.commit("a.txt", "x\n", "add a")
+	gs := newTestGitSource(t)
+	got := gs.emptyTree(context.Background(), origin.dir)
+	if got != sha1EmptyTree {
+		t.Errorf("emptyTree = %q, want the SHA-1 empty tree %s", got, sha1EmptyTree)
+	}
+	if v, ok := gs.emptyTrees.Load(origin.dir); !ok || v.(string) != got {
+		t.Errorf("the answer was not cached: %v %v", v, ok)
 	}
 }

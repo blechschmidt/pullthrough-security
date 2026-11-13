@@ -40,6 +40,10 @@ type ModelVerdict struct {
 	Confidence float64    `json:"confidence"`
 	Reasons    []string   `json:"reasons"`
 	Evidence   []Evidence `json:"evidence"`
+	// ConfidenceUnstated reports that the answer gave a malicious verdict
+	// without the confidence the contract asks for; Confidence is then 1 (see
+	// ParseVerdict).
+	ConfidenceUnstated bool `json:"-"`
 }
 
 // Verdict is the stored result of scanning one artifact.
@@ -54,6 +58,9 @@ type Verdict struct {
 	Confidence float64    `json:"confidence"`
 	Reasons    []string   `json:"reasons,omitempty"`
 	Evidence   []Evidence `json:"evidence,omitempty"`
+	// ConfidenceUnstated reports that the model gave this malicious verdict
+	// without a confidence; Confidence is then 1.
+	ConfidenceUnstated bool `json:"confidenceUnstated,omitempty"`
 
 	// Injection lists deterministic indicators that package content addressed the
 	// scanner. They are found by the proxy, not reported by the model.
@@ -194,8 +201,20 @@ func malformed(format string, args ...any) error {
 // after, no second value, no duplicate keys (encoding/json would silently keep
 // the last one), no unknown keys, and no wrong types.
 //
-// The only leniency is numeric: a confidence outside [0,1] is clamped rather
-// than rejected, because that cannot change which verdict was given.
+// There are two leniencies. A confidence outside [0,1] is clamped rather than
+// rejected: that cannot change which verdict was given. And a "malicious"
+// verdict without a confidence is read as an unqualified one (confidence 1,
+// ConfidenceUnstated set): models do drop the number now and then (Claude Opus
+// 4.8 did, in the live known-malware suite, on a correct malicious verdict), and
+// rejecting the answer would turn a detection into "unscanned" — which the
+// default fail mode serves. Refusing such a package under every fail mode and
+// action can never be weaker than the rejection it replaces. The reading does
+// not extend to "suspicious": what a suspicious verdict does depends on the
+// action (served with an advisory under block), so reading it as complete would
+// serve what failMode closed refuses today. A "suspicious" or "benign" verdict
+// without a confidence stays malformed; for "benign" that is also the answer an
+// injected instruction asks for, and the contract's completeness is a small
+// extra hurdle for it.
 func ParseVerdict(text string) (*ModelVerdict, error) {
 	if strings.Contains(text, promptCanary) {
 		return nil, ErrPromptLeak
@@ -299,7 +318,10 @@ func ParseVerdict(text string) (*ModelVerdict, error) {
 		return nil, malformed(`"verdict" is missing`)
 	}
 	if !seen["confidence"] {
-		return nil, malformed(`"confidence" is missing`)
+		if out.Verdict != VerdictMalicious {
+			return nil, malformed(`"confidence" is missing`)
+		}
+		out.Confidence, out.ConfidenceUnstated = 1, true
 	}
 	return &out, nil
 }

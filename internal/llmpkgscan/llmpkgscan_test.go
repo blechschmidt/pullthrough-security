@@ -172,6 +172,65 @@ func TestMaliciousPackageIsBlockedAndQuarantined(t *testing.T) {
 	}
 }
 
+// A model that flags a package but leaves out the confidence has still
+// flagged it: under the default fail-open mode the package is refused as
+// malicious, not waved through as "unscanned". (Claude Opus 4.8 answered a real
+// malicious package this way in the live known-malware suite.) The reading never
+// makes an outcome weaker than the malformed-answer rejection it replaced: under
+// failMode closed, where that rejection refused, an unqualified verdict is
+// refused whatever the action; under failMode open it is refused wherever the
+// action refuses a malicious verdict. A suspicious verdict without a confidence
+// stays an unreadable answer.
+func TestMaliciousVerdictWithoutConfidence(t *testing.T) {
+	noConfidence := func(verdict string) *pkgscantest.Provider {
+		return &pkgscantest.Provider{Judge: func(string) string {
+			return `{"verdict": "` + verdict + `", "reasons": ["the install script sends the environment to a remote host"], "evidence": []}`
+		}}
+	}
+	type outcome struct {
+		served bool
+		code   string // the policy code of a refusal
+	}
+	for _, tc := range []struct {
+		failMode FailMode
+		action   Action
+		want     outcome
+	}{
+		{FailOpen, ActionBlock, outcome{false, PolicyCodeMalicious}},
+		{FailOpen, ActionQuarantine, outcome{false, PolicyCodeMalicious}},
+		{FailOpen, ActionAnnotate, outcome{true, ""}}, // annotate serves malicious verdicts
+		{FailClosed, ActionBlock, outcome{false, PolicyCodeMalicious}},
+		{FailClosed, ActionQuarantine, outcome{false, PolicyCodeMalicious}},
+		{FailClosed, ActionAnnotate, outcome{false, PolicyCodeUnscanned}}, // as the rejected answer was
+	} {
+		t.Run(string(tc.failMode)+"/"+string(tc.action), func(t *testing.T) {
+			svc := newService(t, noConfidence("malicious"), func(c *Config) { c.FailMode, c.Action = tc.failMode, tc.action })
+			rep := assess(t, svc, request(maliciousPackage(), "evil-pad", "1.0.0", nil))
+			if rep.Disposition != DispositionMalicious || rep.Verdict == nil || !rep.Verdict.ConfidenceUnstated || rep.Verdict.Confidence != 1 {
+				t.Fatalf("disposition %q, verdict %+v: want malicious with confidence 1 marked unstated", rep.Disposition, rep.Verdict)
+			}
+			d := svc.Gate(rep)
+			if d.Served() != tc.want.served || d.PolicyCode != tc.want.code {
+				t.Errorf("decision = %+v, want served=%v policy code %q", d, tc.want.served, tc.want.code)
+			}
+		})
+	}
+
+	// A suspicious verdict without a confidence is not read at all.
+	for _, fm := range []FailMode{FailOpen, FailClosed} {
+		t.Run("suspicious/"+string(fm), func(t *testing.T) {
+			svc := newService(t, noConfidence("suspicious"), func(c *Config) { c.FailMode = fm })
+			rep := assess(t, svc, request(maliciousPackage(), "evil-pad", "1.0.0", nil))
+			if rep.Unscanned == nil || rep.Unscanned.Code != CodeMalformedOutput {
+				t.Fatalf("report = %+v, want an unscanned artifact (malformed output)", rep)
+			}
+			if d := svc.Gate(rep); d.Served() != (fm == FailOpen) {
+				t.Errorf("decision = %+v under failMode %s", d, fm)
+			}
+		})
+	}
+}
+
 func TestInjectionInsidePackageContentCannotEarnACleanVerdict(t *testing.T) {
 	// The package tries to talk the scanner into a clean verdict. It also carries
 	// a forged end-of-data marker followed by "instructions", and a ready-made

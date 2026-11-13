@@ -1,0 +1,186 @@
+name: Live LLM scan
+
+# The known-malware corpus against a REAL model (Task 184, docs/llm-live-scan.md).
+#
+# Reconstructions of publicly documented supply-chain attacks (Trivy and the
+# TeamPCP campaign that followed it, LiteLLM, event-stream, ua-parser-js,
+# s1ngularity, GlassWorm, tj-actions, ...) are pulled through the real
+# `pullthrough` binary with a real model behind the LLM
+# package-content scan and the LLM commit scan: every malicious release must be
+# refused with a malicious verdict, every clean release served unchanged, every
+# attacker commit flagged and every control commit not.
+#
+# SWITCHED OFF. The job below runs only when the repository VARIABLE
+# LIVE_LLM_SCAN_ENABLED is "true", and it needs one of two repository SECRETS:
+#
+#   CLAUDE_CODE_OAUTH_TOKEN  a Claude subscription token (`claude setup-token`).
+#                            It is used by Claude Code itself, behind a loopback
+#                            bridge (internal/e2e/livescan/bridge.go): the proxy
+#                            never holds it, and the model has no tools.
+#   ANTHROPIC_API_KEY        an API key. The gates call the API directly, in the
+#                            package scan's default tool mode. Wins when both exist.
+#
+# While the variable is unset every trigger below ends in a skipped job, so this
+# file can sit in the repository, be reviewed and be run by hand
+# (`gh workflow run live-llm-scan.yml`) once switched on. The plumbing it relies
+# on — the corpus, the bridge, the suite's judging — runs on every push with a
+# fake model, in the ordinary `integration` job (TestKnownMalwareHermetic), so
+# this job cannot rot unnoticed while it is off.
+#
+# It is not hermetic and not free: about 30 model calls for the whole corpus
+# (USD 0.5-1.2 at list price, 2 minutes on the first runs). It never runs for
+# pull requests: they would hand the credential to whoever can edit the
+# workflow or the tests.
+
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: "Corpus samples to run (space separated ids; empty = the whole corpus)"
+        required: false
+        default: ""
+      model:
+        description: "Model of the package scan (empty = the proxy's default)"
+        required: false
+        default: ""
+      effort:
+        description: "Claude Code effort for the bridge route (low|medium|high|xhigh|max; empty = default)"
+        required: false
+        default: ""
+      claude_code_version:
+        description: "Claude Code version for the bridge route (empty = the pinned one)"
+        required: false
+        default: ""
+  schedule:
+    # Weekly (Monday 05:23 UTC): the model, not the code, is what drifts.
+    - cron: "23 5 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "internal/llmpkgscan/**"
+      - "internal/scan/commit/**"
+      - "internal/scan/watch/**"
+      - "internal/e2e/livescan/**"
+      - ".github/workflows/live-llm-scan.yml"
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.24.1"
+  # The Claude Code version the bridge route was verified with (its flags —
+  # --tools, --strict-mcp-config, --safe-mode, --system-prompt-file — are part
+  # of the isolation the suite checks). Raise it deliberately.
+  CLAUDE_CODE_VERSION: "2.1.319"
+
+# One paid run at a time, and never cancel one that is running.
+concurrency:
+  group: live-llm-scan
+  cancel-in-progress: false
+
+jobs:
+  live-scan:
+    name: Known malware vs a real model
+    # THE GATE. Nothing runs, and no secret is read, until this variable is set:
+    #   gh variable set LIVE_LLM_SCAN_ENABLED --body true
+    # And only on main: a repository secret is reachable from whatever ref a
+    # writer dispatches, and a branch can carry edited tests; main is reviewed.
+    if: ${{ vars.LIVE_LLM_SCAN_ENABLED == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      # No job token left in .git/config: the proxy, git and the CLI child all
+      # run as this user and could read it.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check that a credential is configured
+        id: route
+        env:
+          HAVE_API_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAVE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAVE_API_KEY" = "true" ]; then
+            echo "route=api" >> "$GITHUB_OUTPUT"
+            echo "Route: the Anthropic API (ANTHROPIC_API_KEY), tool mode."
+          elif [ "$HAVE_OAUTH_TOKEN" = "true" ]; then
+            echo "route=claude-code" >> "$GITHUB_OUTPUT"
+            echo "Route: Claude Code (CLAUDE_CODE_OAUTH_TOKEN), bundle mode."
+          else
+            echo "::error title=No credential::LIVE_LLM_SCAN_ENABLED is true, but neither the secret ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set (docs/llm-live-scan.md, 'Switching it on')."
+            exit 1
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # Only the bridge route needs the CLI.
+      - name: Set up Node.js (Claude Code)
+        if: steps.route.outputs.route == 'claude-code'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Claude Code
+        if: steps.route.outputs.route == 'claude-code'
+        env:
+          VERSION: ${{ inputs.claude_code_version || env.CLAUDE_CODE_VERSION }}
+        run: |
+          npm install --global "@anthropic-ai/claude-code@${VERSION}"
+          claude --version
+
+      - name: Build the proxy under test
+        run: go build -o "$RUNNER_TEMP/pullthrough" ./cmd/pullthrough
+
+      # The test, not this step, decides pass or fail: it reads the verdicts
+      # the proxy recorded. The credentials are in this step's environment
+      # only; the proxy child gets the API key (route api) and the bridge's CLI
+      # children the token (route claude-code), never both, never in a file.
+      - name: Run the corpus against the model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PT_LIVESCAN_PROXY_BIN: ${{ runner.temp }}/pullthrough
+          PT_LIVESCAN_WORKDIR: ${{ runner.temp }}/live-llm-scan-work
+          PT_TEST_REPORT_DIR: ${{ runner.temp }}/live-llm-scan-report
+          PT_LIVESCAN_SAMPLES: ${{ inputs.samples }}
+          PT_LIVESCAN_MODEL: ${{ inputs.model }}
+          PT_LIVESCAN_EFFORT: ${{ inputs.effort }}
+        run: go test -tags livellm -count=1 -v -timeout 100m -run TestKnownMalwareLive ./internal/e2e/livescan/
+
+      - name: Publish the report
+        if: always()
+        run: |
+          f="$RUNNER_TEMP/live-llm-scan-report/live-llm-scan-report.md"
+          if [ -f "$f" ]; then
+            cat "$f" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The suite wrote no report: it stopped before the corpus was judged." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-llm-scan-report
+          path: ${{ runner.temp }}/live-llm-scan-report
+          if-no-files-found: ignore
+
+      # The proxy's log and configuration, the verdict stores and the commit
+      # repositories. The configuration names the key by reference and the
+      # bridge's own key is random per run; the bridge's state directory (the
+      # home and configuration directory of a Claude Code call that a timeout
+      # killed) is left out.
+      - name: Upload the workspace
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-llm-scan-workspace
+          path: |
+            ${{ runner.temp }}/live-llm-scan-work
+            !${{ runner.temp }}/live-llm-scan-work/bridge
+          if-no-files-found: ignore

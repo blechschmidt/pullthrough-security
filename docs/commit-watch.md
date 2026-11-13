@@ -41,6 +41,15 @@ Commit enumeration and diff extraction use the `git` binary against a local bare
 mirror of each repository (kept under `mirrorDir`), so the scanner reads real
 commit diffs, not just the truncated commit list a webhook payload carries.
 
+Diffs are read with the repository's own attributes switched off
+(`git -c attr.tree=<empty tree> show …`). A `.gitattributes` line such as
+`dist/** -diff`, which projects set on generated or bundled code, makes git
+print "Binary files differ" for a text file, and a change to such a file would
+reach the model as "binary file; contents omitted" — the file the
+tj-actions/changed-files attacker changed. Git's own content test (a NUL byte)
+decides what is binary instead, so real binaries stay omitted. The
+[known-malware suite](llm-live-scan.md) holds that attack as a regression test.
+
 ## The push-webhook endpoint
 
 The receiver is mounted at `webhookPath` (default `/webhooks/git`), **outside**

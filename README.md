@@ -67,7 +67,11 @@ metrics plus an admin dashboard.
 > reused, both fail modes behave, and a prompt injection inside a package does
 > not turn the verdict. See
 > [docs/llm-package-scan.md](docs/llm-package-scan.md); the ecosystem × scenario
-> matrix is attached to every CI run.
+> matrix is attached to every CI run. A second suite pulls reconstructions of
+> real attacks (the Trivy/TeamPCP campaign, LiteLLM, event-stream,
+> ua-parser-js, …) through the proxy with a *real* model behind the scan; it
+> stays switched off in CI until a credential is configured
+> ([docs/llm-live-scan.md](docs/llm-live-scan.md)).
 >
 > **Who pulled what.** The admin console's Downloads tab (and
 > `GET /admin/api/downloads`, `ptctl downloads`) lists every package download

