@@ -125,8 +125,19 @@ jobs:
         if: matrix.arch == 'amd64'
         run: make lockfile-reference-check
 
+      # The output is kept as an artifact when a test fails: job logs need
+      # admin rights to download, artifacts do not.
       - name: Test (race + coverage)
-        run: go test -race -covermode=atomic -coverprofile=coverage-${{ matrix.arch }}.out ./...
+        shell: bash
+        run: go test -race -covermode=atomic -coverprofile=coverage-${{ matrix.arch }}.out ./... 2>&1 | tee test-output-${{ matrix.arch }}.txt
+
+      - name: Upload the test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.arch }}
+          path: test-output-${{ matrix.arch }}.txt
+          if-no-files-found: ignore
 
       # Replay every fuzz seed corpus (real + known-malformed samples, plus any
       # regression inputs found by past fuzzing) as fast, deterministic tests.
@@ -215,7 +226,16 @@ jobs:
             || { echo "built binary is not a FIPS variant (no GOFIPS140 build setting)"; exit 1; }
 
       - name: Test under the FIPS module (GODEBUG=fips140=on)
-        run: make test-fips
+        shell: bash
+        run: make test-fips 2>&1 | tee fips-test-output-${{ matrix.arch }}.txt
+
+      - name: Upload the test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fips-test-output-${{ matrix.arch }}
+          path: fips-test-output-${{ matrix.arch }}.txt
+          if-no-files-found: ignore
 
   # ----------------------------------------------------------------------- #
   # Mutation / test-quality gate (Task 157). Measures the fault-detection
