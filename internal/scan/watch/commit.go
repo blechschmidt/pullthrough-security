@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -369,9 +370,14 @@ func (g *GitSource) PushBranch(ctx context.Context, repo RepoRef, branch, commit
 	}
 
 	ref := "refs/heads/" + branch
+	from, done, err := g.pushRepo(ctx, dir)
+	if err != nil {
+		return err
+	}
+	defer done()
 	// --no-follow-tags, --recurse-submodules=no and --no-signed override what
 	// a git configuration on this host might ask every push to do.
-	res, err := g.runGit(ctx, gitExec{dir: dir, timeout: g.opts.FetchTimeout, env: authEnv(repo), maxStdout: maxRemoteOutput,
+	res, err := g.runGit(ctx, gitExec{dir: from, timeout: g.opts.FetchTimeout, env: authEnv(repo), maxStdout: maxRemoteOutput,
 		args: g.safeArgs("push", "--porcelain", "--atomic", "--no-verify", "--no-follow-tags",
 			"--recurse-submodules=no", "--no-signed", "--force-with-lease="+ref+":"+expect,
 			"--", repo.URL, commit+":"+ref)})
@@ -422,7 +428,12 @@ func (g *GitSource) DeleteBranch(ctx context.Context, repo RepoRef, branch, expe
 		return errors.New("watch: the repository's mirror is not there yet")
 	}
 	ref := "refs/heads/" + branch
-	res, err := g.runGit(ctx, gitExec{dir: dir, timeout: g.opts.FetchTimeout, env: authEnv(repo), maxStdout: maxRemoteOutput,
+	from, done, err := g.pushRepo(ctx, dir)
+	if err != nil {
+		return err
+	}
+	defer done()
+	res, err := g.runGit(ctx, gitExec{dir: from, timeout: g.opts.FetchTimeout, env: authEnv(repo), maxStdout: maxRemoteOutput,
 		args: g.safeArgs("push", "--porcelain", "--atomic", "--no-verify", "--no-follow-tags",
 			"--recurse-submodules=no", "--no-signed", "--force-with-lease="+ref+":"+expect,
 			"--", repo.URL, ":"+ref)})
@@ -456,6 +467,41 @@ func (g *GitSource) DeleteBranch(ctx context.Context, repo RepoRef, branch, expe
 		return nil
 	}
 	return fmt.Errorf("watch: deleting %s of %s: git reported no update of the branch", ref, repo.Name)
+}
+
+// pushRepo makes the scratch repository a push runs in: the mirror's objects
+// through alternates, and no remote, no refs, no hooks of its own. A push run
+// in the mirror itself names the remote by URL, but git takes a URL that is a
+// configured remote's for that remote (git 2.5x does; 2.45 did not) and then
+// updates the refs its fetch refspec maps the pushed ref to — for a mirror,
+// "+refs/*:refs/*", the mirror's own branch. The branch must arrive with the
+// next refresh, like any other ref of the repository.
+func (g *GitSource) pushRepo(ctx context.Context, mirror string) (string, func(), error) {
+	objects, err := filepath.Abs(filepath.Join(mirror, "objects"))
+	if err != nil {
+		return "", nil, err
+	}
+	tmp, err := os.MkdirTemp("", "pt-push-")
+	if err != nil {
+		return "", nil, fmt.Errorf("watch: preparing the push: %w", err)
+	}
+	done := func() { _ = os.RemoveAll(tmp) }
+	res, err := g.runGit(ctx, gitExec{dir: tmp, timeout: g.opts.CommandTimeout, maxStdout: maxRemoteOutput,
+		args: g.safeArgs("init", "--bare", "--quiet", "--template=", tmp)})
+	if err != nil {
+		done()
+		return "", nil, fmt.Errorf("watch: preparing the push: %w (%s)", err, strings.TrimSpace(res.stderr))
+	}
+	info := filepath.Join(tmp, "objects", "info")
+	if err := os.MkdirAll(info, 0o755); err != nil {
+		done()
+		return "", nil, fmt.Errorf("watch: preparing the push: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(info, "alternates"), []byte(objects+"\n"), 0o644); err != nil {
+		done()
+		return "", nil, fmt.Errorf("watch: preparing the push: %w", err)
+	}
+	return tmp, done, nil
 }
 
 // pushStatus is git push --porcelain's line for one ref:
