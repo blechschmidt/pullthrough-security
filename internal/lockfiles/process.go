@@ -48,6 +48,33 @@ func ParseFile(reg *Registry, proxy *Proxy, path string, data []byte) *File {
 	return f
 }
 
+// ParseFiles parses files held in memory — keyed by path, slash-separated and
+// relative to the repository root — and finishes them together the way Scan
+// finishes the files of a tree: go.mod and go.sum in one directory merged,
+// URLs mapped through proxy (which may be nil) and redacted, duplicates
+// collapsed, files of nothing left out. A path no parser of reg detects is
+// passed over. The files come back sorted by path. The repository updater
+// (internal/repos/update) reads a lock file before and after it rewrites it
+// through this, so that both are read exactly as a scan reads them.
+func ParseFiles(reg *Registry, proxy *Proxy, files map[string][]byte) []*File {
+	if reg == nil {
+		reg = DefaultRegistry()
+	}
+	paths := make([]string, 0, len(files))
+	for p := range files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	var out []*File
+	for _, p := range paths {
+		if parser := reg.Detect(p); parser != nil {
+			out = append(out, parseOne(parser, p, files[p]))
+		}
+	}
+	finish(out, proxy)
+	return dropEmpty(out)
+}
+
 // parseOne runs a parser over one file. A parser that panics fails the file,
 // not the scan: parsers are fuzzed, but the walk must survive the input nobody
 // thought of.

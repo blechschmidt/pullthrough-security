@@ -206,6 +206,8 @@ type Config struct {
 	KnownRole func(string) bool
 	// Scan tunes the LLM dependency scans (Task 181).
 	Scan ScanConfig
+	// Update tunes the maintenance updater (Task 182).
+	Update UpdateConfig
 }
 
 func (c Config) withDefaults() Config {
@@ -242,6 +244,7 @@ func (c Config) withDefaults() Config {
 		c.Subject = "system:release-pinner"
 	}
 	c.Scan = c.Scan.withDefaults()
+	c.Update = c.Update.withDefaults()
 	return c
 }
 
@@ -263,6 +266,12 @@ type Options struct {
 	// each dependency before (Task 181); Findings takes their findings.
 	Scans    ObjectScanner
 	Findings FindingsSink
+	// Branches, Policy and Sandbox serve the maintenance updater (Task 182):
+	// the Git side of its branch, the coordinate policies a candidate is held
+	// to before it is fetched, and the sandbox that re-resolves lock files.
+	Branches BranchSource
+	Policy   CandidatePolicy
+	Sandbox  SandboxRunner
 	Logger   *slog.Logger
 	Now      func() time.Time
 }
@@ -315,6 +324,12 @@ type Service struct {
 	// scanAgain holds, per commit being scanned, a request that arrived
 	// meanwhile: the commit is scanned once more when the scan ends.
 	scanAgain map[string]scanJob
+
+	// upRunning holds the maintenance runs in progress (Task 182);
+	// updSweeping is set while a sweep of scheduled runs is under way.
+	upRunning   updateRunning
+	updSweepMu  sync.Mutex
+	updSweeping bool
 
 	leader func() bool
 
@@ -439,6 +454,15 @@ func (s *Service) Attach(o Options) {
 	}
 	if o.Findings != nil {
 		s.opts.Findings = o.Findings
+	}
+	if o.Branches != nil {
+		s.opts.Branches = o.Branches
+	}
+	if o.Policy != nil {
+		s.opts.Policy = o.Policy
+	}
+	if o.Sandbox != nil {
+		s.opts.Sandbox = o.Sandbox
 	}
 	if o.Metrics != nil {
 		s.opts.Metrics = o.Metrics
@@ -1046,7 +1070,37 @@ func (s *Service) loop() {
 		if leader {
 			s.sweepPending(ctx)
 			s.sweepScans(ctx)
+			s.sweepUpdatesAsync()
 		}
+	}
+}
+
+// sweepUpdatesAsync starts the scheduled maintenance runs in the background:
+// they may take long (on-demand scans), and must not hold up the loop's
+// polls, retries and refreshes. One sweep runs at a time.
+func (s *Service) sweepUpdatesAsync() {
+	if !s.updatesEnabled() || s.cfg.Update.Interval < 0 {
+		return
+	}
+	s.updSweepMu.Lock()
+	if s.updSweeping {
+		s.updSweepMu.Unlock()
+		return
+	}
+	s.updSweeping = true
+	s.updSweepMu.Unlock()
+	started := s.spawn(func() {
+		defer func() {
+			s.updSweepMu.Lock()
+			s.updSweeping = false
+			s.updSweepMu.Unlock()
+		}()
+		s.sweepUpdates(s.runCtx)
+	})
+	if !started {
+		s.updSweepMu.Lock()
+		s.updSweeping = false
+		s.updSweepMu.Unlock()
 	}
 }
 

@@ -502,7 +502,8 @@ func TestRepositoryStateIsABackupSource(t *testing.T) {
 		got[src.name] = src.path
 	}
 	state := cfg.RepositoriesStateDir()
-	for name, sub := range map[string]string{"repos-registry": "repos", "repos-history": "history", "repos-manifests": "manifests", "repos-scans": "scans"} {
+	for name, sub := range map[string]string{"repos-registry": "repos", "repos-history": "history", "repos-manifests": "manifests", "repos-scans": "scans",
+		"repos-updates": "updatestate", "repos-update-runs": "updates", "repos-update-dry-runs": "updatedry"} {
 		if got[name] != filepath.Join(state, sub) {
 			t.Errorf("%s = %q, want %q", name, got[name], filepath.Join(state, sub))
 		}

@@ -69,6 +69,11 @@ type Artifact struct {
 	// located (a distribution file its index does not list); it is recorded
 	// as a failure rather than fetched.
 	Error string `json:"error,omitempty"`
+	// Compute lists digests the Checker computes over the bytes besides
+	// checking the expected ones ("sha512", "sha1", "h1"): what the
+	// maintenance updater (Task 182) writes into a lock file comes from the
+	// bytes the proxy served, never from registry metadata.
+	Compute []string `json:"-"`
 }
 
 // Plan is the outcome of locating one dependency.
@@ -594,4 +599,13 @@ func validLocatedPath(p string) bool {
 		}
 	}
 	return true
+}
+
+// ServedBy reports whether a download URL a lock file records is one the
+// upstream serves: beneath the proxy's mount of it ("…/v1/<upstream>/…") or
+// beneath one of its own URLs. A URL anywhere else would have a client fetch
+// bytes the proxy never saw (Task 182 holds re-resolved lock files to it).
+func ServedBy(up Upstream, rawURL string) bool {
+	_, ok := proxyPath(up, rawURL)
+	return ok
 }

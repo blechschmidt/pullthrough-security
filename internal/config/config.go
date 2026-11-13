@@ -9026,9 +9026,120 @@ type RepositoriesConfig struct {
 	// package-content scan gate (llmPackageScan), its verdict cache, cost
 	// budget and concurrency limits, and only when that gate is enabled.
 	Scan RepositoryScanConfig `yaml:"scan"`
+	// Updates configures the maintenance updater (Task 182): a branch per
+	// repository with the dependency updates that are compatible with the
+	// declared constraints and vetted — every admission gate, the dependency
+	// firewall, the maturity cooldown, and a benign LLM package-scan verdict
+	// for the exact bytes.
+	Updates RepositoryUpdatesConfig `yaml:"updates"`
 	// Repos are the repositories registered by configuration. More can be
 	// registered through the admin API (`ptctl repos add`).
 	Repos []RepositoryConfig `yaml:"repos"`
+}
+
+// RepositoryUpdatesConfig configures the maintenance updater.
+type RepositoryUpdatesConfig struct {
+	// Enabled turns the updater on: scheduled runs on the HA leader, and
+	// runs on request (`ptctl repos update`). It needs llmPackageScan.enabled:
+	// only a candidate the LLM package-content scan judged benign is proposed.
+	Enabled bool `yaml:"enabled"`
+	// Interval is the period between scheduled runs of each repository
+	// (default 24h). A negative value runs on request only.
+	Interval time.Duration `yaml:"interval"`
+	// Branch is the maintenance branch (default "pullthrough/maintenance").
+	// It is rebuilt on top of the default branch's head at every run.
+	Branch string `yaml:"branch"`
+	// MaxBump bounds the updates of a dependency whose manifests declare no
+	// constraint: "minor" (the default: stay within the same major version)
+	// or "patch" (patch updates only). A declared constraint (a package.json
+	// range, a Cargo.toml requirement, a requirements.in specifier, a Go
+	// module's major version) always decides when there is one.
+	MaxBump string `yaml:"maxBump"`
+	// IncludeDev updates development dependencies too (default true).
+	IncludeDev *bool `yaml:"includeDev"`
+	// MaxCandidates is how many compatible newer versions of one dependency
+	// are vetted, newest first, before it is given up (default 3): each may
+	// cost an LLM scan.
+	MaxCandidates int `yaml:"maxCandidates"`
+	// MaxUpdates bounds the updates of one run (default 50).
+	MaxUpdates int `yaml:"maxUpdates"`
+	// Concurrency is how many dependencies are examined at a time (default 2).
+	Concurrency int `yaml:"concurrency"`
+	// AuthorName and AuthorEmail are the commits' author and committer
+	// (default "pullthrough-security" <pullthrough@localhost>).
+	AuthorName  string `yaml:"authorName"`
+	AuthorEmail string `yaml:"authorEmail"`
+	// SigningKey signs the commits (git's SSH signature format, gpg.format=ssh):
+	// an OpenSSH private key (ed25519, ECDSA or RSA), as a secret reference.
+	// Empty leaves the commits unsigned. SigningKeyPassphrase decrypts it.
+	SigningKey           string `yaml:"signingKey"`
+	SigningKeyPassphrase string `yaml:"signingKeyPassphrase"`
+	// PullRequests opens (or updates) a pull/merge request per repository
+	// whose updates block names a forge and a token reference.
+	PullRequests RepositoryPullRequestsConfig `yaml:"pullRequests"`
+	// Sandbox runs the real package manager when an update needs the lock
+	// file re-resolved: a network-less container whose only registry is the
+	// proxy. Without a runtime such updates are skipped.
+	Sandbox RepositoryUpdateSandboxConfig `yaml:"sandbox"`
+	// RunTimeout bounds one run (default 2h).
+	RunTimeout time.Duration `yaml:"runTimeout"`
+}
+
+// RepositoryPullRequestsConfig configures the maintenance pull requests.
+type RepositoryPullRequestsConfig struct {
+	// Enabled opens them (default false).
+	Enabled bool `yaml:"enabled"`
+	// Labels are added to each; Draft opens them as drafts.
+	Labels []string `yaml:"labels"`
+	Draft  bool     `yaml:"draft"`
+}
+
+// RepositoryUpdateSandboxConfig configures the sandboxed package managers.
+type RepositoryUpdateSandboxConfig struct {
+	// Runtime is the container runtime: "docker" or "podman". Empty turns
+	// the sandbox off.
+	Runtime string `yaml:"runtime"`
+	// Images overrides the tools' images (npm, cargo, go); the defaults are
+	// the client lab's.
+	Images map[string]string `yaml:"images"`
+	// Timeout bounds one run of a tool (default 10m); Memory its container's
+	// memory (default "2g").
+	Timeout time.Duration `yaml:"timeout"`
+	Memory  string        `yaml:"memory"`
+	// User is the "uid:gid" the tool runs as (default 65534:65534).
+	User string `yaml:"user"`
+	// TempDir holds the jobs' files; it must be a directory the runtime can
+	// bind-mount (default the system's temporary directory).
+	TempDir string `yaml:"tempDir"`
+	// Forwarder is the statically linked binary run in the container to relay
+	// the tool's requests to the proxy (default this executable).
+	Forwarder string `yaml:"forwarder"`
+}
+
+// RepositoryUpdateConfig is one repository's maintenance settings.
+type RepositoryUpdateConfig struct {
+	// Disabled turns the updater off for the repository.
+	Disabled bool `yaml:"disabled"`
+	// Branch overrides repositories.updates.branch.
+	Branch string `yaml:"branch"`
+	// MaxBump overrides repositories.updates.maxBump.
+	MaxBump string `yaml:"maxBump"`
+	// Ignore lists what is never proposed: "type/name" (every version),
+	// "type/name@version", or "type/name@<constraint>" in the ecosystem's
+	// syntax ("npm/lodash@>=5", "pip/django@>=5.0"); "*" matches any type and
+	// a name may end in "*".
+	Ignore []string `yaml:"ignore"`
+	// Forge is "github" or "gitlab": where the pull/merge request is opened.
+	Forge string `yaml:"forge"`
+	// ForgeAPI is the API base URL (default https://api.github.com,
+	// https://gitlab.com/api/v4).
+	ForgeAPI string `yaml:"forgeApi"`
+	// ForgeRepo is "owner/name" (GitHub) or the project path (GitLab);
+	// default: read from the repository's URL.
+	ForgeRepo string `yaml:"forgeRepo"`
+	// ForgeTokenRef is the secret reference of the forge API token, resolved
+	// at each run.
+	ForgeTokenRef string `yaml:"forgeTokenRef"`
 }
 
 // RepositoryScanConfig tunes the dependency scans of tracked repositories.
@@ -9136,6 +9247,8 @@ type RepositoryConfig struct {
 	// Branch is the branch whose head the dependency scan follows (default:
 	// the repository's default branch, as its remote's HEAD names it).
 	Branch string `yaml:"branch"`
+	// Updates holds the repository's maintenance settings (Task 182).
+	Updates *RepositoryUpdateConfig `yaml:"updates"`
 }
 
 // RepositoriesStateDir returns the registry's state directory: the configured
@@ -9226,6 +9339,9 @@ func (c *Config) validateRepositories() error {
 	if sc.Interval > 0 && sc.Interval < time.Minute {
 		return fmt.Errorf("config: repositories.scan.interval must be at least 1m (or negative: only when the head moves), got %s", sc.Interval)
 	}
+	if err := c.validateRepositoryUpdates(); err != nil {
+		return err
+	}
 	definedRole := map[string]bool{}
 	for _, role := range c.Auth.Roles {
 		definedRole[strings.TrimSpace(role.Name)] = true
@@ -9273,6 +9389,97 @@ func (c *Config) validateRepositories() error {
 		}
 	}
 	return nil
+}
+
+// validateRepositoryUpdates checks the maintenance updater's configuration.
+func (c *Config) validateRepositoryUpdates() error {
+	u := c.Repositories.Updates
+	for _, repo := range c.Repositories.Repos {
+		if ru := repo.Updates; ru != nil {
+			if err := validateRepositoryUpdate(repo.Name, ru); err != nil {
+				return err
+			}
+		}
+	}
+	if !u.Enabled {
+		return nil
+	}
+	if !c.LLMPackageScan.Enabled {
+		return fmt.Errorf("config: repositories.updates needs llmPackageScan.enabled: an update is proposed only once the LLM package-content scan judged its exact bytes benign")
+	}
+	if u.Interval > 0 && u.Interval < time.Minute {
+		return fmt.Errorf("config: repositories.updates.interval must be at least 1m (or negative: on request only), got %s", u.Interval)
+	}
+	if b := strings.TrimSpace(u.Branch); b != "" && !validGitBranch(b) {
+		return fmt.Errorf("config: repositories.updates.branch %q is not a branch name", u.Branch)
+	}
+	switch strings.TrimSpace(u.MaxBump) {
+	case "", "minor", "patch":
+	default:
+		return fmt.Errorf("config: repositories.updates.maxBump must be minor or patch, got %q", u.MaxBump)
+	}
+	if u.MaxCandidates < 0 || u.MaxUpdates < 0 || u.Concurrency < 0 || u.RunTimeout < 0 || u.Sandbox.Timeout < 0 {
+		return fmt.Errorf("config: repositories.updates values must not be negative (interval excepted)")
+	}
+	if strings.ContainsAny(u.AuthorName, "<>\n\r\x00") || strings.ContainsAny(u.AuthorEmail, "<>\n\r\x00 ") {
+		return fmt.Errorf("config: repositories.updates.authorName and authorEmail must not contain '<', '>' or line breaks")
+	}
+	switch strings.TrimSpace(u.Sandbox.Runtime) {
+	case "", "docker", "podman":
+	default:
+		return fmt.Errorf("config: repositories.updates.sandbox.runtime must be docker or podman, got %q", u.Sandbox.Runtime)
+	}
+	for tool, img := range u.Sandbox.Images {
+		switch tool {
+		case "npm", "cargo", "go", "uv":
+		default:
+			return fmt.Errorf("config: repositories.updates.sandbox.images: unknown tool %q (npm, cargo, go, uv)", tool)
+		}
+		if strings.TrimSpace(img) == "" || strings.HasPrefix(img, "-") || strings.ContainsAny(img, " \t\r\n") {
+			return fmt.Errorf("config: repositories.updates.sandbox.images.%s is not an image reference", tool)
+		}
+	}
+	return nil
+}
+
+// validateRepositoryUpdate checks one repository's maintenance settings.
+func validateRepositoryUpdate(name string, ru *RepositoryUpdateConfig) error {
+	if b := strings.TrimSpace(ru.Branch); b != "" && !validGitBranch(b) {
+		return fmt.Errorf("config: repositories.repos %q: updates.branch %q is not a branch name", name, ru.Branch)
+	}
+	switch strings.TrimSpace(ru.MaxBump) {
+	case "", "minor", "patch":
+	default:
+		return fmt.Errorf("config: repositories.repos %q: updates.maxBump must be minor or patch, got %q", name, ru.MaxBump)
+	}
+	switch strings.ToLower(strings.TrimSpace(ru.Forge)) {
+	case "", "github", "gitlab":
+	default:
+		return fmt.Errorf("config: repositories.repos %q: updates.forge must be github or gitlab, got %q", name, ru.Forge)
+	}
+	if ref := strings.TrimSpace(ru.ForgeTokenRef); ref != "" && !strings.Contains(ref, "://") {
+		return fmt.Errorf("config: repositories.repos %q: updates.forgeTokenRef must be a secret reference (env://, file://, vault://…#key), never the token itself", name)
+	}
+	for _, ig := range ru.Ignore {
+		if t, rest, ok := strings.Cut(strings.TrimSpace(ig), "/"); !ok || t == "" || rest == "" {
+			return fmt.Errorf("config: repositories.repos %q: updates.ignore entry %q is not type/name[@version-or-constraint]", name, ig)
+		}
+	}
+	return nil
+}
+
+// validGitBranch reports whether b can be a branch name the updater pushes.
+func validGitBranch(b string) bool {
+	if b == "" || len(b) > 200 || strings.HasPrefix(b, "-") || strings.HasPrefix(b, "/") || strings.HasSuffix(b, "/") ||
+		strings.HasSuffix(b, ".lock") || strings.HasSuffix(b, ".") || strings.Contains(b, "..") || strings.Contains(b, "//") {
+		return false
+	}
+	for _, r := range b {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._/+-", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // sameUpstreamType compares upstream types, aliases resolved.

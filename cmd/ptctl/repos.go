@@ -33,6 +33,8 @@ func runRepos(args []string) error {
 		"verify":   reposVerify,
 		"scan":     reposScan,
 		"report":   reposReport,
+		"update":   reposUpdate,
+		"updates":  reposUpdates,
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -41,7 +43,7 @@ func runRepos(args []string) error {
 	}
 	fn, ok := actions[args[0]]
 	if !ok {
-		return fmt.Errorf("unknown repos action %q (try: add, list, show, tags, releases, commit, lookup, sync, pin, remove, verify, scan, report)", args[0])
+		return fmt.Errorf("unknown repos action %q (try: add, list, show, tags, releases, commit, lookup, sync, pin, remove, verify, scan, report, update, updates)", args[0])
 	}
 	return fn(args[1:], os.Stdout)
 }
@@ -88,6 +90,16 @@ Actions:
                               the scan report: each dependency's verdict, model,
                               time and the lock-file lines that pin it; --sarif
                               writes SARIF located at those lines ("-" stdout)
+  update <name> [--dry-run] [--no-wait] [--wait-timeout D] [--run ID]
+                              run the maintenance updater (Task 182): the newest
+                              compatible version of each dependency that passes
+                              every gate and the LLM package scan is written to
+                              the lock files on the maintenance branch, which is
+                              pushed (--dry-run: computed, not pushed); prints
+                              each update and each skipped candidate with its
+                              reason. --run ID prints a past run's report.
+  updates <name>              the maintenance branch's state, the newest runs,
+                              and how each lock-file format is updated
 
 Global flags (--url, --token, --tenant, …) follow the action. --format json
 prints the API's answer.
@@ -690,6 +702,158 @@ func renderScanReport(w io.Writer, rep *repos.ScanReportView) error {
 			note = strings.TrimPrefix(note+"; pinned bytes kept for forensics", "; ")
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", d.Verdict, d.Coordinate(), strings.Join(d.Files, ","), model, scanned, note)
+	}
+	return tw.Flush()
+}
+
+// reposUpdate starts a maintenance run and waits for its report (Task 182).
+func reposUpdate(args []string, w io.Writer) error {
+	var (
+		dryRun  bool
+		noWait  bool
+		runID   string
+		timeout time.Duration
+	)
+	c, pos, format, err := reposFlags("update", args, func(fs *flag.FlagSet) {
+		fs.BoolVar(&dryRun, "dry-run", false, "compute the updates and the commit, push nothing")
+		fs.BoolVar(&noWait, "no-wait", false, "start the run and return")
+		fs.StringVar(&runID, "run", "", "print the report of this run instead of starting one")
+		fs.DurationVar(&timeout, "wait-timeout", 2*time.Hour, "how long to wait for the run")
+	})
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("repos update takes a repository name")
+	}
+	if runID != "" {
+		var run repos.UpdateRun
+		if err := c.getJSON(c.adminURL("api/repos/update", tenantQuery(c, map[string]string{"name": pos[0], "run": runID})), &run); err != nil {
+			return err
+		}
+		if format == "json" {
+			return emitJSON(run)
+		}
+		return renderUpdateRun(w, &run)
+	}
+	q := map[string]string{"name": pos[0]}
+	if dryRun {
+		q["dryRun"] = "1"
+	}
+	var run repos.UpdateRun
+	if err := c.postJSON(c.adminURL("api/repos/update", tenantQuery(c, q)), struct{}{}, &run); err != nil {
+		return err
+	}
+	if noWait {
+		if format == "json" {
+			return emitJSON(run)
+		}
+		fmt.Fprintf(w, "%s: run %s started; read it with: ptctl repos update %s --run %s\n", run.Repo, run.ID, run.Repo, run.ID)
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for run.Status == repos.UpdateRunning {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("run %s did not finish within %s; read it later with: ptctl repos update %s --run %s", run.ID, timeout, run.Repo, run.ID)
+		}
+		time.Sleep(2 * time.Second)
+		var next repos.UpdateRun
+		if err := c.getJSON(c.adminURL("api/repos/update", tenantQuery(c, map[string]string{"name": pos[0], "run": run.ID})), &next); err != nil {
+			continue // stored once it ends; a replica restart in between is retried
+		}
+		run = next
+	}
+	if format == "json" {
+		return emitJSON(run)
+	}
+	if err := renderUpdateRun(w, &run); err != nil {
+		return err
+	}
+	if run.Status == repos.UpdateFailed || run.Status == repos.UpdateConflict {
+		return fmt.Errorf("the maintenance run ended %s", run.Status)
+	}
+	return nil
+}
+
+// renderUpdateRun prints a maintenance run: a header, the updates, the skipped
+// candidates.
+func renderUpdateRun(w io.Writer, run *repos.UpdateRun) error {
+	fmt.Fprintf(w, "%s · %s · %s on %s@%s · run %s\n", run.Repo, run.Status, run.Branch, firstNonEmpty(run.BaseBranch, "—"), shortSHA(run.Base), run.ID)
+	if run.Reason != "" {
+		fmt.Fprintln(w, run.Reason)
+	}
+	if run.Commit != "" {
+		fmt.Fprintf(w, "commit %s", shortSHA(run.Commit))
+		if run.Previous != "" {
+			fmt.Fprintf(w, " (branch was at %s)", shortSHA(run.Previous))
+		}
+		fmt.Fprintln(w)
+	}
+	if run.PullRequest != nil {
+		fmt.Fprintf(w, "pull request #%d %s\n", run.PullRequest.Number, run.PullRequest.URL)
+	} else if run.PullRequestError != "" {
+		fmt.Fprintf(w, "pull request not opened: %s\n", run.PullRequestError)
+	}
+	fmt.Fprintf(w, "%d dependencies examined · %d updates · %d skipped\n\n", run.Dependencies, len(run.Updates), len(run.Skipped))
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if len(run.Updates) > 0 {
+		fmt.Fprintln(tw, "UPDATE\tFROM\tTO\tBUMP\tMETHOD\tVERDICT\tSCAN\tFILES")
+		for _, u := range run.Updates {
+			fmt.Fprintf(tw, "%s/%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", u.Type, u.Name, u.From, u.To, u.Bump, u.Method, u.Verdict,
+				strings.Join(u.ScanIDs, ","), strings.Join(u.Files, ","))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		fmt.Fprintln(w)
+	}
+	if len(run.Skipped) > 0 {
+		tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "SKIPPED\tFROM\tCANDIDATE\tREASON")
+		for _, sk := range run.Skipped {
+			fmt.Fprintf(tw, "%s/%s\t%s\t%s\t%s: %s\n", sk.Type, sk.Name, sk.From, firstNonEmpty(sk.To, "—"), sk.Code, sk.Reason)
+		}
+		return tw.Flush()
+	}
+	return nil
+}
+
+// reposUpdates prints a repository's maintenance state (Task 182).
+func reposUpdates(args []string, w io.Writer) error {
+	c, pos, format, err := reposFlags("updates", args, nil)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("repos updates takes a repository name")
+	}
+	var ov repos.UpdateOverview
+	if err := c.getJSON(c.adminURL("api/repos/updates", tenantQuery(c, map[string]string{"name": pos[0]})), &ov); err != nil {
+		return err
+	}
+	if format == "json" {
+		return emitJSON(ov)
+	}
+	state := "enabled"
+	if !ov.Enabled {
+		state = "disabled"
+	}
+	fmt.Fprintf(w, "%s · maintenance %s · branch %s · last pushed %s", ov.Repo, state, ov.Branch, firstNonEmpty(shortSHA(ov.State.LastPushed), "—"))
+	if ov.State.LastStatus != "" {
+		fmt.Fprintf(w, " · last run %s %s", ov.State.LastStatus, stamp(ov.State.LastRunAt))
+	}
+	fmt.Fprintln(w)
+	if ov.State.Conflict != "" {
+		fmt.Fprintf(w, "CONFLICT: %s\n", ov.State.Conflict)
+	}
+	if ov.Running != nil {
+		fmt.Fprintf(w, "running: %s (started %s)\n", ov.Running.ID, stamp(ov.Running.StartedAt))
+	}
+	fmt.Fprintln(w)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "RUN\tSTATUS\tBASE\tCOMMIT\tUPDATES\tSKIPPED\tTRIGGER")
+	for _, r := range ov.Runs {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\t%s\n", r.ID, r.Status, shortSHA(r.Base), firstNonEmpty(shortSHA(r.Commit), "—"), len(r.Updates), len(r.Skipped), r.Trigger)
 	}
 	return tw.Flush()
 }

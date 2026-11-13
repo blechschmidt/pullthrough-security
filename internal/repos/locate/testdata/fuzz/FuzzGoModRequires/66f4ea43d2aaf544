@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("modul\xa4\xa4\xa4\xa4require (\n\ta v1.0.0 // indirect\n)\nrequire \" 000000\n00000000000000000")

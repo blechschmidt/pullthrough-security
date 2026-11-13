@@ -16,18 +16,23 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/cachegc"
 	"github.com/blechschmidt/pullthrough-security/internal/config"
+	"github.com/blechschmidt/pullthrough-security/internal/depfirewall"
 	"github.com/blechschmidt/pullthrough-security/internal/dossier"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/git"
+	"github.com/blechschmidt/pullthrough-security/internal/gitsign"
 	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockfiles"
+	"github.com/blechschmidt/pullthrough-security/internal/maturity"
 	"github.com/blechschmidt/pullthrough-security/internal/metrics"
 	"github.com/blechschmidt/pullthrough-security/internal/notify"
 	"github.com/blechschmidt/pullthrough-security/internal/provgraph"
 	"github.com/blechschmidt/pullthrough-security/internal/proxy"
 	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/repos/locate"
+	"github.com/blechschmidt/pullthrough-security/internal/repos/sandbox"
 	"github.com/blechschmidt/pullthrough-security/internal/scan/watch"
+	"github.com/blechschmidt/pullthrough-security/internal/versions"
 )
 
 // buildRepos opens the repository registry (Task 180) from its state
@@ -103,6 +108,11 @@ func reposConfig(cfg *config.Config) (repos.Config, error) {
 			MaxAttempts:   rc.Scan.MaxAttempts,
 		},
 	}
+	upd, err := updateConfig(cfg)
+	if err != nil {
+		return out, err
+	}
+	out.Update = upd
 	if cfg.Auth.Enabled {
 		defined := map[string]bool{}
 		for _, r := range cfg.Auth.Roles {
@@ -119,11 +129,45 @@ func reposConfig(cfg *config.Config) (repos.Config, error) {
 		out.Platforms = append(out.Platforms, pl)
 	}
 	for _, r := range rc.Repos {
-		out.Repos = append(out.Repos, repos.Repo{
+		repo := repos.Repo{
 			Name: r.Name, URL: r.URL, Username: r.Username, CredentialsRef: r.CredentialsRef,
 			Tenant: r.Tenant, Lockfiles: r.Lockfiles, Tags: r.Tags, Upstreams: r.Upstreams,
 			FullName: r.FullName, BackfillTags: r.BackfillTags, Roles: r.Roles, Branch: r.Branch, Source: repos.SourceConfig,
-		})
+		}
+		if u := r.Updates; u != nil {
+			repo.Update = &repos.RepoUpdate{Disabled: u.Disabled, Branch: u.Branch, MaxBump: u.MaxBump, Ignore: u.Ignore,
+				Forge: u.Forge, ForgeAPI: u.ForgeAPI, ForgeRepo: u.ForgeRepo, ForgeTokenRef: u.ForgeTokenRef}
+		}
+		out.Repos = append(out.Repos, repo)
+	}
+	return out, nil
+}
+
+// updateConfig translates the maintenance updater's configuration (Task 182).
+func updateConfig(cfg *config.Config) (repos.UpdateConfig, error) {
+	u := cfg.Repositories.Updates
+	out := repos.UpdateConfig{
+		Enabled: u.Enabled, Interval: u.Interval, Branch: u.Branch, IncludeDev: u.IncludeDev,
+		MaxCandidates: u.MaxCandidates, MaxUpdates: u.MaxUpdates, Concurrency: u.Concurrency,
+		AuthorName: u.AuthorName, AuthorEmail: u.AuthorEmail, RunTimeout: u.RunTimeout,
+		PullRequests: repos.PullRequestConfig{Enabled: u.PullRequests.Enabled, Labels: u.PullRequests.Labels, Draft: u.PullRequests.Draft},
+	}
+	if strings.TrimSpace(u.MaxBump) == "patch" {
+		out.MaxBump = versions.LevelPatch
+	}
+	if pub := strings.TrimRight(strings.TrimSpace(cfg.Server.PublicURL), "/"); pub != "" {
+		out.PublicURLPrefix = pub + "/v1/"
+	}
+	if key := strings.TrimSpace(u.SigningKey); key != "" {
+		var pass []byte
+		if u.SigningKeyPassphrase != "" {
+			pass = []byte(u.SigningKeyPassphrase)
+		}
+		signer, err := gitsign.NewSSHSigner([]byte(key), pass)
+		if err != nil {
+			return out, fmt.Errorf("repositories.updates.signingKey: %w", err)
+		}
+		out.Signer = signer
 	}
 	return out, nil
 }
@@ -208,7 +252,22 @@ func wireRepos(ctx context.Context, svc *repos.Service, cfg *config.Config, gw *
 		// and the findings layer their reports feed.
 		Scans:    newObjectScanner(gw, deps.llmScan, ecosystemMap(cfg)),
 		Findings: newScanFindingsSink(deps.findings, deps.findingsMetrics, deps.suppressions, deps.siem),
+		// The maintenance updater (Task 182): the branch it builds in the
+		// mirror, the coordinate policies, the sandbox.
+		Branches: mirrorBranches{gs: gs},
+		Policy:   candidatePolicy{firewall: deps.firewall, maturity: deps.maturity},
 	})
+	if sc := cfg.Repositories.Updates.Sandbox; cfg.Repositories.Updates.Enabled && strings.TrimSpace(sc.Runtime) != "" {
+		runner, err := sandbox.New(sandbox.Config{Runtime: sc.Runtime, Images: sc.Images, Forwarder: sc.Forwarder,
+			Timeout: sc.Timeout, Memory: sc.Memory, User: sc.User, TempDir: sc.TempDir})
+		if err != nil {
+			// Updates that need a lock file re-resolved are skipped, with
+			// this reason; the rest go ahead.
+			deps.logger.Warn("the maintenance updater's sandbox is not available", "error", err)
+		} else {
+			svc.Attach(repos.Options{Sandbox: runner})
+		}
+	}
 	if st, on := svc.ScanStatus(); on {
 		deps.logger.Info("repository dependency scans enabled", "model", st.Model, "action", st.Action,
 			"releases", cfg.Repositories.Scan.Releases == nil || *cfg.Repositories.Scan.Releases,
@@ -239,6 +298,9 @@ type reposDeps struct {
 	findingsMetrics *findings.Metrics
 	suppressions    *findings.SuppressionLedger
 	siem            proxy.SIEMForwarder
+	// The maintenance updater's coordinate policies (Task 182).
+	firewall *depfirewall.Service
+	maturity *maturity.Service
 }
 
 // allowedGitProtocols maps the accepted URL schemes onto git's transports.
@@ -345,6 +407,111 @@ func (f gatewayReleaseFetcher) Fetch(ctx context.Context, req repos.FetchRequest
 		out.Verdicts = append(out.Verdicts, repos.GateVerdict{Gate: v.Gate, Outcome: v.Outcome, Detail: v.Detail})
 	}
 	return out, err
+}
+
+// mirrorBranches is the maintenance updater's Git side (Task 182): the files of
+// a commit read from the repository's mirror, the commit built there, and the
+// remote's branches.
+type mirrorBranches struct{ gs *watch.GitSource }
+
+func (m mirrorBranches) objects(r repos.Repo) (*git.ObjectReader, error) {
+	dir := m.gs.MirrorDir(repoRef(r, repos.Credential{}))
+	if _, err := os.Stat(filepath.Join(dir, "HEAD")); err != nil {
+		return nil, fmt.Errorf("the repository's mirror is not there yet: %w", err)
+	}
+	return git.OpenObjectReader(dir, git.ObjectReaderOptions{})
+}
+
+func (m mirrorBranches) ReadFiles(ctx context.Context, r repos.Repo, commit string, paths []string, maxBytes int64) (map[string][]byte, error) {
+	reader, err := m.objects(r)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return repos.ReadTreeFiles(ctx, reader, commit, paths, maxBytes)
+}
+
+func (m mirrorBranches) ListFiles(ctx context.Context, r repos.Repo, commit, dir string, match func(string) bool, max int) ([]string, error) {
+	reader, err := m.objects(r)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return repos.ListTreeFiles(ctx, reader, commit, dir, match, max)
+}
+
+func (m mirrorBranches) BuildCommit(ctx context.Context, r repos.Repo, spec repos.CommitSpec) (string, string, error) {
+	paths := make([]string, 0, len(spec.Files))
+	for p := range spec.Files {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	req := watch.CommitRequest{Base: spec.Base, Message: spec.Message,
+		Author:    watch.Signature{Name: spec.Author, Email: spec.Email, When: spec.When},
+		Committer: watch.Signature{Name: spec.Author, Email: spec.Email, When: spec.When}}
+	for _, p := range paths {
+		req.Files = append(req.Files, watch.FileChange{Path: p, Content: spec.Files[p]})
+	}
+	if spec.Signer != nil {
+		req.Signer = spec.Signer
+	}
+	return m.gs.BuildCommit(ctx, repoRef(r, repos.Credential{}), req)
+}
+
+func (m mirrorBranches) CommitInfo(ctx context.Context, r repos.Repo, commit string) (string, []string, error) {
+	return m.gs.CommitInfo(ctx, repoRef(r, repos.Credential{}), commit)
+}
+
+func (m mirrorBranches) CommitObject(ctx context.Context, r repos.Repo, commit string) ([]byte, error) {
+	return m.gs.CommitObject(ctx, repoRef(r, repos.Credential{}), commit)
+}
+
+func (m mirrorBranches) RemoteBranch(ctx context.Context, r repos.Repo, cred repos.Credential, branch string) (string, error) {
+	sha, err := m.gs.RemoteBranch(ctx, repoRef(r, cred), branch)
+	if err != nil {
+		return "", fmt.Errorf("%s", git.RedactURLSecrets(err.Error()))
+	}
+	return sha, nil
+}
+
+func (m mirrorBranches) PushBranch(ctx context.Context, r repos.Repo, cred repos.Credential, branch, commit, expect string) error {
+	err := m.gs.PushBranch(ctx, repoRef(r, cred), branch, commit, expect)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, watch.ErrLeaseRejected):
+		return fmt.Errorf("%w: %s", repos.ErrLeaseRejected, git.RedactURLSecrets(err.Error()))
+	}
+	return fmt.Errorf("%s", git.RedactURLSecrets(err.Error()))
+}
+
+func (m mirrorBranches) DeleteBranch(ctx context.Context, r repos.Repo, cred repos.Credential, branch, expect string) error {
+	err := m.gs.DeleteBranch(ctx, repoRef(r, cred), branch, expect)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, watch.ErrLeaseRejected):
+		return fmt.Errorf("%w: %s", repos.ErrLeaseRejected, git.RedactURLSecrets(err.Error()))
+	}
+	return fmt.Errorf("%s", git.RedactURLSecrets(err.Error()))
+}
+
+// candidatePolicy holds a maintenance candidate to the dependency firewall and
+// the maturity cooldown before it is fetched (Task 182). Both services admit
+// everything when they are off.
+type candidatePolicy struct {
+	firewall *depfirewall.Service
+	maturity *maturity.Service
+}
+
+func (p candidatePolicy) CheckCandidate(tenant, ecosystem, name, version string) (bool, string, string) {
+	if d := p.firewall.Check(tenant, depfirewall.Coordinate{Ecosystem: ecosystem, Name: name, Version: version}); d.Blocked {
+		return false, repos.SkipFirewall, "the dependency firewall refuses it: " + d.Reason
+	}
+	if d := p.maturity.Check(tenant, maturity.Coordinate{Ecosystem: ecosystem, Name: name, Version: version}); d.Cooling {
+		return false, repos.SkipCooldown, d.Reason
+	}
+	return true, "", ""
 }
 
 // cacheProbe tells whether a cache object is present.

@@ -453,3 +453,13 @@ spec:
         summary: Repository {{ $labels.repo }} pins a malicious dependency
         description: The LLM package-content scan judged {{ $value }} dependency/ies of {{ $labels.repo }}'s lock files malicious (its default branch's head or a release). Clients are refused them under the block and quarantine actions; a release keeps their pinned bytes for forensics. See `ptctl repos report {{ $labels.repo }} --verdict flagged`.
         runbook: docs/repositories.md#alerts
+    - alert: PullthroughMaintenanceRunsFailing
+      expr: sum(increase(pullthrough_repo_update_runs_total{status=~"failed|conflict"}[6h])) by (status) >= 2
+      for: 0m
+      labels:
+        severity: warning
+        component: releases
+      annotations:
+        summary: Maintenance runs end {{ $labels.status }}
+        description: '{{ $value }} maintenance run(s) in 6h ended {{ $labels.status }}: vetted dependency updates are not reaching the maintenance branches. A conflict means a branch holds commits the updater did not push; it is never overwritten. See `ptctl repos updates <repo>`.'
+        runbook: docs/repositories.md#alerts

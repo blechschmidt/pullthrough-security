@@ -263,6 +263,11 @@ const (
 	// quarantine action — in a release, at the default branch's head, or in a
 	// revision scanned on request (Task 181).
 	EventRepositoryScan EventType = "repository_scan"
+
+	// EventRepositoryUpdate is a maintenance run of a tracked repository that
+	// could not move its maintenance branch: the branch holds commits the
+	// updater did not push, or the push failed (Task 182).
+	EventRepositoryUpdate EventType = "repository_update"
 )
 
 // allEventTypes is the canonical set, used for validation and "route all"
@@ -306,6 +311,7 @@ var allEventTypes = []EventType{
 	EventReleaseTag,
 	EventReleasePin,
 	EventRepositoryScan,
+	EventRepositoryUpdate,
 }
 
 // AllEventTypes returns the routable event types (excluding the synthetic test
@@ -327,7 +333,8 @@ func ValidEventType(s string) bool {
 		EventSbomDrift, EventDepFirewall, EventRebuildVerify, EventSnapshot,
 		EventBuildProvenance, EventLockdown, EventMeteringBudget, EventEgressBlocked,
 		EventMaintainerDrift, EventGitOps, EventCacheIntegrity, EventTLSPinViolation,
-		EventKeyExpiry, EventKeyRotated, EventReleaseTag, EventReleasePin, EventRepositoryScan:
+		EventKeyExpiry, EventKeyRotated, EventReleaseTag, EventReleasePin, EventRepositoryScan,
+		EventRepositoryUpdate:
 		return true
 	default:
 		return false
@@ -1368,6 +1375,24 @@ func RepositoryScanEvent(sev Severity, repo, commit, ref, coordinate, dispositio
 	}
 	if model != "" {
 		ev = ev.withField("model", model)
+	}
+	return ev
+}
+
+// RepositoryUpdateEvent builds a repository_update event: a maintenance run
+// whose branch could not be moved (Task 182). summary is the proxy's own
+// sentence; repository-controlled names in it are already plain text.
+func RepositoryUpdateEvent(sev Severity, repo, branch, commit, status, summary string) Event {
+	ev := Event{
+		Type:     EventRepositoryUpdate,
+		Severity: NormalizeSeverity(string(sev)),
+		Title:    "Repository maintenance branch: " + status,
+		Summary:  summary,
+		Artifact: repo + "@" + branch,
+	}
+	ev = ev.withField("repository", repo).withField("branch", branch).withField("status", status)
+	if commit != "" {
+		ev = ev.withField("commit", commit)
 	}
 	return ev
 }

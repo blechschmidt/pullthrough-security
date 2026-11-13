@@ -39,6 +39,8 @@ type pipFile struct {
 	Filename string
 	URL      string
 	SHA256   string
+	// Yanked reports a file the index marks yanked (PEP 592).
+	Yanked bool
 }
 
 // pipNormalize is PEP 503 name normalization.
@@ -169,6 +171,8 @@ func parseSimplePage(doc Document) ([]pipFile, error) {
 				Filename string            `json:"filename"`
 				URL      string            `json:"url"`
 				Hashes   map[string]string `json:"hashes"`
+				// Yanked is false, true, or the reason (a string) (PEP 691).
+				Yanked json.RawMessage `json:"yanked"`
 			} `json:"files"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
@@ -179,7 +183,9 @@ func parseSimplePage(doc Document) ([]pipFile, error) {
 			if f.Filename == "" || f.URL == "" {
 				continue
 			}
-			out = append(out, pipFile{Filename: f.Filename, URL: f.URL, SHA256: strings.ToLower(f.Hashes["sha256"])})
+			y := strings.TrimSpace(string(f.Yanked))
+			yanked := y != "" && y != "false" && y != "null"
+			out = append(out, pipFile{Filename: f.Filename, URL: f.URL, SHA256: strings.ToLower(f.Hashes["sha256"]), Yanked: yanked})
 		}
 		return out, nil
 	}
@@ -189,6 +195,9 @@ func parseSimplePage(doc Document) ([]pipFile, error) {
 var (
 	anchorRE = regexp.MustCompile(`(?is)<a\s[^>]*?href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>(.*?)</a>`)
 	tagRE    = regexp.MustCompile(`<[^>]*>`)
+	// yankedRE finds PEP 592's data-yanked attribute in an anchor's opening
+	// tag: present (with or without a reason) means yanked.
+	yankedRE = regexp.MustCompile(`(?is)^<a\s(?:[^>]*?\s)?data-yanked(?:\s|=|>|/)`)
 )
 
 // parseSimpleHTML reads the anchors of a PEP 503 page. A file's sha256 is the
@@ -207,7 +216,7 @@ func parseSimpleHTML(page string) []pipFile {
 		if name == "" {
 			name = path.Base(u.Path)
 		}
-		f := pipFile{Filename: name, URL: href}
+		f := pipFile{Filename: name, URL: href, Yanked: yankedRE.MatchString(m[0])}
 		if algo, v, ok := strings.Cut(u.Fragment, "="); ok && strings.EqualFold(algo, "sha256") {
 			f.SHA256 = strings.ToLower(v)
 		}

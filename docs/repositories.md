@@ -130,7 +130,7 @@ all, `0` none). Any other tagged commit can be pinned with `ptctl repos pin`.
 | Byte and request quotas | count requests; they never delete cache objects. Pinning requests are not counted against a tenant's rate limits. |
 | Tiered storage | may demote a pinned object to the cold tier; never drops it (every move is copy-then-delete). |
 | Integrity self-heal | corrupt bytes are removed, and the pinned object is fetched again at once. If the fresh copy is not the pinned digest, or cannot be fetched, the object is lost: the manifests that pin it record it as failed (`lost to an integrity failure: …`), those releases stop pinning its key — whatever the cache holds under it is an ordinary entry again, not one kept forever — and are no longer fully pinned. They are retried after `pinning.retryInterval`. A `PullthroughPinnedObjectLost` alert fires and a `release_pin` notification goes out. |
-| Backup / restore | registrations, histories, manifests and dependency scan reports are backup sources (`repos-registry`, `repos-history`, `repos-manifests`, `repos-scans`). The mirrors, the trackers' last-seen times and the default branches' scan state are rebuilt. |
+| Backup / restore | registrations, histories, manifests, dependency scan reports and the maintenance updater's state and run reports are backup sources (`repos-registry`, `repos-history`, `repos-manifests`, `repos-scans`, `repos-updates`, `repos-update-runs`, `repos-update-dry-runs`). The mirrors, the trackers' last-seen times and the default branches' scan state are rebuilt. |
 | Dependency scan | a malicious verdict never deletes a pinned object. The release keeps the bytes, for forensics, and the gate refuses them to every client while the verdict stands (see [Dependency scans](#dependency-scans)). |
 | Air-gap export / import | bundles carry the manifests and the pinned keys they hold. An import stores the manifests only from a bundle whose manifest digest was verified (`-manifest-digest`), and never overwrites an object the importing instance has pinned. |
 
@@ -280,6 +280,250 @@ by the leader within a minute. A scan asked for while its release is still
 being pinned is kept and runs once the release is pinned. Reports written by
 the leader are re-read by every replica.
 
+## Maintenance updates
+
+Task 182 keeps a **maintenance branch** in each registered repository — a
+Dependabot-style branch that only ever proposes updates the proxy has vetted.
+A run lists, for every dependency the default branch's lock files pin, the
+newer versions its registry offers, keeps those the project's declared
+constraint allows, vets them, writes the newest one that passes into the lock
+files, and pushes the result on top of the default branch's head. It needs the
+[LLM package-content scan](llm-package-scan.md) (`llmPackageScan.enabled`):
+nothing is proposed without a benign verdict.
+
+Runs are scheduled every `repositories.updates.interval` (default 24h) on the
+HA leader, and run on request:
+
+```sh
+ptctl repos update widgets --dry-run   # compute and show; push nothing
+ptctl repos update widgets             # push the maintenance branch
+ptctl repos updates widgets            # the branch's state and the newest runs
+```
+
+### Selecting updates
+
+1. **Listing.** For each dependency of a type whose versions can be listed —
+   npm, PyPI, Cargo and Go registries — the version list is read from the
+   registry's metadata **through the proxy** (the gated pipeline, as the system
+   principal `system:repository-updater` of the repository's tenant, with its
+   roles), from the same upstream the dependency is located through: an npm
+   packument, a PyPI simple page, a Cargo sparse-index file, a Go module's
+   `@v/list`. The updater never talks to a registry itself.
+2. **Compatibility.** A candidate must be newer and allowed by every
+   constraint declared on the dependency:
+
+   | Ecosystem | Declared constraint |
+   |-----------|---------------------|
+   | npm | the ranges of `package.json` and of every package in the lock file that depends on it, each resolved to the install position it reaches (node-semver: caret, tilde, x-ranges, hyphen ranges, `\|\|`) |
+   | Cargo | the requirements of the workspace's `Cargo.toml` files and of every crate in `Cargo.lock` that depends on it (from the dependents' index entries; Cargo's caret default) |
+   | PyPI | the PEP 440 specifiers of the requirements file's pip-tools input (`requirements.in`), of `pyproject.toml`, and of every other pinned project's `Requires-Dist` |
+   | Go | the module's major version: minimal version selection moves within one module path (`exclude` directives honoured) |
+
+   The version engine (`internal/versions`) also evaluates Maven and NuGet
+   ranges and RubyGems requirements, as those tools do; the versions of those
+   ecosystems are not listed yet (see the table below). When nothing declares a
+   constraint, a candidate
+   must stay within the **same major version** (`repositories.updates.maxBump:
+   minor`, the default) or be a **patch** release (`maxBump: patch`; a
+   repository's `updates.maxBump` overrides). Pre-releases are proposed only for
+   a dependency pinned to a pre-release, yanked versions never. When a requirement
+   on the dependency cannot be read (a dependent's index entry or metadata is
+   unavailable), no candidate is proposed: it could not be shown to satisfy it.
+3. **Vetting.** Candidates are tried newest first, at most
+   `repositories.updates.maxCandidates` (default 3) per dependency, until one
+   passes:
+   * the **ignore list** of the repository (`updates.ignore`: `npm/lodash`,
+     `pip/django@>=5.0`, `cargo/serde@1.0.200`, `*/internal-*`);
+   * the **dependency firewall** and the **maturity cooldown**, asked before
+     anything is fetched;
+   * **every admission gate**: each object of the candidate is fetched through
+     the gated pipeline, exactly as a client's pull, and must be admitted and
+     cached;
+   * a **benign LLM package-scan verdict for the exact bytes** of every object
+     the gate examines — the stored verdict when there is one, a scan made on
+     demand otherwise. A malicious, suspicious or unscanned reading (pending,
+     failed, out of the gate's scope, the budget spent) skips the candidate;
+   * the bytes must be those the registry metadata states (npm's
+     `dist.integrity` and `shasum`, Cargo's `cksum`, the hash a PyPI simple
+     page lists for each file).
+
+   Every candidate passed over is reported with its reason (`malicious`,
+   `suspicious`, `unscanned`, `incompatible`, `constraint-unknown`, `ignored`,
+   `firewall`, `cooldown`, `refused`, `digest`, `fetch-failed`, `limit`,
+   `not-writable`, `resolution`, `verify-failed`), and so is the newest
+   incompatible version of each dependency.
+
+The updater runs on the proxy's own behalf, never on a client's: nothing it
+does uses a client's network, credentials or address. Registry metadata and
+package content reach it only through the proxy's gated pipeline (recorded in
+the download log as client `system`), and a sandboxed package manager has no
+network at all.
+
+### Writing the lock files
+
+The new version, its resolved URL and its integrity values come from the bytes
+the proxy fetched, verified and cached — never from registry metadata. Each
+rewritten lock file is parsed again and held to what was intended: exactly the
+updated dependencies moved, to the intended versions and digests, and nothing
+else changed. A rewrite that does not pass is not committed.
+
+* **Natively**, when the new version declares the same dependencies as the
+  pinned one (its packument entry, index entry, go.mod or Requires-Dist
+  compares equal): only the targeted entries' version, resolved URL and
+  digests change, byte for byte, and go.mod's `require` line with them.
+* **Through the sandboxed package manager**, when the dependency graph has to
+  be resolved again: `npm update --package-lock-only`, `cargo update
+  --precise`, `go get`. The tool runs in a container of its official image
+  (the client lab's and the ecosystem tests' images) with **no network**
+  (`--network none`), a read-only root, every capability dropped, as an
+  unprivileged user, given only the manifests and lock files below the lock
+  file's directory (Cargo's `*.rs` targets as empty placeholders; never the
+  repository's own `.npmrc`, `.cargo/config.toml` or toolchain pins, which
+  would point the tool elsewhere or carry credentials). Its one way out is a unix
+  socket to a **session of the proxy** that a short-lived token, minted for the
+  run, binds to the **scanned-benign-only** policy: registry metadata is served
+  through the admission gates (the updated package's metadata offers no version
+  newer than the vetted one, and none the updater skipped), and package content
+  only when every gate admits it and the LLM scan judged those exact bytes
+  benign — an archive nobody judged is never served. Since lock-only
+  resolvers do not download what they resolve, every entry the resolution adds
+  or changes is vetted the same way afterwards, its recorded digests held to the
+  bytes the proxy serves; one that fails fails the lock file's update. The
+  sandbox needs `repositories.updates.sandbox.runtime` (docker or podman) and
+  this binary built statically (the release binaries are): it runs inside the
+  container as the relay.
+* **Not at all**, for the formats below, with the reason — nor for a project
+  that vendors its dependencies next to the lock file (`vendor/modules.txt`, a
+  `cargo vendor` source replacement): its build reads the vendored copies,
+  which only `go mod vendor` or `cargo vendor` would update.
+
+<!-- BEGIN GENERATED: maintenance update formats. Regenerate with `go test ./internal/repos/update -run TestRepositoriesDocIsCurrent -update`; source: internal/repos/update/catalog.go. -->
+
+**Updated natively** — the proxy rewrites the lock file itself; when the new version declares other
+dependencies, the fallback applies:
+
+| Type | Format | Fallback | Manifests read | When |
+|---|---|---|---|---|
+| `cargo` | `Cargo.lock` | sandboxed `cargo` | `Cargo.toml` | Native when the new version's index entry declares the same dependencies, features and links: `version` and `checksum` (the SHA-256 of the .crate the proxy verified) are rewritten, and references that name the old version. Otherwise `cargo update --precise` re-resolves in the sandbox (crates.io dependencies). |
+| `go` | `go.mod` | sandboxed `go` | `go.mod` | Native when the new version's go.mod requires the same modules at the same versions: the `require` line in go.mod and the `h1:` lines in go.sum (the module hash of the zip and of the go.mod the proxy verified) are rewritten. Otherwise `go get` re-resolves in the sandbox (minimal version selection within the major version). |
+| `go` | `go.sum` | sandboxed `go` | `go.mod` | Written together with go.mod (see go.mod). |
+| `npm` | `npm-shrinkwrap.json` | sandboxed `npm` | `package.json` | As `package-lock.json`, of which it is the published form. |
+| `npm` | `package-lock.json` | sandboxed `npm` | `package.json` | Native when the new version declares the same dependencies, platform and installation metadata as the old one (its packument entries compare equal): `version`, `resolved` and `integrity` of every install position of the old version are rewritten from the bytes the proxy verified. Otherwise `npm update --package-lock-only` re-resolves the tree in the sandbox, its packument trimmed to the vetted version. |
+| `pip` | `requirements.txt` | unsupported | `requirements.in`, `pyproject.toml` | Native when the new release declares the same requirements (Requires-Dist, from the index's JSON API) and every other pinned project's requirements allow it: the `==` pin and its `--hash` lines (one per distribution file of the release, from the bytes the proxy verified) are rewritten. A release with other requirements is not proposed: re-resolving needs the file's pip-tools or uv input, which the sandbox does not run yet. |
+
+**Not updated:**
+
+| Type | Format | Why |
+|---|---|---|
+| `ansible` | `requirements.yml` | A requirements file pins versions without digests and is not resolved by a lock. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `bazel` | `MODULE.bazel.lock` | Bzlmod records registry file hashes of every visited version, which Bazel computes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `composer` | `composer.lock` | composer.lock carries a content hash of composer.json and dist references only Composer computes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `conan` | `conan.lock` | Conan locks recipe revisions computed by Conan. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `conda` | `@EXPLICIT spec` | An explicit spec is the output of a solve of the whole environment. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `conda` | `conda-lock.yml` | conda-lock re-solves the whole environment per platform. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `conda` | `pixi.lock` | pixi re-solves every environment and platform together. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `cpan` | `cpanfile.snapshot` | Carton re-resolves the snapshot. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `cran` | `renv.lock` | renv records no digests to rewrite, and renv itself snapshots the library. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `dart` | `pubspec.lock` | pub re-resolves the whole lock (`dart pub upgrade`). The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `docker` | `Dockerfile` | Base images are pinned by digest of a tag, not by a version within a range; moving them is not a dependency update the updater can vet against a declared constraint. |
+| `docker` | `compose` | As Dockerfile. |
+| `git` | `.gitmodules` | Submodules are pinned to commits, which have no versions to order and no package content the LLM scan vets as a package. |
+| `hackage` | `cabal.project.freeze` | cabal re-solves the plan. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `hackage` | `stack.yaml.lock` | Stack records snapshot and package hashes it computes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `helm` | `Chart.lock` | Chart.lock's digest is a hash of the dependency list Helm computes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `helm` | `requirements.lock` | As Chart.lock. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `hex` | `mix.lock` | Mix evaluates mix.lock, and its outer and inner checksums are computed by Hex. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `homebrew` | `Brewfile.lock.json` | Homebrew no longer writes Brewfile.lock.json. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `jsr` | `deno.lock` | Deno locks module file sets by their own integrity hashes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `julia` | `Manifest.toml` | Pkg records git-tree hashes of the source trees, which Pkg computes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `maven` | `gradle.lockfile` | Gradle writes the lock from the build's own resolution, which only running the build reproduces. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `maven` | `pom.xml` | A POM is the build itself, not a lock file; changing its versions is a change of the build. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `nix` | `flake.lock` | Flake inputs are source revisions with NAR hashes, not registry versions. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `npm` | `pnpm-lock.yaml` | pnpm keys snapshots and their dependency graph by version and peer suffix; a rewrite needs pnpm itself, which the sandbox does not run yet. |
+| `npm` | `yarn.lock` | A yarn.lock entry records the resolution of each range, keyed by the ranges; moving one entry means re-resolving with Yarn itself, which the sandbox does not run yet. |
+| `nuget` | `packages.lock.json` | `contentHash` is the SHA-512 of the package with its signature removed, which the proxy cannot recompute from the bytes it serves; the lock is re-resolved by `dotnet restore`, which the sandbox does not run yet. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `pip` | `Pipfile.lock` | Pipfile.lock carries a hash of the Pipfile and is re-resolved by Pipenv, which the sandbox does not run yet. |
+| `pip` | `pdm.lock` | pdm.lock carries a content hash of pyproject.toml and is re-resolved by PDM, which the sandbox does not run yet. |
+| `pip` | `poetry.lock` | poetry.lock carries a content hash of pyproject.toml and is re-resolved by Poetry, which the sandbox does not run yet. |
+| `pip` | `uv.lock` | uv.lock records every release's dependency markers per resolution fork; it is re-resolved by uv, which the sandbox does not run yet. |
+| `puppet` | `Puppetfile` | r10k evaluates the Puppetfile; it records no digests. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `rubygems` | `Gemfile.lock` | Bundler re-resolves the whole lock (`bundle lock --update`), which the sandbox does not run yet. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `swift` | `Package.resolved` | SwiftPM pins registry releases without a checksum and source-control pins by revision. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `terraform` | `*.tf modules` | Module versions are written in configuration, not a lock file. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `terraform` | `*.tf overrides` | Module versions are written in configuration, not a lock file. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+| `terraform` | `.terraform.lock.hcl` | Provider hashes cover every platform's zip (`zh:`/`h1:`), which `terraform providers lock` computes. The updater lists newer versions through the proxy for the npm, PyPI, Cargo and Go registries only; this ecosystem's versions are not listed yet. |
+
+<!-- END GENERATED: maintenance update formats -->
+
+### Pushing the branch
+
+The commit — signed when `repositories.updates.signingKey` holds an OpenSSH
+private key (git's SSH signature format; register its public key as a signing
+key on the Git host) — is built on top of the default branch's current head,
+and pushed to `repositories.updates.branch` (default `pullthrough/maintenance`,
+per repository `updates.branch`) over HTTPS or SSH with the repository's
+`credentialsRef`. Its message lists each update (old → new, verdict, the
+scan IDs of its verdicts) and each skipped candidate with its reason. A scan ID
+is the LLM package scan's verdict key — the artifact's SHA-256 and a signature
+of the model and prompt version — under which the verdict, its reasons and
+cited files are kept (`GET /admin/api/llmpkgscan/verdicts?name=`, the
+package's dossier).
+
+* **Nothing changed, nothing pushed.** When the branch already holds the same
+  files on the same head, the run ends `unchanged`; with no update at all it
+  ends `no-updates`. Neither pushes.
+* **Nothing left to propose.** When a run finds no vetted update any more —
+  the branch was merged, or what it proposes is no longer vetted (a verdict
+  changed, the firewall or the cooldown now refuses it) — and the branch is the
+  updater's, the branch is deleted (with the lease), which closes its GitHub pull
+  request; the run ends `retired`. A run on which something only passingly
+  failed (a registry that could not be read, a scan that did not happen) never
+  deletes it.
+* **A lease on the last push.** The push uses `--force-with-lease` against the
+  commit the updater pushed last (or the branch's absence). A branch someone
+  else pushed to is never overwritten: the run ends `conflict`, says so, and
+  notifies (`repository_update`); delete the branch, or merge it, and the next
+  run starts it over. A branch deleted after its pull request was merged is
+  simply created again.
+* **A moving default branch.** When the default branch moves while a run
+  computes, the run starts over on the new head (up to three times). When it
+  moved since the last push, the branch is rebuilt on top of it.
+* **Pull requests.** With `repositories.updates.pullRequests.enabled` and a
+  repository's `updates.forge` (`github` or `gitlab`) and `forgeTokenRef`, the
+  run opens a pull/merge request from the branch to the default branch, or
+  updates the open one's title and body.
+
+Every push, and every push refused, is in the tamper-evident audit log
+(`repository_update`: the branch, the commit, the base, the lease, the
+updates). The run's report is kept (`updates/<repo>/<run>` in the state
+directory, the newest 20; dry runs apart, under `updatedry/`, the newest 5).
+
+### Configuration
+
+```yaml
+repositories:
+  updates:
+    enabled: true
+    interval: 24h                      # negative: on request only
+    branch: pullthrough/maintenance
+    maxBump: minor                     # without a declared constraint: minor (same major) or patch
+    maxCandidates: 3
+    maxUpdates: 50
+    signingKey: file:///etc/pullthrough/maintenance-signing-key   # OpenSSH private key; empty: unsigned
+    pullRequests: {enabled: true, labels: [dependencies]}
+    sandbox:
+      runtime: docker                  # or podman; empty: no sandbox
+      # images: {npm: node:22-slim, cargo: rust:1-slim, go: golang:1.24-alpine}
+  repos:
+    - name: widgets
+      url: https://github.com/acme/widgets.git
+      credentialsRef: vault://kv/git/widgets#token      # also used to push
+      updates:
+        ignore: ["npm/lodash@>=5", "pip/django@>=5.0"]
+        forge: github
+        forgeTokenRef: vault://kv/github/widgets-bot#token
+```
+
 ## Configuration
 
 ```yaml
@@ -420,6 +664,9 @@ truth, and a test holds every lock-file type to one or the other.
 | A scan's report | `ptctl repos report <name> [--rev REV] [--verdict flagged]` | `GET /api/repos/scan?name=&rev=&verdict=` |
 | The report as SARIF | `ptctl repos report <name> [--rev REV] --sarif FILE` | `GET /api/repos/scan/sarif?name=&rev=` |
 | A repository's scans | — | `GET /api/repos/scans?name=` |
+| Run the maintenance updater *(operate)* | `ptctl repos update <name> [--dry-run]` | `POST /api/repos/update?name=&dryRun=1` |
+| A maintenance run's report | `ptctl repos update <name> --run ID` | `GET /api/repos/update?name=&run=` |
+| The maintenance branch's state and runs | `ptctl repos updates <name>` | `GET /api/repos/updates?name=` |
 
 Each release is shown with:
 
@@ -450,6 +697,7 @@ caller's tenant.
 | `release_pin` | a release was pinned (allow) or not fully pinned (deny); a dependency's bytes did not match its lock file; a pinned object was restored or lost after an integrity failure |
 | `repository_scan` | a dependency scan finished (deny when it found a malicious or suspicious dependency); a dependency was flagged (`event: dependency-flagged`, with the coordinate, digest, model and lock-file lines) |
 | `policy_decision` `llmpkgscan:deferred:*` | the LLM gate's refusal of an object the release pinner or the scanner fetched, left to the scan |
+| `repository_update` | a maintenance branch was pushed (allow), or a push was refused because the branch holds commits the updater did not push, or failed (deny) |
 
 Notifications: `release_tag` for moved (high) and deleted (medium) tags.
 `release_pin` for:
@@ -462,6 +710,9 @@ Notifications: `release_tag` for moved (high) and deleted (medium) tags.
 or suspicious (high under `quarantine`, medium otherwise), once per dependency
 and digest. The summary is the proxy's sentence; the model's words are never
 in a notification.
+
+`repository_update` (medium) for a maintenance run whose branch holds commits
+the updater did not push: it is left as it is.
 
 Metrics (`pullthrough_repo_*`):
 
@@ -481,6 +732,10 @@ Metrics (`pullthrough_repo_*`):
 | `scan_dependencies_total{verdict}` | dependencies scanned, by verdict |
 | `scan_queue` | revisions waiting for a scan |
 | `malicious_dependencies{repo}` | malicious dependencies (not released by break-glass) in each repository's current scans: the head and every release |
+| `update_runs_total{status}` | maintenance runs by status (pushed, unchanged, no-updates, retired, dry-run, conflict, failed); `update_duration_seconds` their duration |
+| `updates_total{method}` | dependency updates written, by method (native, sandbox) |
+| `update_skipped_total{reason}` | candidate versions passed over, by reason |
+| `update_pushes_total{outcome}`, `update_pull_requests_total{outcome}` | pushes (pushed, deleted, failed) and pull/merge requests by outcome |
 
 ## Alerts
 
@@ -491,3 +746,4 @@ Metrics (`pullthrough_repo_*`):
 | `PullthroughPinnedObjectLost` | critical | a pinned object failed its integrity check and could not be fetched again with its pinned digest | Restore it from a backup or an air-gap bundle; the releases that pin it (`ptctl repos lookup --digest …`) are not reproducible until then. |
 | `PullthroughRepositoryMaliciousDependency` | critical | a current scan of a repository (its default branch's head, a release) found a malicious dependency | `ptctl repos report <repo> --verdict flagged` names it, the lock-file lines and the model. Remove or replace it and rebuild; review the evidence in the admin console before releasing a false positive through break-glass. The release's pinned bytes are kept for forensics. |
 | `PullthroughRepositorySyncFailing` | warning | a repository's tags could not be fetched three times in 30 minutes | Check `ptctl repos show <repo>`: the credentials reference, network, or a history that no longer verifies (`ptctl repos verify`). |
+| `PullthroughMaintenanceRunsFailing` | warning | two or more maintenance runs ended `failed` or `conflict` within 6 hours | `ptctl repos updates <repo>` shows the state and the runs; `ptctl repos update <repo> --run ID` the reason. A conflict means the branch holds commits the updater did not push: merge or delete the branch. A failure names the step (credentials, the push, the default branch). |

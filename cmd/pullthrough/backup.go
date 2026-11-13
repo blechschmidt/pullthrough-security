@@ -106,6 +106,11 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 			// model work and the forensic record of what a release shipped.
 			// The default branches' state and pending requests are rebuilt.
 			add("repos-scans", filepath.Join(dir, "scans"), false)
+			// The maintenance updater (Task 182): the commit it pushed last
+			// (the lease of its next push) and its run reports.
+			add("repos-updates", filepath.Join(dir, "updatestate"), false)
+			add("repos-update-runs", filepath.Join(dir, "updates"), false)
+			add("repos-update-dry-runs", filepath.Join(dir, "updatedry"), false)
 		}
 	}
 

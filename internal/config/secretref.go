@@ -93,6 +93,8 @@ func credentialFields(cfg *Config) []credentialField {
 		str("llmPackageScan.apiKey", &cfg.LLMPackageScan.APIKey),
 		str("scanning.watch.webhookSecret", &cfg.Scanning.Watch.WebhookSecret),
 		str("repositories.webhookSecret", &cfg.Repositories.WebhookSecret),
+		str("repositories.updates.signingKey", &cfg.Repositories.Updates.SigningKey),
+		str("repositories.updates.signingKeyPassphrase", &cfg.Repositories.Updates.SigningKeyPassphrase),
 		str("provenance.githubToken", &cfg.Provenance.GitHubToken),
 		str("observability.adminToken", &cfg.Observability.AdminToken),
 		str("adminAuth.sessionKey", &cfg.AdminAuth.SessionKey),

@@ -586,3 +586,59 @@ func FuzzProxyMapping(f *testing.F) {
 		}
 	})
 }
+
+// --- manifest readers of the maintenance updater (Task 182) ---------------
+
+func FuzzNPMRequirements(f *testing.F) {
+	f.Add([]byte(`{"lockfileVersion":3,"packages":{"":{"dependencies":{"a":"^1"}},"node_modules/a":{"version":"1.0.0","dependencies":{"b":"~2"}},"node_modules/a/node_modules/b":{"version":"2.0.1"}}}`), []byte(nil))
+	f.Add([]byte(`{"lockfileVersion":1,"dependencies":{"a":{"version":"npm:b@1.0.0","requires":{"c":"1"},"dependencies":{"c":{"version":"1.0.0"}}}}}`), []byte(`{"dependencies":{"a":"npm:b@^1"}}`))
+	f.Add([]byte(`{"packages":{"packages/ws":{"devDependencies":{"x":"*"}},"node_modules/ws":{"link":true}}}`), []byte(nil))
+	f.Fuzz(func(t *testing.T, lock, pkg []byte) {
+		reqs, err := NPMRequirements(lock, pkg)
+		if err != nil {
+			return
+		}
+		for _, r := range reqs {
+			if r.Name == "" && r.Range != "" && r.Position != "" {
+				t.Fatalf("a resolved requirement without a name: %+v", r)
+			}
+			if r.Position != "" && r.Package == "" {
+				t.Fatalf("a resolved requirement without its package: %+v", r)
+			}
+		}
+	})
+}
+
+func FuzzCargoManifests(f *testing.F) {
+	f.Add([]byte("[dependencies]\nserde = \"1\"\nx = { package = \"y\", version = \"=2\" }\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n[workspace.dependencies]\nz = \"3\"\n"))
+	f.Add([]byte("version = 4\n[[package]]\nname = \"a\"\nversion = \"1.0.0\"\ndependencies = [\"b 1.0.0 (registry+x)\", \"c\"]\n"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if reqs, err := CargoManifestRequirements(data); err == nil {
+			for _, r := range reqs {
+				if r.Name == "" || r.Requirement == "" {
+					t.Fatalf("an empty requirement: %+v", r)
+				}
+			}
+		}
+		if pkgs, err := CargoLockPackages(data); err == nil {
+			for _, p := range pkgs {
+				for _, ref := range p.Dependencies {
+					CargoDependencyRef(ref)
+				}
+			}
+		}
+	})
+}
+
+func FuzzPythonRequirements(f *testing.F) {
+	for _, s := range []string{"requests>=2,<3", "Django[argon2] ~= 4.2 ; python_version >= '3.8'", "attrs (>=21)", "x @ https://h/x.whl", "-r a.in", "a==1 --hash=sha256:00"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, line string) {
+		if r, ok := PythonRequirementLine(line); ok && r.Name == "" {
+			t.Fatalf("a requirement without a name from %q", line)
+		}
+		PythonRequirementsIn([]byte(line))
+		_, _ = PyProjectRequirements([]byte(line))
+	})
+}

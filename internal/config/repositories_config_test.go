@@ -172,3 +172,56 @@ repositories:
 		t.Fatal(err)
 	}
 }
+
+// TestRepositoryUpdatesValidation checks the maintenance updater's settings
+// (Task 182).
+func TestRepositoryUpdatesValidation(t *testing.T) {
+	llm := `
+llmPackageScan: {enabled: true, provider: claude, apiKey: x}
+`
+	cfg, err := loadRepositoriesYAML(t, llm+`
+repositories:
+  enabled: true
+  updates:
+    enabled: true
+    maxBump: patch
+    sandbox: {runtime: podman, images: {npm: "node:22-slim"}}
+  repos:
+    - name: widgets
+      url: https://github.com/acme/widgets.git
+      updates: {ignore: ["npm/lodash@>=5"], forge: gitlab, forgeTokenRef: "env://GL_TOKEN", branch: deps/maint}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Repositories.Updates.MaxBump != "patch" || cfg.Repositories.Repos[0].Updates.Forge != "gitlab" {
+		t.Fatalf("parsed: %+v", cfg.Repositories.Updates)
+	}
+	cases := map[string]string{
+		"no LLM gate": `
+repositories: {enabled: true, updates: {enabled: true}}`,
+		"maxBump": llm + `
+repositories: {enabled: true, updates: {enabled: true, maxBump: major}}`,
+		"interval": llm + `
+repositories: {enabled: true, updates: {enabled: true, interval: 5s}}`,
+		"branch": llm + `
+repositories: {enabled: true, updates: {enabled: true, branch: "-x"}}`,
+		"runtime": llm + `
+repositories: {enabled: true, updates: {enabled: true, sandbox: {runtime: lxc}}}`,
+		"image tool": llm + `
+repositories: {enabled: true, updates: {enabled: true, sandbox: {runtime: docker, images: {bundler: "ruby:3"}}}}`,
+		"author": llm + `
+repositories: {enabled: true, updates: {enabled: true, authorEmail: "a <b>"}}`,
+		"repo forge": `
+repositories: {enabled: true, repos: [{name: w, url: "https://h/w.git", updates: {forge: bitbucket}}]}`,
+		"repo token literal": `
+repositories: {enabled: true, repos: [{name: w, url: "https://h/w.git", updates: {forgeTokenRef: ghp_x}}]}`,
+		"repo ignore": `
+repositories: {enabled: true, repos: [{name: w, url: "https://h/w.git", updates: {ignore: [lodash]}}]}`,
+	}
+	for name, extra := range cases {
+		if _, err := loadRepositoriesYAML(t, extra); err == nil || !strings.Contains(err.Error(), "updates") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

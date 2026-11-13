@@ -1,0 +1,141 @@
+"math/rand"	-1	0
+"slices"	-1	0
+"sort"	-1	0
+"strings"	-1	0
+"testing"	-1	0
+"bad"	-1	0
+"v1-alpha.beta.gamma"	-1	0
+"v1-pre"	-1	0
+"v1+meta"	-1	0
+"v1-pre+meta"	-1	0
+"v1.2-pre"	-1	0
+"v1.2+meta"	-1	0
+"v1.2-pre+meta"	-1	0
+"v1.0.0-alpha"	16	0
+"v1.0.0-alpha.1"	17	0
+"v1.0.0-alpha.beta"	18	0
+"v1.0.0-beta"	19	0
+"v1.0.0-beta.2"	20	0
+"v1.0.0-beta.11"	21	0
+"v1.0.0-rc.1"	22	0
+"v1"	24	0
+"v1.0.0"	24	0
+"v1.0"	24	0
+"v1.2"	26	0
+"v1.2.0"	26	0
+"v1.2.3-456"	28	0
+"v1.2.3-456.789"	29	0
+"v1.2.3-456-789"	31	0
+"v1.2.3-456a"	32	0
+"v1.2.3-pre"	33	0
+"v1.2.3-pre+meta"	33	0
+"v1.2.3-pre.1"	36	0
+"v1.2.3-zzz"	37	0
+"v1.2.3"	38	0
+"v1.2.3+meta"	38	0
+"v1.2.3+meta-pre"	38	0
+"v1.2.3+meta-pre.sha.256a"	38	0
+"IsValid(%q) = %v, want %v"	-1	0
+"Canonical(%q) = %q, want %q"	-1	0
+"."	-1	0
+"Major(%q) = %q, want %q"	-1	0
+"+"	-1	0
+"-"	-1	0
+".0"	-1	0
+"MajorMinor(%q) = %q, want %q"	-1	0
+"Prerelease(%q) = %q, want %q"	-1	0
+"Build(%q) = %q, want %q"	-1	0
+"Compare(%q, %q) = %d, want %d"	-1	0
+"Max(%q, %q) = %q, want %q"	-1	0
+"v1.0.0+metadata-dash"	24	0
+"v1.0.0+metadata-dash1"	24	0
+"bad compare"	-1	0
+"time"	-1	0
+"v0.0.0-20060102150405-hash"	3	1
+"v0"	6	0
+"v1.0.0-20060102150405-hash"	14	1
+"v2"	54	0
+"v2.0.0-20060102150405-hash"	52	1
+"unused"	-1	0
+"v0.0.0"	6	0
+"v0.0.1-0.20060102150405-hash"	7	1
+"v1.2.4-0.20060102150405-hash"	39	1
+"v1.2.99999999999999999"	45	0
+"v1.2.100000000000000000-0.20060102150405-hash"	46	1
+"v1.2.3-pre.0.20060102150405-hash"	34	1
+"v1.3.0-pre"	47	0
+"v1.3.0-pre.0.20060102150405-hash"	48	1
+"v0.0.0--"	1	0
+"v0.0.0--.0.20060102150405-hash"	2	1
+"v1.0.0+metadata"	24	0
+"v1.0.1-0.20060102150405-hash+metadata"	25	1
+"v2.0.0+incompatible"	54	0
+"v2.0.1-0.20060102150405-hash+incompatible"	55	1
+"v2.3.0-pre+incompatible"	57	0
+"v2.3.0-pre.0.20060102150405-hash+incompatible"	58	1
+"hash"	-1	0
+"PseudoVersion(%q, %q, ...) = %v, want %v"	-1	0
+"IsPseudoVersion(%q) = false, want true"	-1	0
+"IsPseudoVersion(%q) = true, want false"	-1	0
+"PseudoVersionTime(%q) = %v, %v, want %v, nil"	-1	0
+"PseudoVersionTime(%q) = %v, %v, want %v, error"	-1	0
+"---"	-1	0
+"expected error, got nil instead"	-1	0
+"PseudoVersionRev(%q) = %q, %v, want %q, nil"	-1	0
+"PseudoVersionRev(%q) = %q, %v, want %q, error"	-1	0
+"PseudoVersionBase(%q): %v"	-1	0
+"PseudoVersionBase(%q) = %q; want %q"	-1	0
+"v0.0.0-"	-1	0
+"v0.0.0-0.20060102150405-hash"	0	1
+"v0.1.0-0.20060102150405-hash"	8	1
+"v1.0.0-0.20060102150405-hash"	13	1
+"v0.0.0-20060102150405-hash+incompatible"	3	1
+"v0.0.0-20060102150405-hash+metadata"	3	1
+"0"	-1	0
+"1"	-1	0
+"2"	-1	0
+"99"	-1	0
+"100"	-1	0
+"101"	-1	0
+"102"	-1	0
+"incDecimal(%q) = %q; want %q"	-1	0
+"00"	-1	0
+"98"	-1	0
+"decDecimal(%q) = %q; want %q"	-1	0
+"v1.2.4"	44	0
+"v1.3.0"	49	0
+"v2.0.0"	54	0
+"v2.1.0+incompatible"	56	0
+"v3.0.0+incompatible"	59	0
+"v0.4.1"	9	0
+"v0.4.2"	10	0
+"v0.5.0"	11	0
+"v0.0.0-20210101000000-abcdef123456"	5	1
+"v1.2.4-0.20210101000000-abcdef123456"	42	1
+"v1.2.3-pre.0.20210101000000-abcdef123456"	35	1
+"v1.2.3-0.20210101000000-abcdef123456"	27	1
+"v1.2.3-20210101000000-abcdef123456"	30	0
+"v1.0.0-20210101000000-abcdef123456"	15	1
+"v0.0.0-20210101000000-abcdef12345+build"	4	1
+"v1.2.4-0.2021010100000-abc"	40	0
+"v1.2.4-0.20210101000000-abc-def"	41	0
+"v1.2.4-x.0.20210101000000-abc"	43	1
+"1.2.3"	-1	0
+"v1.2.3.4"	-1	0
+"v01.2.3"	-1	0
+"v1.02.3"	-1	0
+"v1.2.03"	-1	0
+"v1.2.3-01"	-1	0
+"v1.2.3-"	-1	0
+"V1.2.3"	-1	0
+"v1.2.3 "	-1	0
+" v1.2.3"	-1	0
+"v9223372036854775807.0.0"	62	0
+"v9223372036854775808.0.0"	63	0
+"v1.0.0-0"	12	0
+"v1.0.0-x.7.z.92"	23	0
+"v2.0.0-rc.1+incompatible"	53	0
+"v4.0.0"	60	0
+"v10.0.0"	61	0
+"v1.10.0"	51	0
+"v1.9.0"	50	0

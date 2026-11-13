@@ -85,6 +85,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/ratelimit"
 	"github.com/blechschmidt/pullthrough-security/internal/rekor"
 	"github.com/blechschmidt/pullthrough-security/internal/repos"
+	"github.com/blechschmidt/pullthrough-security/internal/repos/sandbox"
 	"github.com/blechschmidt/pullthrough-security/internal/scan"
 	"github.com/blechschmidt/pullthrough-security/internal/scan/commit"
 	"github.com/blechschmidt/pullthrough-security/internal/secretscan"
@@ -133,6 +134,14 @@ func run() error {
 			return runMalfeedCommand(os.Args[2:])
 		case "webhook":
 			return runWebhookCommand(os.Args[2:])
+		case "sandbox-exec":
+			// The in-container half of a sandboxed package-manager run (Task
+			// 182): never run by hand. It relays the tool's requests to the
+			// proxy's session socket and runs the tool.
+			if len(os.Args) != 3 {
+				return fmt.Errorf("sandbox-exec takes the job's spec file")
+			}
+			os.Exit(sandbox.ExecMain(os.Args[2]))
 		}
 	}
 
@@ -1083,6 +1092,10 @@ func run() error {
 			findingsMetrics: findingsMetrics,
 			suppressions:    suppressionLedger,
 			siem:            siemFindingsForwarder(siemFwd),
+			// Task 182: a maintenance candidate is held to the firewall and
+			// the cooldown before it is fetched.
+			firewall: depFirewallSvc,
+			maturity: maturitySvc,
 		}); err != nil {
 			return err
 		}

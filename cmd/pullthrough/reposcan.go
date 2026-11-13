@@ -93,7 +93,7 @@ func objectScanFrom(sl *proxy.SystemLLMScan) repos.ObjectScan {
 	}
 	if v := rep.Verdict; v != nil {
 		d := &repos.VerdictDetail{
-			Digest: v.Digest, ModelVerdict: v.Verdict, Confidence: v.Confidence, Provider: v.Provider,
+			ScanID: v.Key, Digest: v.Digest, ModelVerdict: v.Verdict, Confidence: v.Confidence, Provider: v.Provider,
 			Model: v.Model, PromptVersion: v.PromptVersion, Mode: v.Mode, ScannedAt: v.ScannedAt,
 			Scope: v.Scope, ReadAs: llmpkgscan.DescribeVariant(v), Format: v.Format, Truncated: v.Truncated,
 			Files: v.Files, StructuralRisk: v.StructuralRisk, Reasons: append([]string(nil), v.Reasons...),

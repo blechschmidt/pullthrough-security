@@ -1,0 +1,11 @@
+{
+  "name": "fixture-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "left-pad": "1.3.0"
+  }
+}

@@ -246,7 +246,11 @@ The dependency scans (Task 181) add `scans_total{kind,status}`,
 `scan_duration_seconds`, `scan_dependencies_total{verdict}`, `scan_queue` and
 `malicious_dependencies{repo}` (a gauge: malicious dependencies of each
 repository's current scans, which `PullthroughRepositoryMaliciousDependency`
-alerts on).
+alerts on). The maintenance updater (Task 182) adds `update_runs_total{status}`
+(pushed\|unchanged\|no-updates\|retired\|dry-run\|conflict\|failed, which
+`PullthroughMaintenanceRunsFailing` alerts on), `update_duration_seconds`,
+`updates_total{method}` (native\|sandbox), `update_skipped_total{reason}`,
+`update_pushes_total{outcome}` and `update_pull_requests_total{outcome}`.
 See [repositories.md](repositories.md#audit-events-notifications-and-metrics).
 
 ### Supply-chain graph (Task 33)
@@ -376,6 +380,7 @@ surfaces ([security-model.md](security-model.md), [sigverify.md](sigverify.md),
 | `PullthroughReleaseDigestMismatch` | critical | the bytes served for a release dependency are not those its lock file pins. |
 | `PullthroughPinnedObjectLost` | critical | a pinned object failed its integrity check and could not be fetched again with its pinned digest. |
 | `PullthroughRepositorySyncFailing` | warning | a repository's tags could not be fetched 3 times in 30m. |
+| `PullthroughMaintenanceRunsFailing` | warning | 2+ maintenance runs ended failed or conflict in 6h (Task 182). |
 | `PullthroughRepositoryMaliciousDependency` | critical | a repository's current dependency scan (its default branch's head, a release) found a malicious dependency. |
 
 **Respond:** see [repositories.md](repositories.md#alerts).

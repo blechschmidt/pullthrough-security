@@ -47,6 +47,11 @@ type CheckResult struct {
 	// SHA256 is "sha256:<hex>" of the bytes served; Size their length.
 	SHA256 string `json:"sha256,omitempty"`
 	Size   int64  `json:"size"`
+	// Computed are the digests Artifact.Compute asked for, by algorithm:
+	// lower-case hex, or for "h1" the base64 text. ComputeError says why one
+	// asked for could not be computed.
+	Computed     map[string]string `json:"computed,omitempty"`
+	ComputeError string            `json:"computeError,omitempty"`
 }
 
 // streamAlgorithms are the hashes computed while the bytes stream.
@@ -78,9 +83,14 @@ type Checker struct {
 	unchecked []string
 	h1Zip     bool
 	h1Mod     bool
-	spool     *os.File
-	spoolErr  error
-	mod       bytes.Buffer
+	// compute are the algorithms Artifact.Compute asked for; h1Expected
+	// reports whether the lock file's own expectations include h1 (a failure
+	// to compute it is then a mismatch, not just a missing value).
+	compute    []string
+	h1Expected bool
+	spool      *os.File
+	spoolErr   error
+	mod        bytes.Buffer
 }
 
 // NewChecker prepares the check of one artifact. spoolDir holds the temporary
@@ -110,6 +120,25 @@ func NewChecker(a Artifact, spoolDir string) (*Checker, error) {
 			}
 			c.unchecked = appendUnique(c.unchecked, kind)
 		}
+	}
+	c.h1Expected = c.h1Mod || c.h1Zip
+	for _, algo := range a.Compute {
+		algo = strings.ToLower(strings.TrimSpace(algo))
+		switch {
+		case algo == "h1" && a.Role == "go.mod":
+			c.h1Mod = true
+		case algo == "h1" && a.Role == "package" && strings.HasSuffix(a.Path, ".zip") && strings.Contains(a.Path, "/@v/"):
+			c.h1Zip = true
+		case algo == "h1":
+			return nil, fmt.Errorf("locate: the Go module hash applies to a module zip or a go.mod, not to %s", a.Path)
+		case streamAlgorithms[algo] != nil:
+			if c.hashes[algo] == nil && algo != "sha256" {
+				c.hashes[algo] = streamAlgorithms[algo]()
+			}
+		default:
+			return nil, fmt.Errorf("locate: cannot compute %q digests", algo)
+		}
+		c.compute = appendUnique(c.compute, algo)
 	}
 	if c.h1Zip {
 		f, err := os.CreateTemp(spoolDir, "pt-gomod-*.zip")
@@ -165,18 +194,34 @@ func (c *Checker) Result() CheckResult {
 	for algo, h := range c.hashes {
 		computed[algo] = hex.EncodeToString(h.Sum(nil))
 	}
+	var h1Err string
 	if c.h1Mod {
 		if c.mod.Len() > maxGoModBytes {
-			return c.unable(res, "h1", "the go.mod is larger than the proxy hashes")
+			h1Err = "the go.mod is larger than the proxy hashes"
+		} else {
+			computed["h1"] = goHash1([]goFile{{name: "go.mod", data: c.mod.Bytes()}})
 		}
-		computed["h1"] = goHash1([]goFile{{name: "go.mod", data: c.mod.Bytes()}})
 	}
 	if c.h1Zip {
-		h, err := c.hashModuleZip()
-		if err != nil {
-			return c.unable(res, "h1", err.Error())
+		if h, err := c.hashModuleZip(); err != nil {
+			h1Err = err.Error()
+		} else {
+			computed["h1"] = h
 		}
-		computed["h1"] = h
+	}
+	if h1Err != "" && c.h1Expected {
+		return c.unable(res, "h1", h1Err)
+	}
+	if len(c.compute) > 0 {
+		res.Computed = map[string]string{}
+		for _, algo := range c.compute {
+			if v, ok := computed[algo]; ok {
+				res.Computed[algo] = v
+			}
+		}
+		if h1Err != "" {
+			res.ComputeError = "the h1 digest could not be computed over the bytes served: " + h1Err
+		}
 	}
 
 	algos := make([]string, 0, len(c.groups))

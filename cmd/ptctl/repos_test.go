@@ -152,3 +152,38 @@ func TestPtctlReposScanReport(t *testing.T) {
 		t.Fatalf("scan with the scans off: %v", err)
 	}
 }
+
+// TestPtctlReposUpdate covers the maintenance updater's commands (Task 182)
+// against a registry whose updater is off, and the run report's rendering.
+func TestPtctlReposUpdate(t *testing.T) {
+	g := reposFixture(t)
+	if _, err := runReposCmd(t, reposUpdate, append([]string{"widgets", "--dry-run"}, g...)...); err == nil ||
+		!strings.Contains(err.Error(), "maintenance updater is off") {
+		t.Fatalf("update with the updater off: %v", err)
+	}
+	if _, err := runReposCmd(t, reposUpdate, append([]string{"nope"}, g...)...); err == nil {
+		t.Fatal("an unknown repository was accepted")
+	}
+	out, err := runReposCmd(t, reposUpdates, append([]string{"widgets"}, g...)...)
+	if err != nil || !strings.Contains(out, "maintenance disabled") || !strings.Contains(out, "pullthrough/maintenance") {
+		t.Fatalf("updates: %v %s", err, out)
+	}
+
+	var buf bytes.Buffer
+	run := &repos.UpdateRun{ID: "20261113t000000.000z-0a0b0c0d", Repo: "widgets", Status: repos.UpdatePushed, Branch: "pullthrough/maintenance",
+		BaseBranch: "main", Base: strings.Repeat("a", 40), Commit: strings.Repeat("b", 40), Reason: "created pullthrough/maintenance",
+		Dependencies: 2,
+		Updates: []repos.AppliedUpdate{{Type: "npm", Name: "left-pad", From: "1.0.0", To: "1.0.1", Bump: "patch", Method: "native",
+			Verdict: "benign", ScanIDs: []string{"abc-1"}, Files: []string{"package-lock.json"}}},
+		Skipped: []repos.SkippedCandidate{{Type: "npm", Name: "left-pad", From: "1.0.0", To: "1.1.0", Code: repos.SkipMalicious, Reason: "judged malicious"}},
+	}
+	if err := renderUpdateRun(&buf, run); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"widgets · pushed · pullthrough/maintenance on main@aaaaaaaaaaaa", "npm/left-pad  1.0.0  1.0.1  patch  native  benign   abc-1  package-lock.json",
+		"npm/left-pad  1.0.0  1.1.0      malicious: judged malicious", "1 updates · 1 skipped"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("the report lacks %q:\n%s", want, buf.String())
+		}
+	}
+}

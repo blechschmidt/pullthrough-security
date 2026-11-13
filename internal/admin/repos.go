@@ -32,6 +32,10 @@ type RepoRegistry interface {
 	ScanReport(ctx context.Context, tenant, name, rev string) (*repos.ScanReportView, error)
 	ScanOverview(ctx context.Context, tenant, name string) (*repos.ScanOverview, error)
 	ScanDocuments(ctx context.Context, tenant, name string) ([]findings.Document, error)
+	// The maintenance updater (Task 182).
+	StartUpdate(ctx context.Context, tenant, name string, opts repos.UpdateOptions) (*repos.UpdateRun, error)
+	UpdateReport(ctx context.Context, tenant, name, id string) (*repos.UpdateRun, error)
+	UpdateOverview(ctx context.Context, tenant, name string) (*repos.UpdateOverview, error)
 }
 
 // maxRepoBody bounds a registration request.
@@ -58,7 +62,7 @@ func (s *Server) writeRepoError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusConflict, cerr.Error())
 	case errors.Is(err, repos.ErrHistoryTampered):
 		s.writeError(w, http.StatusConflict, err.Error())
-	case errors.As(err, new(*repos.ScanDisabledError)):
+	case errors.As(err, new(*repos.ScanDisabledError)), errors.As(err, new(*repos.UpdateDisabledError)):
 		s.writeError(w, http.StatusConflict, err.Error())
 	default:
 		s.logger.Error("admin: repository registry", "error", err)
@@ -388,4 +392,57 @@ func (s *Server) handleReposScanSARIF(w http.ResponseWriter, r *http.Request) {
 	}
 	doc := rep.FindingsDocument()
 	s.writeSARIF(w, doc.SARIF(opts))
+}
+
+// handleReposUpdate starts a maintenance run of a repository (Task 182): the
+// dependency updates that are compatible and vetted are written to its
+// maintenance branch, which is pushed — unless ?dryRun=1, which computes the
+// updates and the commit and pushes nothing. The run continues in the
+// background; GET /api/repos/update reads its report.
+func (s *Server) handleReposUpdate(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	qp := r.URL.Query()
+	dry := qp.Get("dryRun") == "1" || qp.Get("dryRun") == "true"
+	run, err := reg.StartUpdate(r.Context(), mcpTenant(r), strings.TrimSpace(qp.Get("name")),
+		repos.UpdateOptions{DryRun: dry, By: actor(r), Trigger: repos.TriggerManual})
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusAccepted, run)
+}
+
+// handleReposUpdateReport returns a maintenance run's report: ?run= names it,
+// otherwise the run in progress or the newest.
+func (s *Server) handleReposUpdateReport(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	qp := r.URL.Query()
+	run, err := reg.UpdateReport(r.Context(), mcpTenant(r), strings.TrimSpace(qp.Get("name")), strings.TrimSpace(qp.Get("run")))
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, run)
+}
+
+// handleReposUpdates returns a repository's maintenance state: its branch, the
+// commit last pushed, the run in progress, the newest runs, and how each
+// lock-file format is updated.
+func (s *Server) handleReposUpdates(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	ov, err := reg.UpdateOverview(r.Context(), mcpTenant(r), strings.TrimSpace(r.URL.Query().Get("name")))
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, ov)
 }

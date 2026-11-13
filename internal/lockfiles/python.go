@@ -5,6 +5,8 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Python lock files: requirements.txt pinned with == (and --hash), and the
@@ -123,51 +125,126 @@ type logicalLine struct {
 	line int
 }
 
-// forEachLogicalLine calls fn for every logical line of s that is not blank.
+// forEachLogicalLine calls fn for every logical line of s that is not blank,
+// exactly as pip reads a requirements file (pip/_internal/req/req_file.py,
+// preprocess): the text is split as Python's str.splitlines splits it; a line
+// ending in "\\" is joined with the next — unless it is a comment line —
+// with the backslashes stripped from its ends; then comments are removed and
+// the line stripped. Reading it any other way is a parser differential: a
+// requirement pip installs that the scan does not see (a lone "\r" or "\f"
+// separating two requirements, a comment line ending in a backslash).
 func forEachLogicalLine(s string, fn func(logicalLine)) {
 	var cur strings.Builder
-	start := 0
-	for it := newLineIter(s); ; {
-		raw, n, more := it.next()
+	primary, joining := 0, false
+	emit := func(text string, n int) {
+		if text = pyStripComment(text); text != "" {
+			fn(logicalLine{text: text, line: n})
+		}
+	}
+	for it := newPyLineIter(s); ; {
+		line, n, more := it.next()
 		if !more {
 			break
 		}
-		raw = strings.TrimRight(raw, "\r")
-		if cur.Len() == 0 {
-			start = n
-		}
-		if strings.HasSuffix(raw, "\\") {
-			cur.WriteString(strings.TrimSuffix(raw, "\\"))
-			cur.WriteByte(' ')
-			continue
-		}
-		if cur.Len() == 0 {
-			if strings.TrimSpace(raw) != "" {
-				fn(logicalLine{text: raw, line: start})
+		comment := pyCommentLine(line)
+		if !strings.HasSuffix(line, "\\") || comment {
+			if comment {
+				line = " " + line // pip: "this ensures comments are always matched later"
+			}
+			if joining {
+				cur.WriteString(line)
+				emit(cur.String(), primary)
+				cur.Reset()
+				joining = false
+			} else {
+				emit(line, n)
 			}
 			continue
 		}
-		cur.WriteString(raw)
-		if text := cur.String(); strings.TrimSpace(text) != "" {
-			fn(logicalLine{text: text, line: start})
+		if !joining {
+			primary, joining = n, true
 		}
-		cur.Reset()
+		cur.WriteString(strings.Trim(line, "\\"))
 	}
-	if cur.Len() > 0 && strings.TrimSpace(cur.String()) != "" {
-		fn(logicalLine{text: cur.String(), line: start})
+	if joining {
+		emit(cur.String(), primary)
 	}
+}
+
+// pyLineIter walks lines as Python's str.splitlines yields them: split at
+// \n, \r, \r\n, \v, \f, \x1c, \x1d, \x1e, U+0085, U+2028 and U+2029, with no
+// empty line after a final break. Each line is reported with the number of
+// the editor line it starts on — lines counted at "\n", as every location the
+// scan reports is — not its index among pip's lines.
+type pyLineIter struct {
+	s        string
+	pos      int
+	newlines int // "\n" before pos
+}
+
+func newPyLineIter(s string) *pyLineIter { return &pyLineIter{s: s} }
+
+func (it *pyLineIter) next() (string, int, bool) {
+	if it.pos >= len(it.s) {
+		return "", 0, false
+	}
+	rest := it.s[it.pos:]
+	n := it.newlines + 1
+	for i, r := range rest {
+		switch r {
+		case '\n', '\v', '\f', 0x1c, 0x1d, 0x1e, 0x85, 0x2028, 0x2029:
+			it.advance(i + utf8.RuneLen(r))
+			return rest[:i], n, true
+		case '\r':
+			step := 1
+			if i+1 < len(rest) && rest[i+1] == '\n' {
+				step = 2
+			}
+			it.advance(i + step)
+			return rest[:i], n, true
+		}
+	}
+	it.advance(len(rest))
+	return rest, n, true
+}
+
+// advance moves past k bytes, counting the "\n" among them.
+func (it *pyLineIter) advance(k int) {
+	it.newlines += strings.Count(it.s[it.pos:it.pos+k], "\n")
+	it.pos += k
+}
+
+// pySpace is Python's str.isspace for one character: Unicode white space and
+// the separators \x1c to \x1f.
+func pySpace(r rune) bool {
+	return unicode.IsSpace(r) || (r >= 0x1c && r <= 0x1f)
+}
+
+// pyCommentLine is pip's COMMENT_RE.match: the line starts with "#",
+// optionally after white space.
+func pyCommentLine(line string) bool {
+	t := strings.TrimLeftFunc(line, pySpace)
+	return strings.HasPrefix(t, "#")
+}
+
+// pyStripComment is pip's COMMENT_RE.sub("", line).strip(): a comment is
+// "#" at the start of the line or after white space, and runs to the end.
+func pyStripComment(line string) string {
+	prev := rune(-1)
+	for i, r := range line {
+		if r == '#' && (prev == -1 || pySpace(prev)) {
+			line = line[:i]
+			break
+		}
+		prev = r
+	}
+	return strings.TrimFunc(line, pySpace)
 }
 
 // stripReqComment removes a comment: "#" at the start of a line or after
 // whitespace ("#egg=" in a URL is not a comment).
 func stripReqComment(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == '#' && (i == 0 || s[i-1] == ' ' || s[i-1] == '\t') {
-			s = s[:i]
-			break
-		}
-	}
-	return strings.TrimSpace(s)
+	return pyStripComment(s)
 }
 
 // reqOption splits "--opt=value" / "--opt value" / "-o value".

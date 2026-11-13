@@ -871,6 +871,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET "+s.prefix+"/api/repos/scan", s.handleReposScanReport)
 	mux.HandleFunc("GET "+s.prefix+"/api/repos/scans", s.handleReposScans)
 	mux.HandleFunc("GET "+s.prefix+"/api/repos/scan/sarif", s.handleReposScanSARIF)
+	// The maintenance updater (Task 182).
+	mux.HandleFunc("POST "+s.prefix+"/api/repos/update", s.handleReposUpdate)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/update", s.handleReposUpdateReport)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/updates", s.handleReposUpdates)
 	// TLS interception and NAT mode (Task 172): the listeners, the routing
 	// table, the hostnames to send to the proxy, and the CA to trust.
 	mux.HandleFunc("GET "+s.prefix+"/api/intercept", s.handleIntercept)

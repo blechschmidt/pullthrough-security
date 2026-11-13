@@ -27,6 +27,13 @@ type Metrics struct {
 	scanDeps    *metrics.CounterVec
 	scanQueue   *metrics.Gauge
 	malicious   *metrics.GaugeVec
+	// The maintenance updater (Task 182).
+	updRuns    *metrics.CounterVec
+	updSeconds *metrics.Histogram
+	updApplied *metrics.CounterVec
+	updSkipped *metrics.CounterVec
+	updPushes  *metrics.CounterVec
+	updPRs     *metrics.CounterVec
 
 	mu           sync.Mutex
 	tagsNow      map[string]int
@@ -79,8 +86,52 @@ func NewMetrics(reg *metrics.Registry) *Metrics {
 		malicious: reg.NewGaugeVec("pullthrough_repo_malicious_dependencies",
 			"Dependencies judged malicious (not released by break-glass) in each repository's current scans: the newest head scan and every release.",
 			[]string{"repo"}),
+		updRuns: reg.NewCounterVec("pullthrough_repo_update_runs_total",
+			"Maintenance runs (Task 182), by status (pushed, unchanged, no-updates, retired, dry-run, conflict, failed).", []string{"status"}),
+		updSeconds: reg.NewHistogram("pullthrough_repo_update_duration_seconds",
+			"Time taken by one maintenance run.",
+			[]float64{1, 5, 15, 60, 300, 900, 3600, 7200}),
+		updApplied: reg.NewCounterVec("pullthrough_repo_updates_total",
+			"Dependency updates written to maintenance branches, by method (native, sandbox).", []string{"method"}),
+		updSkipped: reg.NewCounterVec("pullthrough_repo_update_skipped_total",
+			"Candidate versions the maintenance updater passed over, by reason (malicious, unscanned, incompatible, cooldown, …).", []string{"reason"}),
+		updPushes: reg.NewCounterVec("pullthrough_repo_update_pushes_total",
+			"Pushes of maintenance branches, by outcome (pushed, deleted, failed).", []string{"outcome"}),
+		updPRs: reg.NewCounterVec("pullthrough_repo_update_pull_requests_total",
+			"Pull/merge requests opened or updated for maintenance branches, by outcome (ok, failed).", []string{"outcome"}),
 		tagsNow:      map[string]int{},
 		maliciousNow: map[string]bool{},
+	}
+}
+
+func (m *Metrics) updateRun(status string, took time.Duration) {
+	if m != nil {
+		m.updRuns.With(status).Inc()
+		m.updSeconds.Observe(took.Seconds())
+	}
+}
+
+func (m *Metrics) updateApplied(method string) {
+	if m != nil && method != "" {
+		m.updApplied.With(method).Inc()
+	}
+}
+
+func (m *Metrics) updateSkipped(reason string) {
+	if m != nil && reason != "" {
+		m.updSkipped.With(reason).Inc()
+	}
+}
+
+func (m *Metrics) updatePush(outcome string) {
+	if m != nil {
+		m.updPushes.With(outcome).Inc()
+	}
+}
+
+func (m *Metrics) updatePullRequest(outcome string) {
+	if m != nil {
+		m.updPRs.With(outcome).Inc()
 	}
 }
 

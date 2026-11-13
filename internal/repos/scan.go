@@ -254,6 +254,9 @@ type UnscannedInfo struct {
 // instructions, rendered inertly wherever they are shown. They are never put
 // in a notification, an audit record's free text or a SARIF message.
 type VerdictDetail struct {
+	// ScanID identifies the verdict in the LLM package scan's verdict cache
+	// (the artifact digest, the model and the prompt version).
+	ScanID        string    `json:"scanId,omitempty"`
 	Digest        string    `json:"digest,omitempty"`
 	ModelVerdict  string    `json:"modelVerdict,omitempty"`
 	Confidence    float64   `json:"confidence,omitempty"`

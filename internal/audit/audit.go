@@ -37,25 +37,26 @@ import (
 type EventType string
 
 const (
-	EventPull          EventType = "pull"            // a client pull/fetch request
-	EventCache         EventType = "cache"           // a cache hit or miss
-	EventScanVerdict   EventType = "scan_verdict"    // a commit/artifact scan result
-	EventPolicy        EventType = "policy_decision" // an admission/policy decision
-	EventAuth          EventType = "auth"            // an authentication outcome
-	EventAuthorization EventType = "authorization"   // an RBAC authorization decision
-	EventQuota         EventType = "quota"           // a quota check/exceed
-	EventAdmin         EventType = "admin"           // an admin API mutation
-	EventAttestation   EventType = "attestation"     // an outbound proxy-signed attestation issued
-	EventSnapshot      EventType = "snapshot"        // a dependency snapshot/freeze/rollback action (Task 70)
-	EventEgress        EventType = "egress_blocked"  // an outbound-egress / SSRF guard denial (Task 89)
-	EventGitOps        EventType = "gitops"          // a GitOps config-bundle apply/rollback (Task 93)
-	EventTLSPin        EventType = "tls_pin"         // an upstream TLS certificate/CA pin violation (Task 128)
-	EventStepUpAuth    EventType = "stepup_auth"     // a WebAuthn/passkey step-up authentication ceremony or enforcement decision (Task 161)
-	EventSuppression   EventType = "suppression"     // a gate finding suppressed/downgraded (VEX, reachability, policy, break-glass) (Task 165)
-	EventRepository    EventType = "repository"      // a repository registered or removed in the repository registry (Task 180)
-	EventReleaseTag    EventType = "release_tag"     // a tracked repository's tag created, moved or deleted (Task 180)
-	EventReleasePin    EventType = "release_pin"     // a release's dependencies pinned (or not), a pinned object repaired or lost (Task 180)
-	EventRepoScan      EventType = "repository_scan" // a tracked repository's dependencies scanned by the LLM package-content scan, a dependency flagged (Task 181)
+	EventPull          EventType = "pull"              // a client pull/fetch request
+	EventCache         EventType = "cache"             // a cache hit or miss
+	EventScanVerdict   EventType = "scan_verdict"      // a commit/artifact scan result
+	EventPolicy        EventType = "policy_decision"   // an admission/policy decision
+	EventAuth          EventType = "auth"              // an authentication outcome
+	EventAuthorization EventType = "authorization"     // an RBAC authorization decision
+	EventQuota         EventType = "quota"             // a quota check/exceed
+	EventAdmin         EventType = "admin"             // an admin API mutation
+	EventAttestation   EventType = "attestation"       // an outbound proxy-signed attestation issued
+	EventSnapshot      EventType = "snapshot"          // a dependency snapshot/freeze/rollback action (Task 70)
+	EventEgress        EventType = "egress_blocked"    // an outbound-egress / SSRF guard denial (Task 89)
+	EventGitOps        EventType = "gitops"            // a GitOps config-bundle apply/rollback (Task 93)
+	EventTLSPin        EventType = "tls_pin"           // an upstream TLS certificate/CA pin violation (Task 128)
+	EventStepUpAuth    EventType = "stepup_auth"       // a WebAuthn/passkey step-up authentication ceremony or enforcement decision (Task 161)
+	EventSuppression   EventType = "suppression"       // a gate finding suppressed/downgraded (VEX, reachability, policy, break-glass) (Task 165)
+	EventRepository    EventType = "repository"        // a repository registered or removed in the repository registry (Task 180)
+	EventReleaseTag    EventType = "release_tag"       // a tracked repository's tag created, moved or deleted (Task 180)
+	EventReleasePin    EventType = "release_pin"       // a release's dependencies pinned (or not), a pinned object repaired or lost (Task 180)
+	EventRepoScan      EventType = "repository_scan"   // a tracked repository's dependencies scanned by the LLM package-content scan, a dependency flagged (Task 181)
+	EventRepoUpdate    EventType = "repository_update" // a maintenance branch pushed with vetted dependency updates, or a push refused (Task 182)
 )
 
 // Decision is the outcome recorded for authz/policy/quota events.

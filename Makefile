@@ -336,6 +336,10 @@ FUZZ_TARGETS := \
 	internal/repos/locate:FuzzLocateDocker \
 	internal/repos/locate:FuzzLocatePaths \
 	internal/repos/locate:FuzzCheckerModuleZip \
+	internal/repos/locate:FuzzParseNPMPackument \
+	internal/repos/locate:FuzzParseCargoIndex \
+	internal/repos/locate:FuzzGoModRequires \
+	internal/repos:FuzzUpdaterInputs \
 	internal/git:FuzzFetchSniffer \
 	internal/git:FuzzDescribeDownload \
 	internal/git:FuzzAsksForNothingButRefs \
@@ -346,6 +350,18 @@ FUZZ_TARGETS := \
 	internal/proxy:FuzzLinkRewriter \
 	internal/proxy:FuzzRedactPersonalPath \
 	internal/git:FuzzParseTree \
+	internal/versions:FuzzNpm \
+	internal/versions:FuzzCargo \
+	internal/versions:FuzzPip \
+	internal/versions:FuzzGo \
+	internal/versions:FuzzNuGet \
+	internal/versions:FuzzMaven \
+	internal/versions:FuzzRubyGems \
+	internal/repos/update:FuzzNpmLockUpdate \
+	internal/repos/update:FuzzRequirementsUpdate \
+	internal/repos/update:FuzzCargoLockUpdate \
+	internal/repos/update:FuzzGoModUpdate \
+	internal/repos/update:FuzzJSONScanner \
 	internal/lockfiles:FuzzPackageLock \
 	internal/lockfiles:FuzzNpmShrinkwrap \
 	internal/lockfiles:FuzzYarnLock \
@@ -394,7 +410,10 @@ FUZZ_TARGETS := \
 	internal/lockfiles:FuzzGitConfig \
 	internal/lockfiles:FuzzElixirTerms \
 	internal/lockfiles:FuzzTOML \
-	internal/lockfiles:FuzzProxyMapping
+	internal/lockfiles:FuzzProxyMapping \
+	internal/lockfiles:FuzzNPMRequirements \
+	internal/lockfiles:FuzzCargoManifests \
+	internal/lockfiles:FuzzPythonRequirements
 
 # The targets can be split into FUZZ_SHARDS slices, FUZZ_SHARD (0-based)
 # selecting one: target i belongs to shard i mod FUZZ_SHARDS. The nightly CI

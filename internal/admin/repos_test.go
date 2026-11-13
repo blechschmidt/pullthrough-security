@@ -281,3 +281,43 @@ func TestReposScanEndpoints(t *testing.T) {
 		t.Fatalf("scans off: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestReposUpdateEndpoints covers the maintenance updater's endpoints (Task
+// 182): starting a run is operational, reading is a viewer's, everything is
+// hard-scoped to the caller's tenant, and a run is refused while the updater
+// is off.
+func TestReposUpdateEndpoints(t *testing.T) {
+	if got := requiredCapability(http.MethodPost, "/api/repos/update"); got != adminauth.CapOperate {
+		t.Fatalf("POST /api/repos/update needs %v, want operate", got)
+	}
+	for _, p := range []string{"/api/repos/update", "/api/repos/updates"} {
+		if got := requiredCapability(http.MethodGet, p); got != adminauth.CapRead {
+			t.Fatalf("GET %s needs %v", p, got)
+		}
+	}
+	srv, _ := scannedRepoAdmin(t)
+	if rec := postJSONAs(t, srv, "/admin/api/repos/update?name=widgets&dryRun=1", reposViewerToken, ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("a viewer started a run: %d", rec.Code)
+	}
+	rec := postJSONAs(t, srv, "/admin/api/repos/update?name=widgets&dryRun=1", reposOperatorToken, "")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "maintenance updater is off") {
+		t.Fatalf("updater off: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := postJSONAs(t, srv, "/admin/api/repos/update?name=widgets", reposTeamBToken, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("team-b started a run of team-a's repository: %d", rec.Code)
+	}
+	var ov repos.UpdateOverview
+	if code := getJSON(t, srv, "/admin/api/repos/updates?name=widgets", reposViewerToken, &ov); code != http.StatusOK ||
+		ov.Enabled || ov.Branch != "pullthrough/maintenance" || len(ov.Formats) == 0 {
+		t.Fatalf("overview: %d %+v", code, ov)
+	}
+	if code := getJSON(t, srv, "/admin/api/repos/updates?name=widgets", reposTeamBToken, nil); code != http.StatusNotFound {
+		t.Fatalf("team-b read team-a's maintenance state: %d", code)
+	}
+	if code := getJSON(t, srv, "/admin/api/repos/update?name=widgets", reposViewerToken, nil); code != http.StatusNotFound {
+		t.Fatalf("a report before any run: %d", code)
+	}
+	if code := getJSON(t, srv, "/admin/api/repos/update?name=widgets&run=../../x", reposViewerToken, nil); code != http.StatusBadRequest {
+		t.Fatalf("a malformed run ID: %d", code)
+	}
+}

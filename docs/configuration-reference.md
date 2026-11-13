@@ -1299,6 +1299,29 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `repositories.scan.concurrency` | int | 0 |
 | `repositories.scan.retryInterval` | duration | 0s |
 | `repositories.scan.maxAttempts` | int | 0 |
+| `repositories.updates.enabled` | bool | false |
+| `repositories.updates.interval` | duration | 0s |
+| `repositories.updates.branch` | string | — |
+| `repositories.updates.maxBump` | string | — |
+| `repositories.updates.includeDev` | bool | — |
+| `repositories.updates.maxCandidates` | int | 0 |
+| `repositories.updates.maxUpdates` | int | 0 |
+| `repositories.updates.concurrency` | int | 0 |
+| `repositories.updates.authorName` | string | — |
+| `repositories.updates.authorEmail` | string | — |
+| `repositories.updates.signingKey` | string | — |
+| `repositories.updates.signingKeyPassphrase` | string | — |
+| `repositories.updates.pullRequests.enabled` | bool | false |
+| `repositories.updates.pullRequests.labels` | []string | [] |
+| `repositories.updates.pullRequests.draft` | bool | false |
+| `repositories.updates.sandbox.runtime` | string | — |
+| `repositories.updates.sandbox.images` | map[string]string | {} |
+| `repositories.updates.sandbox.timeout` | duration | 0s |
+| `repositories.updates.sandbox.memory` | string | — |
+| `repositories.updates.sandbox.user` | string | — |
+| `repositories.updates.sandbox.tempDir` | string | — |
+| `repositories.updates.sandbox.forwarder` | string | — |
+| `repositories.updates.runTimeout` | duration | 0s |
 | `repositories.repos[].name` | string | — |
 | `repositories.repos[].url` | string | — |
 | `repositories.repos[].username` | string | — |
@@ -1311,6 +1334,14 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `repositories.repos[].backfillTags` | int | — |
 | `repositories.repos[].roles` | []string | — |
 | `repositories.repos[].branch` | string | — |
+| `repositories.repos[].updates.disabled` | bool | — |
+| `repositories.repos[].updates.branch` | string | — |
+| `repositories.repos[].updates.maxBump` | string | — |
+| `repositories.repos[].updates.ignore` | []string | — |
+| `repositories.repos[].updates.forge` | string | — |
+| `repositories.repos[].updates.forgeApi` | string | — |
+| `repositories.repos[].updates.forgeRepo` | string | — |
+| `repositories.repos[].updates.forgeTokenRef` | string | — |
 
 ## `secrets`
 

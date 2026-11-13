@@ -66,6 +66,9 @@ type Repo struct {
 	// Branch is the branch whose head the dependency scan follows (Task 181);
 	// empty follows the repository's default branch (its remote HEAD).
 	Branch string `json:"branch,omitempty"`
+	// Update holds the repository's maintenance settings (Task 182): its
+	// ignore list, its branch and forge.
+	Update *RepoUpdate `json:"update,omitempty"`
 
 	// Source says whether the registration comes from the configuration or
 	// the admin API; only the latter can be removed through the API.
@@ -161,6 +164,9 @@ func (r *Repo) Validate(allowedSchemes []string) error {
 	if len(r.Roles) > maxGlobs {
 		return fmt.Errorf("repository %q: at most %d roles", r.Name, maxGlobs)
 	}
+	if err := r.validateUpdate(); err != nil {
+		return err
+	}
 	seenRole := map[string]bool{}
 	for i, role := range r.Roles {
 		role = strings.TrimSpace(role)
@@ -237,6 +243,11 @@ func (r Repo) clone() Repo {
 		out.BackfillTags = &n
 	}
 	out.Roles = append([]string(nil), r.Roles...)
+	if r.Update != nil {
+		u := *r.Update
+		u.Ignore = append([]string(nil), r.Update.Ignore...)
+		out.Update = &u
+	}
 	return out
 }
 

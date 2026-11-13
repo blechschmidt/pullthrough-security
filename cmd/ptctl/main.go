@@ -101,7 +101,7 @@ func commands() []command {
 		{"userlinks", "list, revoke or issue personal cache links — the per-user addresses downloads are tracked by (Task 177)", runUserLinks},
 		{"intercept", "show TLS-interception/NAT status, fetch the interception CA, or list the hostnames to send to the proxy (Task 172)", runIntercept},
 		{"lockfiles", "list the exact dependencies a Git repository's lock files pin, read at a commit (Task 178)", runLockfiles},
-		{"repos", "register repositories, follow their tags, and query the releases the proxy pinned for them (Task 180)", runRepos},
+		{"repos", "register repositories, follow their tags, query the releases the proxy pinned for them (Task 180), and run their maintenance branch of vetted updates (Task 182)", runRepos},
 		{"preset", "list/diff/apply curated compliance policy presets — SLSA/NIST SSDF/hardened (Task 88)", runPreset},
 		{"compaction", "report cache compression & cross-artifact dedup space savings (Task 125)", runCompaction},
 		{"cache-encryption", "report at-rest cache-encryption status or rotate the key-encryption key (Task 141)", runCacheEncryption},
