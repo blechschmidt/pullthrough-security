@@ -35,6 +35,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -96,6 +98,9 @@ type Config struct {
 	// 1 GiB, 100000 files).
 	MaxWorkBytes int64
 	MaxWorkFiles int
+	// Logger reports what the runner could not clean up (default
+	// slog.Default()).
+	Logger *slog.Logger
 }
 
 // maxFileBytes is the largest file a job's commands may write.
@@ -216,8 +221,16 @@ func (r *Runner) watchWork(ctx context.Context, dir, container string, exceeded 
 		}
 		var bytes int64
 		files := 0
-		_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		hidden := ""
+		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
+				// What an unprivileged proxy cannot read, it cannot
+				// measure: a directory the tool keeps to itself stops
+				// the job. (Entries removed meanwhile are not counted.)
+				if errors.Is(err, fs.ErrPermission) {
+					hidden = p
+					return filepath.SkipAll
+				}
 				return nil
 			}
 			files++
@@ -229,9 +242,20 @@ func (r *Runner) watchWork(ctx context.Context, dir, container string, exceeded 
 			}
 			return nil
 		})
-		if files > r.cfg.MaxWorkFiles || bytes > r.cfg.MaxWorkBytes {
+		why := ""
+		switch {
+		case files > r.cfg.MaxWorkFiles || bytes > r.cfg.MaxWorkBytes:
+			why = fmt.Sprintf("the job's work directory grew past %d files or %d bytes", r.cfg.MaxWorkFiles, r.cfg.MaxWorkBytes)
+		case hidden != "":
+			rel, err := filepath.Rel(dir, hidden)
+			if err != nil {
+				rel = hidden
+			}
+			why = fmt.Sprintf("the job made %s unreadable, so its size cannot be bounded", filepath.ToSlash(rel))
+		}
+		if why != "" {
 			mu.Lock()
-			*exceeded = fmt.Sprintf("the job's work directory grew past %d files or %d bytes", r.cfg.MaxWorkFiles, r.cfg.MaxWorkBytes)
+			*exceeded = why
 			mu.Unlock()
 			_ = exec.Command(r.cfg.Runtime, "kill", container).Run()
 			return
@@ -273,6 +297,9 @@ type spec struct {
 	Dir      string     `json:"dir"`
 	Commands [][]string `json:"commands"`
 	Env      []string   `json:"env"`
+	// Release is the directory opened up to every user once the commands
+	// are done (see release); a spec without commands only does that.
+	Release string `json:"release,omitempty"`
 }
 
 // maxOutput bounds the output kept of a job.
@@ -297,9 +324,9 @@ func (r *Runner) Run(ctx context.Context, job Job) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(base)
 	tools := filepath.Join(base, "pt")
 	work := filepath.Join(base, "work")
+	defer r.removeJob(image, base, tools, work)
 	for _, d := range []string{tools, work} {
 		if err := os.Mkdir(d, 0o755); err != nil {
 			return nil, err
@@ -320,7 +347,8 @@ func (r *Runner) Run(ctx context.Context, job Job) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	sp := spec{Listen: ListenAddr, Socket: sockFile, Token: token, Dir: path.Join(workDir, dir), Commands: job.Commands, Env: job.Env}
+	sp := spec{Listen: ListenAddr, Socket: sockFile, Token: token, Dir: path.Join(workDir, dir), Commands: job.Commands, Env: job.Env,
+		Release: workDir}
 	data, err := json.Marshal(sp)
 	if err != nil {
 		return nil, err
@@ -408,6 +436,71 @@ func (r *Runner) Run(ctx context.Context, job Job) (*Result, error) {
 		res.Files[clean] = data
 	}
 	return res, nil
+}
+
+// removeJob removes a job's directory. What the tool left in its work tree
+// belongs to the container's user, not to this process's: a job that ended
+// normally opened it up on its way out (ExecMain), but one that was stopped did
+// not, and an unprivileged proxy cannot remove a directory another user made.
+// A short container of the same image, as the same user, opens it up then.
+func (r *Runner) removeJob(image, base, tools, work string) {
+	err := os.RemoveAll(work)
+	if err != nil {
+		if rerr := r.releaseWork(image, tools, work); rerr != nil {
+			err = fmt.Errorf("%w (opening it up: %v)", err, rerr)
+		} else {
+			err = os.RemoveAll(work)
+		}
+	}
+	if err == nil {
+		err = os.RemoveAll(base)
+	}
+	if err != nil {
+		r.logger().Warn("sandbox: a job's directory is left behind", "dir", base, "error", err)
+	}
+}
+
+// releaseWork runs the forwarder in release-only mode over a job's work tree,
+// with the job's isolation.
+func (r *Runner) releaseWork(image, tools, work string) error {
+	data, err := json.Marshal(spec{Release: workDir})
+	if err != nil {
+		return err
+	}
+	const releaseSpec = toolDir + "/release.json"
+	if err := os.WriteFile(filepath.Join(tools, path.Base(releaseSpec)), data, 0o644); err != nil {
+		return err
+	}
+	token, err := newToken()
+	if err != nil {
+		return err
+	}
+	name := "ptsb-release-" + token[:12]
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	args := []string{"run", "--rm", "--name", name,
+		"--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+		"--pids-limit", "16", "--memory", r.cfg.Memory, "--user", r.cfg.User,
+		"-v", tools + ":" + toolDir + ":ro", "-v", work + ":" + workDir,
+		"--entrypoint", forwarder, image, "sandbox-exec", releaseSpec}
+	out, err := exec.CommandContext(ctx, r.cfg.Runtime, args...).CombinedOutput()
+	if ctx.Err() != nil {
+		_ = exec.Command(r.cfg.Runtime, "rm", "-f", name).Run()
+	}
+	if err != nil {
+		if len(out) > 2048 {
+			out = out[:2048]
+		}
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func (r *Runner) logger() *slog.Logger {
+	if r.cfg.Logger != nil {
+		return r.cfg.Logger
+	}
+	return slog.Default()
 }
 
 // tokenGuard admits a request only with the session's token.

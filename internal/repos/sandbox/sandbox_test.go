@@ -166,4 +166,105 @@ func TestRunStopsAJobThatFillsItsWorkDirectory(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "was stopped") {
 		t.Fatalf("a job filling its work directory ran on: %v\n%s", err, res.Output)
 	}
+
+	// Writing below a directory the proxy's user cannot read does not hide
+	// the bytes: a privileged proxy counts them, an unprivileged one stops
+	// the job for the directory.
+	res, err = r.Run(context.Background(), Job{Tool: "probe", Handler: http.NotFoundHandler(),
+		Commands: [][]string{{"sh", "-c", "mkdir -m 0700 private && i=0; while [ $i -lt 400 ]; do head -c 1048576 /dev/zero > private/f$i; i=$((i+1)); sleep 0.05; done"}}})
+	if err == nil || !strings.Contains(err.Error(), "was stopped") {
+		t.Fatalf("a job filling a private directory ran on: %v\n%s", err, res.Output)
+	}
+}
+
+// TestReleaseOpensUpTheTree: what the container's user made is opened up to
+// the proxy's user on the way out — without following links.
+func TestReleaseOpensUpTheTree(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a", "b", "lock"), []byte("x"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "a", "link")); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{filepath.Join(dir, "a", "b"), filepath.Join(dir, "a")} {
+		if err := os.Chmod(d, 0o500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	release(dir)
+	for p, want := range map[string]os.FileMode{
+		dir: 0o777, filepath.Join(dir, "a"): 0o777, filepath.Join(dir, "a", "b"): 0o777,
+		filepath.Join(dir, "a", "b", "lock"): 0o666, outside: 0o600,
+	} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s: mode %v, want %v", p, got, want)
+		}
+	}
+}
+
+// TestRunLeavesNothingBehind: the job's directory is removed whether the job
+// ended or was stopped, even when the tool made it unwritable — the container's
+// user is not the proxy's, so an unprivileged proxy could not otherwise remove
+// what the tool left (CI runs this as such a user).
+func TestRunLeavesNothingBehind(t *testing.T) {
+	const image = "alpine:3.20"
+	dockerImage(t, image)
+	tmp, err := os.MkdirTemp("", "ptsbt-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tmp) })
+	r, err := New(Config{Runtime: "docker", Forwarder: staticForwarder(t), Images: map[string]string{"probe": image},
+		Timeout: 2 * time.Minute, TempDir: tmp, MaxWorkBytes: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Readable — the watchdog measures it — but not writable: only the
+	// container's user could remove what is inside.
+	const lockUp = "mkdir -p d/e && echo x > d/e/f && chmod 0400 d/e/f && chmod 0555 d/e d"
+	empty := func(what string) {
+		t.Helper()
+		entries, err := os.ReadDir(tmp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			t.Errorf("%s: %s is left behind", what, e.Name())
+		}
+	}
+
+	res, err := r.Run(context.Background(), Job{Tool: "probe", Handler: http.NotFoundHandler(), Dir: "proj",
+		Files: map[string][]byte{"proj/lock": []byte("old\n")},
+		// Replaced as tools replace a lock file, by a private file of the
+		// container's user.
+		Commands: [][]string{{"sh", "-c", lockUp + " && echo new > lock.new && chmod 0600 lock.new && mv lock.new lock"}},
+		Collect:  []string{"proj/lock"}})
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, res.Output)
+	}
+	if got := string(res.Files["proj/lock"]); got != "new\n" {
+		t.Fatalf("collected %q, want the tool's private result", got)
+	}
+	empty("a job that ended")
+
+	// Stopped mid-way (by the watchdog, here), the job never opens its tree
+	// up itself.
+	res, err = r.Run(context.Background(), Job{Tool: "probe", Handler: http.NotFoundHandler(),
+		Commands: [][]string{{"sh", "-c", lockUp + " && head -c 2097152 /dev/zero > big && sleep 600"}}})
+	if err == nil || !strings.Contains(err.Error(), "was stopped") {
+		t.Fatalf("a job past its bounds: %v\n%s", err, res.Output)
+	}
+	empty("a job that was stopped")
 }

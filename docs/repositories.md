@@ -391,7 +391,13 @@ else changed. A rewrite that does not pass is not committed.
   bytes the proxy serves; one that fails fails the lock file's update. The
   sandbox needs `repositories.updates.sandbox.runtime` (docker or podman) and
   this binary built statically (the release binaries are): it runs inside the
-  container as the relay.
+  container as the relay. The tool's work directory is a host directory, bounded
+  to 1 GiB and 100 000 files; a job past either, or one that makes a directory
+  there unreadable to the proxy's user (which could then not measure it), is
+  stopped. What the tool writes belongs to the container's user, not the
+  proxy's: the relay opens it up before it exits, and a short container of the
+  same image and user does so for a stopped job, so that an unprivileged proxy
+  can read the results and remove every job's directory.
 * **Not at all**, for the formats below, with the reason — nor for a project
   that vendors its dependencies next to the lock file (`vendor/modules.txt`, a
   `cargo vendor` source replacement): its build reads the vendored copies,

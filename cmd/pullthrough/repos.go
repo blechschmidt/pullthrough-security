@@ -259,7 +259,7 @@ func wireRepos(ctx context.Context, svc *repos.Service, cfg *config.Config, gw *
 	})
 	if sc := cfg.Repositories.Updates.Sandbox; cfg.Repositories.Updates.Enabled && strings.TrimSpace(sc.Runtime) != "" {
 		runner, err := sandbox.New(sandbox.Config{Runtime: sc.Runtime, Images: sc.Images, Forwarder: sc.Forwarder,
-			Timeout: sc.Timeout, Memory: sc.Memory, User: sc.User, TempDir: sc.TempDir})
+			Timeout: sc.Timeout, Memory: sc.Memory, User: sc.User, TempDir: sc.TempDir, Logger: deps.logger})
 		if err != nil {
 			// Updates that need a lock file re-resolved are skipped, with
 			// this reason; the rest go ahead.

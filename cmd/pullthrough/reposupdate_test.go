@@ -849,8 +849,10 @@ func installWithRealClients(t *testing.T, dir, proxyURL string) {
 	}
 	run("cargo", []string{"CARGO_HOME=" + cargoHome, "CARGO_TARGET_DIR=" + filepath.Join(home, "target"), "RUSTUP_HOME=" + rustupHome},
 		"cargo", "build", "--locked", "--quiet")
+	// -modcacherw: the module cache lives in the test's temporary directory,
+	// which an unprivileged user (CI) could not remove were it read-only.
 	gopath := filepath.Join(home, "go")
-	run("go", []string{"GOPROXY=" + proxyURL + "/v1/go", "GOSUMDB=off", "GOFLAGS=-mod=readonly", "GOTOOLCHAIN=local",
+	run("go", []string{"GOPROXY=" + proxyURL + "/v1/go", "GOSUMDB=off", "GOFLAGS=-mod=readonly -modcacherw", "GOTOOLCHAIN=local",
 		"GOPATH=" + gopath, "GOMODCACHE=" + filepath.Join(gopath, "pkg", "mod"), "GOCACHE=" + filepath.Join(home, "gocache"), "GONOSUMDB=", "GOPRIVATE="},
 		"go", "build", "-o", filepath.Join(home, "widgets"), ".")
 }
@@ -1202,8 +1204,10 @@ func TestMaintenanceUpdaterSandboxedCargoAndGo(t *testing.T) {
 	}
 	build("cargo", "rust", []string{"CARGO_HOME=" + cargoHome, "CARGO_NET_OFFLINE=false", "RUSTUP_HOME=" + rustupHome,
 		"CARGO_TARGET_DIR=" + filepath.Join(home, "target")}, "cargo", "build", "--locked", "--quiet")
+	// -modcacherw: the module cache lives in the test's temporary directory,
+	// which an unprivileged user (CI) could not remove were it read-only.
 	gopath := filepath.Join(home, "go")
-	build("go", "golang", []string{"GOPROXY=" + proxyURL + "/v1/go", "GOSUMDB=off", "GOFLAGS=-mod=readonly", "GOTOOLCHAIN=local",
+	build("go", "golang", []string{"GOPROXY=" + proxyURL + "/v1/go", "GOSUMDB=off", "GOFLAGS=-mod=readonly -modcacherw", "GOTOOLCHAIN=local",
 		"GOPATH=" + gopath, "GOMODCACHE=" + filepath.Join(gopath, "pkg", "mod"), "GOCACHE=" + filepath.Join(home, "gocache"), "GONOSUMDB=", "GOPRIVATE="},
 		"go", "build", "-o", filepath.Join(home, "widgets"), ".")
 }

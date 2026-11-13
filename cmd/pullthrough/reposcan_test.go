@@ -349,18 +349,41 @@ func TestRepositoryDependencyScanEndToEnd(t *testing.T) {
 	}
 
 	// The default branch's head: scanned through the proxy, verdicts from the
-	// cache for the bytes the release scan already judged.
+	// cache for the bytes judged before. One worker scans, one revision at a
+	// time, and the sync queued both — but a release scan dequeued while its
+	// release is still being pinned waits for the pin, so either may run
+	// first: the head's report is held to what the order it ran in implies.
 	repB := waitScan(t, st.svc, "widgets", commitB, func(r *repos.ScanReport) bool { return r.Kind == repos.ScanHead })
 	// (Cargo.lock is unchanged at the head: its two crates are still pinned.)
 	if repB.Ref != "main" || repB.Branch != "main" || repB.Result != repos.ResultMalicious || repB.Summary.Dependencies != 5 ||
-		repB.Summary.Malicious != 2 || repB.Summary.Cached != 4 || repB.Summary.Scanned != 1 {
+		repB.Summary.Malicious != 2 || repB.Summary.Cached+repB.Summary.Scanned != 5 {
 		t.Fatalf("head scan: ref %q branch %q %s %q %+v", repB.Ref, repB.Branch, repB.Result, repB.Reason, repB.Summary)
+	}
+	releaseFirst := !repA.FinishedAt.After(repB.StartedAt)
+	t.Logf("the release scan ran first: %v", releaseFirst)
+	switch {
+	case releaseFirst:
+		// Every byte the release shares with the head was judged: only the
+		// head's own dependency is scanned.
+		if repB.Summary.Cached != 4 || repB.Summary.Scanned != 1 {
+			t.Fatalf("head scan after the release scan: %+v", repB.Summary)
+		}
+		if d := dependencyOf(t, repB, "npm/evil-pad@1.0.0"); d.Verdict != repos.VerdictMalicious || !d.Cached {
+			t.Fatalf("head's malicious dependency (judged before): %+v", d)
+		}
+	case !repB.FinishedAt.After(repA.StartedAt):
+		// The head first: the release scan finds every verdict cached.
+		if repA.Summary.Cached != 4 || repA.Summary.Scanned != 0 {
+			t.Fatalf("release scan after the head scan: %+v", repA.Summary)
+		}
+	default:
+		t.Fatalf("the release scan (%s-%s) and the head scan (%s-%s) overlapped", repA.StartedAt, repA.FinishedAt, repB.StartedAt, repB.FinishedAt)
 	}
 	if d := dependencyOf(t, repB, "npm/right-pad@2.0.0"); d.Verdict != repos.VerdictBenign || d.Pinned || d.Cached {
 		t.Fatalf("head-only dependency: %+v", d)
 	}
-	if d := dependencyOf(t, repB, "npm/evil-pad@1.0.0"); d.Verdict != repos.VerdictMalicious || !d.Cached {
-		t.Fatalf("head's malicious dependency (judged before): %+v", d)
+	if d := dependencyOf(t, repB, "npm/evil-pad@1.0.0"); d.Verdict != repos.VerdictMalicious {
+		t.Fatalf("head's malicious dependency: %+v", d)
 	}
 	if v, err := st.svc.ScanReport(ctx, "team-a", "widgets", ""); err != nil || v.Commit != commitB || !v.Current {
 		t.Fatalf("the head's report: %v %+v", err, v)

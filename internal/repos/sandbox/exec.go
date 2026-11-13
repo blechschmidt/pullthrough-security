@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -31,6 +33,15 @@ func ExecMain(specPath string) int {
 	if err := json.Unmarshal(data, &sp); err != nil {
 		fmt.Fprintf(os.Stderr, "sandbox: reading the job: %v\n", err)
 		return 125
+	}
+	// Whatever the commands leave belongs to this container's user; the
+	// proxy's user, which is not this one, reads the results and removes
+	// the rest once the container is gone.
+	if sp.Release != "" {
+		defer release(sp.Release)
+	}
+	if len(sp.Commands) == 0 {
+		return 0
 	}
 	if home := os.Getenv("HOME"); home != "" {
 		_ = os.MkdirAll(home, 0o755)
@@ -70,6 +81,25 @@ func ExecMain(specPath string) int {
 		}
 	}
 	return 0
+}
+
+// release opens up the tree below dir to every user: directories 0777, files
+// 0666. What this container's user created is otherwise private to it, and the
+// proxy's user, outside, could neither read a result written 0600 nor remove a
+// directory made 0755. Entries another user owns are left alone, and symbolic
+// links are not followed.
+func release(dir string) {
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
+		mode := fs.FileMode(0o666)
+		if d.IsDir() {
+			mode = 0o777
+		}
+		_ = os.Chmod(p, mode)
+		return nil
+	})
 }
 
 // relay forwards every request to the proxy's socket with the session token.

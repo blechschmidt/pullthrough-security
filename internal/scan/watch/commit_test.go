@@ -464,7 +464,8 @@ func TestPushBranchSendsNoTagsAndRunsNoHooks(t *testing.T) {
 	c1 := f.build("v1\n")
 	mirror := f.gs.MirrorDir(f.ref)
 	f.mirror("config", "push.followTags", "true")
-	f.mirror("tag", "-a", "-m", "local", "local-tag", c1)
+	// An annotated tag needs a tagger: CI runners have no git identity.
+	f.mirror("-c", "user.name=Local Tagger", "-c", "user.email=tagger@example.invalid", "tag", "-a", "-m", "local", "local-tag", c1)
 	marker := filepath.Join(t.TempDir(), "hook-ran")
 	hook := filepath.Join(mirror, "hooks", "pre-push")
 	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
