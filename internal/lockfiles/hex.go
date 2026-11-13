@@ -78,7 +78,7 @@ func (mixLock) Parse(data []byte) (*Result, error) {
 			return err
 		}
 		if d, ok := mixDependency(res, key.text, items, key.line); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 		return nil
 	})

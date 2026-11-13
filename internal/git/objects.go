@@ -796,3 +796,20 @@ func validCloneURL(url string) error {
 	}
 	return fmt.Errorf("git: unsupported repository URL %q (want https://, ssh://, git://, file:// or user@host:path)", RedactURLSecrets(url))
 }
+
+// IsolateCommand prepares a git command made with exec.CommandContext so that a
+// cancelled context ends it together with every helper it started (git hands
+// its pipes to git-remote-http, ssh, …; killing git alone leaves them holding
+// the pipes and the caller waiting), and so that Wait gives up on the pipes a
+// bounded time after the process exited. Other packages that run git — the
+// commit watcher's and the repository tracker's mirrors — use it.
+func IsolateCommand(cmd *exec.Cmd) {
+	isolateProcess(cmd)
+	cmd.WaitDelay = processWaitDelay
+}
+
+// ValidateCloneURL reports whether url is a repository URL this package will
+// hand to git: https://, http://, ssh://, git://, file:// or scp-like
+// user@host:path — never an option ("-…"), never a remote-helper address
+// ("<transport>::<address>", which runs a program).
+func ValidateCloneURL(url string) error { return validCloneURL(url) }

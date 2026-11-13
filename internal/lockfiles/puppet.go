@@ -75,7 +75,7 @@ func (puppetfile) Parse(data []byte) (*Result, error) {
 		case head.text == "moduledir":
 		case head.text == "mod":
 			if d, ok := puppetModule(res, args, forge, head.line); ok {
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		default:
 			res.warnf("line %d: Ruby code this parser does not evaluate", head.line)

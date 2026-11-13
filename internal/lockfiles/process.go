@@ -69,6 +69,10 @@ func parseOne(p Parser, filePath string, data []byte) (f *File) {
 	if res == nil {
 		return f
 	}
+	if res.overflow {
+		f.Error = fmt.Sprintf("the file names more than %d dependencies; it was not read", MaxDependenciesPerFile)
+		return f
+	}
 	if res.parsedAs != nil {
 		f.Type, f.Format, f.parser = res.parsedAs.Type(), res.parsedAs.Format(), res.parsedAs
 	}

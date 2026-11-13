@@ -177,6 +177,13 @@ type LLMPackageScanProvider interface {
 	Standing(v *llmpkgscan.Verdict) llmpkgscan.Standing
 }
 
+// ReleasesProvider lists the releases that ship a coordinate (Task 180),
+// tenant-scoped: a tenant-bound reader sees its own tenant's releases only.
+// version may be empty (every version of the package).
+type ReleasesProvider interface {
+	ReleasesShipping(ctx context.Context, tenant, ecosystem, name, version string) ([]ReleaseRef, error)
+}
+
 // Providers bundles the optional subsystem read-models the dossier folds
 // together. Any nil field yields an absent section reported as "disabled".
 type Providers struct {
@@ -196,6 +203,8 @@ type Providers struct {
 	Suppressions SuppressionProvider
 	// LLMPackageScan is the LLM package-content scan gate (Task 173).
 	LLMPackageScan LLMPackageScanProvider
+	// Releases is the repository registry (Task 180).
+	Releases ReleasesProvider
 }
 
 // Config tunes the builder. The zero value is usable: it falls back to the
@@ -257,6 +266,7 @@ func (b *Builder) Sources() map[string]bool {
 		"suggestedfix": p.Remediation != nil && p.Remediation.Enabled(),
 		"suppression":  p.Suppressions != nil,
 		"llmpkgscan":   p.LLMPackageScan != nil && p.LLMPackageScan.Enabled(),
+		"releases":     p.Releases != nil,
 	}
 }
 
@@ -390,6 +400,9 @@ func (b *Builder) jobs(id ident, tenant string, now time.Time) []sourceJob {
 		}},
 		{name: "llmpkgscan", enabled: p.LLMPackageScan != nil && p.LLMPackageScan.Enabled(), fn: func(ctx context.Context, mu *sync.Mutex, d *Dossier) (string, string) {
 			return b.fillLLMPackageScan(id, tenant, mu, d)
+		}},
+		{name: "releases", enabled: p.Releases != nil, fn: func(ctx context.Context, mu *sync.Mutex, d *Dossier) (string, string) {
+			return b.fillReleases(ctx, id, tenant, mu, d)
 		}},
 	}
 }

@@ -88,6 +88,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/rebuildverify"
 	"github.com/blechschmidt/pullthrough-security/internal/rekor"
 	"github.com/blechschmidt/pullthrough-security/internal/remediation"
+	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/reposcore"
 	"github.com/blechschmidt/pullthrough-security/internal/riskscore"
 	"github.com/blechschmidt/pullthrough-security/internal/sbomdiff"
@@ -220,6 +221,7 @@ func buildObservability(
 	webAuthnSvc *webauthn.Service,
 	downloads *downloadlog.Log,
 	userLinksSvc *userlinks.Service,
+	reposSvc *repos.Service,
 	logger *slog.Logger,
 ) observability {
 	var obs observability
@@ -415,7 +417,7 @@ func buildObservability(
 			grpcCfg.Compliance = complianceSvc
 		}
 		grpcRemediationSvc := buildRemediation(cfg, vulnService, licenseService, maturitySvc, depFirewallSvc)
-		grpcCfg.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, grpcRemediationSvc, suppressionLedger, llmPkgScanSvc)
+		grpcCfg.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, grpcRemediationSvc, suppressionLedger, llmPkgScanSvc, reposSvc)
 		grpcSrv = grpcapi.New(grpcCfg)
 	}
 
@@ -531,7 +533,7 @@ func buildObservability(
 	}
 
 	if cfg.Observability.Admin {
-		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, userLinksSvc, adminAuthSvc, vexExporter, logger)
+		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, userLinksSvc, adminAuthSvc, vexExporter, reposSvc, logger)
 		if err != nil {
 			// Cache inspection is the admin minimum; if it cannot be wired we log and
 			// run without the surface rather than aborting the whole proxy.
@@ -573,7 +575,7 @@ func buildObservability(
 	// active lockdown flips un-vetted images to deny.
 	if cfg.AdmissionWebhook.Enabled {
 		remediationSvc := buildRemediation(cfg, vulnService, licenseService, maturitySvc, depFirewallSvc)
-		builder := newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger, llmPkgScanSvc)
+		builder := newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger, llmPkgScanSvc, reposSvc)
 		wh, err := buildAdmissionWebhook(cfg, builder, lockdownSvc, logger)
 		if err != nil {
 			logger.Error("admission webhook disabled (construction failed)", "error", err)
@@ -5131,8 +5133,14 @@ func newDossierBuilder(
 	remediationSvc *remediation.Service,
 	suppressionLedger *findings.SuppressionLedger,
 	llmPkgScanSvc *llmpkgscan.Service,
+	reposSvc *repos.Service,
 ) *dossier.Builder {
 	dp := dossier.Providers{}
+	if reposSvc != nil {
+		// "Shipped in release X" (Task 180): the releases whose lock files pin
+		// the coordinate.
+		dp.Releases = dossierReleases{svc: reposSvc}
+	}
 	if findingsStore != nil {
 		dp.Findings = findingsStore
 	}
@@ -5248,6 +5256,7 @@ func buildAdminServer(
 	userLinksSvc *userlinks.Service,
 	adminAuthSvc *adminauth.Service,
 	vexExporter *vexexport.Service,
+	reposSvc *repos.Service,
 	logger *slog.Logger,
 ) (*admin.Server, error) {
 	opts := admin.Options{
@@ -5478,7 +5487,7 @@ func buildAdminServer(
 	// fans out across whichever subsystems are wired and degrades to partial
 	// results for the rest. The same builder backs the admission webhook's
 	// in-process verdict source (Task 111).
-	opts.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger, llmPkgScanSvc)
+	opts.Dossier = newDossierBuilder(findingsStore, riskEngine, vulnService, sigVerify, buildProvSvc, pypiAttestSvc, provGraph, rebuildVerifySvc, sbomDiffSvc, approvalsSvc, attestor, timelineEngine, remediationSvc, suppressionLedger, llmPkgScanSvc, reposSvc)
 	if mcpSrv.Enabled() {
 		opts.MCP = mcpSrv
 	}
@@ -5493,6 +5502,9 @@ func buildAdminServer(
 	// at an empty Downloads tab why it is empty.
 	if downloads != nil {
 		opts.DownloadLog = downloads
+	}
+	if reposSvc != nil {
+		opts.Repos = reposSvc
 	}
 	// Personal cache links (Task 177): listed and revoked from the console. A
 	// typed nil must not become a non-nil interface, hence the check.

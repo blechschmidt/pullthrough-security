@@ -52,6 +52,9 @@ const (
 	EventTLSPin        EventType = "tls_pin"         // an upstream TLS certificate/CA pin violation (Task 128)
 	EventStepUpAuth    EventType = "stepup_auth"     // a WebAuthn/passkey step-up authentication ceremony or enforcement decision (Task 161)
 	EventSuppression   EventType = "suppression"     // a gate finding suppressed/downgraded (VEX, reachability, policy, break-glass) (Task 165)
+	EventRepository    EventType = "repository"      // a repository registered or removed in the repository registry (Task 180)
+	EventReleaseTag    EventType = "release_tag"     // a tracked repository's tag created, moved or deleted (Task 180)
+	EventReleasePin    EventType = "release_pin"     // a release's dependencies pinned (or not), a pinned object repaired or lost (Task 180)
 )
 
 // Decision is the outcome recorded for authz/policy/quota events.

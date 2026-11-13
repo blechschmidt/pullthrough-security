@@ -156,6 +156,19 @@ func (e *Enforcer) Admit(p *Principal, upstream, ecosystem string) Result {
 	return Result{Principal: p, Allowed: true, Status: http.StatusOK, Stage: StageAllow}
 }
 
+// Authorize performs the RBAC decision alone, for a principal the proxy vouches
+// for itself — its own system principal (Task 180), which fetches a
+// repository's dependencies with the roles the repository's registration
+// grants. There is no credential to authenticate and no client quota to charge;
+// what the principal may pull is decided exactly as for a client. With access
+// control disabled (a nil Enforcer) everything is allowed.
+func (e *Enforcer) Authorize(p *Principal, upstream, ecosystem string) (allowed bool, reason string) {
+	if e == nil {
+		return true, "access control disabled"
+	}
+	return e.authz.Authorize(p, upstream, ecosystem)
+}
+
 // RecordBytes attributes served bytes to the principal's team quota.
 func (e *Enforcer) RecordBytes(p *Principal, n int64) {
 	if e == nil || p == nil {

@@ -635,13 +635,16 @@ type Options struct {
 	Dossier                     DossierInspector
 	Metering                    MeteringInspector
 	DownloadLog                 DownloadLogInspector
-	Intercept                   InterceptInspector
-	UserLinks                   UserLinksManager
-	Config                      ConfigInspector
-	Presets                     PresetController
-	VEXExport                   VEXExporter
-	Backends                    BackendLister
-	Info                        Info
+	// Repos is the repository registry (Task 180): tracked repositories,
+	// their tag histories and pinned releases. Nil when disabled.
+	Repos     RepoRegistry
+	Intercept InterceptInspector
+	UserLinks UserLinksManager
+	Config    ConfigInspector
+	Presets   PresetController
+	VEXExport VEXExporter
+	Backends  BackendLister
+	Info      Info
 
 	// Profiling, when Enabled, exposes the net/http/pprof and runtime/trace
 	// execution-trace endpoints under <prefix>/api/debug/pprof/, guarded by the
@@ -852,6 +855,17 @@ func (s *Server) routes() *http.ServeMux {
 	// Download log (Task 176): which package was downloaded from which address.
 	mux.HandleFunc("GET "+s.prefix+"/api/downloads", s.handleDownloads)
 	mux.HandleFunc("GET "+s.prefix+"/api/downloads/summary", s.handleDownloadsSummary)
+	// Repository registry (Task 180): tag tracking and release pinning.
+	mux.HandleFunc("GET "+s.prefix+"/api/repos", s.handleReposList)
+	mux.HandleFunc("POST "+s.prefix+"/api/repos", s.handleReposAdd)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/show", s.handleReposShow)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/tags", s.handleReposTags)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/verify", s.handleReposVerify)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/releases", s.handleReposReleases)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/lookup", s.handleReposLookup)
+	mux.HandleFunc("POST "+s.prefix+"/api/repos/sync", s.handleReposSync)
+	mux.HandleFunc("POST "+s.prefix+"/api/repos/pin", s.handleReposPin)
+	mux.HandleFunc("POST "+s.prefix+"/api/repos/remove", s.handleReposRemove)
 	// TLS interception and NAT mode (Task 172): the listeners, the routing
 	// table, the hostnames to send to the proxy, and the CA to trust.
 	mux.HandleFunc("GET "+s.prefix+"/api/intercept", s.handleIntercept)

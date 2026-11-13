@@ -68,7 +68,7 @@ func parseYarnClassic(data []byte) (*Result, error) {
 			return
 		}
 		if d, ok := yarnClassicDependency(res, cur); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 		cur = nil
 	}
@@ -290,7 +290,7 @@ func parseYarnBerry(data []byte) (*Result, error) {
 			continue
 		}
 		if d, ok := yarnBerryDependency(res, key, entry); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	return res, nil

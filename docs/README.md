@@ -54,6 +54,7 @@ pull-through proxy focused on software supply-chain security.
 | See which package was downloaded from which client address — and who was refused what (Downloads tab, API, `ptctl downloads`) | [download-log.md](download-log.md) |
 | Track downloads per user: sign-in through your OIDC identity provider, a personal cache link for every user | [user-links.md](user-links.md) |
 | List the exact dependencies a repository's lock files pin, read at a commit (`ptctl lockfiles`) | [lockfiles.md](lockfiles.md) |
+| Track a repository's tags and pin every release's dependencies in the cache, permanently (`ptctl repos`) | [repositories.md](repositories.md) |
 | Tour the admin dashboard tab by tab (annotated screenshots) | [admin-ui-walkthrough.md](admin-ui-walkthrough.md) |
 | Meet the UI accessibility baseline (WCAG 2.1 AA, keyboard, dark mode) | [accessibility.md](accessibility.md) |
 | Ask cross-cutting questions across subsystems (federated query API) | [query-api.md](query-api.md) |

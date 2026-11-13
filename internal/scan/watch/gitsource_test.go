@@ -245,3 +245,66 @@ func TestServiceEndToEndWithGitSource(t *testing.T) {
 		t.Fatalf("end-to-end commit not fully built: subject=%q files=%d", last.Commit.Subject(), len(last.Commit.Files))
 	}
 }
+
+// A refspec mirror (Task 180) lists every tag with the commit it resolves to —
+// lightweight, annotated, a tag of a tag — and leaves out a tag of a tree. When
+// the repository's URL changes, the mirror fetches from the new URL; a commit
+// it was asked to keep survives the old tags being pruned.
+func TestRefSnapshotOfARefspecMirror(t *testing.T) {
+	origin := newGitRepo(t)
+	origin.commit("a.txt", "a", "first")
+	first := trim(origin.git("rev-parse", "HEAD"))
+	origin.commit("a.txt", "b", "second")
+	second := trim(origin.git("rev-parse", "HEAD"))
+	origin.git("tag", "v1", first)
+	origin.git("tag", "-a", "-m", "v2", "v2", second)
+	origin.git("-c", "advice.nestedTag=false", "tag", "-a", "-m", "v3", "v3", "v2")
+	origin.git("tag", "-a", "-m", "tree", "t-tree", trim(origin.git("rev-parse", "HEAD^{tree}")))
+
+	gs, err := NewGitSource(GitSourceOptions{
+		Root:             t.TempDir(),
+		Refspecs:         []string{"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"},
+		AllowedProtocols: []string{"file"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	ref := RepoRef{Name: "widgets", URL: "file://" + origin.dir}
+	snap, err := gs.RefSnapshot(ctx, ref, []string{"refs/tags/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		commit    string
+		annotated bool
+	}{"refs/tags/v1": {first, false}, "refs/tags/v2": {second, true}, "refs/tags/v3": {second, true}}
+	if len(snap) != len(want) {
+		t.Fatalf("snapshot %+v", snap)
+	}
+	for name, w := range want {
+		if tip := snap[name]; tip.Commit != w.commit || tip.Annotated != w.annotated {
+			t.Fatalf("%s = %+v, want %s annotated=%v", name, tip, w.commit, w.annotated)
+		}
+	}
+	if err := gs.KeepCommit(ctx, ref, first); err != nil {
+		t.Fatal(err)
+	}
+
+	// The repository moves: the mirror follows the new URL.
+	moved := newGitRepo(t)
+	moved.commit("b.txt", "other", "elsewhere")
+	other := trim(moved.git("rev-parse", "HEAD"))
+	moved.git("tag", "v9", other)
+	ref.URL = "file://" + moved.dir
+	snap, err = gs.RefSnapshot(ctx, ref, []string{"refs/tags/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap) != 1 || snap["refs/tags/v9"].Commit != other {
+		t.Fatalf("snapshot after the move: %+v", snap)
+	}
+	if !gs.HasCommit(ctx, ref, first) {
+		t.Fatal("a kept commit was lost when its tags were pruned")
+	}
+}

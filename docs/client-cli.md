@@ -254,7 +254,8 @@ Filters are ANDed: `--ip` (an address or a CIDR prefix), `--package`
 `--outcome` (`served`, `not_modified`, `blocked`, `not_found`, `error`),
 `--user` (the identified client — also spelled `--subject`; `*` is a wildcard,
 `-` selects the downloads nobody was identified for), `--link` (one personal
-cache link, by its identifier), `--search` (free text), `--since` / `--until`
+cache link, by its identifier), `--via` (`direct`, `intercept`, `nat`, or
+`system` — the proxy fetching a release's dependencies to pin them), `--search` (free text), `--since` / `--until`
 (an age such as `15m`, `24h`, `7d`, RFC 3339, or unix seconds). `--limit`
 (default 50) bounds the table; `--all` pages through every match. `--summary`
 prints totals and the busiest client addresses, users and packages (`--top`)
@@ -262,6 +263,34 @@ instead of entries. `--format` is `table` (default), `json` or `csv`.
 
 The global `--tenant` narrows the log only when given on the command line: an
 exported `PULLTHROUGH_TENANT` does not hide other tenants' downloads.
+
+### `ptctl repos` — tracked repositories and their pinned releases
+
+The [repository registry](repositories.md): repositories whose tags the proxy
+follows, and the releases whose dependencies it pinned in its cache.
+
+```bash
+ptctl repos add widgets https://github.com/acme/widgets.git --owner team-a \
+    --credentials-ref env://WIDGETS_TOKEN --lockfile 'package-lock.json' --tag 'v*'
+ptctl repos list                                  # what is tracked, how many releases are fully pinned
+ptctl repos show widgets                          # current tags and the state of each release
+ptctl repos tags widgets --tag v1.0               # every commit v1.0 ever pointed at
+ptctl repos releases widgets --tag v1.0           # its releases: current and historical
+ptctl repos releases widgets --commit 1a2b3c4 --full   # one manifest: lock files, dependencies, objects
+ptctl repos commit 1a2b3c4                        # the releases of a commit, in every repository
+ptctl repos lookup npm/lodash@4.17.21             # which releases ship it?
+ptctl repos lookup --digest sha256:…              # which releases pin this object?
+ptctl repos pin widgets 1a2b3c4…                  # pin (or retry) a release now
+ptctl repos verify widgets                        # check the tag history's hash chain
+```
+
+`add` and `remove` need the admin `administer` capability; `sync` and `pin`
+need `operate`; everything else needs `read`. Like `downloads`, the global
+`--tenant` narrows the answer only when given on the command line;
+`add --owner` names the tenant that owns the repository. With client
+authentication on, `add --role R` (repeatable) names the access-control roles
+the release pinner fetches the repository's dependencies with, instead of
+`repositories.roles`; a tenant-bound identity cannot set it.
 
 ### `ptctl userlinks` — personal cache links
 

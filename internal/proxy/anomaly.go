@@ -36,7 +36,9 @@ import (
 // block standing. It returns true when the request may proceed and false when it
 // has been refused with a 429 response.
 func (g *Gateway) gateAnomaly(w http.ResponseWriter, r *http.Request, backend, ecosystem string) bool {
-	if g.deps.Anomaly == nil || !g.deps.Anomaly.Enabled() {
+	// A system fetch (Task 180) is the proxy pinning a release: the burst of
+	// its dependencies is not one identity fanning out.
+	if g.deps.Anomaly == nil || !g.deps.Anomaly.Enabled() || isSystemRequest(r) {
 		return true
 	}
 	tenant, identity := anomalyScope(r)
@@ -65,7 +67,7 @@ func (g *Gateway) gateAnomaly(w http.ResponseWriter, r *http.Request, backend, e
 // notification when the resulting assessment is an alert. It is best-effort and
 // never affects the response (the request has already been served or failed).
 func (g *Gateway) observeAnomaly(r *http.Request, backend, ecosystem string, resolved *backends.Resolved, bytes int64, notFound bool) {
-	if g.deps.Anomaly == nil || !g.deps.Anomaly.Enabled() {
+	if g.deps.Anomaly == nil || !g.deps.Anomaly.Enabled() || isSystemRequest(r) {
 		return
 	}
 	tenant, identity := anomalyScope(r)

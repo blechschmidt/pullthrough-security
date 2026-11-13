@@ -19,6 +19,10 @@ type cacheIntegrityObserver struct {
 	notifier notify.Emitter
 	severity notify.Severity
 	logger   *slog.Logger
+	// repairPinned, when set, is given every corrupted key: a key a release
+	// pinned (Task 180) is fetched again at once, or an alert raised. It
+	// reports whether the key was pinned.
+	repairPinned func(key string) bool
 }
 
 // newCacheIntegrityObserver builds the audit+notify observer. A nil audit logger
@@ -53,9 +57,17 @@ func (o *cacheIntegrityObserver) OnCorruption(ctx context.Context, ev cache.Corr
 			},
 		})
 	}
+	pinned := false
+	if o.repairPinned != nil {
+		pinned = o.repairPinned(ev.Key)
+	}
 	if o.notifier != nil {
-		o.notifier.Emit(ctx, notify.CacheIntegrityEvent(
+		e := notify.CacheIntegrityEvent(
 			o.severity, ev.Key, ev.Expected, ev.Computed, ev.Source, ev.Quarantined,
-		).WithField("origin", ev.Origin))
+		).WithField("origin", ev.Origin)
+		if pinned {
+			e = e.WithField("pinnedByRelease", "true").WithField("repair", "re-fetching")
+		}
+		o.notifier.Emit(ctx, e)
 	}
 }

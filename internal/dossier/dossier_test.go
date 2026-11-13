@@ -195,6 +195,10 @@ func fullProviders() Providers {
 		}},
 		Suppressions:   fullSuppressionLedger(),
 		LLMPackageScan: fullLLMScan(),
+		Releases: stubReleases{refs: []ReleaseRef{
+			{Repo: "widgets", Commit: "c0ffee0000000000000000000000000000000000", State: "current", Tags: []string{"v2.0"}, Version: "1.0.0", Status: "pinned", FullyPinned: true},
+			{Repo: "widgets", Commit: "decaf00000000000000000000000000000000000", State: "historical", FormerTags: []string{"v1.0"}, Version: "1.0.0", Status: "refused"},
+		}},
 	}
 }
 
@@ -276,6 +280,9 @@ func TestBuildFullDossier(t *testing.T) {
 	if d.LLMPackageScan == nil || d.LLMPackageScan.Disposition != "malicious" || !d.LLMPackageScan.Refused {
 		t.Errorf("LLM package-scan section wrong: %+v", d.LLMPackageScan)
 	}
+	if r := d.Releases; r == nil || r.Total != 2 || r.Current != 1 || r.Pinned != 1 {
+		t.Errorf("releases section wrong: %+v", d.Releases)
+	}
 	if d.Partial {
 		t.Errorf("dossier should not be partial: %+v", d.Sources)
 	}
@@ -287,7 +294,7 @@ func TestBuildFullDossier(t *testing.T) {
 	}
 
 	md := d.Markdown()
-	for _, want := range []string{"Security dossier: npm/evil@1.0.0", "**Verdict:** BLOCK", "CVE-2026-0001", "deadbeef", "denied", "## Suppression history", "vex:not_affected"} {
+	for _, want := range []string{"Security dossier: npm/evil@1.0.0", "**Verdict:** BLOCK", "CVE-2026-0001", "deadbeef", "denied", "## Suppression history", "vex:not_affected", "## Shipped in releases", "widgets @ c0ffee000000"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown missing %q", want)
 		}
@@ -389,4 +396,15 @@ type blockingTimeline struct{}
 func (blockingTimeline) Query(ctx context.Context, q timeline.Query) (timeline.Result, error) {
 	<-ctx.Done()
 	return timeline.Result{}, ctx.Err()
+}
+
+// stubReleases answers "shipped in release X" from a fixed list, scoped to the
+// acme tenant.
+type stubReleases struct{ refs []ReleaseRef }
+
+func (s stubReleases) ReleasesShipping(_ context.Context, tenant, ecosystem, name, version string) ([]ReleaseRef, error) {
+	if tenant != "acme" || ecosystem != "npm" || name != "evil" {
+		return nil, nil
+	}
+	return s.refs, nil
 }

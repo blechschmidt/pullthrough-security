@@ -246,6 +246,17 @@ const (
 	// piece of trust material was rotated to a new primary key, optionally opening
 	// a dual-key overlap window during which the previous key is still accepted.
 	EventKeyRotated EventType = "key_rotated"
+
+	// EventReleaseTag is a tracked repository's release tag that was moved to
+	// another commit or deleted (Task 180). A tag that moves after publication
+	// is the classic sign of a tampered release; the release it named stays
+	// pinned.
+	EventReleaseTag EventType = "release_tag"
+
+	// EventReleasePin is a release whose dependencies could not all be pinned,
+	// an object served with a digest other than the lock file records, or a
+	// pinned object lost to an integrity failure (Task 180).
+	EventReleasePin EventType = "release_pin"
 )
 
 // allEventTypes is the canonical set, used for validation and "route all"
@@ -286,6 +297,8 @@ var allEventTypes = []EventType{
 	EventTLSPinViolation,
 	EventKeyExpiry,
 	EventKeyRotated,
+	EventReleaseTag,
+	EventReleasePin,
 }
 
 // AllEventTypes returns the routable event types (excluding the synthetic test
@@ -307,7 +320,7 @@ func ValidEventType(s string) bool {
 		EventSbomDrift, EventDepFirewall, EventRebuildVerify, EventSnapshot,
 		EventBuildProvenance, EventLockdown, EventMeteringBudget, EventEgressBlocked,
 		EventMaintainerDrift, EventGitOps, EventCacheIntegrity, EventTLSPinViolation,
-		EventKeyExpiry, EventKeyRotated:
+		EventKeyExpiry, EventKeyRotated, EventReleaseTag, EventReleasePin:
 		return true
 	default:
 		return false
@@ -1302,4 +1315,49 @@ func shortSHA(sha string) string {
 // must not block the caller (delivery is asynchronous).
 type Emitter interface {
 	Emit(ctx context.Context, ev Event)
+}
+
+// ReleaseTagEvent describes a tracked repository's release tag that moved or
+// disappeared (Task 180). event is "moved" or "deleted"; from and to are the
+// commits (to is empty for a deletion).
+func ReleaseTagEvent(sev Severity, repo, tag, event, from, to, summary string) Event {
+	ev := Event{
+		Type:     EventReleaseTag,
+		Severity: NormalizeSeverity(string(sev)),
+		Title:    "Release tag " + event,
+		Summary:  summary,
+		Artifact: repo + "@" + tag,
+	}
+	ev = ev.withField("repository", repo).withField("tag", tag).withField("event", event)
+	if from != "" {
+		ev = ev.withField("from", from)
+	}
+	if to != "" {
+		ev = ev.withField("to", to)
+	}
+	return ev
+}
+
+// ReleasePinEvent describes a release pinning problem (Task 180): a release
+// not fully pinned, a digest mismatch against the lock file, or a pinned
+// object lost. status names the problem; artifact the object, when one.
+func ReleasePinEvent(sev Severity, repo, commit, status, artifact, summary string) Event {
+	ev := Event{
+		Type:     EventReleasePin,
+		Severity: NormalizeSeverity(string(sev)),
+		Title:    "Release pinning: " + status,
+		Summary:  summary,
+		Artifact: artifact,
+	}
+	if ev.Artifact == "" {
+		ev.Artifact = repo
+		if commit != "" {
+			ev.Artifact += "@" + commit
+		}
+	}
+	ev = ev.withField("repository", repo).withField("status", status)
+	if commit != "" {
+		ev = ev.withField("commit", commit)
+	}
+	return ev
 }

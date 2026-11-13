@@ -124,7 +124,7 @@ func readChartLock(m *yaml.Node) (*Result, error) {
 			res.warnf("%s %s: a repository this parser does not recognise", name, version)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }

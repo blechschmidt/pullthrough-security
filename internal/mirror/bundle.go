@@ -75,6 +75,34 @@ type BundleManifest struct {
 	// none, so a bundle without verdicts is byte-identical to one written before
 	// they existed and the format version is unchanged.
 	ScanVerdicts []ScanVerdict `json:"scanVerdicts,omitempty"`
+	// Releases carries the release manifests of the repository registry
+	// (Task 180), sorted by repository and commit, and PinnedKeys the cache
+	// keys they pin that the bundle holds. An instance importing the bundle
+	// stores the manifests, which pins the same objects there. Omitted when
+	// there are none, so older bundles are unchanged.
+	Releases   []ReleaseRecord `json:"releases,omitempty"`
+	PinnedKeys []string        `json:"pinnedKeys,omitempty"`
+}
+
+// ReleaseRecord is one release manifest travelling with a bundle.
+type ReleaseRecord struct {
+	Repo   string `json:"repo"`
+	Commit string `json:"commit"`
+	// Manifest is the registry's own encoding of the manifest; opaque here.
+	Manifest json.RawMessage `json:"manifest"`
+}
+
+// ReleaseSource yields the release manifests to carry in a bundle and the
+// cache keys they pin.
+type ReleaseSource interface {
+	ExportReleases(ctx context.Context) ([]ReleaseRecord, []string, error)
+}
+
+// ReleaseSink stores the release manifests of an imported bundle.
+type ReleaseSink interface {
+	// ImportRelease validates one manifest and stores it; imported is false
+	// when the instance already holds a manifest of that release.
+	ImportRelease(ctx context.Context, r ReleaseRecord) (imported bool, err error)
 }
 
 // ScanVerdict is one content-gate verdict travelling with a bundle: which gate
@@ -154,6 +182,14 @@ func (m *BundleManifest) sortManifest() {
 		}
 		return a.Digest < b.Digest
 	})
+	sort.Slice(m.Releases, func(i, j int) bool {
+		a, b := m.Releases[i], m.Releases[j]
+		if a.Repo != b.Repo {
+			return a.Repo < b.Repo
+		}
+		return a.Commit < b.Commit
+	})
+	sort.Strings(m.PinnedKeys)
 	sort.Slice(m.ScanVerdicts, func(i, j int) bool {
 		a, b := m.ScanVerdicts[i], m.ScanVerdicts[j]
 		if a.Gate != b.Gate {

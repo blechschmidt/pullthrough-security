@@ -157,6 +157,19 @@ func (d *Dossier) Markdown() string {
 		b.WriteString("\n")
 	}
 
+	if r := d.Releases; r != nil {
+		b.WriteString("## Shipped in releases\n\n")
+		mdKV(&b, "Releases", fmt.Sprintf("%d (%d current, %d with this dependency pinned)", r.Total, r.Current, r.Pinned))
+		for _, rel := range r.Releases {
+			tags := strings.Join(rel.Tags, ", ")
+			if tags == "" {
+				tags = "no tag now; was " + strings.Join(rel.FormerTags, ", ")
+			}
+			mdKV(&b, rel.Repo+" @ "+shortCommit(rel.Commit), fmt.Sprintf("%s · %s · version %s · %s", rel.State, tags, orDash(rel.Version), rel.Status))
+		}
+		b.WriteString("\n")
+	}
+
 	if l := d.LLMPackageScan; l != nil {
 		b.WriteString("## LLM package-content scan\n\n")
 		mdKV(&b, "Model verdict", fmt.Sprintf("%s (confidence %.2f)", orDash(l.Verdict), l.Confidence))
@@ -403,4 +416,12 @@ func truncatedSuffix(t bool) string {
 		return " (truncated)"
 	}
 	return ""
+}
+
+// shortCommit abbreviates a commit ID for display.
+func shortCommit(c string) string {
+	if len(c) > 12 {
+		return c[:12]
+	}
+	return c
 }

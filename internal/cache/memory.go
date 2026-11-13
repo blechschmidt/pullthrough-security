@@ -20,6 +20,8 @@ type MemoryCache struct {
 	entries map[string]memoryEntry
 	now     func() time.Time
 	sf      *singleflight
+	// pins is the release pin set (Task 180); Delete refuses a pinned key.
+	pins PinChecker
 }
 
 type memoryEntry struct {
@@ -145,6 +147,10 @@ func (c *MemoryCache) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.pins != nil && c.pins.IsPinned(key) && !pinOverride(ctx) {
+		return pinnedError(key)
+	}
+
 	if _, ok := c.entries[key]; !ok {
 		return ErrNotFound
 	}
@@ -154,6 +160,14 @@ func (c *MemoryCache) Delete(ctx context.Context, key string) error {
 
 // Close is a no-op for the in-memory cache.
 func (c *MemoryCache) Close() error { return nil }
+
+// SetPinChecker installs the release pin set (Task 180). The in-memory cache
+// never evicts, so the pin only matters to Delete.
+func (c *MemoryCache) SetPinChecker(p PinChecker) {
+	c.mu.Lock()
+	c.pins = p
+	c.mu.Unlock()
+}
 
 // Entries returns a Stat for every resident entry, for administrative
 // inspection. The order is unspecified.

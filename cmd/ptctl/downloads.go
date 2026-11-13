@@ -53,6 +53,7 @@ func runDownloads(args []string) error {
 		subject   = fs.String("subject", "", "identified client: a user, a token name, a key fingerprint; * is a wildcard (\"*@example.com\"), - selects downloads nobody was identified for")
 		user      = fs.String("user", "", "the same as --subject")
 		link      = fs.String("link", "", "personal cache link the download came through (its identifier, as `ptctl userlinks list` shows it)")
+		via       = fs.String("via", "", "how the request reached the proxy: direct | intercept | nat | system (the proxy pinning a release, Task 180)")
 		search    = fs.String("search", "", "free-text search across address, package, path, client tool, reason")
 		since     = fs.String("since", "", "only entries newer than this: an age (15m, 24h, 7d), RFC 3339, or unix seconds")
 		until     = fs.String("until", "", "only entries older than this (same forms as --since)")
@@ -114,6 +115,7 @@ func runDownloads(args []string) error {
 		"outcome":   *outcome,
 		"subject":   *subject,
 		"link":      *link,
+		"via":       *via,
 		"q":         *search,
 		"since":     *since,
 		"until":     *until,

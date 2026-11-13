@@ -55,7 +55,7 @@ func (cpanfileSnapshot) Parse(data []byte) (*Result, error) {
 			return
 		}
 		d.Name, d.Version = name, version
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	for it := newLineIter(string(data)); ; {
 		raw, lineNo, more := it.next()

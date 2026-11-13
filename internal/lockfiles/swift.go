@@ -77,7 +77,7 @@ func (packageResolved) Parse(data []byte) (*Result, error) {
 	}
 	for _, pin := range pins {
 		if d, ok := swiftDependency(res, pin); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	return res, nil

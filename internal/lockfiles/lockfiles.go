@@ -137,6 +137,30 @@ type Result struct {
 	// extra is what a parser keeps of a file for its Merger (the module
 	// blocks of a Terraform file).
 	extra any
+	// overflow is set when the file names more than MaxDependenciesPerFile
+	// dependencies; the file is then refused (see add).
+	overflow bool
+}
+
+// MaxDependenciesPerFile bounds the dependencies one lock file may name. A
+// format of one short line per dependency (requirements.txt, go.sum, a
+// gradle.lockfile) lets a few megabytes name hundreds of thousands, each held
+// as a Dependency several times the size of its line: without a bound, a
+// hostile lock file in a repository the proxy scans (Task 180) is a memory
+// exhaustion attack on the proxy. The largest real lock files hold a few ten
+// thousand.
+const MaxDependenciesPerFile = 100_000
+
+// add appends a dependency, unless the file has reached the bound: from then
+// on the file is marked and its further dependencies dropped, and parseOne
+// refuses the whole file. What a parser goes on to read of the file is
+// garbage the collector reclaims, so the live memory of a file stays bounded.
+func (r *Result) add(d Dependency) {
+	if len(r.Dependencies) >= MaxDependenciesPerFile {
+		r.overflow = true
+		return
+	}
+	r.Dependencies = append(r.Dependencies, d)
 }
 
 func (r *Result) warnf(format string, args ...any) {

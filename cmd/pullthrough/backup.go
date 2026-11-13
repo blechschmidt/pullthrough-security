@@ -89,6 +89,21 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 	// prefix of its own, which docs/user-links.md says to back up with the
 	// files or buckets around it.
 
+	// The repository registry (Task 180): API registrations, the append-only
+	// tag histories and the release manifests — which are the pins. A history
+	// record is written once and never changed, and a manifest changes only
+	// while its release is being pinned, so the snapshot's re-read rarely
+	// trips over them. What is left out is rebuilt: the trackers' last-seen
+	// times ("live", rewritten at every poll) from the histories, the Git
+	// mirrors from the repositories.
+	if cfg.Repositories.Enabled {
+		if dir := cfg.RepositoriesStateDir(); dir != "" {
+			add("repos-registry", filepath.Join(dir, "repos"), false)
+			add("repos-history", filepath.Join(dir, "history"), false)
+			add("repos-manifests", filepath.Join(dir, "manifests"), false)
+		}
+	}
+
 	return srcs
 }
 
@@ -398,6 +413,9 @@ func runRestore(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := resetRepositoryTrackers(cfg, targets); err != nil {
+		return err
+	}
 
 	fmt.Printf("restored snapshot %s\n", *in)
 	fmt.Printf("  created:           %s\n", result.CreatedAt)
@@ -408,6 +426,25 @@ func runRestore(args []string) error {
 	fmt.Printf("  metadata skipped:  %d\n", result.MetadataSkipped)
 	fmt.Printf("  restored bytes:    %d\n", result.TotalBytes)
 	fmt.Printf("  encrypted:         %v\n", result.Encrypted)
+	return nil
+}
+
+// resetRepositoryTrackers drops the repository trackers' saved state after the
+// tag histories were restored (Task 180). That state is not in a snapshot —
+// it is rebuilt from the histories — and the copy left from before the
+// restore records the head the history had then: a history restored from an
+// older snapshot would read as one whose last records were removed.
+func resetRepositoryTrackers(cfg *config.Config, targets map[string]string) error {
+	if _, ok := targets["repos-history"]; !ok {
+		return nil
+	}
+	dir := cfg.RepositoriesStateDir()
+	if dir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "live")); err != nil {
+		return fmt.Errorf("restore: resetting the repository trackers' state: %w", err)
+	}
 	return nil
 }
 

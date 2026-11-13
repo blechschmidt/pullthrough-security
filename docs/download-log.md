@@ -80,7 +80,7 @@ Two rules in that table deserve a sentence each:
 | `durationMs` | How long the proxy took, upstream fetch and every gate included |
 | `subject`, `tenant`, `authMethod` | The identified client: a user who downloads through a [personal cache link](user-links.md) (`authMethod: personal-link`), or the principal of a token, an OIDC JWT or a client certificate when [client authentication](access-control-and-audit.md) is on |
 | `link` | For a download through a personal cache link: the link's identifier — which of the user's links it was, hence which of their machines. Not a secret (it is derived from a hash of the link) |
-| `via` | How the request reached the proxy when the client did not address the proxy itself ([interception](intercept-mode.md)): `intercept` through the forward proxy, `nat` through a NAT listener. Absent for a request sent to the proxy's own address |
+| `via` | How the request reached the proxy when the client did not address the proxy itself ([interception](intercept-mode.md)): `intercept` through the forward proxy, `nat` through a NAT listener. `system` for a request the proxy made of itself to pin a release's dependencies ([repositories.md](repositories.md)); its client is `system` and its subject `system:release-pinner`. Absent for a request sent to the proxy's own address |
 | `userAgent` | The client tool (`cargo/1.84.0 …`, `Go-http-client/1.1`, `npm/10.9.2 …`) |
 | `method`, `path` | The request (no query string: queries can carry credentials) |
 | `traceId` | The request's distributed-trace id, when [tracing](tracing.md) is on |
@@ -176,7 +176,7 @@ Entries, newest first. All parameters are optional and ANDed:
 | `subject` | The identified client. Exact, ignoring case — or a pattern with `*` (`*@example.com`). `-` selects the downloads **nobody was identified for** |
 | `tenant` | The client's team, exact |
 | `link` | A [personal cache link](user-links.md), by its identifier |
-| `via` | `intercept` · `nat` · `direct` (a request sent to the proxy's own address) — see [intercept-mode.md](intercept-mode.md) |
+| `via` | `intercept` · `nat` · `system` (release pinning) · `direct` (a request sent to the proxy's own address) — see [intercept-mode.md](intercept-mode.md) |
 | `q` | Free-text search across the textual fields |
 | `since`, `until` | Time bounds: an age (`15m`, `24h`, `7d`), RFC 3339, or unix seconds |
 | `limit` | Page size (default 100, at most 1000) |

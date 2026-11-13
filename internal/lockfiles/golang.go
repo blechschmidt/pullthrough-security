@@ -121,7 +121,7 @@ func (goMod) Parse(data []byte) (*Result, error) {
 			res.warnf("line %d: a requirement without a usable module path or version", r.line)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, Dependency{Name: path, Version: version, Line: r.line})
+		res.add(Dependency{Name: path, Version: version, Line: r.line})
 	}
 	return res, nil
 }
@@ -241,7 +241,7 @@ func (goSum) Parse(data []byte) (*Result, error) {
 			d.Digests = append(d.Digests, m)
 		}
 		index[key] = len(res.Dependencies)
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }

@@ -1269,6 +1269,40 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `userLinks.allowedGroups` | []string | [] |
 | `userLinks.allowedEmailDomains` | []string | [] |
 
+## `repositories`
+
+| Setting | Type | Default |
+|---------|------|---------|
+| `repositories.enabled` | bool | false |
+| `repositories.stateDir` | string | — |
+| `repositories.mirrorDir` | string | — |
+| `repositories.pollInterval` | duration | — |
+| `repositories.webhookPath` | string | — |
+| `repositories.webhookSecret` | string | — |
+| `repositories.backfillTags` | int | — |
+| `repositories.allowedSchemes` | []string | [] |
+| `repositories.roles` | []string | [] |
+| `repositories.pinning.workers` | int | 0 |
+| `repositories.pinning.concurrency` | int | 0 |
+| `repositories.pinning.maxDependencies` | int | 0 |
+| `repositories.pinning.maxObjectsPerDependency` | int | 0 |
+| `repositories.pinning.includeDev` | bool | — |
+| `repositories.pinning.platforms` | []string | [] |
+| `repositories.pinning.retryInterval` | duration | 0s |
+| `repositories.pinning.maxAttempts` | int | 0 |
+| `repositories.pinning.spoolDir` | string | — |
+| `repositories.repos[].name` | string | — |
+| `repositories.repos[].url` | string | — |
+| `repositories.repos[].username` | string | — |
+| `repositories.repos[].credentialsRef` | string | — |
+| `repositories.repos[].tenant` | string | — |
+| `repositories.repos[].lockfiles` | []string | — |
+| `repositories.repos[].tags` | []string | — |
+| `repositories.repos[].upstreams` | map[string]string | {} |
+| `repositories.repos[].fullName` | string | — |
+| `repositories.repos[].backfillTags` | int | — |
+| `repositories.repos[].roles` | []string | — |
+
 ## `secrets`
 
 | Setting | Type | Default |

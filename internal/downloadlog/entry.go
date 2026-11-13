@@ -205,7 +205,9 @@ type Entry struct {
 	// Via says how the request reached the proxy when it was not sent to the
 	// proxy's own address: "intercept" through the TLS-interception forward
 	// proxy, "nat" through a NAT listener — the client addressed the upstream
-	// host itself (Task 172). Empty for a request to the proxy's address.
+	// host itself (Task 172); "system" for a request the proxy made of itself
+	// to pin a release's dependencies (Task 180). Empty for a request to the
+	// proxy's address.
 	Via string `json:"via,omitempty"`
 	// UserAgent is the client's User-Agent header: which tool, which version.
 	UserAgent string `json:"userAgent,omitempty"`
@@ -385,6 +387,10 @@ const (
 	ViaIntercept = "intercept"
 	// ViaNAT marks a request that came through a NAT listener.
 	ViaNAT = "nat"
+	// ViaSystem marks a request the proxy made of itself: the repository
+	// registry fetching a release's dependencies to pin them (Task 180). It
+	// has no client address.
+	ViaSystem = "system"
 )
 
 // canonicalVia returns the package's constant for a Via value, or "" for
@@ -395,6 +401,8 @@ func canonicalVia(v string) string {
 		return ViaIntercept
 	case ViaNAT:
 		return ViaNAT
+	case ViaSystem:
+		return ViaSystem
 	default:
 		return ""
 	}

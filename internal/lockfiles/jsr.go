@@ -194,7 +194,7 @@ func (denoLock) Parse(data []byte) (*Result, error) {
 		if dg, ok := hexDigest("sha256", e.fields.str("integrity"), "jsr-manifest"); ok {
 			d.Digests = append(d.Digests, dg)
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	for _, e := range sec.npm {
 		name, version, ok := splitNameAt(e.key)
@@ -214,7 +214,7 @@ func (denoLock) Parse(data []byte) (*Result, error) {
 				d.Source = SourceURL
 			}
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	for _, e := range sec.remote {
 		dg, ok := hexDigest("sha256", e.hash, "")
@@ -228,7 +228,7 @@ func (denoLock) Parse(data []byte) (*Result, error) {
 			res.warnf("line %d: a remote module whose URL is not usable", e.line)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, Dependency{
+		res.add(Dependency{
 			Type: "generic", Name: name, Version: "sha256:" + dg.Value, Source: SourceURL,
 			URL: clean, Digests: []Digest{dg}, Line: e.line,
 		})

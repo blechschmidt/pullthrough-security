@@ -84,6 +84,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/proxy"
 	"github.com/blechschmidt/pullthrough-security/internal/ratelimit"
 	"github.com/blechschmidt/pullthrough-security/internal/rekor"
+	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/scan"
 	"github.com/blechschmidt/pullthrough-security/internal/scan/commit"
 	"github.com/blechschmidt/pullthrough-security/internal/secretscan"
@@ -256,7 +257,16 @@ func run() error {
 		}
 	}()
 
-	cacheImpl, err := buildCache(cfg, logger)
+	// Repository registry (Task 180): opened before the cache, so that the
+	// pins of the release manifests are honoured from the cache's very first
+	// eviction decision. Its fetcher, Git mirror and observers are attached
+	// once the gateway exists (wireRepos below).
+	reposSvc, err := buildRepos(context.Background(), cfg, logger)
+	if err != nil {
+		return err
+	}
+
+	cacheImpl, err := buildCache(cfg, logger, pinChecker(reposSvc))
 	if err != nil {
 		return err
 	}
@@ -265,6 +275,11 @@ func run() error {
 			logger.Error("closing cache", "error", cerr)
 		}
 	}()
+	if reposSvc != nil {
+		// Deferred after the cache's close, so it runs before it: pinning
+		// stops before the cache it pins into goes away.
+		defer func() { _ = reposSvc.Close() }()
+	}
 
 	// The notification subsystem (Task 21) is built early so the scan pipeline,
 	// vulnerability re-scan, the upstream mirror pool (Task 38), and the gateway
@@ -443,8 +458,14 @@ func run() error {
 	// audit event and raises an operator alert in addition to quarantining the
 	// entry and self-healing on the next pull.
 	if ic, ok := cacheImpl.(*cache.IntegrityCache); ok {
-		ic.SetObserver(newCacheIntegrityObserver(auditLog, notifyEmitter(notifier),
-			cfg.Cache.Integrity.NotifySeverity, logger))
+		obsv := newCacheIntegrityObserver(auditLog, notifyEmitter(notifier),
+			cfg.Cache.Integrity.NotifySeverity, logger)
+		if reposSvc != nil {
+			// A pinned object whose bytes went bad is fetched again at once
+			// (or an alert raised) rather than left to the next pull.
+			obsv.repairPinned = reposSvc.RepairPinned
+		}
+		ic.SetObserver(obsv)
 	}
 
 	// SPIFFE/SVID mutual-TLS workload identity (Task 58): when enabled, build the
@@ -710,7 +731,7 @@ func run() error {
 	// that keeps the content-addressable cache bounded via size watermarks
 	// (LRU/LFU/FIFO), per-artifact/per-tenant TTLs, and pin/reference retention,
 	// coordinating safely with the single-flight pull path and the shared store.
-	cacheGC, err := buildCacheGC(cfg, cacheImpl, vulnService, notifier, logger)
+	cacheGC, err := buildCacheGC(cfg, cacheImpl, vulnService, reposSvc, notifier, logger)
 	if err != nil {
 		return err
 	}
@@ -898,7 +919,7 @@ func run() error {
 		}()
 	}
 
-	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, userLinksSvc, logger)
+	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, userLinksSvc, reposSvc, logger)
 
 	// Only the coordination leader emits expiry notifications (the scan still runs
 	// on every replica so each node's gauge is populated); then start the loop.
@@ -944,63 +965,65 @@ func run() error {
 	}
 
 	gateway, err := proxy.New(proxy.Dependencies{
-		Logger:          logger,
-		Cache:           cacheImpl,
-		Backends:        registry,
-		Scanner:         scanner,
-		SSHServer:       sshServer,
-		Interceptor:     gatewayInterceptor,
-		Enforcer:        enforcer,
-		RateLimit:       rateLimiter,
-		Coalescer:       coalescer,
-		Audit:           auditLog,
-		Ecosystems:      ecosystemMap(cfg),
-		Provenance:      provResolver,
-		Policy:          policyEngine,
-		Vulnerabilities: vulnService,
-		License:         licenseService,
-		NameGuard:       nameGuard,
-		Continuity:      continuitySvc,
-		Malfeed:         malfeedSvc,
-		Maturity:        maturitySvc,
-		DepFirewall:     depFirewallSvc,
-		InstallHooks:    installHooksSvc,
-		MLGuard:         mlGuardSvc,
-		AVScan:          avScanSvc,
-		ContentScan:     contentScanSvc,
-		LLMPkgScan:      llmPkgScanSvc,
-		Sigverify:       sigVerify,
-		PolicyEngine:    pacEngine,
-		RiskScore:       riskEngine,
-		RepoScore:       repoScoreSvc,
-		SbomDiff:        sbomDiffSvc,
-		RebuildVerify:   rebuildVerifySvc,
-		BuildProv:       buildProvSvc,
-		PyPIAttest:      pypiAttestSvc,
-		Snapshot:        snapshotSvc,
-		Lockdown:        lockdownSvc,
-		Extension:       extManager,
-		Anomaly:         anomalyEngine,
-		Approvals:       approvalsSvc,
-		Findings:        findingsStore,
-		FindingsMetrics: findingsMetrics,
-		Suppressions:    suppressionLedger,
-		SIEM:            siemFindingsForwarder(siemFwd),
-		SimReplay:       simReplayRecorder,
-		Attestor:        attestor,
-		ProvGraph:       provGraph,
-		Notify:          notifyEmitter(notifier),
-		Metrics:         obs.recorder,
-		Metering:        meteringRecorder(obs.metering),
-		Tracer:          tracerProvider.Tracer("pullthrough/proxy"),
-		MetricsHandler:  obs.metricsHandler,
-		AdminHandler:    obs.adminHandler,
-		PortalHandler:   obs.portalHandler,
-		WebhookHandler:  webhookHandler,
-		PullObserver:    newPrewarmPullObserver(prewarmSvc),
-		CacheFed:        cacheFed,
-		DownloadLog:     downloadLog,
-		UserLinks:       userLinksSvc,
+		Logger:             logger,
+		Cache:              cacheImpl,
+		Backends:           registry,
+		Scanner:            scanner,
+		SSHServer:          sshServer,
+		Interceptor:        gatewayInterceptor,
+		Enforcer:           enforcer,
+		RateLimit:          rateLimiter,
+		Coalescer:          coalescer,
+		Audit:              auditLog,
+		Ecosystems:         ecosystemMap(cfg),
+		Provenance:         provResolver,
+		Policy:             policyEngine,
+		Vulnerabilities:    vulnService,
+		License:            licenseService,
+		NameGuard:          nameGuard,
+		Continuity:         continuitySvc,
+		Malfeed:            malfeedSvc,
+		Maturity:           maturitySvc,
+		DepFirewall:        depFirewallSvc,
+		InstallHooks:       installHooksSvc,
+		MLGuard:            mlGuardSvc,
+		AVScan:             avScanSvc,
+		ContentScan:        contentScanSvc,
+		LLMPkgScan:         llmPkgScanSvc,
+		Sigverify:          sigVerify,
+		PolicyEngine:       pacEngine,
+		RiskScore:          riskEngine,
+		RepoScore:          repoScoreSvc,
+		SbomDiff:           sbomDiffSvc,
+		RebuildVerify:      rebuildVerifySvc,
+		BuildProv:          buildProvSvc,
+		PyPIAttest:         pypiAttestSvc,
+		Snapshot:           snapshotSvc,
+		Lockdown:           lockdownSvc,
+		Extension:          extManager,
+		Anomaly:            anomalyEngine,
+		Approvals:          approvalsSvc,
+		Findings:           findingsStore,
+		FindingsMetrics:    findingsMetrics,
+		Suppressions:       suppressionLedger,
+		SIEM:               siemFindingsForwarder(siemFwd),
+		SimReplay:          simReplayRecorder,
+		Attestor:           attestor,
+		ProvGraph:          provGraph,
+		Notify:             notifyEmitter(notifier),
+		Metrics:            obs.recorder,
+		Metering:           meteringRecorder(obs.metering),
+		Tracer:             tracerProvider.Tracer("pullthrough/proxy"),
+		MetricsHandler:     obs.metricsHandler,
+		AdminHandler:       obs.adminHandler,
+		PortalHandler:      obs.portalHandler,
+		WebhookHandler:     webhookHandler,
+		RepoWebhookHandler: repoWebhookHandler(reposSvc, cfg, logger),
+		Pins:               pinChecker(reposSvc),
+		PullObserver:       newPrewarmPullObserver(prewarmSvc),
+		CacheFed:           cacheFed,
+		DownloadLog:        downloadLog,
+		UserLinks:          userLinksSvc,
 	}, proxy.Options{
 		HTTPAddr:         cfg.Server.HTTPAddr,
 		ReadTimeout:      cfg.Server.ReadTimeout,
@@ -1015,6 +1038,7 @@ func run() error {
 		PortalUIPrefix:   obs.portalUIPrefix,
 		PortalAPIPrefix:  obs.portalAPIPath,
 		WebhookPath:      watchWebhookPath(cfg),
+		RepoWebhookPath:  cfg.RepositoriesWebhookPath(),
 		FIPSEnabled:      fipsMode.Enabled,
 		RegistryRoot:     buildRegistryRoot(cfg, logger),
 		ClientIP:         clientIPResolver,
@@ -1036,6 +1060,25 @@ func run() error {
 	// is handed to it as a serve gate: every object request — hit, miss, Range —
 	// passes it before a byte is written.
 	wireLFSServeGate(registry, gateway, llmPkgScanSvc)
+
+	// Repository registry (Task 180): now that the gateway exists, give the
+	// registry its fetcher (the gated serve pipeline, as a system principal),
+	// its Git mirrors and its observers, gate polling on HA leadership, and
+	// start it.
+	if reposSvc != nil {
+		if err := wireRepos(ctx, reposSvc, cfg, gateway, reposDeps{
+			cache:     cacheImpl,
+			secrets:   secretsResolver,
+			audit:     auditLog,
+			notify:    notifyEmitter(notifier),
+			collector: obs.collector,
+			graph:     provGraph,
+			leader:    coordSvc.Guard("repositories").IsLeader,
+			logger:    logger,
+		}); err != nil {
+			return err
+		}
+	}
 
 	// Now that the gateway exists, give the pre-warmer its fetcher (which drives
 	// the gateway's full gated pull pipeline), gate periodic pre-warm cycles on HA
@@ -3464,7 +3507,7 @@ func buildRescanner(cfg *config.Config, svc *vulnscan.Service, cacheImpl cache.C
 // maxSizeBytes/ttl so an existing deployment needs no extra configuration. The
 // quarantine set and metadata pins are wired as retention sources so artifacts
 // held for evidence or marked signed-and-attested are never reclaimed.
-func buildCacheGC(cfg *config.Config, cacheImpl cache.Cache, vulnService *vulnscan.Service, notifier *notify.Notifier, logger *slog.Logger) (*cachegc.Engine, error) {
+func buildCacheGC(cfg *config.Config, cacheImpl cache.Cache, vulnService *vulnscan.Service, reposSvc *repos.Service, notifier *notify.Notifier, logger *slog.Logger) (*cachegc.Engine, error) {
 	if !cfg.CacheGC.Enabled {
 		return nil, nil
 	}
@@ -3488,6 +3531,11 @@ func buildCacheGC(cfg *config.Config, cacheImpl cache.Cache, vulnService *vulnsc
 	// Metadata pins cover signed-and-attested or otherwise-pinned entries; the
 	// quarantine set covers artifacts held for investigation as evidence.
 	sources := []cachegc.ReferenceSource{cachegc.NewMetadataPinSource()}
+	// Release pins (Task 180) are never evicted — not even with
+	// allowEvictPinned, which covers metadata pins only.
+	if reposSvc != nil {
+		sources = append(sources, releaseGCSource(reposSvc))
+	}
 	if vulnService != nil {
 		sources = append(sources, cachegc.NewKeySetSource("quarantine", func() map[string]struct{} {
 			entries := vulnService.Quarantined()
@@ -3856,8 +3904,8 @@ func hostBaseURL(raw string) string {
 // eviction; "memory" uses the lightweight in-memory cache. When sealed
 // (offline/air-gapped) mode is enabled the cache is wrapped so it serves only
 // from local content and never triggers an upstream load.
-func buildCache(cfg *config.Config, logger *slog.Logger) (cache.Cache, error) {
-	impl, err := newCacheImpl(cfg, logger)
+func buildCache(cfg *config.Config, logger *slog.Logger, pins cache.PinChecker) (cache.Cache, error) {
+	impl, err := newCacheImpl(cfg, logger, pins)
 	if err != nil {
 		return nil, err
 	}
@@ -3880,10 +3928,14 @@ func buildCache(cfg *config.Config, logger *slog.Logger) (cache.Cache, error) {
 // newCacheImpl constructs the raw (unsealed) cache implementation. The pre-warm
 // workflow uses it directly: warming inherently fetches from upstream, so it
 // must bypass the sealed wrapper even when the instance is otherwise sealed.
-func newCacheImpl(cfg *config.Config, logger *slog.Logger) (cache.Cache, error) {
+func newCacheImpl(cfg *config.Config, logger *slog.Logger, pins cache.PinChecker) (cache.Cache, error) {
 	switch cfg.Cache.Backend {
 	case "memory":
-		return cache.NewMemoryCache(), nil
+		mc := cache.NewMemoryCache()
+		if pins != nil {
+			mc.SetPinChecker(pins)
+		}
+		return mc, nil
 	case "filesystem":
 		fsStore, err := cache.NewFilesystemStore(cfg.Cache.Dir)
 		if err != nil {
@@ -3911,6 +3963,7 @@ func newCacheImpl(cfg *config.Config, logger *slog.Logger) (cache.Cache, error) 
 			Store:        store,
 			MaxSizeBytes: cfg.Cache.MaxSizeBytes,
 			TTL:          cfg.Cache.TTL,
+			Pins:         pins,
 		})
 	case "s3":
 		s3 := cfg.Cache.S3
@@ -3951,6 +4004,7 @@ func newCacheImpl(cfg *config.Config, logger *slog.Logger) (cache.Cache, error) 
 			MaxSizeBytes: cfg.Cache.MaxSizeBytes,
 			TTL:          cfg.Cache.TTL,
 			SharedStore:  s3.IsSharedMode(),
+			Pins:         pins,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported cache backend %q", cfg.Cache.Backend)

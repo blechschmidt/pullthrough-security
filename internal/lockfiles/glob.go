@@ -21,6 +21,12 @@ const (
 	maxGlobSegments = 64
 )
 
+// ValidateGlobs reports whether patterns are valid Skip or Include globs.
+func ValidateGlobs(patterns []string) error {
+	_, err := compileGlobs(patterns)
+	return err
+}
+
 // compileGlobs validates skip patterns.
 func compileGlobs(patterns []string) ([]glob, error) {
 	if len(patterns) > maxGlobs {

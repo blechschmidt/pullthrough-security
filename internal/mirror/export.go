@@ -31,6 +31,9 @@ type ExportOptions struct {
 	// Verdicts is the optional source of content-gate verdicts to carry for the
 	// bundle's blobs (see ScanVerdict). When nil the bundle carries none.
 	Verdicts VerdictSource
+	// Releases is the optional source of release manifests (Task 180) to
+	// carry, so the importing instance pins what this one pins.
+	Releases ReleaseSource
 }
 
 // ExportResult summarizes a completed export.
@@ -46,6 +49,10 @@ type ExportResult struct {
 	TotalBlobBytes int64
 	// ScanVerdicts is the number of content-gate verdicts carried.
 	ScanVerdicts int
+	// Releases is the number of release manifests carried; PinnedKeys the
+	// number of the bundle's blobs they pin.
+	Releases   int
+	PinnedKeys int
 }
 
 // Exporter serializes a content-addressable cache store (and optionally a
@@ -108,6 +115,8 @@ func (e *Exporter) Export(ctx context.Context, w io.Writer, opts ExportOptions) 
 		ProvenanceLinks: len(manifest.ProvenanceLinks),
 		TotalBlobBytes:  manifest.TotalBlobBytes,
 		ScanVerdicts:    len(manifest.ScanVerdicts),
+		Releases:        len(manifest.Releases),
+		PinnedKeys:      len(manifest.PinnedKeys),
 	}, nil
 }
 
@@ -173,6 +182,23 @@ func (e *Exporter) buildManifest(ctx context.Context, opts ExportOptions) (*Bund
 				continue
 			}
 			manifest.ScanVerdicts = append(manifest.ScanVerdicts, v)
+		}
+	}
+
+	if opts.Releases != nil {
+		releases, keys, err := opts.Releases.ExportReleases(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("mirror: collecting release manifests: %w", err)
+		}
+		manifest.Releases = releases
+		carried := make(map[string]bool, len(manifest.CacheEntries))
+		for _, entry := range manifest.CacheEntries {
+			carried[entry.Record.Key] = true
+		}
+		for _, k := range keys {
+			if carried[k] {
+				manifest.PinnedKeys = append(manifest.PinnedKeys, k)
+			}
 		}
 	}
 

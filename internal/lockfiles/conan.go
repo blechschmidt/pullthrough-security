@@ -129,7 +129,7 @@ func (conanLock) Parse(data []byte) (*Result, error) {
 		if dg, ok := hexDigest("md5", r.prev, "conan-package"); ok {
 			d.Digests = append(d.Digests, dg)
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	for _, l := range conanLists {
 		for _, r := range lists[l] {

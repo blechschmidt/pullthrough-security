@@ -103,7 +103,7 @@ func (requirementsTxt) Parse(data []byte) (*Result, error) {
 				res.warnf("line %d: includes another requirements file, read on its own if the scan finds it", ll.line)
 			case "-e", "--editable":
 				if d, ok := reqVCS(res, value, ll.line); ok {
-					res.Dependencies = append(res.Dependencies, d)
+					res.add(d)
 				} else {
 					res.warnf("line %d: an editable install from a local path, not fetched", ll.line)
 				}
@@ -111,7 +111,7 @@ func (requirementsTxt) Parse(data []byte) (*Result, error) {
 			return
 		}
 		if d, ok := reqRequirement(res, line, index, ll.line); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	})
 	return res, nil
@@ -430,7 +430,7 @@ func (pipfileLock) Parse(data []byte) (*Result, error) {
 			res.warnf("%s: no version recorded", name)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }
@@ -511,7 +511,7 @@ func (poetryLock) Parse(data []byte) (*Result, error) {
 			res.warnf("%s: no version recorded", name)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }
@@ -594,7 +594,7 @@ func (uvLock) Parse(data []byte) (*Result, error) {
 			res.warnf("%s: no version recorded", name)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }
@@ -671,7 +671,7 @@ func (pdmLock) Parse(data []byte) (*Result, error) {
 			res.warnf("%s: no version recorded", name)
 			continue
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }

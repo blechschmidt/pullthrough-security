@@ -16,12 +16,17 @@ import (
 // a generous but finite ceiling.
 const maxWebhookBody = 25 << 20
 
+// MaxWebhookBody is the largest push payload a receiver built on this package
+// reads (the repository tracker of Task 180 shares the limit).
+const MaxWebhookBody = maxWebhookBody
+
 // pushPayload is the subset of a GitHub (and GitHub-compatible, e.g. Gitea)
 // push-event payload the watcher consumes.
 type pushPayload struct {
 	Ref        string `json:"ref"`
 	Before     string `json:"before"`
 	After      string `json:"after"`
+	Created    bool   `json:"created"`
 	Deleted    bool   `json:"deleted"`
 	Repository struct {
 		FullName string `json:"full_name"`
@@ -30,6 +35,90 @@ type pushPayload struct {
 		HTMLURL  string `json:"html_url"`
 		GitURL   string `json:"git_url"`
 	} `json:"repository"`
+}
+
+// PushEvent is a push webhook delivery, as the repository tracker (Task 180)
+// consumes it: which ref moved from where to where, and which repository it
+// belongs to. It is the exported form of the payload the commit watcher reads.
+type PushEvent struct {
+	// Ref is the fully-qualified ref ("refs/tags/v1.2.0", "refs/heads/main").
+	Ref string `json:"ref"`
+	// Before and After are the ref's old and new object IDs; all zeros for a
+	// created (Before) or deleted (After) ref.
+	Before string `json:"before"`
+	After  string `json:"after"`
+	// Created and Deleted report a ref that appeared or disappeared.
+	Created bool `json:"created"`
+	Deleted bool `json:"deleted"`
+	// FullName ("owner/repo") and URLs identify the repository.
+	FullName string   `json:"fullName,omitempty"`
+	URLs     []string `json:"urls,omitempty"`
+}
+
+// ParsePush reads a push payload. Callers verify the signature first
+// (VerifySignature): an unauthenticated payload must not be interpreted.
+func ParsePush(body []byte) (PushEvent, error) {
+	var p pushPayload
+	if err := json.Unmarshal(body, &p); err != nil {
+		return PushEvent{}, err
+	}
+	ev := PushEvent{
+		Ref:      p.Ref,
+		Before:   p.Before,
+		After:    p.After,
+		Created:  p.Created,
+		Deleted:  p.Deleted || (p.After != "" && isZeroSHA(p.After)),
+		FullName: p.Repository.FullName,
+	}
+	for _, u := range []string{p.Repository.CloneURL, p.Repository.SSHURL, p.Repository.GitURL, p.Repository.HTMLURL} {
+		if strings.TrimSpace(u) != "" {
+			ev.URLs = append(ev.URLs, u)
+		}
+	}
+	return ev, nil
+}
+
+// Names reports whether the push is for the repository at url, or named
+// fullName ("owner/repo"), the way the commit watcher routes deliveries.
+func (e PushEvent) Names(url, fullName string) bool {
+	if fullName != "" && strings.EqualFold(fullName, e.FullName) {
+		return true
+	}
+	for _, u := range e.URLs {
+		if urlMatches(url, u) {
+			return true
+		}
+	}
+	return false
+}
+
+// WebhookEvent returns the delivery's event type from the GitHub
+// (X-GitHub-Event) or Gitea (X-Gitea-Event) header; "" when neither is set.
+func WebhookEvent(h http.Header) string {
+	event := h.Get("X-GitHub-Event")
+	if event == "" {
+		event = h.Get("X-Gitea-Event")
+	}
+	return event
+}
+
+// VerifySignature validates the GitHub-style HMAC-SHA256 signature
+// ("X-Hub-Signature-256: sha256=<hex>") of body under secret, in constant time.
+// An empty secret disables verification and accepts any body.
+func VerifySignature(secret string, h http.Header, body []byte) bool {
+	if secret == "" {
+		return true
+	}
+	sig := h.Get("X-Hub-Signature-256")
+	const prefix = "sha256="
+	if !strings.HasPrefix(sig, prefix) {
+		return false
+	}
+	got, err := hex.DecodeString(strings.TrimPrefix(sig, prefix))
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(got, computeSignature(secret, body))
 }
 
 // WebhookHandler returns an http.Handler for the push-webhook receiver. ctx is
@@ -83,10 +172,7 @@ func (s *Service) handleWebhookPost(ctx context.Context, w http.ResponseWriter, 
 
 	// GitHub sends a "ping" on hook creation; acknowledge it so the setup check
 	// in the GitHub UI succeeds.
-	event := r.Header.Get("X-GitHub-Event")
-	if event == "" {
-		event = r.Header.Get("X-Gitea-Event")
-	}
+	event := WebhookEvent(r.Header)
 	if event == "ping" {
 		s.incWebhook(false)
 		s.metrics.ObserveWebhook(false)
@@ -165,25 +251,9 @@ func (s *Service) handleWebhookPost(ctx context.Context, w http.ResponseWriter, 
 // against the configured secret. When no secret is configured it returns true
 // (verification disabled). The header is "X-Hub-Signature-256: sha256=<hex>".
 func (s *Service) verifySignature(h http.Header, body []byte) bool {
-	secret := s.cfg.WebhookSecret
-	if secret == "" {
-		return true // verification disabled (trusted-network deployment)
-	}
-	sig := h.Get("X-Hub-Signature-256")
-	if sig == "" {
-		return false
-	}
-	const prefix = "sha256="
-	if !strings.HasPrefix(sig, prefix) {
-		return false
-	}
-	want := computeSignature(secret, body)
-	got, err := hex.DecodeString(strings.TrimPrefix(sig, prefix))
-	if err != nil {
-		return false
-	}
-	// Constant-time comparison to avoid leaking the expected signature via timing.
-	return hmac.Equal(got, want)
+	// An empty secret disables verification (trusted-network deployment); the
+	// comparison is constant-time so the expected signature does not leak.
+	return VerifySignature(s.cfg.WebhookSecret, h, body)
 }
 
 // computeSignature returns the raw HMAC-SHA256 of body keyed by secret.

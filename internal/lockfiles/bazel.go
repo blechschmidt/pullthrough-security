@@ -150,7 +150,7 @@ func (moduleBazelLock) Parse(data []byte) (*Result, error) {
 			d.Digests = append(d.Digests, m.decl)
 		}
 		if validPackageName(d.Name) && validVersion(d.Version) {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 
@@ -160,7 +160,7 @@ func (moduleBazelLock) Parse(data []byte) (*Result, error) {
 			continue
 		}
 		if d, ok := bazelGraphModule(res, e); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	sort.Strings(yanked)

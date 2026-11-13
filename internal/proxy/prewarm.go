@@ -100,7 +100,7 @@ func (g *Gateway) observePull(r *http.Request, backend string, resolved *backend
 	if g.deps.PullObserver == nil || resolved == nil {
 		return
 	}
-	if isPrewarmRequest(r) {
+	if isPrewarmRequest(r) || isSystemRequest(r) {
 		return
 	}
 	tenant := ""

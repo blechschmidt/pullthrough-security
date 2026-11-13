@@ -794,3 +794,32 @@ func llmStandingRank(st llmpkgscan.Standing) int {
 	}
 	return rank
 }
+
+// fillReleases lists the releases that ship the coordinate (Task 180).
+func (b *Builder) fillReleases(ctx context.Context, id ident, tenant string, mu *sync.Mutex, d *Dossier) (string, string) {
+	if id.eco == "" {
+		// A release pins a dependency of a given type; without the ecosystem
+		// the name could be anyone's.
+		return StatusEmpty, "the ecosystem is needed to find releases"
+	}
+	refs, err := b.providers.Releases.ReleasesShipping(ctx, strings.TrimSpace(tenant), id.eco, id.name, id.version)
+	if err != nil {
+		return StatusError, err.Error()
+	}
+	if len(refs) == 0 {
+		return StatusEmpty, ""
+	}
+	sec := &ReleasesSection{Total: len(refs), Releases: refs}
+	for _, r := range refs {
+		if r.State == "current" {
+			sec.Current++
+		}
+		if r.Status == "pinned" {
+			sec.Pinned++
+		}
+	}
+	mu.Lock()
+	d.Releases = sec
+	mu.Unlock()
+	return StatusOK, ""
+}

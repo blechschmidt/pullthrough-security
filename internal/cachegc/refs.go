@@ -1,6 +1,7 @@
 package cachegc
 
 import (
+	"context"
 	"strings"
 	"sync"
 
@@ -18,6 +19,46 @@ type ReferenceSource interface {
 	// Referenced reports whether e must be retained, with a short reason suitable
 	// for a retention report (the reason is only consulted when the bool is true).
 	Referenced(e cache.GCEntry) (bool, string)
+}
+
+// Preparer is implemented by a ReferenceSource that must refresh its evidence
+// before a pass: the engine calls Prepare before it lists the cache, and a
+// failure aborts the pass — evicting on evidence that could not be refreshed
+// could delete what it protects.
+type Preparer interface {
+	Prepare(ctx context.Context) error
+}
+
+// FuncSource retains the entries a function claims; it optionally refreshes
+// before each pass. The release pins of Task 180 use it.
+type FuncSource struct {
+	name    string
+	claims  func(key string) bool
+	prepare func(ctx context.Context) error
+}
+
+// NewFuncSource builds a FuncSource named name. prepare may be nil.
+func NewFuncSource(name string, claims func(key string) bool, prepare func(ctx context.Context) error) *FuncSource {
+	return &FuncSource{name: name, claims: claims, prepare: prepare}
+}
+
+// Name implements ReferenceSource.
+func (s *FuncSource) Name() string { return s.name }
+
+// Referenced implements ReferenceSource.
+func (s *FuncSource) Referenced(e cache.GCEntry) (bool, string) {
+	if s.claims != nil && s.claims(e.Key) {
+		return true, "referenced: " + s.name
+	}
+	return false, ""
+}
+
+// Prepare implements Preparer.
+func (s *FuncSource) Prepare(ctx context.Context) error {
+	if s.prepare == nil {
+		return nil
+	}
+	return s.prepare(ctx)
 }
 
 // isTruthy reports whether a metadata flag value means "on".

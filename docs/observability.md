@@ -232,6 +232,18 @@ means the registry's store (`userLinks.store`) cannot be reached; a climbing
 `requests_total{outcome="unknown"}` means someone is trying links that were
 never issued. See [user-links.md](user-links.md#metrics-and-audit-events).
 
+### Repositories and release pinning (Task 180)
+
+`pullthrough_repo_` + `repositories` and `tags_tracked{repo}` (gauges),
+`tag_events_total{event}` (created\|moved\|deleted), `pinned_objects` and
+`pinned_bytes` (gauges: the distinct cache objects release manifests pin),
+`pin_failures_total{reason}` (refused\|digest\|fetch\|unsupported\|locate\|store),
+`releases_total{status}` (pinned\|partial\|failed) and `pin_duration_seconds`,
+`pin_queue` (gauge), `sync_errors_total{repo}`, `webhooks_total{outcome}`,
+`pin_repairs_total{outcome}` (restored\|lost). `pinned_bytes` approaching
+`cache.maxSizeBytes` means the cache must grow: pinned objects are never evicted.
+See [repositories.md](repositories.md#audit-events-notifications-and-metrics).
+
 ### Supply-chain graph (Task 33)
 
 `pullthrough_provgraph_nodes`, `pullthrough_provgraph_edges` (gauges),
@@ -350,6 +362,17 @@ hit ratio usually means the cache is undersized or TTL too short
 active supply-chain attack — investigate immediately via the admin scans/vuln
 surfaces ([security-model.md](security-model.md), [sigverify.md](sigverify.md),
 [runbook.md](runbook.md#a-malicious-package-is-being-pulled)).
+
+### Release-pinning alerts
+
+| Alert | Severity | Fires when |
+|-------|----------|-----------|
+| `PullthroughReleasePinFailures` | warning | dependencies of a tracked release were refused, could not be fetched, or the manifest could not be stored. |
+| `PullthroughReleaseDigestMismatch` | critical | the bytes served for a release dependency are not those its lock file pins. |
+| `PullthroughPinnedObjectLost` | critical | a pinned object failed its integrity check and could not be fetched again with its pinned digest. |
+| `PullthroughRepositorySyncFailing` | warning | a repository's tags could not be fetched 3 times in 30m. |
+
+**Respond:** see [repositories.md](repositories.md#alerts).
 
 ### LLM package-scan alerts
 

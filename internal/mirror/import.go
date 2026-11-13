@@ -35,6 +35,14 @@ type ImportOptions struct {
 	// manifest was not verified, the bundle's verdicts are not imported, and the
 	// importing instance decides about each artifact itself.
 	Verdicts VerdictSink
+	// Releases is the optional sink for the bundle's release manifests (Task
+	// 180). Like verdicts they are handed over only when
+	// ExpectedManifestDigest was given and matched: a manifest pins objects
+	// on the importing instance.
+	Releases ReleaseSink
+	// Protected reports keys the import must not overwrite (pinned objects):
+	// an existing protected entry is kept whatever the bundle holds for it.
+	Protected func(key string) bool
 }
 
 // ImportResult summarizes a completed import.
@@ -58,6 +66,15 @@ type ImportResult struct {
 	// were NOT imported because its manifest digest was not verified
 	// (ExpectedManifestDigest empty) or no sink was given.
 	ScanVerdictsUntrusted int
+	// Protected is the number of blobs kept as they were because a release
+	// pins them.
+	Protected int
+	// Releases is the number of release manifests stored; ReleasesSkipped
+	// those the instance already held; ReleasesUntrusted those not imported
+	// because the manifest digest was not verified or no sink was given.
+	Releases          int
+	ReleasesSkipped   int
+	ReleasesUntrusted int
 }
 
 // Importer loads a bundle into a content-addressable cache store (and optionally
@@ -131,6 +148,17 @@ func (im *Importer) Import(ctx context.Context, r io.Reader, opts ImportOptions)
 		}
 		seen[hdr.Name] = true
 
+		if opts.Protected != nil && opts.Protected(entry.Record.Key) {
+			if _, serr := im.store.Stat(ctx, entry.Record.Key); serr == nil {
+				// A pinned object is kept as it is: a bundle never replaces
+				// the bytes a release was pinned with.
+				if _, derr := io.Copy(io.Discard, tr); derr != nil {
+					return nil, fmt.Errorf("mirror: skipping pinned blob %q: %w", entry.Record.Key, derr)
+				}
+				result.Protected++
+				continue
+			}
+		}
 		imported, err := im.importEntry(ctx, tr, entry, opts.Overwrite)
 		if err != nil {
 			return nil, err
@@ -158,8 +186,39 @@ func (im *Importer) Import(ctx context.Context, r io.Reader, opts ImportOptions)
 	if err := im.importVerdicts(ctx, manifest, opts, result); err != nil {
 		return nil, err
 	}
+	if err := im.importReleases(ctx, manifest, opts, result); err != nil {
+		return nil, err
+	}
 
 	return result, nil
+}
+
+// importReleases hands the bundle's release manifests to the sink — only from
+// a bundle whose manifest was verified out of band, and only after every blob
+// was written and verified.
+func (im *Importer) importReleases(ctx context.Context, manifest *BundleManifest, opts ImportOptions, result *ImportResult) error {
+	if len(manifest.Releases) == 0 {
+		return nil
+	}
+	if opts.Releases == nil || opts.ExpectedManifestDigest == "" {
+		result.ReleasesUntrusted = len(manifest.Releases)
+		return nil
+	}
+	for _, r := range manifest.Releases {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		imported, err := opts.Releases.ImportRelease(ctx, r)
+		if err != nil {
+			return fmt.Errorf("mirror: importing release manifest %s@%s: %w", r.Repo, r.Commit, err)
+		}
+		if imported {
+			result.Releases++
+		} else {
+			result.ReleasesSkipped++
+		}
+	}
+	return nil
 }
 
 // importVerdicts hands the bundle's content-gate verdicts to the sink — but

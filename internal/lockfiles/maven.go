@@ -64,7 +64,7 @@ func (gradleLock) Parse(data []byte) (*Result, error) {
 				}
 			}
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }
@@ -264,7 +264,7 @@ func (pomXML) Parse(data []byte) (*Result, error) {
 		if strings.Contains(rec.path, "/plugins/") {
 			reg = pluginRegistry
 		}
-		res.Dependencies = append(res.Dependencies, Dependency{
+		res.add(Dependency{
 			Name: name, Version: version, Registry: reg, Line: rec.lineNo, Dev: rec.scope == "test",
 		})
 	}

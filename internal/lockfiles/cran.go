@@ -115,7 +115,7 @@ func (renvLock) Parse(data []byte) (*Result, error) {
 			}
 			unknownRepos[repo] = append(unknownRepos[repo], d.Name)
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	for _, repo := range unknownOrder {
 		pkgs := unknownRepos[repo]

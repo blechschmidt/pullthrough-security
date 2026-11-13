@@ -268,6 +268,15 @@ func (e *Engine) Trigger(ctx context.Context, dryRun bool) (Report, error) {
 // callback when a real run leaves the cache above the high watermark.
 func (e *Engine) Run(ctx context.Context, dryRun bool) (Report, error) {
 	start := e.now()
+	// Sources whose evidence lives elsewhere refresh it first, so the pass
+	// does not act on a stale view (release pins another replica wrote).
+	for _, src := range e.sources {
+		if p, ok := src.(Preparer); ok {
+			if err := p.Prepare(ctx); err != nil {
+				return Report{}, fmt.Errorf("cachegc: refreshing retention source %s: %w", src.Name(), err)
+			}
+		}
+	}
 	entries, err := e.cache.GCEntries(ctx)
 	if err != nil {
 		return Report{}, fmt.Errorf("cachegc: listing cache: %w", err)

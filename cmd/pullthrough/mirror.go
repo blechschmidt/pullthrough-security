@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/logging"
 	"github.com/blechschmidt/pullthrough-security/internal/mirror"
 	"github.com/blechschmidt/pullthrough-security/internal/provenance"
+	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/tlspin"
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
 )
@@ -137,6 +139,7 @@ func runExport(args []string) error {
 	out := fs.String("out", "", "path to write the bundle tarball (required)")
 	noProvenance := fs.Bool("no-provenance", false, "exclude provenance links from the bundle")
 	noVerdicts := fs.Bool("no-verdicts", false, "exclude LLM package-scan verdicts from the bundle")
+	noReleases := fs.Bool("no-releases", false, "exclude the repository registry's release manifests (and their pins) from the bundle")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -190,6 +193,19 @@ func runExport(args []string) error {
 		}
 	}
 
+	if !*noReleases {
+		// Release manifests (Task 180) travel with the bundle, so the importing
+		// instance pins the same objects: an air-gapped copy of a release is as
+		// reproducible as the original.
+		releases, rerr := openReposOffline(cfg, slog.Default())
+		if rerr != nil {
+			return rerr
+		}
+		if releases != nil {
+			opts.Releases = releaseBundle{svc: releases}
+		}
+	}
+
 	ctx, cancel := signalContext()
 	defer cancel()
 
@@ -238,6 +254,7 @@ func runExport(args []string) error {
 	fmt.Printf("  cache entries:   %d\n", result.CacheEntries)
 	fmt.Printf("  provenance links: %d\n", result.ProvenanceLinks)
 	fmt.Printf("  scan verdicts:    %d\n", result.ScanVerdicts)
+	fmt.Printf("  release manifests: %d (pinning %d of the bundle's blobs)\n", result.Releases, result.PinnedKeys)
 	fmt.Printf("  total blob bytes: %d\n", result.TotalBlobBytes)
 	fmt.Printf("  manifest digest:  %s\n", result.ManifestDigest)
 	fmt.Printf("  digest written:   %s\n", digestPath)
@@ -318,6 +335,17 @@ func runImport(args []string) error {
 		defer verdicts.Close()
 		opts.Verdicts = verdicts
 	}
+	// Release manifests (Task 180) are filed in the repository registry — only
+	// from a verified bundle — and the objects this instance has pinned are
+	// never overwritten by the import.
+	releases, err := openReposOffline(cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+	if releases != nil {
+		opts.Releases = releaseBundle{svc: releases}
+		opts.Protected = releases.IsPinned
+	}
 
 	ctx, cancel := signalContext()
 	defer cancel()
@@ -334,6 +362,14 @@ func runImport(args []string) error {
 	fmt.Printf("  provenance links: %d\n", result.ProvenanceLinks)
 	fmt.Printf("  scan verdicts:    %d imported, %d already present or not applicable\n", result.ScanVerdicts, result.ScanVerdictsSkipped)
 	fmt.Printf("  imported bytes:   %d\n", result.TotalBytes)
+	fmt.Printf("  release manifests: %d imported, %d already present\n", result.Releases, result.ReleasesSkipped)
+	if result.Protected > 0 {
+		fmt.Printf("  pinned blobs kept: %d (a release pins them; the bundle's copy was not written)\n", result.Protected)
+	}
+	if n := result.ReleasesUntrusted; n > 0 {
+		fmt.Printf("  note: %d release manifest(s) were NOT imported: they pin objects, and are accepted only from a\n", n)
+		fmt.Printf("        bundle whose manifest digest was verified (-manifest-digest), with repositories.enabled.\n")
+	}
 	if n := result.ScanVerdictsUntrusted; n > 0 {
 		switch {
 		case expectedDigest == "":
@@ -426,7 +462,12 @@ func runPrewarm(args []string) error {
 	}
 
 	// Warming must fetch from upstream, so it uses the unsealed cache directly.
-	cacheImpl, err := newCacheImpl(cfg, logger)
+	// The release pins (Task 180) hold here too: warming must not evict them.
+	pinned, err := openReposOffline(cfg, logger)
+	if err != nil {
+		return err
+	}
+	cacheImpl, err := newCacheImpl(cfg, logger, pinChecker(pinned))
 	if err != nil {
 		return err
 	}
@@ -486,4 +527,26 @@ func printWarmReport(report *mirror.WarmReport) {
 	}
 	fmt.Printf("prewarm complete: %d fetched, %d already cached, %d failed, %d bytes\n",
 		report.Fetched, report.Cached, report.Failed, report.Bytes)
+}
+
+// releaseBundle carries the repository registry's release manifests in an
+// air-gap bundle (Task 180).
+type releaseBundle struct{ svc *repos.Service }
+
+// ExportReleases implements mirror.ReleaseSource.
+func (b releaseBundle) ExportReleases(ctx context.Context) ([]mirror.ReleaseRecord, []string, error) {
+	raw, keys, err := b.svc.ExportManifests(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := make([]mirror.ReleaseRecord, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, mirror.ReleaseRecord{Repo: m.Repo, Commit: m.Commit, Manifest: m.Data})
+	}
+	return out, keys, nil
+}
+
+// ImportRelease implements mirror.ReleaseSink.
+func (b releaseBundle) ImportRelease(ctx context.Context, r mirror.ReleaseRecord) (bool, error) {
+	return b.svc.ImportManifest(ctx, r.Manifest)
 }

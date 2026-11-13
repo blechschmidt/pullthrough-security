@@ -192,7 +192,7 @@ func dockerImage(res *Result, image string, args map[string]string, stages map[s
 		return
 	}
 	if d, ok := imageDependency(res, expanded, line); ok {
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 }
 
@@ -533,7 +533,7 @@ func (composeFile) Parse(data []byte) (*Result, error) {
 			continue
 		}
 		if d, ok := imageDependency(res, expanded, img.Line); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	return res, nil

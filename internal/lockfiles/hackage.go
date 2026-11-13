@@ -73,7 +73,7 @@ func (cabalFreeze) Parse(data []byte) (*Result, error) {
 			// dependency.
 			if key := d.Name + "\x00" + d.Version; !seen[key] {
 				seen[key] = true
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		}
 	}
@@ -183,7 +183,7 @@ func (stackLock) Parse(data []byte) (*Result, error) {
 	}
 	for _, entry := range yamlSeq(packages) {
 		if d, ok := stackDependency(res, entry); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	for _, s := range yamlSeq(snapshots) {

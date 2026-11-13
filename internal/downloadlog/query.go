@@ -116,10 +116,10 @@ func QueryFromValues(v url.Values, now time.Time) (Query, error) {
 	}
 	if raw := strings.ToLower(strings.TrimSpace(v.Get("via"))); raw != "" {
 		switch raw {
-		case ViaIntercept, ViaNAT, ViaDirect:
+		case ViaIntercept, ViaNAT, ViaSystem, ViaDirect:
 			q.Via = raw
 		default:
-			return Query{}, fmt.Errorf("unknown via %q (want %s, %s or %s)", raw, ViaIntercept, ViaNAT, ViaDirect)
+			return Query{}, fmt.Errorf("unknown via %q (want %s, %s, %s or %s)", raw, ViaIntercept, ViaNAT, ViaSystem, ViaDirect)
 		}
 	}
 	if q.ClientIP != "" {

@@ -70,7 +70,7 @@ func (nugetLock) Parse(data []byte) (*Result, error) {
 						d.Digests = append(d.Digests, dg)
 					}
 					byID[id] = len(res.Dependencies)
-					res.Dependencies = append(res.Dependencies, d)
+					res.add(d)
 					return nil
 				})
 				res.Dependencies = append(res.Dependencies[:first], dropSuperseded(res.Dependencies[first:])...)

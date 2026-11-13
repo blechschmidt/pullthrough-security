@@ -33,7 +33,7 @@ func (pubspecLock) Parse(data []byte) (*Result, error) {
 	}
 	yamlPairs(packages, func(key string, keyNode, entry *yaml.Node) {
 		if d, ok := pubDependency(res, key, keyNode.Line, entry); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	})
 	return res, nil

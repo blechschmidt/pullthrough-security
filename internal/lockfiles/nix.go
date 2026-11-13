@@ -90,7 +90,7 @@ func (flakeLock) Parse(data []byte) (*Result, error) {
 			continue
 		}
 		if d, ok := flakeDependency(res, n.key, n.locked, n.line); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	return res, nil

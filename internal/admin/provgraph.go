@@ -30,7 +30,9 @@ func (s *Server) handleProvgraphExport(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusNotFound, "supply-chain graph is not enabled")
 		return
 	}
-	doc := s.opts.Provgraph.Export()
+	// Release nodes (Task 180) name tenants' repositories: a tenant-bound
+	// identity sees its own tenant's only.
+	doc := s.opts.Provgraph.Export().ScopeReleases(mcpTenant(r))
 	s.writeJSON(w, http.StatusOK, doc)
 }
 
@@ -69,7 +71,7 @@ func (s *Server) handleProvgraphBlast(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.writeJSON(w, http.StatusOK, res)
+	s.writeJSON(w, http.StatusOK, res.ScopeReleases(mcpTenant(r)))
 }
 
 // handleProvgraphReverse answers a reverse-dependency query for an artifact

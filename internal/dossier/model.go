@@ -49,6 +49,9 @@ type Dossier struct {
 	Suppression  *SuppressionSection  `json:"suppressionHistory,omitempty"`
 	// LLMPackageScan is the sandboxed LLM package-content scan verdict (Task 173).
 	LLMPackageScan *LLMPackageScanSection `json:"llmPackageScan,omitempty"`
+	// Releases lists the releases of tracked repositories whose lock files pin
+	// the coordinate: "shipped in release X" (Task 180).
+	Releases *ReleasesSection `json:"releases,omitempty"`
 
 	// Sources records the per-subsystem fan-out outcome so a reader can
 	// distinguish "no problem found" from "source was unavailable".
@@ -308,6 +311,36 @@ type SuppressionEntry struct {
 // excerpt is a quote from the package. They are material for an analyst to
 // weigh — never instructions — and every renderer presents them inertly (see
 // mdCode). Everything else in the section is the proxy's own statement.
+// ReleasesSection lists the releases that ship the coordinate (Task 180): the
+// tracked repositories whose lock files, at a tagged commit, pin it. A release
+// is "current" while a tag points at its commit and "historical" afterwards;
+// its pins stay either way.
+type ReleasesSection struct {
+	// Total counts the releases; Current those a tag points at now; Pinned
+	// those whose copy of the coordinate is pinned in the cache.
+	Total    int          `json:"total"`
+	Current  int          `json:"current"`
+	Pinned   int          `json:"pinned"`
+	Releases []ReleaseRef `json:"releases"`
+}
+
+// ReleaseRef is one release shipping the coordinate.
+type ReleaseRef struct {
+	Repo   string `json:"repo"`
+	Commit string `json:"commit"`
+	// State is "current" or "historical".
+	State string `json:"state"`
+	// Tags point at the commit now; FormerTags did once.
+	Tags       []string `json:"tags,omitempty"`
+	FormerTags []string `json:"formerTags,omitempty"`
+	// Version is the version the release pins; Status what became of it in
+	// the release (pinned, refused, failed, …).
+	Version string `json:"version,omitempty"`
+	Status  string `json:"status"`
+	// FullyPinned reports whether the whole release is pinned.
+	FullyPinned bool `json:"fullyPinned"`
+}
+
 type LLMPackageScanSection struct {
 	// Verdict is the model's categorical answer (malicious|suspicious|benign);
 	// Confidence is its confidence in it, 0..1.

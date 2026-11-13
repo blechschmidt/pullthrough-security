@@ -20,11 +20,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def defined_metrics():
-    """Metric base names that the proxy registers, parsed from the two files
-    that own every metric definition. Histogram bases also expose
-    _bucket/_sum/_count series."""
+    """Metric base names that the proxy registers, parsed from the files that
+    own the metric definitions alerts and dashboards use. Histogram bases also
+    expose _bucket/_sum/_count series."""
     src = ""
-    for rel in ("cmd/pullthrough/observability.go", "internal/metrics/collector.go"):
+    for rel in ("cmd/pullthrough/observability.go", "internal/metrics/collector.go",
+                "internal/repos/metrics.go"):
         src += open(os.path.join(ROOT, rel)).read()
     names = set(re.findall(r'"(pullthrough_[a-z0-9_]+)"', src))
     valid = set(names)

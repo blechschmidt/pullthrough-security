@@ -310,8 +310,11 @@ func (c *IntegrityCache) handleCorruption(ctx context.Context, stat Stat, comput
 	hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 
+	// Bytes that no longer match their digest are removed even when a release
+	// pinned the object (Task 180): they are worthless to the release, and the
+	// observer has the pin's owner fetch the object again or raise an alert.
 	quarantined := true
-	if err := c.inner.Delete(hctx, stat.Key); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := c.inner.Delete(WithPinOverride(hctx, "integrity"), stat.Key); err != nil && !errors.Is(err, ErrNotFound) {
 		quarantined = false
 		if c.logger != nil {
 			c.logger.Error("cache integrity: failed to quarantine corrupted entry",

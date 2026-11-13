@@ -29,6 +29,9 @@ const (
 	DefaultMaxFiles       = 2000
 	DefaultMaxTotalBytes  = 512 << 20
 	DefaultMaxTreeEntries = 2_000_000
+	// DefaultMaxDependencies bounds the dependencies of all the lock files of
+	// one scan together (MaxDependenciesPerFile bounds each file).
+	DefaultMaxDependencies = 500_000
 )
 
 // DefaultSkip are the globs a scan skips unless told otherwise: directories of
@@ -57,6 +60,12 @@ type Options struct {
 	// Root is the directory of the tree to scan, slash-separated; "" is the
 	// whole tree. Reported paths stay relative to the repository root.
 	Root string
+	// Include, when not empty, restricts the scan to the lock files whose
+	// path matches one of these globs (same syntax as Skip); the rest are
+	// passed over unread. A repository registration's lock-file globs (Task
+	// 180) are applied here. Both halves of a pair a Merger joins (go.mod and
+	// go.sum) must match for the pair to be read together.
+	Include []string
 	// Skip are the globs of paths not to scan; nil is DefaultSkip, an empty
 	// slice skips nothing. A glob without "/" matches a directory or file
 	// name at any depth ("node_modules"); one with "/" matches the path from
@@ -73,6 +82,9 @@ type Options struct {
 	MaxFiles       int
 	MaxTotalBytes  int64
 	MaxTreeEntries int
+	// MaxDependencies ends the walk once the lock files read so far name this
+	// many dependencies together.
+	MaxDependencies int
 }
 
 func (o Options) withDefaults() Options {
@@ -96,6 +108,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MaxTreeEntries <= 0 {
 		o.MaxTreeEntries = DefaultMaxTreeEntries
+	}
+	if o.MaxDependencies <= 0 {
+		o.MaxDependencies = DefaultMaxDependencies
 	}
 	return o
 }
@@ -162,6 +177,10 @@ func Scan(ctx context.Context, objs Objects, rev string, opts Options) (*Report,
 	if err != nil {
 		return nil, err
 	}
+	include, err := compileGlobs(opts.Include)
+	if err != nil {
+		return nil, err
+	}
 	root := strings.Trim(path.Clean("/"+strings.TrimSpace(opts.Root)), "/")
 	commit, rootTree, err := objs.ResolveCommit(ctx, rev)
 	if err != nil {
@@ -180,7 +199,7 @@ func Scan(ctx context.Context, objs Objects, rev string, opts Options) (*Report,
 		tree = info.ID
 	}
 
-	w := &walker{ctx: ctx, objs: objs, opts: opts, skip: skip, rep: rep}
+	w := &walker{ctx: ctx, objs: objs, opts: opts, skip: skip, include: include, rep: rep}
 	if err := w.walk(root, tree); err != nil {
 		return nil, err
 	}
@@ -197,12 +216,15 @@ func Scan(ctx context.Context, objs Objects, rev string, opts Options) (*Report,
 }
 
 type walker struct {
-	ctx   context.Context
-	objs  Objects
-	opts  Options
-	skip  []glob
-	rep   *Report
-	found []*File
+	ctx     context.Context
+	objs    Objects
+	opts    Options
+	skip    []glob
+	include []glob
+	rep     *Report
+	found   []*File
+	// deps counts the dependencies of the files read so far.
+	deps int
 }
 
 // dirFrame is a directory waiting to be read.
@@ -285,6 +307,9 @@ func (w *walker) file(p string, e git.TreeEntry) error {
 	if parser == nil || matchAny(w.skip, p, e.Name) {
 		return nil
 	}
+	if len(w.include) > 0 && !matchAny(w.include, p, e.Name) {
+		return nil
+	}
 	if len(w.found) >= w.opts.MaxFiles {
 		w.rep.Truncated = fmt.Sprintf("more than %d lock files", w.opts.MaxFiles)
 		return errStop
@@ -315,7 +340,13 @@ func (w *walker) file(p string, e git.TreeEntry) error {
 	}
 	w.rep.Stats.BytesRead += int64(len(data))
 	w.rep.Stats.LockFiles++
-	w.found = append(w.found, parseOne(parser, p, data))
+	f := parseOne(parser, p, data)
+	w.found = append(w.found, f)
+	w.deps += len(f.Dependencies)
+	if w.deps > w.opts.MaxDependencies {
+		w.rep.Truncated = fmt.Sprintf("the lock files name more than %d dependencies", w.opts.MaxDependencies)
+		return errStop
+	}
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -53,6 +54,12 @@ type FilesystemOptions struct {
 	SharedStore bool
 	// Now overrides the clock; used in tests. Defaults to time.Now.
 	Now func() time.Time
+	// Pins reports the keys releases have pinned (Task 180): they are never
+	// evicted for size, never expire, and Delete refuses them (see pins.go).
+	// It is consulted from the first moment — the size bound is enforced while
+	// the index is warmed — so a deployment with pins passes it here rather
+	// than installing it later with SetPinChecker.
+	Pins PinChecker
 }
 
 // FilesystemCache is a content-addressable Cache that layers an in-memory index,
@@ -75,6 +82,9 @@ type FilesystemCache struct {
 	ll    *list.List               // most-recently-used at the front
 	index map[string]*list.Element // key -> element holding *idxEntry
 	total int64
+
+	// pins holds the PinChecker (as a pinHolder); see pins.go.
+	pins atomic.Value
 
 	janitorStop chan struct{}
 	janitorDone chan struct{}
@@ -125,6 +135,9 @@ func NewFilesystemCache(opts FilesystemOptions) (*FilesystemCache, error) {
 		sf:                    newSingleflight(),
 		ll:                    list.New(),
 		index:                 make(map[string]*list.Element),
+	}
+	if opts.Pins != nil {
+		c.SetPinChecker(opts.Pins)
 	}
 
 	if err := c.warmIndex(); err != nil {
@@ -328,6 +341,9 @@ func (c *FilesystemCache) Stat(ctx context.Context, key string) (*Stat, error) {
 
 // Delete implements Cache.
 func (c *FilesystemCache) Delete(ctx context.Context, key string) error {
+	if c.isPinned(key) && !pinOverride(ctx) {
+		return pinnedError(key)
+	}
 	c.mu.Lock()
 	elem, inIndex := c.index[key]
 	if inIndex {
@@ -553,12 +569,13 @@ func (c *FilesystemCache) putContent(ctx context.Context, key string, r io.Reade
 	return &stat, nil
 }
 
-// isExpired reports whether ent is older than the configured TTL.
+// isExpired reports whether ent is older than the configured TTL. A pinned
+// entry never expires.
 func (c *FilesystemCache) isExpired(ent *idxEntry, now time.Time) bool {
 	if c.ttl <= 0 {
 		return false
 	}
-	return now.Sub(ent.createdAt) > c.ttl
+	return now.Sub(ent.createdAt) > c.ttl && !c.isPinned(ent.key)
 }
 
 // upsertLocked inserts or refreshes the index entry for a stored record and
@@ -611,16 +628,53 @@ func (c *FilesystemCache) evictForSize() []string {
 		return nil
 	}
 	var evicted []string
-	for c.total > c.maxSize && c.ll.Len() > 1 {
-		back := c.ll.Back()
-		if back == nil {
-			break
+	// Walk from the least-recently-used end towards the front. The front entry
+	// — the one just written or read — is never evicted, as before pins existed
+	// (an entry larger than the whole budget is kept rather than evicted
+	// pointlessly). A pinned entry is never a victim (Task 180): it is moved to
+	// just behind the front, out of the way, so that later walks do not pass
+	// over it again; where a pinned entry sits in the recency order does not
+	// matter, as it is evicted from nowhere. The budget bounds the walk to one
+	// pass over the list however entries move; and as the walk runs under the
+	// cache's lock on every write, it passes over at most maxPinnedSkips
+	// pinned entries — with more pinned bytes than the bound, the next write
+	// goes on where this one stopped, instead of every write walking them all.
+	front := c.ll.Front()
+	elem := c.ll.Back()
+	skipped := 0
+	for budget := c.ll.Len(); elem != nil && elem != front && c.total > c.maxSize && budget > 0; budget-- {
+		prev := elem.Prev()
+		ent := elem.Value.(*idxEntry)
+		if c.isPinned(ent.key) {
+			if skipped++; skipped > maxPinnedSkips {
+				break
+			}
+			c.ll.MoveAfter(elem, front)
+		} else {
+			c.dropLocked(elem)
+			evicted = append(evicted, ent.key)
 		}
-		ent := back.Value.(*idxEntry)
-		c.dropLocked(back)
-		evicted = append(evicted, ent.key)
+		elem = prev
 	}
 	return evicted
+}
+
+// maxPinnedSkips bounds the pinned entries one eviction walk passes over.
+var maxPinnedSkips = 4096
+
+// pinHolder boxes a PinChecker so atomic.Value always stores one concrete type.
+type pinHolder struct{ p PinChecker }
+
+// SetPinChecker installs the release pin set (Task 180). It may be called at
+// any time; the size bound is re-enforced on the next write.
+func (c *FilesystemCache) SetPinChecker(p PinChecker) {
+	c.pins.Store(pinHolder{p: p})
+}
+
+// isPinned reports whether a release pinned key.
+func (c *FilesystemCache) isPinned(key string) bool {
+	h, _ := c.pins.Load().(pinHolder)
+	return h.p != nil && h.p.IsPinned(key)
 }
 
 // dropLocked removes an element from both the list and the index and updates the

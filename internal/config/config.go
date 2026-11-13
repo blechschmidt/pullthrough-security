@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -329,6 +330,15 @@ type Config struct {
 	// is equally accepted as an HTTP credential. Off by default: it needs an
 	// identity provider, or an administrator who issues links.
 	UserLinks UserLinksConfig `yaml:"userLinks"`
+
+	// Repositories configures the repository registry (Task 180): repositories
+	// whose tags the proxy tracks, and whose releases it pins. Every
+	// tag-to-commit association ever seen is kept in an append-only history;
+	// when a tag appears or moves, the lock files at the commit are read and
+	// every dependency they pin is fetched through the gated serve pipeline
+	// and pinned in the cache, so that the release stays reproducible from it.
+	// Off by default.
+	Repositories RepositoriesConfig `yaml:"repositories"`
 
 	// Secrets configures the master key used to decrypt secret values stored
 	// encrypted at rest.
@@ -5925,6 +5935,9 @@ func (c *Config) Validate() error {
 	if err := c.validateUserLinks(); err != nil {
 		return err
 	}
+	if err := c.validateRepositories(); err != nil {
+		return err
+	}
 	if err := c.validateTrustedProxies(); err != nil {
 		return err
 	}
@@ -8961,4 +8974,265 @@ func (o ObservabilityConfig) AdminPrefixOrDefault() string {
 		p = "/admin"
 	}
 	return strings.TrimRight(p, "/")
+}
+
+// RepositoriesConfig configures the repository registry: per-repository tag
+// tracking and permanent release-artifact pinning (Task 180).
+type RepositoriesConfig struct {
+	// Enabled turns the registry on.
+	Enabled bool `yaml:"enabled"`
+	// StateDir holds the registry's state: API registrations, the
+	// append-only tag histories, the release manifests (and with them the
+	// pins). Defaults to "<cache.dir>/repositories" for the filesystem cache;
+	// required otherwise. In a multi-replica deployment it must be a directory
+	// every replica mounts: the pins in it protect the shared cache on every
+	// replica.
+	StateDir string `yaml:"stateDir"`
+	// MirrorDir holds a bare mirror of each repository. Defaults to
+	// "<stateDir>/mirrors".
+	MirrorDir string `yaml:"mirrorDir"`
+	// PollInterval is the period between syncs of every repository's tags.
+	// Defaults to 5m; "0s" leaves tracking to webhooks and manual syncs.
+	PollInterval *time.Duration `yaml:"pollInterval"`
+	// WebhookPath is where push webhooks are received (default
+	// "/webhooks/repos"). Point the Git host's push webhook here; tag pushes
+	// sync the repository at once.
+	WebhookPath string `yaml:"webhookPath"`
+	// WebhookSecret verifies the webhook's HMAC-SHA256 signature
+	// (X-Hub-Signature-256), like scanning.watch.webhookSecret. A secret
+	// reference is accepted. Without a secret the webhook is not served:
+	// tags are tracked by polling (and `ptctl repos sync`) only.
+	WebhookSecret string `yaml:"webhookSecret"`
+	// BackfillTags is how many of the tags found when a repository is first
+	// synced are pinned, the most recently committed first. -1 pins all, 0
+	// none (each can be pinned on request). Every tag is recorded in the
+	// history either way. Default 10.
+	BackfillTags *int `yaml:"backfillTags"`
+	// AllowedSchemes are the repository URL schemes accepted (default https
+	// and ssh; scp-like user@host:path counts as ssh).
+	AllowedSchemes []string `yaml:"allowedSchemes"`
+	// Roles are the access-control roles (auth.roles) the release pinner
+	// holds when it fetches a repository's dependencies, for a repository
+	// that names none of its own. With auth enabled, a dependency from an
+	// upstream no role grants is refused, as a client's pull would be: the
+	// lock files name the registries, and must not reach an upstream the
+	// operator has not granted. Required with auth enabled unless every
+	// repository names its roles.
+	Roles []string `yaml:"roles"`
+	// Pinning tunes how releases are pinned.
+	Pinning ReleasePinningConfig `yaml:"pinning"`
+	// Repos are the repositories registered by configuration. More can be
+	// registered through the admin API (`ptctl repos add`).
+	Repos []RepositoryConfig `yaml:"repos"`
+}
+
+// ReleasePinningConfig tunes release pinning.
+type ReleasePinningConfig struct {
+	// Workers is how many releases are pinned at a time (default 2).
+	Workers int `yaml:"workers"`
+	// Concurrency is how many dependencies of a release are fetched at a time
+	// (default 4).
+	Concurrency int `yaml:"concurrency"`
+	// MaxDependencies bounds the dependencies of one release (default
+	// 10000); a release with more is not fully pinned.
+	MaxDependencies int `yaml:"maxDependencies"`
+	// MaxObjectsPerDependency bounds the cache objects one dependency expands
+	// to — the manifests and layers of a container image, the wheels of a
+	// Python release (default 256).
+	MaxObjectsPerDependency int `yaml:"maxObjectsPerDependency"`
+	// IncludeDev pins development dependencies too (default true): a build
+	// needs them.
+	IncludeDev *bool `yaml:"includeDev"`
+	// Platforms selects the platforms ("linux/amd64", "linux/arm64/v8") of
+	// container image indexes and Terraform providers. Empty pins every
+	// platform an image index lists, and linux/amd64 providers.
+	Platforms []string `yaml:"platforms"`
+	// RetryInterval is the wait before what a release could not pin is tried
+	// again; it doubles with each attempt (default 1h). MaxAttempts bounds
+	// the attempts (default 5); `ptctl repos pin` starts over.
+	RetryInterval time.Duration `yaml:"retryInterval"`
+	MaxAttempts   int           `yaml:"maxAttempts"`
+	// SpoolDir holds the temporary copy of a Go module zip while its module
+	// hash is computed. Empty is the system's temporary directory.
+	SpoolDir string `yaml:"spoolDir"`
+}
+
+// RepositoryConfig registers one repository.
+type RepositoryConfig struct {
+	// Name identifies the repository: lower-case letters, digits, '.', '_'
+	// and '-'.
+	Name string `yaml:"name"`
+	// URL is the clone URL: https://…, ssh://… or user@host:path.
+	URL string `yaml:"url"`
+	// Username is the HTTPS user name sent with the credential (default
+	// "x-access-token").
+	Username string `yaml:"username"`
+	// CredentialsRef is a secret reference — env://VAR, file:///path,
+	// vault://mount/path#key — resolved through the secrets provider whenever
+	// the repository is fetched; never the secret itself.
+	CredentialsRef string `yaml:"credentialsRef"`
+	// Tenant owns the repository: its releases are visible to that tenant
+	// only, and its dependencies are fetched as that tenant.
+	Tenant string `yaml:"tenant"`
+	// Lockfiles are globs of the lock files that make up a release
+	// ("package-lock.json", "services/*/go.*"); empty takes every lock file
+	// outside vendored code and test fixtures.
+	Lockfiles []string `yaml:"lockfiles"`
+	// Tags are globs of the tags tracked ("v*"); empty tracks every tag.
+	Tags []string `yaml:"tags"`
+	// Upstreams maps an upstream type to the upstream the repository's
+	// dependencies of that type are fetched through, when the registry a lock
+	// file names is not enough to choose (several upstreams of the type).
+	Upstreams map[string]string `yaml:"upstreams"`
+	// FullName ("owner/repo") routes push webhooks to the repository in
+	// addition to its URL.
+	FullName string `yaml:"fullName"`
+	// BackfillTags overrides repositories.backfillTags for this repository.
+	BackfillTags *int `yaml:"backfillTags"`
+	// Roles overrides repositories.roles for this repository.
+	Roles []string `yaml:"roles"`
+}
+
+// RepositoriesStateDir returns the registry's state directory: the configured
+// one, or "<cache.dir>/repositories" for the filesystem cache.
+func (c *Config) RepositoriesStateDir() string {
+	if d := strings.TrimSpace(c.Repositories.StateDir); d != "" {
+		return d
+	}
+	if c.Cache.Backend == "filesystem" && strings.TrimSpace(c.Cache.Dir) != "" {
+		return filepath.Join(c.Cache.Dir, "repositories")
+	}
+	return ""
+}
+
+// RepositoriesMirrorDir returns the directory of the registry's mirrors.
+func (c *Config) RepositoriesMirrorDir() string {
+	if d := strings.TrimSpace(c.Repositories.MirrorDir); d != "" {
+		return d
+	}
+	if st := c.RepositoriesStateDir(); st != "" {
+		return filepath.Join(st, "mirrors")
+	}
+	return ""
+}
+
+// RepositoriesPollInterval returns the poll period (default 5m).
+func (c *Config) RepositoriesPollInterval() time.Duration {
+	if c.Repositories.PollInterval == nil {
+		return 5 * time.Minute
+	}
+	return *c.Repositories.PollInterval
+}
+
+// RepositoriesWebhookPath returns the webhook path (default "/webhooks/repos").
+func (c *Config) RepositoriesWebhookPath() string {
+	if p := strings.TrimSpace(c.Repositories.WebhookPath); p != "" {
+		return p
+	}
+	return "/webhooks/repos"
+}
+
+// validateRepositories checks the repository registry configuration.
+func (c *Config) validateRepositories() error {
+	r := c.Repositories
+	if !r.Enabled {
+		return nil
+	}
+	if c.RepositoriesStateDir() == "" {
+		return fmt.Errorf("config: repositories.stateDir is required unless the cache is a filesystem cache (it then defaults to <cache.dir>/repositories)")
+	}
+	if c.Cache.Backend == "memory" {
+		return fmt.Errorf("config: repositories needs a durable cache (filesystem or s3): pins in the in-memory cache would not outlive the process")
+	}
+	if p := c.RepositoriesPollInterval(); p < 0 || (p > 0 && p < 10*time.Second) {
+		return fmt.Errorf("config: repositories.pollInterval must be 0 (off) or at least 10s, got %s", p)
+	}
+	wp := c.RepositoriesWebhookPath()
+	if !strings.HasPrefix(wp, "/") || strings.HasPrefix(wp, "/v1/") || wp == "/v1" {
+		return fmt.Errorf("config: repositories.webhookPath %q must be an absolute path outside /v1/", wp)
+	}
+	if c.Scanning.Watch.Enabled && wp == c.Scanning.Watch.WebhookPath {
+		return fmt.Errorf("config: repositories.webhookPath and scanning.watch.webhookPath must differ")
+	}
+	if r.BackfillTags != nil && *r.BackfillTags < -1 {
+		return fmt.Errorf("config: repositories.backfillTags must be -1 (all), 0 (none) or a count")
+	}
+	for _, sch := range r.AllowedSchemes {
+		switch strings.ToLower(strings.TrimSpace(sch)) {
+		case "https", "ssh", "http", "git", "file":
+		default:
+			return fmt.Errorf("config: repositories.allowedSchemes: unknown scheme %q", sch)
+		}
+	}
+	pc := r.Pinning
+	if pc.Workers < 0 || pc.Concurrency < 0 || pc.MaxDependencies < 0 || pc.MaxObjectsPerDependency < 0 || pc.MaxAttempts < 0 || pc.RetryInterval < 0 {
+		return fmt.Errorf("config: repositories.pinning values must not be negative")
+	}
+	for _, p := range pc.Platforms {
+		parts := strings.Split(strings.TrimSpace(p), "/")
+		if len(parts) < 2 || len(parts) > 3 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("config: repositories.pinning.platforms: %q is not os/arch[/variant]", p)
+		}
+	}
+	definedRole := map[string]bool{}
+	for _, role := range c.Auth.Roles {
+		definedRole[strings.TrimSpace(role.Name)] = true
+	}
+	checkRoles := func(where string, roles []string) error {
+		if !c.Auth.Enabled {
+			return nil
+		}
+		for _, role := range roles {
+			if !definedRole[strings.TrimSpace(role)] {
+				return fmt.Errorf("config: %s references undefined role %q (auth.roles)", where, role)
+			}
+		}
+		return nil
+	}
+	if err := checkRoles("repositories.roles", r.Roles); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for i, repo := range r.Repos {
+		if strings.TrimSpace(repo.Name) == "" || strings.TrimSpace(repo.URL) == "" {
+			return fmt.Errorf("config: repositories.repos[%d] needs a name and a url", i)
+		}
+		if err := checkRoles(fmt.Sprintf("repositories.repos %q roles", repo.Name), repo.Roles); err != nil {
+			return err
+		}
+		if c.Auth.Enabled && len(repo.Roles) == 0 && len(r.Roles) == 0 {
+			return fmt.Errorf("config: repositories.repos %q: auth is enabled, and the release pinner needs roles to fetch the repository's dependencies with: set repositories.roles or the repository's roles", repo.Name)
+		}
+		if seen[repo.Name] {
+			return fmt.Errorf("config: repositories.repos: %q is registered twice", repo.Name)
+		}
+		seen[repo.Name] = true
+		for t, up := range repo.Upstreams {
+			u, ok := c.Upstreams[up]
+			if !ok {
+				return fmt.Errorf("config: repositories.repos %q: upstreams.%s names upstream %q, which is not configured", repo.Name, t, up)
+			}
+			if !sameUpstreamType(u.Type, t) {
+				return fmt.Errorf("config: repositories.repos %q: upstreams.%s names upstream %q of type %q", repo.Name, t, up, u.Type)
+			}
+		}
+	}
+	return nil
+}
+
+// sameUpstreamType compares upstream types, aliases resolved.
+func sameUpstreamType(a, b string) bool {
+	canon := func(t string) string {
+		t = strings.ToLower(strings.TrimSpace(t))
+		switch t {
+		case "deb":
+			return "apt"
+		case "rpm":
+			return "yum"
+		case "pub":
+			return "dart"
+		}
+		return t
+	}
+	return canon(a) == canon(b)
 }

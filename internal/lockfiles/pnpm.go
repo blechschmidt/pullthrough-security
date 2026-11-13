@@ -79,7 +79,7 @@ func (pnpmLock) Parse(data []byte) (*Result, error) {
 				continue
 			}
 			if d, ok := pnpmDependency(res, key, entry, major); ok {
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		}
 	}

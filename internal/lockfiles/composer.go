@@ -55,6 +55,10 @@ func (composerLock) Parse(data []byte) (*Result, error) {
 				return err
 			}
 			if d, ok := composerDependency(res, name, version, source, dist, dev, nameLine); ok {
+				if len(deps) >= MaxDependenciesPerFile {
+					res.overflow = true
+					return nil
+				}
 				deps = append(deps, d)
 			}
 			return nil

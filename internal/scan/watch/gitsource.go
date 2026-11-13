@@ -10,9 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blechschmidt/pullthrough-security/internal/git"
 	"github.com/blechschmidt/pullthrough-security/internal/scan/commit"
 )
 
@@ -34,7 +37,17 @@ type GitSourceOptions struct {
 	// MaxFilesPerCommit caps the number of per-file diffs built per commit.
 	// Default 300.
 	MaxFilesPerCommit int
-	Logger            *slog.Logger
+	// Refspecs, when set, makes each mirror a bare repository that fetches
+	// exactly these refspecs (pruning within them) instead of a "clone
+	// --mirror", which owns every ref under refs/. Refs outside the refspecs'
+	// destinations — the repository tracker's refs/pullthrough/keep/* (Task
+	// 180), which keep released commits reachable — then survive every
+	// refresh. Example: "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*".
+	Refspecs []string
+	// AllowedProtocols, when set, restricts the transports git may use
+	// (GIT_ALLOW_PROTOCOL), e.g. "https", "ssh". Empty leaves git's defaults.
+	AllowedProtocols []string
+	Logger           *slog.Logger
 }
 
 func (o GitSourceOptions) withDefaults() GitSourceOptions {
@@ -390,16 +403,37 @@ func (g *GitSource) mirrorDir(repo RepoRef) string {
 }
 
 func (g *GitSource) ensureMirror(ctx context.Context, repo RepoRef, dir string) error {
+	err := g.syncMirror(ctx, repo, dir)
+	var stale staleMirrorError
+	if errors.As(err, &stale) {
+		// A failed refresh of an existing mirror should not abort the cycle: scan
+		// against the (possibly slightly stale) mirror and log.
+		g.opts.Logger.Warn("commit-watch mirror refresh failed; using cached mirror",
+			"repo", repo.Name, "error", stale.err)
+		return nil
+	}
+	return err
+}
+
+// staleMirrorError reports that an existing mirror could not be refreshed: it
+// is still there, as of its last successful refresh.
+type staleMirrorError struct{ err error }
+
+func (e staleMirrorError) Error() string { return "refreshing mirror: " + e.err.Error() }
+func (e staleMirrorError) Unwrap() error { return e.err }
+
+// syncMirror creates the mirror at dir or refreshes it from the upstream. A
+// failed refresh of an existing mirror is a staleMirrorError.
+func (g *GitSource) syncMirror(ctx context.Context, repo RepoRef, dir string) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, g.opts.FetchTimeout)
 	defer cancel()
 
 	if isGitMirror(dir) {
-		args := append(g.authArgs(repo), "remote", "update", "--prune")
-		if out, err := g.run(fetchCtx, dir, g.opts.FetchTimeout, args...); err != nil {
-			// A failed refresh of an existing mirror should not abort the cycle: scan
-			// against the (possibly slightly stale) mirror and log.
-			g.opts.Logger.Warn("commit-watch mirror refresh failed; using cached mirror",
-				"repo", repo.Name, "error", err, "output", strings.TrimSpace(out))
+		if err := g.ensureRemoteURL(fetchCtx, repo, dir); err != nil {
+			return staleMirrorError{err: err}
+		}
+		if out, err := g.runAuth(fetchCtx, repo, dir, g.opts.FetchTimeout, g.safeArgs("remote", "update", "--prune")...); err != nil {
+			return staleMirrorError{err: fmt.Errorf("%w (%s)", err, git.RedactURLSecrets(strings.TrimSpace(out)))}
 		}
 		return nil
 	}
@@ -407,17 +441,73 @@ func (g *GitSource) ensureMirror(ctx context.Context, repo RepoRef, dir string) 
 	if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
 		return fmt.Errorf("watch: creating mirror parent dir: %w", err)
 	}
-	args := append(g.authArgs(repo), "clone", "--mirror", "--quiet", repo.URL, dir)
-	if out, err := g.run(fetchCtx, "", g.opts.FetchTimeout, args...); err != nil {
+	if len(g.opts.Refspecs) > 0 {
+		if err := g.initRefspecMirror(fetchCtx, repo, dir); err != nil {
+			_ = os.RemoveAll(dir)
+			return err
+		}
+		return nil
+	}
+	// "--" ends the options: a URL is never read as one.
+	args := g.safeArgs("clone", "--mirror", "--quiet", "--", repo.URL, dir)
+	if out, err := g.runAuth(fetchCtx, repo, "", g.opts.FetchTimeout, args...); err != nil {
 		_ = os.RemoveAll(dir)
-		return fmt.Errorf("watch: cloning %s: %w (%s)", repo.Name, err, strings.TrimSpace(out))
+		return fmt.Errorf("watch: cloning %s: %w (%s)", repo.Name, err, git.RedactURLSecrets(strings.TrimSpace(out)))
 	}
 	return nil
 }
 
-// authArgs injects HTTPS credentials for this invocation without persisting them
-// to the mirror's config (git -c http.extraHeader).
-func (g *GitSource) authArgs(repo RepoRef) []string {
+// ensureRemoteURL points an existing mirror at the repository's URL as it is
+// configured now: a repository whose URL changed must be fetched from the new
+// one, not go on being fetched from where it was first cloned.
+func (g *GitSource) ensureRemoteURL(ctx context.Context, repo RepoRef, dir string) error {
+	if out, err := g.run(ctx, dir, g.opts.CommandTimeout, "config", "--get", "remote.origin.url"); err == nil && strings.TrimSpace(out) == repo.URL {
+		return nil
+	}
+	if out, err := g.run(ctx, dir, g.opts.CommandTimeout, "config", "remote.origin.url", repo.URL); err != nil {
+		return fmt.Errorf("pointing the mirror of %s at its URL: %w (%s)", repo.Name, err, git.RedactURLSecrets(strings.TrimSpace(out)))
+	}
+	g.opts.Logger.Info("mirror now fetches from the repository's configured URL", "repo", repo.Name, "url", git.RedactURLSecrets(repo.URL))
+	return nil
+}
+
+// initRefspecMirror creates a bare repository at dir that fetches exactly the
+// configured refspecs from repo.URL, and fetches them.
+func (g *GitSource) initRefspecMirror(ctx context.Context, repo RepoRef, dir string) error {
+	steps := [][]string{
+		{"init", "--bare", "--quiet", dir},
+		{"-C", dir, "config", "remote.origin.url", repo.URL},
+	}
+	for i, spec := range g.opts.Refspecs {
+		op := "--add"
+		if i == 0 {
+			op = "--replace-all"
+		}
+		steps = append(steps, []string{"-C", dir, "config", op, "remote.origin.fetch", spec})
+	}
+	for _, args := range steps {
+		if out, err := g.run(ctx, "", g.opts.CommandTimeout, args...); err != nil {
+			return fmt.Errorf("watch: preparing mirror of %s: %w (%s)", repo.Name, err, git.RedactURLSecrets(strings.TrimSpace(out)))
+		}
+	}
+	if out, err := g.runAuth(ctx, repo, dir, g.opts.FetchTimeout, g.safeArgs("fetch", "--quiet", "--prune", "origin")...); err != nil {
+		return fmt.Errorf("watch: fetching %s: %w (%s)", repo.Name, err, git.RedactURLSecrets(strings.TrimSpace(out)))
+	}
+	return nil
+}
+
+// safeArgs prefixes args with the settings every network-facing invocation
+// carries: transports that run programs ("ext::") are refused, and no hook of
+// the repository runs.
+func (g *GitSource) safeArgs(args ...string) []string {
+	return append([]string{"-c", "protocol.ext.allow=never", "-c", "core.hooksPath=/dev/null"}, args...)
+}
+
+// authEnv carries HTTPS credentials to one git invocation through the
+// environment (GIT_CONFIG_COUNT, git >= 2.31) rather than the command line, so
+// they never appear in the process list, and are never written to the mirror's
+// config.
+func authEnv(repo RepoRef) []string {
 	if repo.Token == "" && repo.Username == "" {
 		return nil
 	}
@@ -427,24 +517,190 @@ func (g *GitSource) authArgs(repo RepoRef) []string {
 		user = "x-access-token"
 	}
 	header := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
-	return []string{"-c", "http.extraHeader=Authorization: " + header}
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraHeader",
+		"GIT_CONFIG_VALUE_0=Authorization: " + header,
+	}
 }
 
 // run executes a git subcommand, returning combined stdout (stderr captured
 // separately and surfaced in errors).
 func (g *GitSource) run(ctx context.Context, dir string, timeout time.Duration, args ...string) (string, error) {
+	return g.runEnv(ctx, nil, dir, timeout, args...)
+}
+
+// runAuth is run with the repository's credentials in the environment.
+func (g *GitSource) runAuth(ctx context.Context, repo RepoRef, dir string, timeout time.Duration, args ...string) (string, error) {
+	return g.runEnv(ctx, authEnv(repo), dir, timeout, args...)
+}
+
+func (g *GitSource) runEnv(ctx context.Context, extra []string, dir string, timeout time.Duration, args ...string) (string, error) {
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, g.gitBin, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if len(g.opts.AllowedProtocols) > 0 {
+		env = append(env, "GIT_ALLOW_PROTOCOL="+strings.Join(g.opts.AllowedProtocols, ":"))
+	}
+	cmd.Env = append(env, extra...)
+	// A cancelled context ends git together with the helpers it started.
+	git.IsolateCommand(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return stdout.String(), fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		return stdout.String(), fmt.Errorf("%w: %s", err, git.RedactURLSecrets(strings.TrimSpace(stderr.String())))
 	}
 	return stdout.String(), nil
+}
+
+// MirrorDir returns the directory of repo's local mirror.
+func (g *GitSource) MirrorDir(repo RepoRef) string { return g.mirrorDir(repo) }
+
+// RefTip is a ref's state in a snapshot.
+type RefTip struct {
+	// Object is the object the ref points at: the commit for a lightweight tag
+	// or a branch, the tag object for an annotated tag.
+	Object string `json:"object"`
+	// Commit is the commit the ref resolves to (an annotated tag peeled).
+	Commit string `json:"commit"`
+	// Annotated reports an annotated tag (Object is a tag object).
+	Annotated bool `json:"annotated,omitempty"`
+}
+
+// ErrMirrorStale is returned (wrapped) by RefSnapshot when the mirror could not
+// be refreshed from the upstream. The snapshot it returns with it is the
+// mirror's state as of its last refresh.
+var ErrMirrorStale = errors.New("watch: mirror could not be refreshed")
+
+// RefSnapshot refreshes repo's mirror from its upstream and returns every ref
+// under the given prefixes (e.g. "refs/tags/") with the commit it resolves to.
+// A ref that does not resolve to a commit (a tag of a tree or blob) is left
+// out. When the refresh fails the snapshot of the existing mirror is returned
+// together with an error wrapping ErrMirrorStale; when there is no mirror yet,
+// only the error.
+func (g *GitSource) RefSnapshot(ctx context.Context, repo RepoRef, prefixes []string) (map[string]RefTip, error) {
+	unlock := g.locks.lock(repo.Name)
+	defer unlock()
+
+	dir := g.mirrorDir(repo)
+	syncErr := g.syncMirror(ctx, repo, dir)
+	var stale staleMirrorError
+	if syncErr != nil && !errors.As(syncErr, &stale) {
+		return nil, syncErr
+	}
+	refs, err := g.listRefs(ctx, dir, prefixes)
+	if err != nil {
+		return nil, err
+	}
+	if syncErr != nil {
+		return refs, fmt.Errorf("%w: %v", ErrMirrorStale, stale.err)
+	}
+	return refs, nil
+}
+
+// refFormat lists a ref's name, object, object type, and — for a tag — the
+// object it points at and that object's type, separated by US (0x1f).
+const refFormat = "%(refname)%1f%(objectname)%1f%(objecttype)%1f%(*objectname)%1f%(*objecttype)"
+
+var hexObjectID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+
+func (g *GitSource) listRefs(ctx context.Context, dir string, prefixes []string) (map[string]RefTip, error) {
+	args := []string{"for-each-ref", "--format=" + refFormat}
+	for _, p := range prefixes {
+		args = append(args, strings.TrimSpace(p))
+	}
+	out, err := g.run(ctx, dir, g.opts.CommandTimeout, args...)
+	if err != nil {
+		return nil, fmt.Errorf("watch: listing refs: %w", err)
+	}
+	refs := map[string]RefTip{}
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		f := strings.Split(line, "\x1f")
+		if len(f) != 5 || !hexObjectID.MatchString(f[1]) {
+			continue
+		}
+		tip := RefTip{Object: f[1]}
+		switch {
+		case f[2] == "commit":
+			tip.Commit = f[1]
+		case f[2] == "tag" && f[4] == "commit" && hexObjectID.MatchString(f[3]):
+			tip.Commit, tip.Annotated = f[3], true
+		case f[2] == "tag":
+			// A tag of a tag: peel it all the way. Git answers 1 when it
+			// peels to a tree or a blob, which names no commit; any other
+			// failure (a timeout) must fail the snapshot rather than leave
+			// the tag out of it, where it would read as deleted.
+			c, perr := g.revParse(ctx, dir, f[0])
+			var exit *exec.ExitError
+			switch {
+			case perr != nil && errors.As(perr, &exit) && exit.ExitCode() == 1 && ctx.Err() == nil:
+				continue
+			case perr != nil:
+				return nil, fmt.Errorf("watch: peeling %s: %w", f[0], perr)
+			case !hexObjectID.MatchString(c):
+				return nil, fmt.Errorf("watch: peeling %s gave %q", f[0], c)
+			}
+			tip.Commit, tip.Annotated = c, true
+		default:
+			continue // a ref to a tree or blob names no commit
+		}
+		refs[f[0]] = tip
+	}
+	return refs, nil
+}
+
+// keepRefPrefix is the namespace of the refs that keep released commits
+// reachable in a refspec mirror (see GitSourceOptions.Refspecs).
+const keepRefPrefix = "refs/pullthrough/keep/"
+
+// KeepCommit makes commit reachable from a ref of its own in repo's mirror, so
+// that it survives the tag that named it being moved or deleted upstream and
+// the mirror being refreshed and garbage-collected. It needs a refspec mirror:
+// a "clone --mirror" prunes every ref the upstream does not have.
+func (g *GitSource) KeepCommit(ctx context.Context, repo RepoRef, commit string) error {
+	if len(g.opts.Refspecs) == 0 {
+		return errors.New("watch: keeping commits needs a refspec mirror (GitSourceOptions.Refspecs)")
+	}
+	if !hexObjectID.MatchString(commit) {
+		return fmt.Errorf("watch: %q is not a commit ID", commit)
+	}
+	unlock := g.locks.lock(repo.Name)
+	defer unlock()
+	dir := g.mirrorDir(repo)
+	if out, err := g.run(ctx, dir, g.opts.CommandTimeout, "update-ref", keepRefPrefix+commit, commit); err != nil {
+		return fmt.Errorf("watch: keeping %s: %w (%s)", commit, err, strings.TrimSpace(out))
+	}
+	return nil
+}
+
+// HasCommit reports whether repo's mirror holds commit.
+func (g *GitSource) HasCommit(ctx context.Context, repo RepoRef, commit string) bool {
+	if !hexObjectID.MatchString(commit) {
+		return false
+	}
+	return g.objectExists(ctx, g.mirrorDir(repo), commit)
+}
+
+// CommitTime returns the committer date of commit in repo's mirror.
+func (g *GitSource) CommitTime(ctx context.Context, repo RepoRef, commit string) (time.Time, error) {
+	if !hexObjectID.MatchString(commit) {
+		return time.Time{}, fmt.Errorf("watch: %q is not a commit ID", commit)
+	}
+	out, err := g.run(ctx, g.mirrorDir(repo), g.opts.CommandTimeout, "show", "-s", "--format=%ct", commit)
+	if err != nil {
+		return time.Time{}, err
+	}
+	sec, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("watch: reading the date of %s: %w", commit, err)
+	}
+	return time.Unix(sec, 0).UTC(), nil
 }
 
 func cloneMap(m map[string]string) map[string]string {

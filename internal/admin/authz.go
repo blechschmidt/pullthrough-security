@@ -72,7 +72,12 @@ func requiredCapability(method, relPath string) adminauth.Capability {
 		// Issuing a personal cache link (Task 177) mints a credential for an
 		// identity — and with roles — of the caller's choosing. (Revoking one only
 		// takes access away, and is an operational action like any other.)
-		"/api/userlinks/issue":
+		"/api/userlinks/issue",
+		// Registering a repository (Task 180) makes the proxy fetch from the
+		// URL given, with the credentials it names, as the tenant it names;
+		// removing one ends its tracking. Both are the administrator's remit.
+		// (Syncing a repository or pinning a release is operational.)
+		"/api/repos", "/api/repos/remove":
 		return adminauth.CapAdminister
 
 	// Managing one's own passkeys and running the step-up ceremonies (Task 161)

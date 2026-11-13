@@ -96,7 +96,7 @@ func (gemfileLock) Parse(data []byte) (*Result, error) {
 					res.warnf("line %d: a gem without a usable name or version", lineNo)
 					continue
 				}
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		case "CHECKSUMS":
 			m := gemSpecRE.FindStringSubmatch(text)

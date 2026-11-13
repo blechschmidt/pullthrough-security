@@ -57,7 +57,7 @@ func (juliaManifest) Parse(data []byte) (*Result, error) {
 		for _, name := range deps.keys {
 			for _, pkg := range deps.tables(name) {
 				if d, ok := juliaDependency(res, name, pkg); ok {
-					res.Dependencies = append(res.Dependencies, d)
+					res.add(d)
 				}
 			}
 		}
@@ -74,7 +74,7 @@ func (juliaManifest) Parse(data []byte) (*Result, error) {
 			res.FormatVersion = "1.0"
 			for _, pkg := range doc.tables(name) {
 				if d, ok := juliaDependency(res, name, pkg); ok {
-					res.Dependencies = append(res.Dependencies, d)
+					res.add(d)
 				}
 			}
 		}

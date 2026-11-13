@@ -68,7 +68,7 @@ func (cargoLock) Parse(data []byte) (*Result, error) {
 		if dg, ok := hexDigest("sha256", checksum, ""); ok {
 			d.Digests = append(d.Digests, dg)
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	return res, nil
 }

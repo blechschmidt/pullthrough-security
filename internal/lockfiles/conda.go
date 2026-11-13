@@ -41,7 +41,7 @@ func (condaLock) Parse(data []byte) (*Result, error) {
 	}
 	for _, p := range yamlSeq(packages) {
 		if d, ok := condaLockDependency(res, p); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	return res, nil
@@ -249,7 +249,7 @@ func (condaExplicit) Parse(data []byte) (*Result, error) {
 			}
 			if d, ok := reqDirect(res, pyNormalize(strings.TrimSpace(name)), strings.TrimSpace(loc), nil, lineNo); ok {
 				d.Type = "pip"
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 			continue
 		case line == "" || strings.HasPrefix(line, "#"):
@@ -261,7 +261,7 @@ func (condaExplicit) Parse(data []byte) (*Result, error) {
 			return nil, errNotFormat("explicit spec file", "a line before @EXPLICIT")
 		}
 		if d, ok := condaExplicitLine(res, line, lineNo); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	if !explicit {
@@ -328,7 +328,7 @@ func (pixiLock) Parse(data []byte) (*Result, error) {
 	}
 	for _, p := range yamlSeq(packages) {
 		if d, ok := pixiDependency(res, p); ok {
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	return res, nil

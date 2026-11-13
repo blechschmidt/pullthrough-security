@@ -66,10 +66,13 @@ func (g *Gateway) withAdmissionSignals(r *http.Request, name, ecosystem string, 
 	// graph ingestion (Task 33), the unified risk-scoring engine (Task 37), and the
 	// SARIF findings-aggregation layer (Task 42); attach it when any consumer is
 	// active so the gates have somewhere to record.
+	// A system fetch (Task 180) always carries one: the gates' summaries are
+	// the verdicts its release manifest records.
 	if g.deps.PolicyEngine == nil && g.deps.ProvGraph == nil && g.deps.RiskScore == nil &&
 		g.deps.Findings == nil && !g.deps.SimReplay.Enabled() && !g.deps.Extension.Enabled() &&
 		!g.deps.RepoScore.Enabled() && !g.deps.SbomDiff.Enabled() && !g.deps.RebuildVerify.Enabled() &&
-		!g.deps.BuildProv.Enabled() && !g.deps.Snapshot.Enabled() && !g.deps.Continuity.Enabled() {
+		!g.deps.BuildProv.Enabled() && !g.deps.Snapshot.Enabled() && !g.deps.Continuity.Enabled() &&
+		!isSystemRequest(r) {
 		return r
 	}
 	sig := &admissionSignals{input: policyengine.Input{
@@ -86,6 +89,11 @@ func (g *Gateway) withAdmissionSignals(r *http.Request, name, ecosystem string, 
 	}
 	if resolved.Coordinate.Name == "" {
 		sig.unnamed = resolved.ArtifactFilename()
+	}
+	if rep := systemReportFrom(r.Context()); rep != nil {
+		rep.mu.Lock()
+		rep.signals = sig
+		rep.mu.Unlock()
 	}
 	ctx := context.WithValue(r.Context(), signalsKey{}, sig)
 	return r.WithContext(ctx)

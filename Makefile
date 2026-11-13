@@ -332,6 +332,10 @@ FUZZ_TARGETS := \
 	internal/downloadlog:FuzzQueryFromValues \
 	internal/downloadlog:FuzzWriteCSV \
 	internal/downloadlog:FuzzLoad \
+	internal/repos/locate:FuzzParseSimplePage \
+	internal/repos/locate:FuzzLocateDocker \
+	internal/repos/locate:FuzzLocatePaths \
+	internal/repos/locate:FuzzCheckerModuleZip \
 	internal/git:FuzzFetchSniffer \
 	internal/git:FuzzDescribeDownload \
 	internal/git:FuzzAsksForNothingButRefs \

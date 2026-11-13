@@ -252,6 +252,11 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 	if info, ok := intercept.InfoFrom(r.Context()); ok {
 		entry.Via = string(info.Mode)
 	}
+	// A request the proxy made of itself (Task 180) has no client address;
+	// "via" says what made it.
+	if via := systemVia(r.Context()); via != "" {
+		entry.Via = via
+	}
 	if blocked {
 		entry.Gate = rec.gate
 		entry.Code, entry.Reason = blockExplanation(mw.errBody)

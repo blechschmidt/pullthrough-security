@@ -73,8 +73,12 @@ import (
 // Dependencies bundles the collaborators a Gateway needs. Scanner, Provenance,
 // SSHServer, Enforcer, and Audit are optional and may be nil.
 type Dependencies struct {
-	Logger     *slog.Logger
-	Cache      cache.Cache
+	Logger *slog.Logger
+	Cache  cache.Cache
+	// Pins reports the cache keys releases have pinned (Task 180); a pinned
+	// key is never answered from the negative cache. Nil when no repository
+	// is tracked.
+	Pins       cache.PinChecker
 	Backends   *backends.Registry
 	Scanner    scan.Scanner
 	Provenance provenance.Resolver
@@ -438,6 +442,9 @@ type Dependencies struct {
 	// /v1 client access-control envelope and authenticates deliveries itself via
 	// the GitHub-style HMAC signature.
 	WebhookHandler http.Handler
+	// RepoWebhookHandler receives push webhooks for the repository registry
+	// (Task 180), mounted at Options.RepoWebhookPath.
+	RepoWebhookHandler http.Handler
 	// PullObserver, when set, receives a best-effort notification for each
 	// artifact successfully served on the cacheable pull path, feeding the
 	// predictive cache pre-warming subsystem's historical pull telemetry (Task
@@ -534,6 +541,9 @@ type Options struct {
 	// receiver is mounted at (e.g. "/webhooks/git"). Empty disables the endpoint
 	// even if a handler is supplied.
 	WebhookPath string
+	// RepoWebhookPath is where RepoWebhookHandler is mounted
+	// ("/webhooks/repos").
+	RepoWebhookPath string
 	// FIPSEnabled, when true, restricts inbound TLS termination to the FIPS 140-3
 	// approved floor: a TLS 1.2 minimum and the approved AES-GCM cipher suites
 	// (Task 120). It is independent of whether the binary links the validated Go
@@ -680,6 +690,12 @@ func (g *Gateway) routes() http.Handler {
 	// (the external Git host posting here has no proxy client credentials).
 	if g.deps.WebhookHandler != nil && g.opts.WebhookPath != "" {
 		mux.Handle(g.opts.WebhookPath, g.deps.WebhookHandler)
+	}
+	// The repository registry's push-webhook receiver (Task 180): a tag push
+	// syncs the repository at once. Like the commit scanner's it authenticates
+	// deliveries by their HMAC signature, outside the /v1 client envelope.
+	if g.deps.RepoWebhookHandler != nil && g.opts.RepoWebhookPath != "" {
+		mux.Handle(g.opts.RepoWebhookPath, g.deps.RepoWebhookHandler)
 	}
 	// The cross-proxy peer cache-federation endpoint (Task 143). It carries its
 	// own shared-secret bearer authentication (and fails closed when serving is
@@ -1159,6 +1175,12 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 	// waiter re-opens an independent stream from the now-filled cache. When no
 	// coalescer is wired, Do degrades to a direct GetOrLoad.
 	coalKey := g.coalesceKey(r, resolved.CacheKey)
+	// A pinned object (Task 180) is never answered from the negative cache:
+	// a "not found" remembered from before it was restored (a backup, an
+	// air-gap import, an integrity repair) must not hide it.
+	if g.deps.Pins != nil && g.deps.Pins.IsPinned(resolved.CacheKey) {
+		g.coalescer().Purge(coalKey)
+	}
 	entry, info, err := g.coalescer().Do(ctx, coalKey,
 		func(fctx context.Context) (*cache.Entry, error) {
 			return g.deps.Cache.GetOrLoad(fctx, resolved.CacheKey, loader)
@@ -1404,6 +1426,11 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 	// state (Task 70), from which point-in-time snapshots are captured on demand or
 	// on a schedule. Best-effort and after admission, so it never affects serving.
 	g.recordSnapshot(r, name, g.ecosystemFor(name))
+
+	// Every gate admitted the artifact: a system fetch (Task 180) takes hold
+	// of the cache object now, before a byte is served, so that it cannot be
+	// evicted between this moment and the release manifest that pins it.
+	noteAdmitted(r.Context(), resolved.CacheKey, entry.Stat)
 
 	// X-Cache reflects how the artifact was obtained (computed above): MISS when
 	// this request ran the upstream fetch, COALESCED-HIT when it joined another
@@ -1876,6 +1903,7 @@ func (g *Gateway) startSpan(ctx context.Context, name string, attrs ...tracing.A
 func (g *Gateway) gateTrace(r *http.Request, gate string, fn func(*http.Request) bool) bool {
 	if g.deps.Tracer == nil {
 		allowed := fn(r)
+		noteGate(r.Context(), gate, allowed)
 		if !allowed {
 			// Attribute the refusal to its tenant/gate for per-tenant usage (Task 84).
 			g.meterBlock(r, gate)
@@ -1887,6 +1915,7 @@ func (g *Gateway) gateTrace(r *http.Request, gate string, fn func(*http.Request)
 	ctx, span := g.deps.Tracer.Start(r.Context(), "gate."+gate)
 	defer span.End()
 	allowed := fn(r.WithContext(ctx))
+	noteGate(r.Context(), gate, allowed)
 	span.SetAttributes(
 		tracing.String("pullthrough.gate", gate),
 		tracing.Bool("pullthrough.gate.allowed", allowed),

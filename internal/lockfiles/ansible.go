@@ -46,7 +46,7 @@ func (ansibleRequirements) Parse(data []byte) (*Result, error) {
 	case n.Kind == yaml.SequenceNode:
 		for _, e := range n.Content {
 			if d, ok := ansibleRole(res, e); ok {
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		}
 	case n.Kind == yaml.MappingNode:
@@ -61,12 +61,12 @@ func (ansibleRequirements) Parse(data []byte) (*Result, error) {
 		}
 		for _, e := range yamlSeq(collections) {
 			if d, ok := ansibleCollection(res, e); ok {
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		}
 		for _, e := range yamlSeq(roles) {
 			if d, ok := ansibleRole(res, e); ok {
-				res.Dependencies = append(res.Dependencies, d)
+				res.add(d)
 			}
 		}
 	default:

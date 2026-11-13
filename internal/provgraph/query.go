@@ -43,6 +43,9 @@ type BlastResult struct {
 	Total     int                `json:"total"`
 	Direct    int                `json:"direct"`
 	Artifacts []AffectedArtifact `json:"artifacts"`
+	// Releases are the releases of tracked repositories (Task 180) that
+	// ship an affected artifact.
+	Releases []ShippedIn `json:"releases,omitempty"`
 }
 
 // BlastRadius returns every cached artifact affected by the given seed (a CVE
@@ -120,6 +123,11 @@ func (s *Service) BlastRadius(kind SeedKind, id string) (BlastResult, error) {
 	}
 	sortAffected(res.Artifacts)
 	res.Total = len(res.Artifacts)
+	affected := make([]string, 0, len(res.Artifacts))
+	for _, a := range res.Artifacts {
+		affected = append(affected, a.ID)
+	}
+	res.Releases = s.releasesForLocked(affected)
 	return res, nil
 }
 

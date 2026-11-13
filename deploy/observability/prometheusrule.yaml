@@ -401,3 +401,45 @@ spec:
         summary: On-disk config has drifted from the running process
         description: The configuration on disk for {{ $labels.instance }} no longer matches what the process loaded at startup (or no longer loads). Reload the proxy to apply it, or revert the on-disk change. Inspect via the admin /api/config/drift endpoint or `ptctl config drift`.
         runbook: docs/configuration.md#validation-preflight--drift-detection
+  - name: pullthrough-releases
+    rules:
+    - alert: PullthroughReleasePinFailures
+      expr: sum by (reason) (increase(pullthrough_repo_pin_failures_total{reason=~"refused|fetch|locate|store"}[1h])) > 0
+      for: 5m
+      labels:
+        severity: warning
+        component: releases
+      annotations:
+        summary: Release dependencies could not be pinned ({{ $labels.reason }})
+        description: 'Dependencies of a tracked release were not pinned in the last hour ({{ $labels.reason }}): the release is not fully reproducible from the cache. `ptctl repos releases <repo>` names them and why; refused ones need an admission decision, failed ones are retried.'
+        runbook: docs/repositories.md#alerts
+    - alert: PullthroughReleaseDigestMismatch
+      expr: increase(pullthrough_repo_pin_failures_total{reason="digest"}[1h]) > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: releases
+      annotations:
+        summary: A release dependency does not match its lock file
+        description: "The proxy served bytes for a release dependency whose digest is not the one the release's lock file records. The object was not pinned. Either the lock file is wrong or the registry now serves different bytes for the same version \u2014 investigate before rebuilding the release."
+        runbook: docs/repositories.md#alerts
+    - alert: PullthroughPinnedObjectLost
+      expr: increase(pullthrough_repo_pin_repairs_total{outcome="lost"}[1h]) > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: releases
+      annotations:
+        summary: A pinned release object was lost
+        description: A pinned cache object failed its integrity check and could not be fetched again with the digest the release pinned. The releases that depend on it are no longer reproducible from this cache; restore it from a backup or an air-gap bundle.
+        runbook: docs/repositories.md#alerts
+    - alert: PullthroughRepositorySyncFailing
+      expr: increase(pullthrough_repo_sync_errors_total[30m]) >= 3
+      for: 10m
+      labels:
+        severity: warning
+        component: releases
+      annotations:
+        summary: Repository {{ $labels.repo }} cannot be synced
+        description: The proxy failed to fetch the tags of {{ $labels.repo }} repeatedly (credentials, network, or a tag history that no longer verifies). New and moved tags are not being recorded or pinned. See `ptctl repos show {{ $labels.repo }}`.
+        runbook: docs/repositories.md#alerts

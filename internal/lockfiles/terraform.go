@@ -72,7 +72,7 @@ func (terraformLock) Parse(data []byte) (*Result, error) {
 				}
 			}
 		}
-		res.Dependencies = append(res.Dependencies, d)
+		res.add(d)
 	}
 	if body.attrCount > 0 && body.blockCount == 0 {
 		return nil, errNotFormat(".terraform.lock.hcl", "attributes and no provider blocks")
@@ -162,7 +162,7 @@ func (terraformModules) Parse(data []byte) (*Result, error) {
 	for i := range blocks {
 		if d, ok := terraformModule(res, blocks[i].hclBlock); ok {
 			blocks[i].dep = len(res.Dependencies)
-			res.Dependencies = append(res.Dependencies, d)
+			res.add(d)
 		}
 	}
 	res.extra = blocks

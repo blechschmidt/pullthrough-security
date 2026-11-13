@@ -213,6 +213,10 @@ up by default.
 | `internal/lockfiles` | `FuzzRequirementsTxt`, `FuzzPipfileLock`, `FuzzPoetryLock`, `FuzzUVLock`, `FuzzPDMLock` | Python lock files |
 | `internal/lockfiles` | `FuzzCargoLock`, `FuzzGoMod`, `FuzzGoSum`, `FuzzNuGetLock`, `FuzzGradleLock`, `FuzzPOM`, `FuzzGemfileLock`, `FuzzComposerLock`, `FuzzDockerfile`, `FuzzCompose` | the other lock files, POMs, Dockerfiles and Compose files |
 | `internal/lockfiles` | `FuzzTOML` | the TOML reader behind Cargo.lock, poetry.lock, uv.lock and pdm.lock |
+| `internal/repos/locate` | `FuzzParseSimplePage` | PyPI simple pages (JSON and HTML) the release pinner reads to find a dependency's files (Task 180) |
+| `internal/repos/locate` | `FuzzLocateDocker` | OCI image indexes and manifests the pinner walks: never a path outside the registry routes |
+| `internal/repos/locate` | `FuzzLocatePaths` | a lock file's coordinates turned into request paths: never a dot segment, query or fragment |
+| `internal/repos/locate` | `FuzzCheckerModuleZip` | the Go module hash over an arbitrary zip: no panic, no made-up hash verifies |
 | `internal/lockfiles` | `FuzzProxyMapping` | lock-file URLs mapped back from the proxy: a personal link's token never survives |
 
 Each target seeds its corpus (`f.Add`) with real-world samples and a battery of
