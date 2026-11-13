@@ -76,6 +76,26 @@ var (
 	ErrNoJustification = errors.New("approvals: a justification is required")
 )
 
+// Active returns the break-glass grant that covers a scope right now, without
+// counting a serve, opening a review or expiring anything: a read for surfaces
+// that report on an artifact rather than serve it (the repository dependency
+// scan, Task 181, marks a finding its grant releases as suppressed). ok is
+// false when no active grant covers the scope.
+func (s *Service) Active(sc Scope) (Request, bool) {
+	if !s.Enabled() {
+		return Request{}, false
+	}
+	now := s.now()
+	k := scopeKey(sc.Tenant, sc.Ecosystem, sc.Coordinate, sc.Gate, sc.Reason)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.byKey[k]
+	if !ok || !r.active(now) {
+		return Request{}, false
+	}
+	return *cloneRequest(r), true
+}
+
 // Approver records one identity's vote toward a dual-control grant.
 type Approver struct {
 	Subject string    `json:"subject"`

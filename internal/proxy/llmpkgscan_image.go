@@ -179,6 +179,8 @@ func (g *Gateway) gateLLMBlob(w http.ResponseWriter, r *http.Request, sub llmSca
 		return g.admitLLMPkgScan(w, r, sub)
 	case st.Covered:
 		// Read in full as part of an image the gate has a verdict on.
+		noteLLMScan(r.Context(), &SystemLLMScan{NotApplicable: LLMCoveredByImage,
+			NotApplicableReason: "the blob was read in full by the scan of an image that has it; the image's verdict covers it"})
 		w.Header().Set("X-LLMPkgScan-Decision", "image")
 		return true
 	}

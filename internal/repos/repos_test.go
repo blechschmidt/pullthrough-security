@@ -123,6 +123,9 @@ type fakeFetcher struct {
 	mu      sync.Mutex
 	objects map[string]fakeObject
 	calls   []FetchRequest
+	// llm, when set for an object, is the LLM gate's reading the fetch
+	// reports (the gateway's capture on the serve path).
+	llm map[string]*ObjectScan
 }
 
 func (f *fakeFetcher) put(upstream, path string, body []byte) {
@@ -149,8 +152,11 @@ func (f *fakeFetcher) Fetch(_ context.Context, req FetchRequest, body io.Writer)
 	case !ok:
 		return FetchResult{Status: 404, Reason: "not found"}, nil
 	case obj.gate != "":
+		f.mu.Lock()
+		reading := f.llm[req.Upstream+req.Path]
+		f.mu.Unlock()
 		return FetchResult{Status: 403, Gate: obj.gate, Code: "blocked", Reason: "denied by test",
-			Verdicts: []GateVerdict{{Gate: obj.gate, Outcome: "refuse"}}}, nil
+			Verdicts: []GateVerdict{{Gate: obj.gate, Outcome: "refuse"}}, LLM: reading}, nil
 	}
 	key := req.Tenant + "/" + req.Upstream + req.Path
 	if req.Hold != nil {
@@ -158,8 +164,11 @@ func (f *fakeFetcher) Fetch(_ context.Context, req FetchRequest, body io.Writer)
 	}
 	sum := sha256.Sum256(obj.body)
 	_, _ = body.Write(obj.body)
+	f.mu.Lock()
+	reading := f.llm[req.Upstream+req.Path]
+	f.mu.Unlock()
 	return FetchResult{Status: 200, Cache: "MISS", CacheKey: key, Digest: "sha256:" + hex.EncodeToString(sum[:]),
-		Size: int64(len(obj.body)), Verdicts: []GateVerdict{{Gate: "vulnscan", Outcome: "pass"}}}, nil
+		Size: int64(len(obj.body)), Verdicts: []GateVerdict{{Gate: "vulnscan", Outcome: "pass"}}, LLM: reading}, nil
 }
 
 type fakeNotifier struct {
@@ -203,6 +212,11 @@ type harness struct {
 	repos   []Repo
 	nowMu   sync.Mutex
 	now     time.Time
+	// The dependency scans (scan_test.go): set before start.
+	scans   *fakeObjectScanner
+	found   *fakeFindingsSink
+	heads   *fakeHeads
+	scanCfg ScanConfig
 }
 
 func npmDep(name, version string, body []byte) lockfiles.Dependency {
@@ -237,16 +251,27 @@ func (h *harness) start(repos ...Repo) {
 		t.Fatal(err)
 	}
 	all := -1
-	svc, err := New(context.Background(), Config{
-		Repos: repos, AllowedSchemes: []string{"https", "file"}, BackfillTags: &all, RetryInterval: time.Hour,
-	}, Options{
+	opts := Options{
 		Store: h.store, Refs: h.refs, Scanner: h.scanner, Fetcher: h.fetcher, Audit: logger, Notify: h.notes,
 		Upstreams: []locate.Upstream{
 			{Name: "npm", Type: "npm", URLs: []string{"https://registry.npmjs.org"}},
 			{Name: "central", Type: "maven", URLs: []string{"https://repo.maven.apache.org/maven2"}},
 		},
 		Now: func() time.Time { return h.clock() },
-	})
+	}
+	if h.scans != nil {
+		opts.Scans = h.scans
+	}
+	if h.found != nil {
+		opts.Findings = h.found
+	}
+	if h.heads != nil {
+		opts.Refs = h.heads
+	}
+	svc, err := New(context.Background(), Config{
+		Repos: repos, AllowedSchemes: []string{"https", "file"}, BackfillTags: &all, RetryInterval: time.Hour,
+		Scan: h.scanCfg,
+	}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +288,8 @@ func (h *harness) restart(repos ...Repo) *harness {
 	h.nowMu.Lock()
 	now := h.now
 	h.nowMu.Unlock()
-	h2 := &harness{t: h.t, store: h.store, refs: h.refs, scanner: h.scanner, fetcher: h.fetcher, sink: audit.NewMemorySink(), notes: &fakeNotifier{}, now: now}
+	h2 := &harness{t: h.t, store: h.store, refs: h.refs, scanner: h.scanner, fetcher: h.fetcher, sink: audit.NewMemorySink(), notes: &fakeNotifier{}, now: now,
+		scans: h.scans, found: h.found, heads: h.heads, scanCfg: h.scanCfg}
 	h2.start(repos...)
 	return h2
 }

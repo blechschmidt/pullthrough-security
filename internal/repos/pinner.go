@@ -166,6 +166,9 @@ func (s *Service) Pin(ctx context.Context, name, commit string) error {
 	unlock()
 	if err == nil {
 		s.notifyRelease(ctx, name, commit)
+		// Every release manifest is scanned once pinned (Task 181): the
+		// dependencies' bytes are in the cache, held by their pins.
+		s.queueReleaseScan(ctx, reg.Repo, commit, TriggerRelease, "")
 	}
 	return err
 }
@@ -307,6 +310,9 @@ func (s *Service) lockedWrite(ctx context.Context, m *Manifest) error {
 		for _, t := range cur.Tags {
 			m.addTag(t)
 		}
+		// The scan summary is the dependency scanner's (Task 181): the job's
+		// copy of it predates whatever the scanner wrote meanwhile.
+		m.Scan = cur.Scan.clone()
 	}
 	return s.writeManifest(ctx, m)
 }
@@ -433,7 +439,7 @@ func (s *Service) locateEnv(repo Repo) locate.Env {
 	return locate.Env{
 		Upstreams:    s.opts.Upstreams,
 		Prefer:       prefer,
-		Fetch:        documentFetcher{s: s, tenant: repo.Tenant, roles: s.rolesFor(repo)},
+		Fetch:        documentFetcher{s: s, tenant: repo.Tenant, roles: s.rolesFor(repo), deferLLM: s.defersLLM()},
 		Platforms:    s.cfg.Platforms,
 		MaxArtifacts: s.cfg.MaxArtifactsPerDependency,
 	}
@@ -513,30 +519,60 @@ func dependencyStatus(objs []Object) (string, string) {
 
 // fetchObject drives one object through the proxy and judges the result.
 func (s *Service) fetchObject(ctx context.Context, repo Repo, job string, a locate.Artifact) Object {
+	obj, _ := s.fetchArtifact(ctx, repo, a, fetchOptions{
+		subject: s.cfg.Subject,
+		hold:    func(key string) { s.idx.hold(job, key) },
+		// With release scans on, the LLM gate's refusal is the scan's to act
+		// on: the release pins the bytes (kept for forensics) and the scan
+		// marks it and reports the dependency.
+		deferLLM: s.defersLLM(),
+		report:   true,
+	})
+	return obj
+}
+
+// fetchOptions are what a pin and a scan fetch differ in.
+type fetchOptions struct {
+	subject string
+	// hold, when set, holds the object's cache key once admitted.
+	hold     func(key string)
+	deferLLM bool
+	// report raises the alert on a digest mismatch (pins; a scan reports the
+	// dependency unscanned instead).
+	report bool
+}
+
+// fetchArtifact drives one object through the proxy, checks its bytes against
+// the lock file, and returns the outcome with the LLM gate's reading of it.
+func (s *Service) fetchArtifact(ctx context.Context, repo Repo, a locate.Artifact, fo fetchOptions) (Object, *ObjectScan) {
 	obj := Object{Role: a.Role, File: a.File, Upstream: a.Upstream, Path: "/v1/" + a.Upstream + a.Path, Optional: a.Optional, FetchedAt: s.now().UTC()}
 	if a.Error != "" {
 		obj.Status, obj.Reason = StatusFailed, a.Error
-		return obj
+		return obj, nil
 	}
 	if s.opts.Fetcher == nil {
 		obj.Status, obj.Reason = StatusFailed, "no fetcher is configured"
-		return obj
+		return obj, nil
 	}
 	chk, err := locate.NewChecker(a, s.cfg.SpoolDir)
 	if err != nil {
 		obj.Status, obj.Reason = StatusFailed, err.Error()
-		return obj
+		return obj, nil
 	}
 	defer chk.Close()
 	var held string
-	res, err := s.opts.Fetcher.Fetch(ctx, FetchRequest{
+	req := FetchRequest{
 		Upstream: a.Upstream, Path: a.Path, Accept: a.Accept,
-		Tenant: repo.Tenant, Subject: s.cfg.Subject, Roles: s.rolesFor(repo),
-		Hold: func(key string) {
+		Tenant: repo.Tenant, Subject: fo.subject, Roles: s.rolesFor(repo),
+		DeferLLMRefusal: fo.deferLLM,
+	}
+	if fo.hold != nil {
+		req.Hold = func(key string) {
 			held = key
-			s.idx.hold(job, key)
-		},
-	}, chk)
+			fo.hold(key)
+		}
+	}
+	res, err := s.opts.Fetcher.Fetch(ctx, req, chk)
 	obj.HTTPStatus, obj.Cache, obj.Verdicts = res.Status, res.Cache, res.Verdicts
 	obj.CacheKey, obj.Digest, obj.Size = res.CacheKey, res.Digest, res.Size
 	if held != "" && obj.CacheKey == "" {
@@ -548,6 +584,9 @@ func (s *Service) fetchObject(ctx context.Context, repo Repo, job string, a loca
 	case res.Gate != "":
 		obj.Status, obj.Gate, obj.Code = StatusRefused, res.Gate, res.Code
 		obj.Reason = refusalReason(res)
+		// Another gate refused bytes the LLM gate had judged: the release
+		// does not pin them, and its scan reports the LLM gate's reading.
+		obj.LLM = readingOf(res.LLM)
 	case res.Status == http.StatusOK && obj.CacheKey != "":
 		check := chk.Result()
 		obj.Check = &check
@@ -563,7 +602,9 @@ func (s *Service) fetchObject(ctx context.Context, repo Repo, job string, a loca
 			obj.Reason = "the bytes served (" + check.SHA256 + ") are not those the cache recorded (" + obj.Digest + ")"
 		case check.Status == locate.CheckMismatch:
 			obj.Status, obj.Reason = StatusMismatch, check.Detail
-			s.reportMismatch(ctx, repo, a, check)
+			if fo.report {
+				s.reportMismatch(ctx, repo, a, check)
+			}
 		default:
 			obj.Status = StatusPinned
 		}
@@ -584,7 +625,7 @@ func (s *Service) fetchObject(ctx context.Context, repo Repo, job string, a loca
 			obj.Reason += ": " + res.Reason
 		}
 	}
-	return obj
+	return obj, res.LLM
 }
 
 func refusalReason(res FetchResult) string {
@@ -715,9 +756,11 @@ func (s *Service) refreshPinMetrics() {
 
 // documentFetcher reads index documents through the proxy for locating.
 type documentFetcher struct {
-	s      *Service
-	tenant string
-	roles  []string
+	s        *Service
+	tenant   string
+	roles    []string
+	deferLLM bool
+	subject  string
 }
 
 // rolesFor returns the access-control roles a repository's dependencies are
@@ -737,8 +780,12 @@ func (f documentFetcher) FetchDocument(ctx context.Context, upstream, path, acce
 		return locate.Document{}, errors.New("no fetcher is configured")
 	}
 	buf := &boundedBuffer{max: maxDocumentBytes}
+	subject := f.subject
+	if subject == "" {
+		subject = f.s.cfg.Subject
+	}
 	res, err := f.s.opts.Fetcher.Fetch(ctx, FetchRequest{Upstream: upstream, Path: path, Accept: accept,
-		Tenant: f.tenant, Subject: f.s.cfg.Subject, Roles: f.roles}, buf)
+		Tenant: f.tenant, Subject: subject, Roles: f.roles, DeferLLMRefusal: f.deferLLM}, buf)
 	if err != nil {
 		return locate.Document{}, err
 	}
@@ -923,4 +970,24 @@ func (s *Service) recordRepair(ctx context.Context, ids []string, key, lost stri
 		unlockJob()
 	}
 	s.refreshPinMetrics()
+}
+
+// readingOf keeps the LLM gate's reading of an object for its manifest.
+func readingOf(o *ObjectScan) *LLMReading {
+	if o == nil || !o.Applicable || o.Verdict == "" || o.Verdict == VerdictUnscanned {
+		return nil
+	}
+	r := &LLMReading{Verdict: o.Verdict, Reason: o.Reason, BreakGlass: o.BreakGlass}
+	if d := o.Detail; d != nil {
+		r.Digest, r.ModelVerdict, r.Confidence = d.Digest, d.ModelVerdict, d.Confidence
+		r.Provider, r.Model, r.PromptVersion, r.ScannedAt = d.Provider, d.Model, d.PromptVersion, d.ScannedAt
+	}
+	return r
+}
+
+// scanOf turns a kept reading back into the gate's reading of the object.
+func (r *LLMReading) scanOf() ObjectScan {
+	return ObjectScan{Applicable: true, Verdict: r.Verdict, Reason: r.Reason, Cached: true, BreakGlass: r.BreakGlass,
+		Detail: &VerdictDetail{Digest: r.Digest, ModelVerdict: r.ModelVerdict, Confidence: r.Confidence,
+			Provider: r.Provider, Model: r.Model, PromptVersion: r.PromptVersion, ScannedAt: r.ScannedAt}}
 }

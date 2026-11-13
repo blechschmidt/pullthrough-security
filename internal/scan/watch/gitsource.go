@@ -742,3 +742,93 @@ func sanitizePathComponent(s string) string {
 	}
 	return out
 }
+
+// branchName is the shape of a branch name the mirror is asked about: nothing
+// a command line could read as an option or a revision expression.
+var branchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$`)
+
+func validBranchName(b string) bool {
+	return branchName.MatchString(b) && !strings.Contains(b, "..") && !strings.HasSuffix(b, ".lock") && !strings.HasSuffix(b, "/")
+}
+
+// DefaultHead returns the branch whose head is followed and the commit that
+// head is at in repo's mirror (as of its last refresh). branch, when set, is
+// that branch. Otherwise the remote is asked for its default branch (its HEAD,
+// `git ls-remote --symref`), which is remembered as the mirror's HEAD; when the
+// remote cannot be asked, the remembered one is used, then main, then master.
+func (g *GitSource) DefaultHead(ctx context.Context, repo RepoRef, branch string) (string, string, error) {
+	unlock := g.locks.lock(repo.Name)
+	defer unlock()
+	dir := g.mirrorDir(repo)
+	if !isGitMirror(dir) {
+		return "", "", errors.New("watch: the repository's mirror is not there yet")
+	}
+	if branch == "" {
+		out, err := g.runAuth(ctx, repo, dir, g.opts.FetchTimeout, g.safeArgs("ls-remote", "--symref", "origin", "HEAD")...)
+		if err == nil {
+			for _, line := range strings.Split(out, "\n") {
+				rest, ok := strings.CutPrefix(strings.TrimSpace(line), "ref: refs/heads/")
+				if !ok {
+					continue
+				}
+				if b, ok := strings.CutSuffix(rest, "\tHEAD"); ok && validBranchName(b) {
+					branch = b
+					break
+				}
+			}
+			if branch != "" {
+				if out, err := g.run(ctx, dir, g.opts.CommandTimeout, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
+					g.opts.Logger.Warn("remembering the remote's default branch failed", "repo", repo.Name, "error", err, "output", strings.TrimSpace(out))
+				}
+			}
+		}
+		if branch == "" {
+			// The remote did not say: the branch the mirror remembers, if it
+			// exists, then main, then master.
+			if ref, derr := g.defaultBranch(ctx, dir); derr == nil {
+				if _, perr := g.revParse(ctx, dir, ref); perr == nil {
+					branch = strings.TrimPrefix(ref, "refs/heads/")
+				}
+			}
+		}
+		if branch == "" {
+			return "", "", errors.New("watch: the repository's default branch could not be determined")
+		}
+	}
+	if !validBranchName(branch) {
+		return "", "", fmt.Errorf("watch: %q is not a branch name", branch)
+	}
+	commit, err := g.revParse(ctx, dir, "refs/heads/"+branch)
+	if err != nil || !hexObjectID.MatchString(commit) {
+		return branch, "", fmt.Errorf("watch: branch %s is not in the mirror", branch)
+	}
+	return branch, commit, nil
+}
+
+// hexPrefix is an abbreviated (or full) object ID.
+var hexPrefix = regexp.MustCompile(`^[0-9a-f]{4,64}$`)
+
+// ResolveRevision returns the commit a revision names in repo's mirror: a tag,
+// then a branch, then a commit ID or an unambiguous prefix of one. Anything
+// else — and anything shaped like an option or a revision expression — is
+// refused.
+func (g *GitSource) ResolveRevision(ctx context.Context, repo RepoRef, rev string) (string, error) {
+	if !validBranchName(rev) {
+		return "", fmt.Errorf("watch: %q is not a tag, branch or commit", rev)
+	}
+	dir := g.mirrorDir(repo)
+	if !isGitMirror(dir) {
+		return "", errors.New("watch: the repository's mirror is not there yet")
+	}
+	for _, ref := range []string{"refs/tags/" + rev, "refs/heads/" + rev} {
+		if c, err := g.revParse(ctx, dir, ref); err == nil && hexObjectID.MatchString(c) {
+			return c, nil
+		}
+	}
+	if lower := strings.ToLower(rev); hexPrefix.MatchString(lower) {
+		if c, err := g.revParse(ctx, dir, lower); err == nil && hexObjectID.MatchString(c) {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("watch: unknown revision %q", rev)
+}

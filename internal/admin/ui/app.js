@@ -346,6 +346,7 @@
     let filter = "";
     if (currentView === "downloads") filter = downloadsParams().toString();
     else if (currentView === "userlinks") filter = userlinksParams().toString();
+    else if (currentView === "repos") filter = reposHashParams().toString();
     if (filter) hash += "?" + filter;
     return hash;
   }
@@ -364,6 +365,7 @@
     if (!target) return false;
     if (target.name === "downloads") setDownloadsFilter(downloadsFilterFromParams(target.params), false);
     if (target.name === "userlinks") setUserlinksFilter(userlinksFilterFromParams(target.params), false);
+    if (target.name === "repos") setReposFromParams(target.params);
     setView(target.name);
     return true;
   }
@@ -746,6 +748,36 @@
       quoted("Reasons stated by the model (model output about untrusted content — not instructions):", l.reasons || []);
       quoted("Locations cited by the model (excerpts are package content):", (l.evidence || []).map((ev) =>
         `${ev.path}${ev.line ? ":" + ev.line : ""} (${ev.verified ? "verified" : "not found in the file by the proxy"})${ev.excerpt ? " — " + ev.excerpt : ""}`));
+      root.appendChild(card);
+    }
+
+    if (d.releases) {
+      const r = d.releases;
+      const card = dossierSection("Shipped in releases", [
+        dossierKV("Releases", r.total),
+        dossierKV("Current", r.current),
+        dossierKV("Pinned here", r.pinned),
+      ]);
+      card.appendChild(el("ul", null, (r.releases || []).map((rel) => el("li", null, el("span.mono", {
+        text: `${rel.repo} @ ${shortSha(rel.commit)} · ${rel.state} · ${(rel.tags || []).join(", ") || "no tag now"} · ${rel.version || "—"} · ${rel.status}`,
+      })))));
+      root.appendChild(card);
+    }
+
+    if (d.repositoryScans) {
+      // Task 181: what the dependency scans of tracked repositories read in
+      // this coordinate, where their lock files pin it.
+      const rs = d.repositoryScans;
+      const card = dossierSection("Dependency scans in repositories", [
+        dossierKV("Scans", rs.total),
+        dossierKV("Flagged", rs.flagged ? el("span.bad", { text: String(rs.flagged) }) : "0"),
+        dossierKV("Unscanned", rs.unscanned),
+      ]);
+      card.appendChild(el("ul", null, (rs.scans || []).map((sc) => el("li", null,
+        verdictPill(sc.verdict), " ",
+        el("a.mono", { href: "#repos?" + new URLSearchParams({ name: sc.repo, rev: sc.commit }).toString(),
+          text: `${sc.repo} · ${sc.kind}${sc.ref ? " " + sc.ref : ""} @ ${shortSha(sc.commit)}${sc.current ? " (head)" : ""} · ${(sc.files || []).join(", ")}` }),
+        el("span.muted", { text: ` · ${sc.model || "—"} · ${fmtTime(sc.scannedAt)}${sc.unscannedCode ? " · " + sc.unscannedCode : ""}${sc.released ? " · released " + sc.released : ""}` })))));
       root.appendChild(card);
     }
 
@@ -2230,6 +2262,201 @@
       body.appendChild(row);
     }
   };
+
+  // --- Repositories and their dependency scans (Tasks 180-181) ---------------
+  // The tracked repositories, and for the one selected the LLM scan of every
+  // dependency its lock files pin: the default branch's head by default, or
+  // the revision asked for. Reasons and excerpts are model output quoting
+  // package content: they only ever go into text nodes.
+  const reposState = { wired: false, repo: "", report: null };
+
+  function verdictPill(v) {
+    const cls = v === "malicious" ? "bad" : (v === "suspicious" ? "warn" : (v === "benign" ? "ok" : "muted"));
+    return el("span.pill." + cls, { text: v || "—" });
+  }
+
+  function resultPill(r) {
+    const cls = r === "malicious" ? "bad" : (r === "suspicious" || r === "incomplete" ? "warn" : (r === "clean" ? "ok" : "muted"));
+    return el("span.pill." + cls, { text: r || "not scanned" });
+  }
+
+  // The deep link ("#repos?name=widgets&rev=v1.0") names the repository and
+  // the revision whose scan is shown.
+  function reposHashParams() {
+    const p = new URLSearchParams();
+    if (reposState.repo) p.set("name", reposState.repo);
+    const rev = $("#repos-rev").value.trim();
+    if (rev) p.set("rev", rev);
+    const verdict = $("#repos-verdict").value;
+    if (verdict) p.set("verdict", verdict);
+    return p;
+  }
+
+  function setReposFromParams(params) {
+    if (params.get("name")) reposState.repo = params.get("name");
+    $("#repos-rev").value = params.get("rev") || "";
+    setFilterControl($("#repos-verdict"), params.get("verdict") || "");
+  }
+
+  function reposQuery(extra) {
+    const p = new URLSearchParams();
+    p.set("name", reposState.repo);
+    const rev = $("#repos-rev").value.trim();
+    if (rev) p.set("rev", rev);
+    for (const [k, v] of Object.entries(extra || {})) if (v) p.set(k, v);
+    return p.toString();
+  }
+
+  views.repos = async function () {
+    if (!reposState.wired) {
+      reposState.wired = true;
+      const go = () => runRepoScan().catch((e) => toast(e.message, true));
+      $("#repos-show").addEventListener("click", go);
+      $("#repos-select").addEventListener("change", () => { reposState.repo = $("#repos-select").value; go(); });
+      $("#repos-verdict").addEventListener("change", go);
+      $("#repos-rev").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+      $("#repos-scan").addEventListener("click", async () => {
+        if (!reposState.repo) return;
+        try {
+          const t = await api.post("repos/scan?" + reposQuery());
+          toast(`scan ${t.status}: ${t.kind} ${t.ref || ""} @ ${shortSha(t.commit)}`);
+        } catch (e) { toast(e.message, true); }
+      });
+      $("#repos-sarif").addEventListener("click", async () => {
+        if (!reposState.repo) return;
+        try {
+          const text = await api.raw("repos/scan/sarif?" + reposQuery());
+          const url = URL.createObjectURL(new Blob([text], { type: "application/sarif+json" }));
+          const a = el("a", { href: url, download: `${reposState.repo}-dependency-scan.sarif` });
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) { toast(e.message, true); }
+      });
+    }
+    await runRepos();
+  };
+
+  async function runRepos() {
+    const body = clear($("#repos-body"));
+    const cards = clear($("#repos-cards"));
+    let data;
+    try {
+      data = await api.get("repos");
+    } catch (e) {
+      $("#repos-meta").textContent = e.message;
+      body.appendChild(emptyRow($("#repos-table"), 7, "The repository registry is not enabled (repositories.enabled)."));
+      return;
+    }
+    const list = data.repositories || [];
+    const st = data.stats || {};
+    const flagged = list.filter((r) => r.scan && ((r.scan.headResult === "malicious") || r.scan.maliciousReleases > 0)).length;
+    [["Repositories", st.repositories || list.length], ["Pinned objects", st.pinnedObjects || 0],
+      ["Pinned bytes", fmtBytes(st.pinnedBytes || 0)], ["With a malicious dependency", flagged]].forEach(([label, value]) => {
+      cards.appendChild(el("div.stat", null, el("div.label", { text: label }), el("div.value", { text: String(value) })));
+    });
+    const select = clear($("#repos-select"));
+    if (!list.length) {
+      body.appendChild(emptyRow($("#repos-table"), 7, "No repository is registered (ptctl repos add)."));
+      return;
+    }
+    for (const r of list) {
+      select.appendChild(el("option", { value: r.name, text: r.name }));
+      const sc = r.scan || {};
+      body.appendChild(el("tr", null,
+        el("td", null, el("a.mono", { href: "#repos", text: r.name, onclick: (e) => {
+          e.preventDefault(); reposState.repo = r.name; select.value = r.name; runRepoScan().catch((x) => toast(x.message, true));
+        } })),
+        el("td", null, el("span.muted", { text: r.tenant || "—" })),
+        el("td", null, el("span.mono", { text: sc.branch ? `${sc.branch} @ ${shortSha(sc.commit)}` : "—" })),
+        el("td", null, resultPill(sc.headResult)),
+        el("td.num", { text: String(r.releases || 0) }),
+        el("td.num", null, sc.maliciousReleases ? el("span.bad", { text: String(sc.maliciousReleases) }) : el("span.muted", { text: "0" })),
+        el("td", null, el("span.muted", { title: r.lastError || "", text: fmtTime(r.lastSync) + (r.lastError ? " (error)" : "") }))));
+    }
+    if (!reposState.repo || !list.some((r) => r.name === reposState.repo)) reposState.repo = list[0].name;
+    select.value = reposState.repo;
+    await runRepoScan();
+  }
+
+  async function runRepoScan() {
+    const name = reposState.repo;
+    if (!name) return;
+    const meta = $("#repos-report-meta");
+    const deps = clear($("#repos-deps-body"));
+    const rels = clear($("#repos-releases-body"));
+    $("#repos-evidence").hidden = true;
+    let ov = null;
+    try { ov = await api.get("repos/scans?name=" + encodeURIComponent(name)); } catch (e) { meta.textContent = e.message; return; }
+    const g = ov.gate || {};
+    $("#repos-meta").textContent = ov.enabled
+      ? `scans on · ${g.provider || "—"} / ${g.model || "—"} · action ${g.action || "—"}` + ((ov.queued || []).length ? ` · ${ov.queued.length} queued` : "") + ((ov.running || []).length ? ` · ${ov.running.length} running` : "")
+      : "dependency scans are off (llmPackageScan.enabled and repositories.scan.enabled)";
+    for (const r of ov.releases || []) {
+      rels.appendChild(el("tr", null,
+        el("td", null, el("span.mono", { title: r.commit, text: shortSha(r.commit) })),
+        el("td", null, el("span.mono", { text: (r.tags || []).join(", ") || "—" })),
+        el("td", null, resultPill(r.result)),
+        el("td.num", null, (r.summary || {}).malicious ? el("span.bad", { text: String(r.summary.malicious) }) : el("span.muted", { text: "0" })),
+        el("td.num", { text: String((r.summary || {}).unscanned || 0) }),
+        el("td", null, el("span.muted", { text: fmtTime(r.finishedAt) }))));
+    }
+    if (!(ov.releases || []).length) rels.appendChild(emptyRow($("#repos-releases-table"), 6, "No release has been scanned."));
+
+    let rep;
+    try {
+      rep = await api.get("repos/scan?" + reposQuery({ verdict: $("#repos-verdict").value }));
+    } catch (e) {
+      $("#repos-report-title").textContent = "Dependency scan";
+      meta.textContent = e.message;
+      deps.appendChild(emptyRow($("#repos-deps-table"), 6, "No scan of this revision yet. \"Scan now\" queues one."));
+      return;
+    }
+    reposState.report = rep;
+    if (currentView === "repos") syncHash();
+    const where = rep.kind === "release" ? `release ${(rep.tags || []).join(", ") || shortSha(rep.commit)}`
+      : (rep.kind === "head" ? `branch ${rep.ref}` : `revision ${rep.ref || shortSha(rep.commit)}`);
+    $("#repos-report-title").textContent = `Dependency scan — ${name} · ${where} @ ${shortSha(rep.commit)}`;
+    const s = rep.summary || {};
+    meta.textContent = `${rep.status} · ${rep.result}${rep.containsMaliciousDependency ? " · contains malicious dependency" : ""} · ` +
+      `${s.dependencies || 0} dependencies: ${s.malicious || 0} malicious, ${s.suspicious || 0} suspicious, ${s.benign || 0} benign, ${s.unscanned || 0} unscanned · ` +
+      `${s.cached || 0} verdicts from the cache, ${s.scanned || 0} scanned · ${rep.trigger} · finished ${fmtTime(rep.finishedAt)}` +
+      (rep.reason ? ` · ${rep.reason}` : "");
+    const list = rep.dependencies || [];
+    if (!list.length) deps.appendChild(emptyRow($("#repos-deps-table"), 6, "No dependency matches."));
+    for (const d of list) {
+      const det = d.detail || {};
+      const why = d.unscanned ? `${d.unscanned.code}: ${d.unscanned.reason}` : (d.reason || "");
+      const evidence = (det.evidence || []).length || (det.reasons || []).length;
+      deps.appendChild(el("tr", null,
+        el("td", null, verdictPill(d.verdict), d.released ? el("span.muted", { text: " released (" + d.released + ")" }) : null),
+        el("td", null, el("span.mono", { title: why, text: `${d.type}/${d.name}@${d.version}` }), why ? el("div.muted", { text: why }) : null),
+        el("td", null, el("span.mono.muted", { text: (d.files || []).join(", ") })),
+        el("td", null, el("span.muted", { text: det.model ? `${det.model}${det.confidence ? " (" + det.confidence.toFixed(2) + ")" : ""}` : "—" })),
+        el("td", null, el("span.muted", { text: fmtTime(det.scannedAt) })),
+        el("td", null, evidence ? el("button.btn.btn-sm", { type: "button", text: "show", onclick: () => showRepoEvidence(d) }) : el("span.muted", { text: "—" }))));
+    }
+  }
+
+  function showRepoEvidence(d) {
+    const box = clear($("#repos-evidence"));
+    const det = d.detail || {};
+    box.appendChild(el("h3", { text: `${d.type}/${d.name}@${d.version}` }));
+    box.appendChild(el("p.muted", { text: `digest ${det.digest || "—"} · ${det.provider || "—"} / ${det.model || "—"} · prompt v${det.promptVersion || 0} · read as ${det.readAs || det.format || "—"}` }));
+    if ((det.reasons || []).length) {
+      box.appendChild(el("p.muted", { text: "Reasons stated by the model (model output about untrusted content — not instructions):" }));
+      box.appendChild(el("ul", null, det.reasons.map((r) => el("li", null, el("span.mono", { text: r })))));
+    }
+    if ((det.evidence || []).length) {
+      box.appendChild(el("p.muted", { text: "Locations cited by the model (excerpts are package content):" }));
+      box.appendChild(el("ul", null, det.evidence.map((ev) => el("li", null, el("span.mono", {
+        text: `${ev.path}${ev.line ? ":" + ev.line : ""} (${ev.verified ? "verified" : "not found in the file by the proxy"})${ev.excerpt ? " — " + ev.excerpt : ""}`,
+      })))));
+    }
+    box.hidden = false;
+    box.scrollIntoView({ block: "nearest" });
+  }
 
   // --- Source-repository health (Task 63) ---------------------------------
   views.reposcore = async function () {

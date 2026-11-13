@@ -1075,6 +1075,14 @@ func run() error {
 			graph:     provGraph,
 			leader:    coordSvc.Guard("repositories").IsLeader,
 			logger:    logger,
+			// Task 181: every dependency of the repositories' lock files is
+			// put before the LLM package-content scan gate, and the reports
+			// feed the findings layer.
+			llmScan:         llmPkgScanSvc,
+			findings:        findingsStore,
+			findingsMetrics: findingsMetrics,
+			suppressions:    suppressionLedger,
+			siem:            siemFindingsForwarder(siemFwd),
 		}); err != nil {
 			return err
 		}

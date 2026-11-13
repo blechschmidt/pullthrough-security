@@ -38,6 +38,28 @@ type RepoView struct {
 	LastSuccess  time.Time `json:"lastSuccess,omitzero"`
 	LastError    string    `json:"lastError,omitempty"`
 	HistoryError string    `json:"historyError,omitempty"`
+	// Scan summarizes the dependency scans (Task 181): the newest scan of
+	// the default branch's head, and the releases marked "contains malicious
+	// dependency".
+	Scan *RepoScanSummary `json:"scan,omitempty"`
+}
+
+// RepoScanSummary is a repository's dependency scans at a glance.
+type RepoScanSummary struct {
+	// Branch and Commit are the default branch's head as last seen.
+	Branch string `json:"branch,omitempty"`
+	Commit string `json:"commit,omitempty"`
+	// HeadResult, HeadStatus, HeadCommit and HeadScannedAt describe the
+	// newest head scan; HeadSummary its counts.
+	HeadResult    string       `json:"headResult,omitempty"`
+	HeadStatus    string       `json:"headStatus,omitempty"`
+	HeadCommit    string       `json:"headCommit,omitempty"`
+	HeadScannedAt time.Time    `json:"headScannedAt,omitzero"`
+	HeadSummary   *ScanSummary `json:"headSummary,omitempty"`
+	// MaliciousReleases counts the releases that contain a malicious
+	// dependency; ScannedReleases those scanned.
+	MaliciousReleases int `json:"maliciousReleases"`
+	ScannedReleases   int `json:"scannedReleases"`
 }
 
 // TagView is a current tag with the state of the release it names.
@@ -78,6 +100,9 @@ type ReleaseView struct {
 	NextAttempt time.Time    `json:"nextAttempt,omitzero"`
 	Manifest    *Manifest    `json:"manifest,omitempty"`
 	Matches     []Dependency `json:"matches,omitempty"`
+	// Scan is the release's latest dependency scan (Task 181): "contains
+	// malicious dependency" when it judged one malicious.
+	Scan *ReleaseScan `json:"scan,omitempty"`
 }
 
 // tagMap says, per commit, which tags point at it and which once did.
@@ -176,6 +201,24 @@ func (s *Service) view(ctx context.Context, tenant, name string) (RepoView, erro
 		if m.FullyPinned {
 			v.FullyPinned++
 		}
+	}
+	if _, on := s.ScanStatus(); on || len(s.scanHeaders(name)) > 0 {
+		sum := &RepoScanSummary{}
+		hs := s.headState(ctx, name)
+		sum.Branch, sum.Commit = hs.Branch, hs.Commit
+		for _, h := range s.scanHeaders(name) {
+			switch {
+			case h.Kind == ScanHead && sum.HeadCommit == "":
+				hsum := h.Summary
+				sum.HeadResult, sum.HeadStatus, sum.HeadCommit, sum.HeadScannedAt, sum.HeadSummary = h.Result, h.Status, h.Commit, h.FinishedAt, &hsum
+			case h.Kind == ScanRelease:
+				sum.ScannedReleases++
+				if h.ContainsMaliciousDependency {
+					sum.MaliciousReleases++
+				}
+			}
+		}
+		v.Scan = sum
 	}
 	return v, nil
 }
@@ -344,6 +387,7 @@ func releaseView(m *Manifest, tm *tagMap, full bool) ReleaseView {
 		Reason: m.Reason, Summary: m.Summary, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 		Attempts: m.Attempts, NextAttempt: m.NextAttempt,
 		CurrentTags: tm.current[m.Commit], FormerTags: tm.former[m.Commit],
+		Scan: m.Scan.clone(),
 	}
 	v.State = ReleaseHistorical
 	if len(v.CurrentTags) > 0 {

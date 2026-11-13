@@ -117,6 +117,14 @@ var fieldList = []Field{
 	{Name: "timelineLastAt", Kind: KindTime, Filterable: false, Desc: "Timestamp of the coordinate's most recent timeline event.", get: func(r *Record) any { return r.TimelineLastAt }},
 	{Name: "timelineProvable", Kind: KindBool, Filterable: true, Desc: "At least one timeline event for the coordinate carries a Merkle inclusion proof.", get: func(r *Record) any { return r.TimelineProvable }},
 
+	// Repository dependency scans (Task 181).
+	{Name: "repoScanVerdict", Kind: KindString, Filterable: true, Desc: "Worst verdict the current dependency scans of tracked repositories (default-branch heads, releases) read in the coordinate: malicious|suspicious|unscanned (empty when they judge it benign, or no scanned lock file pins it).", get: func(r *Record) any { return r.RepoScanVerdict }},
+	{Name: "repoScanRepos", Kind: KindList, Filterable: true, Desc: "Tracked repositories whose current scans flag the coordinate or could not examine it.", get: func(r *Record) any { return r.RepoScanRepos }},
+	{Name: "repoScanFlagged", Kind: KindBool, Filterable: true, Desc: "A repository dependency scan judged the coordinate malicious or suspicious.", get: func(r *Record) any { return r.RepoScanFlagged }},
+	{Name: "repoScanUnscanned", Kind: KindBool, Filterable: true, Desc: "A repository dependency scan could not examine the coordinate (unscanned is never benign).", get: func(r *Record) any { return r.RepoScanUnscanned }},
+	{Name: "repoScanModel", Kind: KindString, Filterable: true, Desc: "Model behind the worst repository-scan verdict.", get: func(r *Record) any { return r.RepoScanModel }},
+	{Name: "repoScanAt", Kind: KindTime, Filterable: false, Desc: "When a repository dependency scan last read the coordinate.", get: func(r *Record) any { return r.RepoScanAt }},
+
 	// Consuming-tenant usage totals (metering, Task 84).
 	{Name: "tenantRequests", Kind: KindNumber, Filterable: true, Desc: "Cumulative metered requests for the coordinate's consuming tenant.", get: func(r *Record) any { return r.TenantRequests }},
 	{Name: "tenantBytesServed", Kind: KindNumber, Filterable: true, Desc: "Cumulative bytes served to the coordinate's consuming tenant (cache hit + upstream).", get: func(r *Record) any { return r.TenantBytesServed }},

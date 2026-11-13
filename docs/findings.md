@@ -253,6 +253,38 @@ reported instead of passed in silence. It is a note: the artifact was served
 Infrastructure failures — provider outage, timeout, exhausted budget — are not
 reported under this rule.
 
+<a id="llm-malicious-dependency"></a>**`llmpkgscan/malicious-dependency`** — a
+dependency a tracked repository's lock files pin was judged malicious by the LLM
+package-content scan (Task 181). The repository dependency scan reads the lock
+files at a commit — a release, the default branch's head, a revision asked for —
+and puts every dependency before the gate. The result is located at the lock
+file and the **line that pins the dependency** (`package-lock.json:42`), so a
+code-scanning upload annotates the lock file. The verdict, the model, when it
+was reached and the artifact digest are in the result properties, with
+`verifiedEvidence`: the places the model cited where the proxy found the quoted
+text. A place only the model named, the model's stated reasons and the excerpts
+it quoted are not carried: a SARIF document travels to CI, the SIEM and AI
+agents, and those are text the package under review can shape (they are in the
+admin console's repository view, as text only). A release that pins it is marked *contains malicious dependency*; its
+pinned bytes are kept for forensics and refused to clients under `block` and
+`quarantine`. See [repositories.md](repositories.md#dependency-scans).
+
+<a id="llm-suspicious-dependency"></a>**`llmpkgscan/suspicious-dependency`** — a
+dependency a lock file pins was flagged short of malicious (the model said
+suspicious, or malicious below the threshold, or the package addresses the
+scanner, or its archive attacks an extractor). Located like the malicious one;
+severity high when the model said malicious.
+
+<a id="llm-unscanned-dependency"></a>**`llmpkgscan/unscanned-dependency`** — a
+dependency a lock file pins could not be examined: it cannot be fetched through
+the proxy, a gate refused it, it was served without a digest, its ecosystem or
+upstream is outside the scan's scope, none of its objects is package content, or
+the scan itself could not finish. The reason code is in `unscannedCode`, and
+`retryable` marks the ones scanned again automatically. A lock file that was found
+but could not be read (its format refused, over the size limit) is reported under
+this rule too, at the lock file (`unscannedCode: lockfile-unread`): whatever it
+pins is unscanned. A note: an unscanned dependency is never reported as benign.
+
 <a id="build-provenance-source-mismatch"></a>**`buildprov/source-mismatch`** —
 the signed build provenance proves a different source than the package metadata
 claims. The inbound build-provenance gate (Task 72) verifies the

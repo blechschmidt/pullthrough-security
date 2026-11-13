@@ -52,6 +52,9 @@ type Dossier struct {
 	// Releases lists the releases of tracked repositories whose lock files pin
 	// the coordinate: "shipped in release X" (Task 180).
 	Releases *ReleasesSection `json:"releases,omitempty"`
+	// RepositoryScans lists the dependency scans of tracked repositories whose
+	// lock files pin the coordinate, and what each read in it (Task 181).
+	RepositoryScans *RepositoryScansSection `json:"repositoryScans,omitempty"`
 
 	// Sources records the per-subsystem fan-out outcome so a reader can
 	// distinguish "no problem found" from "source was unavailable".
@@ -339,6 +342,46 @@ type ReleaseRef struct {
 	Status  string `json:"status"`
 	// FullyPinned reports whether the whole release is pinned.
 	FullyPinned bool `json:"fullyPinned"`
+}
+
+// RepositoryScansSection is what the dependency scans of tracked
+// repositories read in the coordinate (Task 181): every release that pins it,
+// and the head of each repository's default branch.
+type RepositoryScansSection struct {
+	// Total counts the scans; Flagged those that judged it malicious or
+	// suspicious; Unscanned those that could not examine it.
+	Total     int           `json:"total"`
+	Flagged   int           `json:"flagged"`
+	Unscanned int           `json:"unscanned"`
+	Scans     []RepoScanRef `json:"scans"`
+}
+
+// RepoScanRef is one scanned revision that pins the coordinate.
+type RepoScanRef struct {
+	Repo   string   `json:"repo"`
+	Commit string   `json:"commit"`
+	Kind   string   `json:"kind"`
+	Ref    string   `json:"ref,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
+	// Current reports that the commit is the default branch's head now.
+	Current bool   `json:"current,omitempty"`
+	Version string `json:"version"`
+	// Verdict is malicious, suspicious, benign or unscanned; Reason the
+	// proxy's sentence; UnscannedCode why there is no verdict.
+	Verdict       string `json:"verdict"`
+	Reason        string `json:"reason,omitempty"`
+	UnscannedCode string `json:"unscannedCode,omitempty"`
+	// Model, Confidence and ScannedAt are the verdict's provenance; Digest
+	// the bytes it is on.
+	Model      string    `json:"model,omitempty"`
+	Confidence float64   `json:"confidence,omitempty"`
+	ScannedAt  time.Time `json:"scannedAt,omitzero"`
+	Digest     string    `json:"digest,omitempty"`
+	// Files are the lock-file locations ("path:line") that pin it; Pinned
+	// reports a release that pins its bytes; Released a break-glass grant.
+	Files    []string `json:"files,omitempty"`
+	Pinned   bool     `json:"pinned,omitempty"`
+	Released string   `json:"released,omitempty"`
 }
 
 type LLMPackageScanSection struct {

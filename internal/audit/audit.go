@@ -55,6 +55,7 @@ const (
 	EventRepository    EventType = "repository"      // a repository registered or removed in the repository registry (Task 180)
 	EventReleaseTag    EventType = "release_tag"     // a tracked repository's tag created, moved or deleted (Task 180)
 	EventReleasePin    EventType = "release_pin"     // a release's dependencies pinned (or not), a pinned object repaired or lost (Task 180)
+	EventRepoScan      EventType = "repository_scan" // a tracked repository's dependencies scanned by the LLM package-content scan, a dependency flagged (Task 181)
 )
 
 // Decision is the outcome recorded for authz/policy/quota events.

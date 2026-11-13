@@ -1291,6 +1291,14 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `repositories.pinning.retryInterval` | duration | 0s |
 | `repositories.pinning.maxAttempts` | int | 0 |
 | `repositories.pinning.spoolDir` | string | — |
+| `repositories.scan.enabled` | bool | — |
+| `repositories.scan.releases` | bool | — |
+| `repositories.scan.defaultBranch` | bool | — |
+| `repositories.scan.interval` | duration | 0s |
+| `repositories.scan.workers` | int | 0 |
+| `repositories.scan.concurrency` | int | 0 |
+| `repositories.scan.retryInterval` | duration | 0s |
+| `repositories.scan.maxAttempts` | int | 0 |
 | `repositories.repos[].name` | string | — |
 | `repositories.repos[].url` | string | — |
 | `repositories.repos[].username` | string | — |
@@ -1302,6 +1310,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `repositories.repos[].fullName` | string | — |
 | `repositories.repos[].backfillTags` | int | — |
 | `repositories.repos[].roles` | []string | — |
+| `repositories.repos[].branch` | string | — |
 
 ## `secrets`
 

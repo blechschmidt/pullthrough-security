@@ -199,7 +199,23 @@ func fullProviders() Providers {
 			{Repo: "widgets", Commit: "c0ffee0000000000000000000000000000000000", State: "current", Tags: []string{"v2.0"}, Version: "1.0.0", Status: "pinned", FullyPinned: true},
 			{Repo: "widgets", Commit: "decaf00000000000000000000000000000000000", State: "historical", FormerTags: []string{"v1.0"}, Version: "1.0.0", Status: "refused"},
 		}},
+		RepositoryScans: stubRepoScans{refs: []RepoScanRef{
+			{Repo: "widgets", Commit: "c0ffee0000000000000000000000000000000000", Kind: "release", Tags: []string{"v2.0"},
+				Version: "1.0.0", Verdict: "malicious", Model: "model-x", Confidence: 0.97, ScannedAt: testNow,
+				Digest: "sha256:abc", Files: []string{"package-lock.json:12"}, Pinned: true},
+			{Repo: "widgets", Commit: "beef000000000000000000000000000000000000", Kind: "head", Ref: "main", Current: true,
+				Version: "1.0.0", Verdict: "unscanned", UnscannedCode: "budget-exhausted", Files: []string{"package-lock.json:12"}},
+		}},
 	}
+}
+
+type stubRepoScans struct{ refs []RepoScanRef }
+
+func (s stubRepoScans) RepositoryScansOf(_ context.Context, tenant, ecosystem, name, version string) ([]RepoScanRef, error) {
+	if tenant != "acme" || ecosystem != "npm" || name != "evil" {
+		return nil, nil
+	}
+	return s.refs, nil
 }
 
 // fullSuppressionLedger seeds a ledger with one suppression for the test
@@ -283,6 +299,9 @@ func TestBuildFullDossier(t *testing.T) {
 	if r := d.Releases; r == nil || r.Total != 2 || r.Current != 1 || r.Pinned != 1 {
 		t.Errorf("releases section wrong: %+v", d.Releases)
 	}
+	if rs := d.RepositoryScans; rs == nil || rs.Total != 2 || rs.Flagged != 1 || rs.Unscanned != 1 {
+		t.Errorf("repository scans section wrong: %+v", d.RepositoryScans)
+	}
 	if d.Partial {
 		t.Errorf("dossier should not be partial: %+v", d.Sources)
 	}
@@ -294,7 +313,8 @@ func TestBuildFullDossier(t *testing.T) {
 	}
 
 	md := d.Markdown()
-	for _, want := range []string{"Security dossier: npm/evil@1.0.0", "**Verdict:** BLOCK", "CVE-2026-0001", "deadbeef", "denied", "## Suppression history", "vex:not_affected", "## Shipped in releases", "widgets @ c0ffee000000"} {
+	for _, want := range []string{"Security dossier: npm/evil@1.0.0", "**Verdict:** BLOCK", "CVE-2026-0001", "deadbeef", "denied", "## Suppression history", "vex:not_affected", "## Shipped in releases", "widgets @ c0ffee000000",
+		"## Dependency scans in repositories", "release · version 1.0.0 · malicious · model-x", "head main (head) · version 1.0.0 · unscanned (budget-exhausted)", "`package-lock.json:12`"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown missing %q", want)
 		}

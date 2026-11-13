@@ -21,6 +21,7 @@ summary with detail from the backing subsystems when they are wired:
 | `get_provenance`      | `provgraph` + `attestbundle` (+ summary)   | Where did it come from? Source commit, blast radius, attestation. |
 | `get_timeline`        | `timeline`                                 | What happened to it / during an incident?                         |
 | `get_vulnerabilities` | `vulnscan`/VEX (+ query summary)           | What CVEs affect it after VEX adjudication?                       |
+| `get_repository_scan` | `repos` dependency scans (Task 181)        | Which dependencies of this repository revision are malicious, suspicious or unscanned? |
 | `run_query`           | `queryapi` (passthrough)                   | Ad-hoc questions over the whole security data model.              |
 
 ## Security model
@@ -118,6 +119,16 @@ omitted. `get_findings` also takes `format` (`summary` (default) or `sarif`).
 `get_timeline` also takes `incidentId` and `limit`. `run_query` takes a federated
 query document (`select`, `where`, `orderBy`, `limit`, `offset`) — its `tenant`
 field is always overridden with the caller's hard tenant scope.
+`get_repository_scan` takes `{ repo, rev?, verdicts?, format? }`: a registered
+repository, a tag, branch or commit (default: the default branch's head),
+`verdicts` (`all`, `flagged`, `unscanned`, `not-benign`) and `format`
+(`summary` or `sarif`). Each dependency comes with its verdict, the model and
+when it judged, the digest, the lock-file lines and the cited locations the
+proxy verified — not the model's reasons, the excerpts it quoted or a place only
+the model named: those are text the untrusted package can shape, and have no
+place in an agent's context. The same holds for `get_findings` on a
+repository's scan document (`name: repo:<repo>`). See
+[repositories.md](repositories.md#dependency-scans).
 
 ## CLI: `ptctl mcp`
 

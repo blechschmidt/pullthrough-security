@@ -77,6 +77,12 @@ func FromInput(in policyengine.Input, opts Options) Document {
 
 // add appends a finding, resolving its SARIF level from severity when the caller
 // left Level unset.
+// Add appends a finding to the document, resolving its SARIF level from its
+// severity when the finding sets none. It is how a producer outside the
+// admission pipeline (the repository dependency scan, Task 181) builds a
+// document.
+func (d *Document) Add(f Finding) { d.add(f) }
+
 func (d *Document) add(f Finding) {
 	if f.Level == "" {
 		f.Level = severityToLevel(f.Severity)

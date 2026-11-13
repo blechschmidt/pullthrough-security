@@ -249,6 +249,11 @@ func (s *Service) sync(ctx context.Context, name, trigger string) (SyncResult, [
 	}
 
 	res.Queued = s.queueReleases(ctx, repo, written, initial)
+	if appendErr == nil {
+		// The mirror is fresh: the default branch's head is checked, and its
+		// dependency scan queued when it moved or is due (Task 181).
+		s.checkHead(ctx, repo, cred, trigger)
+	}
 	if len(written) > 0 {
 		s.log.Info("repository tags changed", "repo", name, "created", res.Created, "moved", res.Moved,
 			"deleted", res.Deleted, "queued", res.Queued, "trigger", trigger)
@@ -474,9 +479,23 @@ func (s *Service) WebhookHandler() http.Handler {
 		}
 		ref := push.Ref
 		if !strings.HasPrefix(ref, "refs/tags/") {
-			s.metrics().webhook("ignored")
-			writeJSON(w, http.StatusAccepted, map[string]any{"status": "ignored", "reason": "not a tag", "repos": matched})
-			return
+			// A push to the branch whose head the dependency scan follows
+			// syncs the repository too: its new head is scanned (Task 181).
+			var branchRepos []string
+			if strings.HasPrefix(ref, "refs/heads/") && s.headScans() {
+				for _, name := range matched {
+					hs := s.headState(r.Context(), name)
+					if hs.Branch == "" || "refs/heads/"+hs.Branch == ref {
+						branchRepos = append(branchRepos, name)
+					}
+				}
+			}
+			if len(branchRepos) == 0 {
+				s.metrics().webhook("ignored")
+				writeJSON(w, http.StatusAccepted, map[string]any{"status": "ignored", "reason": "not a tag, nor a push to the branch whose dependencies are scanned", "repos": matched})
+				return
+			}
+			matched = branchRepos
 		}
 		if !s.isLeader() {
 			s.metrics().webhook("deferred")
@@ -485,6 +504,8 @@ func (s *Service) WebhookHandler() http.Handler {
 		}
 		s.metrics().webhook("accepted")
 		for _, name := range matched {
+			// The sync records any tag change as the webhook's, and a moved
+			// head is scanned as a push (checkHead).
 			s.goSync(name, "webhook")
 		}
 		writeJSON(w, http.StatusAccepted, map[string]any{"status": "accepted", "repos": matched, "ref": ref})

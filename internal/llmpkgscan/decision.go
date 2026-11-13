@@ -334,6 +334,30 @@ func (d Decision) Served() bool { return d.Outcome == OutcomeAllow }
 //	benign        serve      serve            serve
 //	unscanned     fail mode: open serves, closed refuses (nothing is evicted)
 func (s *Service) Gate(rep *Report) Decision {
+	d := s.Decide(rep)
+	if s == nil || rep == nil {
+		return d
+	}
+	switch {
+	case rep.Unscanned != nil && d.Served():
+		s.failedOpen.Add(1)
+	case rep.Unscanned != nil:
+		s.failedClosed.Add(1)
+	case d.Code == string(DispositionBenign):
+	case d.Served():
+		s.annotated.Add(1)
+	case s.cfg.Action == ActionQuarantine:
+		s.quarantined.Add(1)
+	default:
+		s.blocked.Add(1)
+	}
+	return d
+}
+
+// Decide is Gate without the metrics: the decision a pull of the artifact
+// would get, for a caller that reports on an artifact rather than serves it
+// (the repository dependency scan, Task 181).
+func (s *Service) Decide(rep *Report) Decision {
 	if s == nil || rep == nil {
 		return Decision{Outcome: OutcomeAllow, Code: string(DispositionBenign)}
 	}
@@ -341,7 +365,6 @@ func (s *Service) Gate(rep *Report) Decision {
 		// No verdict: the fail mode decides, whatever the action. Nothing was
 		// established about the artifact, so nothing is evicted.
 		if s.cfg.FailMode == FailClosed {
-			s.failedClosed.Add(1)
 			return Decision{
 				Outcome:    OutcomeRefuse,
 				Action:     "fail-closed",
@@ -350,7 +373,6 @@ func (s *Service) Gate(rep *Report) Decision {
 				Reason:     "the package could not be scanned (" + rep.Unscanned.Code + "): " + rep.Unscanned.Reason + "; refused under the fail-closed policy",
 			}
 		}
-		s.failedOpen.Add(1)
 		return Decision{
 			Outcome: OutcomeAllow,
 			Action:  "fail-open",
@@ -370,16 +392,10 @@ func (s *Service) Gate(rep *Report) Decision {
 	if !action.refusesDisposition(rep.Disposition) {
 		// Served with the verdict on record: annotate, or a suspicious artifact
 		// under block.
-		s.annotated.Add(1)
 		return d
 	}
 	// Refused. The artifact is evicted in either mode; what differs is which
 	// dispositions get this far.
-	if action == ActionQuarantine {
-		s.quarantined.Add(1)
-	} else {
-		s.blocked.Add(1)
-	}
 	d.Outcome = OutcomeRefuse
 	d.Evict = true
 	d.PolicyCode = PolicyCodeSuspicious

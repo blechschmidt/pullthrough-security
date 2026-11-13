@@ -9,6 +9,11 @@ never delete them, and a pinned object whose bytes go bad is fetched again.
 Moving or deleting the tag later changes nothing about the old release: its
 commit keeps its manifest and its pins, and the API calls it *historical*.
 
+Every dependency those lock files pin is also put before the
+[LLM package-content scan](llm-package-scan.md): each release once it is
+pinned, the default branch's head when it moves and on a schedule, and any
+revision on request (Task 181, see [Dependency scans](#dependency-scans)).
+
 It builds on three earlier pieces:
 
 * the incremental commit scanner's mirror, poll and webhook machinery
@@ -24,8 +29,10 @@ It builds on three earlier pieces:
    (`ptctl repos sync`). Polls run on the HA leader only. The webhook is served
    only when `repositories.webhookSecret` is set, and a delivery is verified
    with it (GitHub's `X-Hub-Signature-256`) before anything in it is read:
-   otherwise anyone could have the proxy fetch from the Git host. Only tag
-   pushes trigger a sync; branch pushes are acknowledged and ignored. Syncs of
+   otherwise anyone could have the proxy fetch from the Git host. Tag pushes
+   trigger a sync. So do pushes to the default branch when
+   [dependency scans](#dependency-scans) are on (its new head is scanned);
+   other branch pushes are acknowledged and ignored. Syncs of
    a repository are coalesced: deliveries that arrive while one runs make it
    run once more, not once each. A refresh that fails changes nothing. In
    particular, a mirror that cannot be fetched is never read as "every tag was
@@ -59,7 +66,9 @@ It builds on three earlier pieces:
    pipeline, exactly as a client request would be:
    * every admission gate runs (name guard, malware feed, firewall, maturity,
      policy, signatures, vulnerabilities, licenses, install hooks, content and
-     LLM scans, …);
+     LLM scans, …). With [dependency scans](#dependency-scans) on, the LLM
+     scan's refusal is left to the release's scan: the bytes are pinned, kept
+     for forensics, and the release is marked;
    * digests are verified where the backend checks them;
    * the request is recorded in the download log.
 
@@ -121,11 +130,155 @@ all, `0` none). Any other tagged commit can be pinned with `ptctl repos pin`.
 | Byte and request quotas | count requests; they never delete cache objects. Pinning requests are not counted against a tenant's rate limits. |
 | Tiered storage | may demote a pinned object to the cold tier; never drops it (every move is copy-then-delete). |
 | Integrity self-heal | corrupt bytes are removed, and the pinned object is fetched again at once. If the fresh copy is not the pinned digest, or cannot be fetched, the object is lost: the manifests that pin it record it as failed (`lost to an integrity failure: …`), those releases stop pinning its key — whatever the cache holds under it is an ordinary entry again, not one kept forever — and are no longer fully pinned. They are retried after `pinning.retryInterval`. A `PullthroughPinnedObjectLost` alert fires and a `release_pin` notification goes out. |
-| Backup / restore | registrations, histories and manifests are backup sources (`repos-registry`, `repos-history`, `repos-manifests`). The mirrors and the trackers' last-seen times are rebuilt. |
+| Backup / restore | registrations, histories, manifests and dependency scan reports are backup sources (`repos-registry`, `repos-history`, `repos-manifests`, `repos-scans`). The mirrors, the trackers' last-seen times and the default branches' scan state are rebuilt. |
+| Dependency scan | a malicious verdict never deletes a pinned object. The release keeps the bytes, for forensics, and the gate refuses them to every client while the verdict stands (see [Dependency scans](#dependency-scans)). |
 | Air-gap export / import | bundles carry the manifests and the pinned keys they hold. An import stores the manifests only from a bundle whose manifest digest was verified (`-manifest-digest`), and never overwrites an object the importing instance has pinned. |
 
 Pins are permanent: removing a repository (`ptctl repos remove`) stops its
 tracking but keeps its history, manifests and pins.
+
+## Dependency scans
+
+Task 181 scans every dependency a repository's lock files pin with the
+sandboxed [LLM package-content scan gate](llm-package-scan.md). The scans
+need that gate (`llmPackageScan.enabled`); they are on by default when it is
+(`repositories.scan.enabled`).
+
+### When a scan runs
+
+| Trigger | What is scanned |
+|---------|-----------------|
+| A release is pinned (a tag appears or moves) | the release manifest: each dependency through its **pinned** objects, read from the cache. A retry of the pin, which pins more, is scanned again. |
+| A push to the default branch (webhook), a poll | the default branch's head, when it moved. The branch is the remote's default branch (its `HEAD`), or the repository's `branch`. |
+| The schedule (`repositories.scan.interval`, default 24h) | the default branch's head again, even when it did not move. |
+| `ptctl repos scan <repo> [--rev REV]`, `POST /api/repos/scan?name=&rev=` | the revision named: a tag, a branch, a commit or a prefix of one. Without a revision, the default branch's head, fetched first. |
+| A new model or prompt version | every release again: the verdict cache keys on both, so a new model reads every package anew. |
+
+A commit that is a pinned release is always scanned through its pins,
+whatever asked for the scan. If it is also the default branch's head, the
+report says so (`branch`). The default branch's head, and any other revision,
+is scanned by fetching each dependency through the gated serve pipeline, as
+the scanner (`system:repository-scanner` of the repository's tenant, with its
+roles), without pinning anything.
+
+### What a scan does with each dependency
+
+* **The verdict cache is reused.** A dependency's bytes that already have a
+  verdict under the current model and prompt version (from a client's pull,
+  the pin, another repository) cost no model call. The report counts the
+  verdicts the cache answered (`cached`) and the dependencies that needed a
+  model call (`scanned`).
+* **Cost budget and concurrency are the gate's.** Scans run under
+  `llmPackageScan.budget`, `maxConcurrent`, the queue and the per-tenant
+  share, as the repository's tenant. `repositories.scan.workers` (default 1)
+  revisions and `concurrency` (default 2) dependencies of each are scanned at a
+  time, so a large repository does not take the gate's slots from clients.
+* **Unscanned is never benign.** A dependency the scan cannot cover is
+  reported `unscanned`, with a reason code:
+
+  | Code | Why |
+  |------|-----|
+  | `unsupported` | it cannot be fetched through the proxy (a Git dependency, an unsupported registry; see [which dependencies can be pinned](#which-dependencies-can-be-pinned)) |
+  | `fetch-refused` | an admission gate refused it (the gate and its reason are in the report) |
+  | `fetch-failed` | it could not be fetched (retried) |
+  | `not-pinned` | a release dependency the pinner has not pinned yet; the release is scanned again once it is |
+  | `no-digest` | the proxy serves it without caching it: there are no recorded bytes to bind a verdict to |
+  | `lockfile-mismatch` | the bytes served are not the ones the lock file pins |
+  | `out-of-scope` | the gate does not scan its ecosystem or upstream (`llmPackageScan.include`, `exclude`, `excludeUpstreams`) |
+  | `no-package-content` | none of its objects is package content (a Go module of which only `go.mod` is fetched) |
+  | `scan-failed` | the object could not be put before the gate (retried) |
+  | the gate's own codes | `oversized`, `unsupported-format`, `provider-refusal`, `malformed-output`, … ; `budget-exhausted`, `provider-error`, `timeout`, `scanner-busy`, `provider-unavailable` are retried |
+
+  A dependency is benign only when every object of it the gate examines is,
+  and a clean reading counts only for bytes that were admitted, recorded and
+  matched against the lock file. A scan with an unscanned dependency is
+  `incomplete`, never `clean` — and so is one with a lock file that could not
+  be read (a format the parser refuses, a file over the size limit): what such
+  a file pins was never seen. What a passing cause left unscanned is scanned
+  again after `repositories.scan.retryInterval` (doubling, up to
+  `maxAttempts`); the retry keeps every other result.
+
+### The action ladder
+
+The gate's configured action applies, as on a pull (see
+[llm-package-scan.md](llm-package-scan.md)):
+
+| Verdict | `annotate` | `block` | `quarantine` |
+|---------|------------|---------|--------------|
+| malicious | finding + notification + manifest marked | finding + notification + manifest marked; clients refused | same as `block` |
+| suspicious | finding (+ notification, medium) | finding (+ notification, medium) | finding + notification (high) + manifest flag; clients refused |
+| unscanned | finding (note); `failMode` decides what clients get | | |
+
+A malicious verdict on a release's dependency marks its manifest
+**contains malicious dependency** (`scan.containsMaliciousDependency`, with the
+flagged coordinates in `scan.flagged`). The release's pins are untouched: the
+bytes are **kept for forensics**, never deleted. Since a release is pinned for
+reproducibility, the release pinner does not refuse a dependency the LLM gate
+refuses when release scans are on: it pins the bytes, and the scan marks the
+release and reports the dependency. The deferred verdict is not handed on to
+the gates after it (a policy rule on `input.llmPackageScan`, the risk score), so
+they do not refuse the same verdict in its place. A client's pull of those bytes
+is judged, and refused, as always. A refusal of pinned bytes keeps them; its
+audit record says `keptPinned`. When another gate refuses bytes the LLM gate
+had judged (for reasons of its own), the release does not pin them, but the
+manifest keeps the LLM gate's reading of them (`objects[].llm`) and the scan
+reports the verdict.
+
+A break-glass grant that releases the artifact (an approved review of the
+gate's refusal) releases the dependency — when grants release every flagged
+object of it (a released wheel does not release the sdist next to it). Its
+finding is reported suppressed (mechanism `break-glass`, in the suppression
+trail), and it neither marks the release nor raises a notification; the report
+still shows the verdict.
+
+A flagged dependency is announced once — a `repository_scan` notification and
+a `repository_scan` audit record — not at every rescan: a malicious dependency
+that stays in the default branch is announced once for the branch, and once for
+each release that pins it.
+
+### The report
+
+Each scan stores a report per commit (`scans/<repo>/<commit>` in the state
+directory). For each dependency it records:
+
+* the verdict (`malicious`, `suspicious`, `benign`, `unscanned`) and the
+  proxy's sentence for it, or the unscanned reason;
+* the lock-file lines that pin it (`package-lock.json:42`);
+* where the verdict came from: the artifact digest, the provider, the model,
+  the prompt version, when it was reached, whether the verdict cache answered;
+* the evidence: the reasons the model stated and the places it cited, each
+  marked verified when the proxy found the quoted text there. These are model
+  output about untrusted content, shown as text only;
+* every object of the dependency and the gate's reading of each.
+
+The report is exposed through:
+
+| Surface | What |
+|---------|------|
+| Admin API | `GET /api/repos/scan?name=&rev=[&verdict=malicious,suspicious,unscanned]` (the report; default the default branch's head), `GET /api/repos/scans?name=` (the head, every release, what is queued), `GET /api/repos/scan/sarif?name=&rev=` (`&all=1`: the head and every release) |
+| `ptctl` | `ptctl repos scan <repo> [--rev REV] [--wait]`, `ptctl repos report <repo> [--rev REV] [--verdict flagged] [--sarif FILE]` |
+| Admin UI | the **Repositories** tab: each repository's head scan and releases, the per-dependency table, the evidence, *Scan now*, SARIF download |
+| Dossier | *Dependency scans in repositories*: every release and default-branch head whose lock files pin the coordinate, with the verdict there |
+| SARIF | one result per lock-file location of each dependency that is not benign: `llmpkgscan/malicious-dependency` (error), `llmpkgscan/suspicious-dependency` (warning), `llmpkgscan/unscanned-dependency` (note), at the lock file's path and line; and a note at each lock file that could not be read. The message is the proxy's. The properties carry the verdict, model, time, digest and `verifiedEvidence` (the places the proxy confirmed); the model's reasons, its excerpts and any place only the model named stay on the admin surface. At most 20 locations per dependency and 10,000 results per document (`omittedResults` says how many more the report holds) |
+| Findings layer | each scan's findings document (`repo:<name>@<commit>`, and `repo:<name>@<branch>` for the head) goes through de-duplication, the suppression trail, the findings store (`/api/findings/sarif?package=repo:<name>`) and the SIEM forwarder |
+| Query API, MCP | query fields `repoScanVerdict`, `repoScanRepos`, `repoScanFlagged`, `repoScanUnscanned`, `repoScanModel`, `repoScanAt`; the MCP tool `get_repository_scan` (it leaves out the model's reasons and the package's excerpts: an agent is not handed text an attacker wrote) |
+| Metrics | `pullthrough_repo_scans_total{kind,status}`, `scan_duration_seconds`, `scan_dependencies_total{verdict}`, `scan_queue`, `malicious_dependencies{repo}` |
+
+The default branch's state only moves forward: a scan of a head the branch
+has left in the meantime does not become the "current head" report, and such a
+scan is not retried. Reports of revisions that are neither releases nor the
+current head are pruned beyond the 20 newest per repository; release reports
+stay as long as the releases. A scan asked for while the same commit is being
+scanned (a re-pin that pinned more) runs again once that scan ends, and a
+release whose pins changed after its scan began is scanned again.
+
+### High availability
+
+Scan requests are recorded in the shared state directory (`scanreqs/`); only
+the leader runs them, so a request made through any replica's API is picked up
+by the leader within a minute. A scan asked for while its release is still
+being pinned is kept and runs once the release is pinned. Reports written by
+the leader are re-read by every replica.
 
 ## Configuration
 
@@ -143,6 +296,12 @@ repositories:
     platforms: [linux/amd64, linux/arm64]  # images and Terraform providers
     retryInterval: 1h
     maxAttempts: 5
+  scan:                                    # Task 181; needs llmPackageScan.enabled
+    releases: true                         # each release once pinned
+    defaultBranch: true                    # the default branch's head on push and poll
+    interval: 24h                          # and again at least this often
+    concurrency: 2                         # dependencies of one revision at a time
+    retryInterval: 1h                      # passing causes (budget, provider) are retried
   repos:
     - name: widgets
       url: https://github.com/acme/widgets.git
@@ -152,6 +311,7 @@ repositories:
       tags: ["v*"]
       upstreams: {cargo: crates}            # only needed when the lock file's registry is not enough
       # roles: [widgets-pinner]             # instead of repositories.roles
+      # branch: develop                     # the branch whose head is scanned (default: the remote's HEAD)
 ```
 
 Every key is listed in [configuration-reference.md](configuration-reference.md#repositories).
@@ -256,6 +416,10 @@ truth, and a test holds every lock-file type to one or the other.
 | Pin (or retry) a release now | `ptctl repos pin <name> <commit>` | `POST /api/repos/pin?name=&commit=` |
 | Verify the history's hash chain | `ptctl repos verify <name>` | `GET /api/repos/verify?name=` |
 | Stop tracking *(administer)* | `ptctl repos remove <name>` | `POST /api/repos/remove?name=` |
+| Scan the dependencies now *(operate)* | `ptctl repos scan <name> [--rev REV] [--wait]` | `POST /api/repos/scan?name=&rev=` |
+| A scan's report | `ptctl repos report <name> [--rev REV] [--verdict flagged]` | `GET /api/repos/scan?name=&rev=&verdict=` |
+| The report as SARIF | `ptctl repos report <name> [--rev REV] --sarif FILE` | `GET /api/repos/scan/sarif?name=&rev=` |
+| A repository's scans | — | `GET /api/repos/scans?name=` |
 
 Each release is shown with:
 
@@ -284,6 +448,8 @@ caller's tenant.
 | `repository` | a repository is registered or removed |
 | `release_tag` | a tag is created, moved or deleted (with the commits, the record's sequence number and hash) |
 | `release_pin` | a release was pinned (allow) or not fully pinned (deny); a dependency's bytes did not match its lock file; a pinned object was restored or lost after an integrity failure |
+| `repository_scan` | a dependency scan finished (deny when it found a malicious or suspicious dependency); a dependency was flagged (`event: dependency-flagged`, with the coordinate, digest, model and lock-file lines) |
+| `policy_decision` `llmpkgscan:deferred:*` | the LLM gate's refusal of an object the release pinner or the scanner fetched, left to the scan |
 
 Notifications: `release_tag` for moved (high) and deleted (medium) tags.
 `release_pin` for:
@@ -291,6 +457,11 @@ Notifications: `release_tag` for moved (high) and deleted (medium) tags.
 * a release not fully pinned, on its first and its last attempt;
 * a digest mismatch (high);
 * a lost pinned object (critical).
+
+`repository_scan` for a dependency the LLM scan judges malicious (critical),
+or suspicious (high under `quarantine`, medium otherwise), once per dependency
+and digest. The summary is the proxy's sentence; the model's words are never
+in a notification.
 
 Metrics (`pullthrough_repo_*`):
 
@@ -306,6 +477,10 @@ Metrics (`pullthrough_repo_*`):
 | `sync_errors_total{repo}` | failed syncs |
 | `webhooks_total{outcome}` | webhook deliveries: accepted, ignored, deferred, rejected |
 | `pin_repairs_total{outcome}` | integrity repairs of pinned objects: restored, lost |
+| `scans_total{kind,status}` | dependency scans by kind (release, head, revision) and status (complete, incomplete, failed); `scan_duration_seconds` their duration |
+| `scan_dependencies_total{verdict}` | dependencies scanned, by verdict |
+| `scan_queue` | revisions waiting for a scan |
+| `malicious_dependencies{repo}` | malicious dependencies (not released by break-glass) in each repository's current scans: the head and every release |
 
 ## Alerts
 
@@ -314,4 +489,5 @@ Metrics (`pullthrough_repo_*`):
 | `PullthroughReleasePinFailures` | warning | dependencies of a release were refused, could not be fetched, or the manifest could not be stored | `ptctl repos releases <repo>` names each and why. A refusal needs an admission decision (break-glass, or a fixed dependency); fetch failures are retried. |
 | `PullthroughReleaseDigestMismatch` | critical | the bytes served for a dependency are not those its lock file pins | Treat as a possible registry compromise or a wrong lock file. Compare the digests in the manifest (`--full`) with the registry's before rebuilding the release. |
 | `PullthroughPinnedObjectLost` | critical | a pinned object failed its integrity check and could not be fetched again with its pinned digest | Restore it from a backup or an air-gap bundle; the releases that pin it (`ptctl repos lookup --digest …`) are not reproducible until then. |
+| `PullthroughRepositoryMaliciousDependency` | critical | a current scan of a repository (its default branch's head, a release) found a malicious dependency | `ptctl repos report <repo> --verdict flagged` names it, the lock-file lines and the model. Remove or replace it and rebuild; review the evidence in the admin console before releasing a false positive through break-glass. The release's pinned bytes are kept for forensics. |
 | `PullthroughRepositorySyncFailing` | warning | a repository's tags could not be fetched three times in 30 minutes | Check `ptctl repos show <repo>`: the credentials reference, network, or a history that no longer verifies (`ptctl repos verify`). |

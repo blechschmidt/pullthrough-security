@@ -31,6 +31,8 @@ func runRepos(args []string) error {
 		"pin":      reposPin,
 		"remove":   reposRemove,
 		"verify":   reposVerify,
+		"scan":     reposScan,
+		"report":   reposReport,
 	}
 	switch args[0] {
 	case "-h", "--help", "help":
@@ -39,7 +41,7 @@ func runRepos(args []string) error {
 	}
 	fn, ok := actions[args[0]]
 	if !ok {
-		return fmt.Errorf("unknown repos action %q (try: add, list, show, tags, releases, commit, lookup, sync, pin, remove, verify)", args[0])
+		return fmt.Errorf("unknown repos action %q (try: add, list, show, tags, releases, commit, lookup, sync, pin, remove, verify, scan, report)", args[0])
 	}
 	return fn(args[1:], os.Stdout)
 }
@@ -75,6 +77,17 @@ Actions:
   remove <name>               stop tracking an API registration; its history,
                               releases and pins are kept (administer)
   verify <name>               verify the hash chain of the tag history
+  scan <name> [--rev REV] [--wait] [--wait-timeout D]
+                              scan every dependency the lock files pin with the
+                              LLM package-content scan (Task 181): the revision
+                              named (tag, branch, commit; default the default
+                              branch's head). A release is scanned through its
+                              pinned objects. --wait waits for the report.
+  report <name> [--rev REV] [--verdict all|flagged|unscanned|not-benign]
+                [--sarif FILE]
+                              the scan report: each dependency's verdict, model,
+                              time and the lock-file lines that pin it; --sarif
+                              writes SARIF located at those lines ("-" stdout)
 
 Global flags (--url, --token, --tenant, …) follow the action. --format json
 prints the API's answer.
@@ -517,4 +530,166 @@ func shortSHA(s string) string {
 		return s[:12]
 	}
 	return s
+}
+
+// verdictFilter maps a --verdict choice onto the API's filter.
+func verdictFilter(v string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "all":
+		return "", nil
+	case "flagged":
+		return "malicious,suspicious", nil
+	case "unscanned":
+		return "unscanned", nil
+	case "not-benign":
+		return "malicious,suspicious,unscanned", nil
+	}
+	return "", fmt.Errorf("--verdict %q: want all, flagged, unscanned or not-benign", v)
+}
+
+// reposScan queues a dependency scan and, with --wait, waits for its report.
+func reposScan(args []string, w io.Writer) error {
+	var (
+		rev     string
+		wait    bool
+		timeout time.Duration
+	)
+	c, pos, format, err := reposFlags("scan", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&rev, "rev", "", "tag, branch or commit to scan (default: the default branch's head)")
+		fs.BoolVar(&wait, "wait", false, "wait for the scan's report")
+		fs.DurationVar(&timeout, "wait-timeout", 30*time.Minute, "how long --wait waits")
+	})
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("repos scan takes a repository name")
+	}
+	before := time.Now().UTC()
+	var ticket repos.ScanTicket
+	if err := c.postJSON(c.adminURL("api/repos/scan", tenantQuery(c, map[string]string{"name": pos[0], "rev": rev})), struct{}{}, &ticket); err != nil {
+		return err
+	}
+	if !wait {
+		if format == "json" {
+			return emitJSON(ticket)
+		}
+		fmt.Fprintf(w, "%s %s %s@%s (%s); read it with: ptctl repos report %s --rev %s\n",
+			ticket.Status, ticket.Kind, ticket.Repo, shortSHA(ticket.Commit), firstNonEmpty(ticket.Ref, "—"), ticket.Repo, ticket.Commit)
+		return nil
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		var rep repos.ScanReportView
+		err := c.getJSON(c.adminURL("api/repos/scan", tenantQuery(c, map[string]string{"name": pos[0], "rev": ticket.Commit})), &rep)
+		if err == nil && !rep.FinishedAt.Before(before) {
+			if format == "json" {
+				return emitJSON(rep)
+			}
+			return renderScanReport(w, &rep)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no report of %s@%s within %s (the scan is %s); read it later with: ptctl repos report %s --rev %s",
+				ticket.Repo, shortSHA(ticket.Commit), timeout, ticket.Status, ticket.Repo, ticket.Commit)
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// reposReport prints a scan report, or writes it as SARIF.
+func reposReport(args []string, w io.Writer) error {
+	var rev, verdict, sarif string
+	c, pos, format, err := reposFlags("report", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&rev, "rev", "", "tag, branch or commit (default: the default branch's head)")
+		fs.StringVar(&verdict, "verdict", "all", "which dependencies: all, flagged, unscanned, not-benign")
+		fs.StringVar(&sarif, "sarif", "", "write the report as SARIF 2.1.0 to this file (\"-\" for stdout)")
+	})
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("repos report takes a repository name")
+	}
+	filter, err := verdictFilter(verdict)
+	if err != nil {
+		return err
+	}
+	q := map[string]string{"name": pos[0], "rev": rev}
+	if sarif != "" {
+		body, _, err := c.getRaw(c.adminURL("api/repos/scan/sarif", tenantQuery(c, q)))
+		if err != nil {
+			return err
+		}
+		if sarif == "-" {
+			_, err = w.Write(body)
+			return err
+		}
+		if err := os.WriteFile(sarif, body, 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "wrote %s\n", sarif)
+		return nil
+	}
+	q["verdict"] = filter
+	var rep repos.ScanReportView
+	if err := c.getJSON(c.adminURL("api/repos/scan", tenantQuery(c, q)), &rep); err != nil {
+		return err
+	}
+	if format == "json" {
+		return emitJSON(rep)
+	}
+	return renderScanReport(w, &rep)
+}
+
+// renderScanReport prints a report: a header, then one row per dependency.
+// The model's reasons and excerpts are not printed (they are package text);
+// --format json carries them.
+func renderScanReport(w io.Writer, rep *repos.ScanReportView) error {
+	where := rep.Kind
+	if rep.Ref != "" {
+		where += " " + rep.Ref
+	}
+	if len(rep.Tags) > 0 {
+		where += " (" + strings.Join(rep.Tags, ", ") + ")"
+	}
+	fmt.Fprintf(w, "%s @ %s · %s · %s %s", rep.Repo, shortSHA(rep.Commit), where, rep.Status, rep.Result)
+	if rep.ContainsMaliciousDependency {
+		fmt.Fprint(w, " · CONTAINS MALICIOUS DEPENDENCY")
+	}
+	fmt.Fprintf(w, "\n%s / %s (prompt v%d) · action %s · %s · finished %s\n",
+		firstNonEmpty(rep.Gate.Provider, "—"), firstNonEmpty(rep.Gate.Model, "—"), rep.Gate.PromptVersion,
+		firstNonEmpty(rep.Gate.Action, "—"), rep.Trigger, stamp(rep.FinishedAt))
+	s := rep.Summary
+	fmt.Fprintf(w, "%d dependencies: %d malicious, %d suspicious, %d benign, %d unscanned · %d verdicts from the cache, %d scanned\n",
+		s.Dependencies, s.Malicious, s.Suspicious, s.Benign, s.Unscanned, s.Cached, s.Scanned)
+	if rep.Reason != "" {
+		fmt.Fprintln(w, rep.Reason)
+	}
+	fmt.Fprintln(w)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "VERDICT\tDEPENDENCY\tLOCK FILE\tMODEL\tSCANNED\tNOTE")
+	for _, d := range rep.Dependencies {
+		model, scanned := "—", "—"
+		if v := d.Detail; v != nil {
+			model = firstNonEmpty(v.Model, "—")
+			if v.Confidence > 0 {
+				model += fmt.Sprintf(" (%.2f)", v.Confidence)
+			}
+			scanned = stamp(v.ScannedAt)
+		}
+		note := ""
+		switch {
+		case d.Unscanned != nil:
+			note = d.Unscanned.Code + ": " + d.Unscanned.Reason
+		case d.Released != "":
+			note = "released by break-glass " + d.Released
+		case d.Refused:
+			note = "refused to clients"
+		}
+		if d.Pinned && d.Verdict == repos.VerdictMalicious {
+			note = strings.TrimPrefix(note+"; pinned bytes kept for forensics", "; ")
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", d.Verdict, d.Coordinate(), strings.Join(d.Files, ","), model, scanned, note)
+	}
+	return tw.Flush()
 }

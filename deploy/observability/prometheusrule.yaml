@@ -443,3 +443,13 @@ spec:
         summary: Repository {{ $labels.repo }} cannot be synced
         description: The proxy failed to fetch the tags of {{ $labels.repo }} repeatedly (credentials, network, or a tag history that no longer verifies). New and moved tags are not being recorded or pinned. See `ptctl repos show {{ $labels.repo }}`.
         runbook: docs/repositories.md#alerts
+    - alert: PullthroughRepositoryMaliciousDependency
+      expr: max by (repo) (pullthrough_repo_malicious_dependencies) > 0
+      for: 0m
+      labels:
+        severity: critical
+        component: releases
+      annotations:
+        summary: Repository {{ $labels.repo }} pins a malicious dependency
+        description: The LLM package-content scan judged {{ $value }} dependency/ies of {{ $labels.repo }}'s lock files malicious (its default branch's head or a release). Clients are refused them under the block and quarantine actions; a release keeps their pinned bytes for forensics. See `ptctl repos report {{ $labels.repo }} --verdict flagged`.
+        runbook: docs/repositories.md#alerts

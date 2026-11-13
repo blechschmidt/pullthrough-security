@@ -242,6 +242,11 @@ never issued. See [user-links.md](user-links.md#metrics-and-audit-events).
 `pin_queue` (gauge), `sync_errors_total{repo}`, `webhooks_total{outcome}`,
 `pin_repairs_total{outcome}` (restored\|lost). `pinned_bytes` approaching
 `cache.maxSizeBytes` means the cache must grow: pinned objects are never evicted.
+The dependency scans (Task 181) add `scans_total{kind,status}`,
+`scan_duration_seconds`, `scan_dependencies_total{verdict}`, `scan_queue` and
+`malicious_dependencies{repo}` (a gauge: malicious dependencies of each
+repository's current scans, which `PullthroughRepositoryMaliciousDependency`
+alerts on).
 See [repositories.md](repositories.md#audit-events-notifications-and-metrics).
 
 ### Supply-chain graph (Task 33)
@@ -371,6 +376,7 @@ surfaces ([security-model.md](security-model.md), [sigverify.md](sigverify.md),
 | `PullthroughReleaseDigestMismatch` | critical | the bytes served for a release dependency are not those its lock file pins. |
 | `PullthroughPinnedObjectLost` | critical | a pinned object failed its integrity check and could not be fetched again with its pinned digest. |
 | `PullthroughRepositorySyncFailing` | warning | a repository's tags could not be fetched 3 times in 30m. |
+| `PullthroughRepositoryMaliciousDependency` | critical | a repository's current dependency scan (its default branch's head, a release) found a malicious dependency. |
 
 **Respond:** see [repositories.md](repositories.md#alerts).
 

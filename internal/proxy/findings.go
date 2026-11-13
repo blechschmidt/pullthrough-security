@@ -47,6 +47,12 @@ func (g *Gateway) recordFindings(r *http.Request) {
 	opts := findings.Options{Risk: s.risk, Policy: s.policy}
 	unnamed := s.unnamed
 	s.mu.Unlock()
+	if in.LLMPackage == nil {
+		// A refusal the LLM gate deferred to the system caller (Task 181) was
+		// kept from the gates after it; the findings document, written once
+		// they all ran, still says what the gate read.
+		in.LLMPackage = deferredLLMSignal(r.Context())
+	}
 
 	// Only retain a document that has an addressable artifact. An artifact its
 	// backend names no coordinate for — a file of a generic upstream — is

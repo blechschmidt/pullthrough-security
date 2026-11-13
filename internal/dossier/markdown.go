@@ -170,6 +170,35 @@ func (d *Dossier) Markdown() string {
 		b.WriteString("\n")
 	}
 
+	if rs := d.RepositoryScans; rs != nil {
+		b.WriteString("## Dependency scans in repositories\n\n")
+		mdKV(&b, "Scans", fmt.Sprintf("%d (%d flagged, %d unscanned)", rs.Total, rs.Flagged, rs.Unscanned))
+		for _, sc := range rs.Scans {
+			where := sc.Kind
+			if sc.Ref != "" {
+				where += " " + sc.Ref
+			}
+			if sc.Current {
+				where += " (head)"
+			}
+			line := fmt.Sprintf("%s · version %s · %s", where, orDash(sc.Version), sc.Verdict)
+			if sc.UnscannedCode != "" {
+				line += " (" + sc.UnscannedCode + ")"
+			}
+			if sc.Model != "" {
+				line += " · " + sc.Model
+			}
+			if !sc.ScannedAt.IsZero() {
+				line += " · " + sc.ScannedAt.UTC().Format("2006-01-02 15:04:05 UTC")
+			}
+			if len(sc.Files) > 0 {
+				line += " · " + mdCode(strings.Join(sc.Files, ", "))
+			}
+			mdKV(&b, sc.Repo+" @ "+shortCommit(sc.Commit), line)
+		}
+		b.WriteString("\n")
+	}
+
 	if l := d.LLMPackageScan; l != nil {
 		b.WriteString("## LLM package-content scan\n\n")
 		mdKV(&b, "Model verdict", fmt.Sprintf("%s (confidence %.2f)", orDash(l.Verdict), l.Confidence))

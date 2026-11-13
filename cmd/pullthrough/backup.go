@@ -95,12 +95,17 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 	// while its release is being pinned, so the snapshot's re-read rarely
 	// trips over them. What is left out is rebuilt: the trackers' last-seen
 	// times ("live", rewritten at every poll) from the histories, the Git
-	// mirrors from the repositories.
+	// mirrors from the repositories, the default branches' scan state
+	// ("heads") at the next sync.
 	if cfg.Repositories.Enabled {
 		if dir := cfg.RepositoriesStateDir(); dir != "" {
 			add("repos-registry", filepath.Join(dir, "repos"), false)
 			add("repos-history", filepath.Join(dir, "history"), false)
 			add("repos-manifests", filepath.Join(dir, "manifests"), false)
+			// The dependency scans' reports (Task 181): each one is paid-for
+			// model work and the forensic record of what a release shipped.
+			// The default branches' state and pending requests are rebuilt.
+			add("repos-scans", filepath.Join(dir, "scans"), false)
 		}
 	}
 

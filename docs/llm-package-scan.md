@@ -938,6 +938,21 @@ To stop scanning something entirely, use `exclude` (an ecosystem) or
 | **Metrics** ([observability.md](observability.md#llm-package-content-scan)) | `pullthrough_llmpkgscan_*`, a dashboard row and five alerts |
 | **Admin API** | `GET /admin/api/llmpkgscan` (configuration without secrets, tallies, budget) and `GET /admin/api/llmpkgscan/verdicts?limit=&name=&ecosystem=&version=` |
 | **Usage metering** | one `llmpkgscan` scan per fresh verdict, attributed to the tenant |
+| **Repository dependency scans** ([repositories.md](repositories.md#dependency-scans)) | every dependency a tracked repository's lock files pin is put before the gate (each release, the default branch's head, any revision on request); the per-repository report, SARIF at the lock-file lines (`llmpkgscan/malicious-dependency`, `suspicious-dependency`, `unscanned-dependency`), a release marked *contains malicious dependency* |
+
+### Tracked repositories
+
+The repository registry ([repositories.md](repositories.md#dependency-scans))
+uses this gate to scan every dependency its repositories' lock files pin. It
+adds no scanner of its own: the verdict cache, the cost budget, the
+concurrency limits and the per-tenant share are this gate's, and bytes that
+already have a verdict cost no model call. What the registry adds is the
+lock-file view — the report per repository revision, located at the lock-file
+lines — and one rule for releases: the release pinner does not refuse a
+dependency this gate refuses (when release scans are on). It pins the bytes,
+which are then kept for forensics, and the release scan marks the release
+*contains malicious dependency*. A client's pull of those bytes is judged, and
+refused, as always. A refusal of bytes a release pins never evicts them.
 
 ### Policy-as-code
 

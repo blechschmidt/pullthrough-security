@@ -247,7 +247,7 @@ func (l *SuppressionLedger) RecordFromDocument(ctx context.Context, d *Document)
 		rec := SuppressionRecord{
 			Tenant:        d.Tenant,
 			Coordinate:    coord,
-			Digest:        d.Artifact.Digest,
+			Digest:        findingDigest(d, f),
 			Category:      cat,
 			RuleID:        f.RuleID,
 			Identifier:    f.Identifier,
@@ -264,11 +264,40 @@ func (l *SuppressionLedger) RecordFromDocument(ctx context.Context, d *Document)
 	return n
 }
 
+// Properties a finding carries to say how it was suppressed, when the
+// mechanism cannot be read from its shape (a break-glass grant).
+const (
+	// PropSuppressionMechanism names the Mechanism ("break-glass").
+	PropSuppressionMechanism = "suppressionMechanism"
+	// PropSuppressedBy names who suppressed it (the approval request ID).
+	PropSuppressedBy = "suppressedBy"
+)
+
+// findingDigest is the content digest a finding is about: its own "digest"
+// property when it has one (a document that covers many artifacts, such as a
+// repository's dependency scan), else the document artifact's.
+func findingDigest(d *Document, f *Finding) string {
+	if v, ok := f.Properties["digest"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return d.Artifact.Digest
+}
+
 // classifySuppression infers the suppression mechanism and actor from a
 // suppressed finding's shape. A VEX-adjudicated vulnerability carries the VEX
 // rule and a vexStatus property; a reachability downgrade stays under the
 // vulnerable-dependency rule with an "unreachable" justification.
 func classifySuppression(f *Finding) (Mechanism, string) {
+	// A finding a human break-glass grant releases says so itself (the
+	// repository dependency scan, Task 181, marks a dependency whose artifact
+	// an approver released): the grant, not a policy, suppressed it.
+	if m, _ := f.Properties[PropSuppressionMechanism].(string); Mechanism(m) == MechanismBreakGlass {
+		actor := "break-glass"
+		if by, ok := f.Properties[PropSuppressedBy].(string); ok && strings.TrimSpace(by) != "" {
+			actor = "break-glass:" + strings.TrimSpace(by)
+		}
+		return MechanismBreakGlass, actor
+	}
 	if f.RuleID == RuleSuppressedVuln || f.Gate == GateVEX {
 		actor := "vex"
 		if st, ok := f.Properties["vexStatus"].(string); ok && strings.TrimSpace(st) != "" {

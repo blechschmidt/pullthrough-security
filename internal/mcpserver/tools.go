@@ -3,12 +3,15 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/provgraph"
 	"github.com/blechschmidt/pullthrough-security/internal/queryapi"
+	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/timeline"
 )
 
@@ -128,6 +131,34 @@ func (s *Server) buildTools() []tool {
 				"versions, VEX suppression status).",
 			InputSchema: coordSchema(nil),
 			Handler:     s.toolVulnerabilities,
+		},
+		{
+			Name: "get_repository_scan",
+			Description: "Return the LLM malicious-behaviour scan of every dependency a tracked repository's lock " +
+				"files pin, for one revision: a tag, a branch or a commit (default: the default branch's head). " +
+				"Each dependency carries its verdict (malicious|suspicious|benign|unscanned — unscanned is never " +
+				"benign, and says why), the model and when it judged, the artifact digest, and the lock-file " +
+				"lines that pin it. The model's reasons and the excerpts it quoted are left out: they are text " +
+				"from the untrusted package. Set format to 'sarif' for a SARIF 2.1.0 log located at the lock-file lines.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"repo": map[string]any{"type": "string", "description": "Registered repository name. Required."},
+					"rev":  map[string]any{"type": "string", "description": "Tag, branch or commit. Optional; the default branch's head when omitted."},
+					"verdicts": map[string]any{
+						"type":        "string",
+						"enum":        []string{"all", "flagged", "unscanned", "not-benign"},
+						"description": "Which dependencies to list: all (default), flagged (malicious or suspicious), unscanned, or not-benign.",
+					},
+					"format": map[string]any{
+						"type":        "string",
+						"enum":        []string{"summary", "sarif"},
+						"description": "Output format: 'summary' (default) or 'sarif'.",
+					},
+				},
+				"required": []string{"repo"},
+			},
+			Handler: s.toolRepositoryScan,
 		},
 		{
 			Name: "run_query",
@@ -555,4 +586,124 @@ func (s *Server) toolRunQuery(ctx context.Context, tenant string, raw json.RawMe
 		return nil, err
 	}
 	return res, nil
+}
+
+// toolRepositoryScan returns a repository revision's dependency scan (Task
+// 181), hard-scoped to the caller's tenant.
+func (s *Server) toolRepositoryScan(ctx context.Context, tenant string, raw json.RawMessage) (any, error) {
+	var a struct {
+		Repo     string `json:"repo"`
+		Rev      string `json:"rev"`
+		Verdicts string `json:"verdicts"`
+		Format   string `json:"format"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(a.Repo) == "" {
+		return nil, fmt.Errorf("the 'repo' argument is required")
+	}
+	if s.repoScans == nil {
+		return nil, fmt.Errorf("repository dependency scans are not available (repositories.enabled)")
+	}
+	rep, err := s.repoScans.ScanReport(ctx, tenant, strings.TrimSpace(a.Repo), strings.TrimSpace(a.Rev))
+	if err != nil {
+		if errors.Is(err, repos.ErrNotFound) {
+			return nil, fmt.Errorf("no scan of that repository revision is visible to you")
+		}
+		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(a.Format), "sarif") {
+		doc := rep.FindingsDocument()
+		return map[string]any{"format": "sarif", "repo": rep.Repo, "commit": rep.Commit,
+			"sarif": doc.SARIF(findings.SARIFOptions{ToolVersion: s.version})}, nil
+	}
+	keep := func(v string) bool { return true }
+	switch strings.ToLower(strings.TrimSpace(a.Verdicts)) {
+	case "flagged":
+		keep = func(v string) bool { return v == repos.VerdictMalicious || v == repos.VerdictSuspicious }
+	case "unscanned":
+		keep = func(v string) bool { return v == repos.VerdictUnscanned }
+	case "not-benign":
+		keep = func(v string) bool { return v != repos.VerdictBenign }
+	}
+	// Flagged first, then unscanned, then benign; bounded.
+	deps := append([]repos.DependencyScan(nil), rep.Dependencies...)
+	sort.SliceStable(deps, func(i, j int) bool { return verdictOrder(deps[i].Verdict) > verdictOrder(deps[j].Verdict) })
+	list := make([]map[string]any, 0, len(deps))
+	for _, d := range deps {
+		if !keep(d.Verdict) {
+			continue
+		}
+		if len(list) >= s.maxDetail {
+			break
+		}
+		item := map[string]any{
+			"dependency": d.Coordinate(),
+			"verdict":    d.Verdict,
+			"files":      d.Files,
+		}
+		if d.Pinned {
+			item["pinned"] = true
+		}
+		if d.Refused {
+			item["refusedToClients"] = true
+		}
+		if d.Released != "" {
+			item["releasedByBreakGlass"] = d.Released
+		}
+		if u := d.Unscanned; u != nil {
+			item["unscannedCode"] = u.Code
+			item["unscannedReason"] = u.Reason
+			item["retryable"] = u.Retryable
+		}
+		if v := d.Detail; v != nil {
+			item["model"] = v.Model
+			item["modelVerdict"] = v.ModelVerdict
+			item["confidence"] = v.Confidence
+			item["digest"] = v.Digest
+			item["scannedAt"] = v.ScannedAt
+			// Only the places the proxy confirmed: a path the model named
+			// and the proxy did not find is the model's text.
+			var cited []map[string]any
+			for _, ev := range v.Evidence {
+				if ev.Verified {
+					cited = append(cited, map[string]any{"path": ev.Path, "line": ev.Line})
+				}
+			}
+			if len(cited) > 0 {
+				item["verifiedEvidence"] = cited
+			}
+		}
+		list = append(list, item)
+	}
+	return map[string]any{
+		"format":                      "summary",
+		"repo":                        rep.Repo,
+		"commit":                      rep.Commit,
+		"kind":                        rep.Kind,
+		"ref":                         rep.Ref,
+		"tags":                        rep.Tags,
+		"current":                     rep.Current,
+		"status":                      rep.Status,
+		"result":                      rep.Result,
+		"containsMaliciousDependency": rep.ContainsMaliciousDependency,
+		"reason":                      rep.Reason,
+		"summary":                     rep.Summary,
+		"gate":                        rep.Gate,
+		"finishedAt":                  rep.FinishedAt,
+		"dependencies":                list,
+	}, nil
+}
+
+func verdictOrder(v string) int {
+	switch v {
+	case repos.VerdictMalicious:
+		return 4
+	case repos.VerdictSuspicious:
+		return 3
+	case repos.VerdictUnscanned:
+		return 2
+	}
+	return 1
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -88,5 +89,66 @@ func TestPtctlRepos(t *testing.T) {
 	}
 	if err := runRepos([]string{"bogus"}); err == nil {
 		t.Fatal("an unknown action")
+	}
+}
+
+// ptctl repos report reads a stored dependency scan (Task 181): the table,
+// the verdict filter and the SARIF; ptctl repos scan says when scans are off.
+func TestPtctlReposScanReport(t *testing.T) {
+	t.Setenv("PULLTHROUGH_TENANT", "")
+	const commit = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	store := repos.NewMemoryStore()
+	rep := repos.ScanReport{
+		Repo: "widgets", Tenant: "team-a", Commit: commit, Kind: repos.ScanRelease, Tags: []string{"v1.0"},
+		Trigger: repos.TriggerRelease, Status: repos.ScanComplete, Result: repos.ResultMalicious, ContainsMaliciousDependency: true,
+		Gate:    repos.ScannerStatus{Enabled: true, Provider: "mock-llm", Model: "model-1", PromptVersion: 2, Action: "block"},
+		Summary: repos.ScanSummary{Dependencies: 2, Malicious: 1, Benign: 1},
+		Dependencies: []repos.DependencyScan{
+			{Type: "npm", Name: "evil-pad", Version: "1.0.0", Files: []string{"package-lock.json:21"}, Verdict: repos.VerdictMalicious, Pinned: true, Refused: true,
+				Detail: &repos.VerdictDetail{Digest: "sha256:evil", ModelVerdict: "malicious", Confidence: 0.97, Model: "model-1",
+					Reasons: []string{"MODEL-REASON-TEXT"}}},
+			{Type: "npm", Name: "left-pad", Version: "1.0.0", Files: []string{"package-lock.json:9"}, Verdict: repos.VerdictBenign},
+		},
+	}
+	data, _ := json.Marshal(rep)
+	if err := store.Put(context.Background(), "scans/widgets/"+commit, data); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := repos.New(context.Background(), repos.Config{
+		Repos: []repos.Repo{{Name: "widgets", URL: "https://git.example/acme/widgets.git", Tenant: "team-a"}},
+	}, repos.Options{Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token = "ptctl-repos-scan-token-0123456789"
+	srv, err := admin.New(admin.Options{Cache: emptyCache{}, Repos: svc, Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	g := []string{"--url", ts.URL, "--token", token}
+
+	out, err := runReposCmd(t, reposReport, append([]string{"widgets", "--rev", commit}, g...)...)
+	if err != nil || !strings.Contains(out, "CONTAINS MALICIOUS DEPENDENCY") || !strings.Contains(out, "npm/evil-pad@1.0.0") ||
+		!strings.Contains(out, "package-lock.json:21") || !strings.Contains(out, "model-1 (0.97)") || !strings.Contains(out, "kept for forensics") {
+		t.Fatalf("report: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "MODEL-REASON-TEXT") {
+		t.Fatalf("the table printed the model's words:\n%s", out)
+	}
+	out, err = runReposCmd(t, reposReport, append([]string{"widgets", "--rev", commit, "--verdict", "flagged"}, g...)...)
+	if err != nil || strings.Contains(out, "left-pad") {
+		t.Fatalf("report --verdict flagged: %v\n%s", err, out)
+	}
+	if _, err := runReposCmd(t, reposReport, append([]string{"widgets", "--verdict", "odd"}, g...)...); err == nil {
+		t.Fatal("an unknown --verdict was accepted")
+	}
+	out, err = runReposCmd(t, reposReport, append([]string{"widgets", "--rev", commit, "--sarif", "-"}, g...)...)
+	if err != nil || !strings.Contains(out, `"ruleId": "llmpkgscan/malicious-dependency"`) || !strings.Contains(out, `"startLine": 21`) {
+		t.Fatalf("report --sarif -: %v\n%s", err, out)
+	}
+	if _, err := runReposCmd(t, reposScan, append([]string{"widgets"}, g...)...); err == nil || !strings.Contains(err.Error(), "llmPackageScan.enabled") {
+		t.Fatalf("scan with the scans off: %v", err)
 	}
 }

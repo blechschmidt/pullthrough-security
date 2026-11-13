@@ -46,6 +46,7 @@
     <button class="tab" role="tab" aria-selected="false" data-view="presets">Presets</button>
     <button class="tab" role="tab" aria-selected="false" data-view="gitops">GitOps</button>
     <button class="tab" role="tab" aria-selected="false" data-view="riskscore">Risk</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="repos">Repositories</button>
     <button class="tab" role="tab" aria-selected="false" data-view="reposcore">Repo Health</button>
     <button class="tab" role="tab" aria-selected="false" data-view="sbomdiff">Drift</button>
     <button class="tab" role="tab" aria-selected="false" data-view="rebuildverify">Reproducible Builds</button>
@@ -674,6 +675,92 @@
     </section>
 
     <!-- Source-repository health (Task 63) -->
+    <!-- Tracked repositories and the LLM scan of their dependencies (Tasks 180-181) -->
+    <section id="view-repos" class="view" hidden aria-label="Repositories and dependency scans">
+      <div class="toolbar">
+        <label class="visually-hidden" for="repos-select">Repository</label>
+        <select id="repos-select" class="input" style="max-width:16rem"></select>
+        <label class="visually-hidden" for="repos-rev">Revision</label>
+        <input id="repos-rev" class="input" type="search" placeholder="tag, branch or commit (empty: default branch)" autocomplete="off" spellcheck="false" style="max-width:20rem">
+        <label class="visually-hidden" for="repos-verdict">Dependencies shown</label>
+        <select id="repos-verdict" class="input" style="max-width:12rem">
+          <option value="">all dependencies</option>
+          <option value="malicious,suspicious">flagged</option>
+          <option value="malicious,suspicious,unscanned">flagged or unscanned</option>
+          <option value="unscanned">unscanned</option>
+        </select>
+        <button id="repos-show" class="btn btn-sm btn-primary" type="button">Show</button>
+        <button id="repos-scan" class="btn btn-sm" type="button" title="Scan the revision's dependencies now (operate)">Scan now</button>
+        <button id="repos-sarif" class="btn btn-sm" type="button" title="Download the scan as SARIF, located at the lock-file lines">SARIF</button>
+        <span id="repos-meta" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:.2rem 0 .7rem">
+        Every dependency a tracked repository's lock files pin is put before the LLM package-content
+        scan: each release once it is pinned, the default branch's head when it moves and on a
+        schedule, any revision on request. A dependency the scan cannot cover is listed as unscanned,
+        with the reason: unscanned is never clean. Reasons and cited excerpts are model output about
+        untrusted package content, shown as text only.
+      </p>
+      <div id="repos-cards" class="stat-grid"></div>
+      <div class="panel">
+        <h2>Repositories</h2>
+        <div class="table-wrap">
+          <table id="repos-table">
+            <thead>
+              <tr>
+                <th scope="col">Repository</th>
+                <th scope="col">Tenant</th>
+                <th scope="col">Default branch</th>
+                <th scope="col">Head scan</th>
+                <th scope="col" class="num">Releases</th>
+                <th scope="col" class="num">With malicious dependency</th>
+                <th scope="col">Last sync</th>
+              </tr>
+            </thead>
+            <tbody id="repos-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h2 id="repos-report-title">Dependency scan</h2>
+        <div id="repos-report-meta" class="muted"></div>
+        <div class="table-wrap">
+          <table id="repos-deps-table">
+            <thead>
+              <tr>
+                <th scope="col">Verdict</th>
+                <th scope="col">Dependency</th>
+                <th scope="col">Lock file</th>
+                <th scope="col">Model</th>
+                <th scope="col">Scanned</th>
+                <th scope="col">Evidence</th>
+              </tr>
+            </thead>
+            <tbody id="repos-deps-body"></tbody>
+          </table>
+        </div>
+        <div id="repos-evidence" class="panel" hidden></div>
+      </div>
+      <div class="panel">
+        <h2>Release scans</h2>
+        <div class="table-wrap">
+          <table id="repos-releases-table">
+            <thead>
+              <tr>
+                <th scope="col">Commit</th>
+                <th scope="col">Tags</th>
+                <th scope="col">Result</th>
+                <th scope="col" class="num">Malicious</th>
+                <th scope="col" class="num">Unscanned</th>
+                <th scope="col">Scanned</th>
+              </tr>
+            </thead>
+            <tbody id="repos-releases-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section id="view-reposcore" class="view" hidden aria-label="Source-repository health">
       <div class="toolbar">
         <span id="reposcore-meta" class="muted"></span>

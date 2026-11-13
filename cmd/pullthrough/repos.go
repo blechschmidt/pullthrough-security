@@ -17,7 +17,9 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/cachegc"
 	"github.com/blechschmidt/pullthrough-security/internal/config"
 	"github.com/blechschmidt/pullthrough-security/internal/dossier"
+	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/git"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockfiles"
 	"github.com/blechschmidt/pullthrough-security/internal/metrics"
 	"github.com/blechschmidt/pullthrough-security/internal/notify"
@@ -88,6 +90,18 @@ func reposConfig(cfg *config.Config) (repos.Config, error) {
 		Lockfiles:                 lockfiles.Options{Proxy: lockfileProxy(cfg)},
 		Roles:                     rc.Roles,
 		Replicated:                cfg.Coordination.Enabled,
+		Scan: repos.ScanConfig{
+			// The scans run through the LLM package-content scan gate; without
+			// it there is nothing to scan with.
+			Enabled:       rc.Scan.ScanEnabledOrDefault() && cfg.LLMPackageScan.Enabled,
+			Releases:      rc.Scan.Releases,
+			DefaultBranch: rc.Scan.DefaultBranch,
+			Interval:      rc.Scan.Interval,
+			Workers:       rc.Scan.Workers,
+			Concurrency:   rc.Scan.Concurrency,
+			RetryInterval: rc.Scan.RetryInterval,
+			MaxAttempts:   rc.Scan.MaxAttempts,
+		},
 	}
 	if cfg.Auth.Enabled {
 		defined := map[string]bool{}
@@ -108,7 +122,7 @@ func reposConfig(cfg *config.Config) (repos.Config, error) {
 		out.Repos = append(out.Repos, repos.Repo{
 			Name: r.Name, URL: r.URL, Username: r.Username, CredentialsRef: r.CredentialsRef,
 			Tenant: r.Tenant, Lockfiles: r.Lockfiles, Tags: r.Tags, Upstreams: r.Upstreams,
-			FullName: r.FullName, BackfillTags: r.BackfillTags, Roles: r.Roles, Source: repos.SourceConfig,
+			FullName: r.FullName, BackfillTags: r.BackfillTags, Roles: r.Roles, Branch: r.Branch, Source: repos.SourceConfig,
 		})
 	}
 	return out, nil
@@ -190,7 +204,18 @@ func wireRepos(ctx context.Context, svc *repos.Service, cfg *config.Config, gw *
 		Cache:     cacheProbe{c: deps.cache},
 		Metrics:   m,
 		Observer:  releaseGraph(deps.graph),
+		// The dependency scans (Task 181): the LLM gate through the gateway,
+		// and the findings layer their reports feed.
+		Scans:    newObjectScanner(gw, deps.llmScan, ecosystemMap(cfg)),
+		Findings: newScanFindingsSink(deps.findings, deps.findingsMetrics, deps.suppressions, deps.siem),
 	})
+	if st, on := svc.ScanStatus(); on {
+		deps.logger.Info("repository dependency scans enabled", "model", st.Model, "action", st.Action,
+			"releases", cfg.Repositories.Scan.Releases == nil || *cfg.Repositories.Scan.Releases,
+			"defaultBranch", cfg.Repositories.Scan.DefaultBranch == nil || *cfg.Repositories.Scan.DefaultBranch)
+	} else if cfg.Repositories.Scan.ScanEnabledOrDefault() && !cfg.LLMPackageScan.Enabled {
+		deps.logger.Info("repository dependency scans are off: they need the LLM package-content scan gate (llmPackageScan.enabled)")
+	}
 	if deps.leader != nil {
 		svc.SetLeaderGate(deps.leader)
 	}
@@ -208,6 +233,12 @@ type reposDeps struct {
 	graph     *provgraph.Service
 	leader    func() bool
 	logger    *slog.Logger
+	// The dependency scans' gate and findings layer (Task 181).
+	llmScan         *llmpkgscan.Service
+	findings        *findings.Store
+	findingsMetrics *findings.Metrics
+	suppressions    *findings.SuppressionLedger
+	siem            proxy.SIEMForwarder
 }
 
 // allowedGitProtocols maps the accepted URL schemes onto git's transports.
@@ -265,6 +296,20 @@ func (m mirrorRefs) CommitTime(ctx context.Context, r repos.Repo, commit string)
 	return m.gs.CommitTime(ctx, repoRef(r, repos.Credential{}), commit)
 }
 
+// DefaultHead is the default branch's head in the mirror (Task 181).
+func (m mirrorRefs) DefaultHead(ctx context.Context, r repos.Repo, cred repos.Credential) (repos.Head, error) {
+	branch, commit, err := m.gs.DefaultHead(ctx, repoRef(r, cred), r.Branch)
+	if err != nil {
+		return repos.Head{Branch: branch}, fmt.Errorf("%s", git.RedactURLSecrets(err.Error()))
+	}
+	return repos.Head{Branch: branch, Commit: commit}, nil
+}
+
+// ResolveRevision names a revision's commit in the mirror (Task 181).
+func (m mirrorRefs) ResolveRevision(ctx context.Context, r repos.Repo, rev string) (string, error) {
+	return m.gs.ResolveRevision(ctx, repoRef(r, repos.Credential{}), rev)
+}
+
 // mirrorScanner reads the lock files of a commit in a repository's mirror.
 type mirrorScanner struct{ gs *watch.GitSource }
 
@@ -289,11 +334,12 @@ func (f gatewayReleaseFetcher) Fetch(ctx context.Context, req repos.FetchRequest
 	res, err := f.gw.SystemFetch(ctx, proxy.SystemFetchRequest{
 		Backend: req.Upstream, Path: req.Path, Accept: req.Accept,
 		Tenant: req.Tenant, Subject: req.Subject, Roles: req.Roles,
-		Hold: req.Hold,
+		Hold: req.Hold, DeferLLMRefusal: req.DeferLLMRefusal,
 	}, body)
 	out := repos.FetchResult{
 		Status: res.Status, Cache: res.Cache, CacheKey: res.CacheKey, Digest: res.Digest, Size: res.Size,
 		ContentType: res.ContentType, Gate: res.Gate, Code: res.Code, Reason: res.Reason,
+		LLM: objectScanPtr(res.LLMScan),
 	}
 	for _, v := range res.Verdicts {
 		out.Verdicts = append(out.Verdicts, repos.GateVerdict{Gate: v.Gate, Outcome: v.Outcome, Detail: v.Detail})

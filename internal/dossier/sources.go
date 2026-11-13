@@ -823,3 +823,31 @@ func (b *Builder) fillReleases(ctx context.Context, id ident, tenant string, mu 
 	mu.Unlock()
 	return StatusOK, ""
 }
+
+// fillRepositoryScans lists what the dependency scans of tracked repositories
+// read in the coordinate (Task 181).
+func (b *Builder) fillRepositoryScans(ctx context.Context, id ident, tenant string, mu *sync.Mutex, d *Dossier) (string, string) {
+	if id.eco == "" {
+		return StatusEmpty, "the ecosystem is needed to find the repositories that pin it"
+	}
+	refs, err := b.providers.RepositoryScans.RepositoryScansOf(ctx, strings.TrimSpace(tenant), id.eco, id.name, id.version)
+	if err != nil {
+		return StatusError, err.Error()
+	}
+	if len(refs) == 0 {
+		return StatusEmpty, ""
+	}
+	sec := &RepositoryScansSection{Total: len(refs), Scans: refs}
+	for _, r := range refs {
+		switch r.Verdict {
+		case "malicious", "suspicious":
+			sec.Flagged++
+		case "unscanned":
+			sec.Unscanned++
+		}
+	}
+	mu.Lock()
+	d.RepositoryScans = sec
+	mu.Unlock()
+	return StatusOK, ""
+}

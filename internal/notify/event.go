@@ -257,6 +257,12 @@ const (
 	// an object served with a digest other than the lock file records, or a
 	// pinned object lost to an integrity failure (Task 180).
 	EventReleasePin EventType = "release_pin"
+
+	// EventRepositoryScan is a dependency of a tracked repository that the LLM
+	// package-content scan judged malicious — or suspicious, under the
+	// quarantine action — in a release, at the default branch's head, or in a
+	// revision scanned on request (Task 181).
+	EventRepositoryScan EventType = "repository_scan"
 )
 
 // allEventTypes is the canonical set, used for validation and "route all"
@@ -299,6 +305,7 @@ var allEventTypes = []EventType{
 	EventKeyRotated,
 	EventReleaseTag,
 	EventReleasePin,
+	EventRepositoryScan,
 }
 
 // AllEventTypes returns the routable event types (excluding the synthetic test
@@ -320,7 +327,7 @@ func ValidEventType(s string) bool {
 		EventSbomDrift, EventDepFirewall, EventRebuildVerify, EventSnapshot,
 		EventBuildProvenance, EventLockdown, EventMeteringBudget, EventEgressBlocked,
 		EventMaintainerDrift, EventGitOps, EventCacheIntegrity, EventTLSPinViolation,
-		EventKeyExpiry, EventKeyRotated, EventReleaseTag, EventReleasePin:
+		EventKeyExpiry, EventKeyRotated, EventReleaseTag, EventReleasePin, EventRepositoryScan:
 		return true
 	default:
 		return false
@@ -1334,6 +1341,33 @@ func ReleaseTagEvent(sev Severity, repo, tag, event, from, to, summary string) E
 	}
 	if to != "" {
 		ev = ev.withField("to", to)
+	}
+	return ev
+}
+
+// RepositoryScanEvent describes a dependency of a tracked repository that the
+// LLM package-content scan flagged (Task 181): the repository, the commit and
+// what it is (a release's tags, the default branch), the dependency, how the
+// gate reads it and under which action. summary is the proxy's sentence; the
+// model's own words are never put in a notification.
+func RepositoryScanEvent(sev Severity, repo, commit, ref, coordinate, disposition, action, model, summary string) Event {
+	title := "Repository dependency judged " + disposition + " by the LLM content scan"
+	ev := Event{
+		Type:     EventRepositoryScan,
+		Severity: NormalizeSeverity(string(sev)),
+		Title:    title,
+		Summary:  summary,
+		Artifact: coordinate,
+	}
+	ev = ev.withField("repository", repo).withField("disposition", disposition).withField("action", action)
+	if commit != "" {
+		ev = ev.withField("commit", commit)
+	}
+	if ref != "" {
+		ev = ev.withField("ref", ref)
+	}
+	if model != "" {
+		ev = ev.withField("model", model)
 	}
 	return ev
 }

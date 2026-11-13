@@ -28,6 +28,10 @@ func TestLLMPackageRulesAreInTheCatalog(t *testing.T) {
 		RuleLLMMaliciousPackage:  LevelError,
 		RuleLLMSuspiciousPackage: LevelWarning,
 		RuleLLMScanIncomplete:    LevelNote,
+		// The repository dependency scan's rules (Task 181).
+		RuleLLMMaliciousDependency:  LevelError,
+		RuleLLMSuspiciousDependency: LevelWarning,
+		RuleLLMUnscannedDependency:  LevelNote,
 	}
 	rules := RulesForGate(GateLLMPkgScan)
 	if len(rules) != len(want) {

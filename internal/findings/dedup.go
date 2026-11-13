@@ -81,7 +81,8 @@ func categoryOf(f *Finding) Category {
 			return CategorySecret
 		}
 		return CategoryContent
-	case RuleLLMMaliciousPackage, RuleLLMSuspiciousPackage, RuleLLMScanIncomplete:
+	case RuleLLMMaliciousPackage, RuleLLMSuspiciousPackage, RuleLLMScanIncomplete,
+		RuleLLMMaliciousDependency, RuleLLMSuspiciousDependency, RuleLLMUnscannedDependency:
 		// A model's judgement of the whole package is its own kind of evidence. It
 		// is kept apart from the deterministic content and malware findings on the
 		// same file, so it never folds into one of them and loses its rule id.

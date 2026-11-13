@@ -63,6 +63,9 @@ type Repo struct {
 	// name the registries, and they must not reach an upstream the operator
 	// has not granted.
 	Roles []string `json:"roles,omitempty"`
+	// Branch is the branch whose head the dependency scan follows (Task 181);
+	// empty follows the repository's default branch (its remote HEAD).
+	Branch string `json:"branch,omitempty"`
 
 	// Source says whether the registration comes from the configuration or
 	// the admin API; only the latter can be removed through the API.
@@ -151,6 +154,10 @@ func (r *Repo) Validate(allowedSchemes []string) error {
 	if r.BackfillTags != nil && *r.BackfillTags < -1 {
 		return fmt.Errorf("repository %q: backfillTags must be -1 (all), 0 (none) or a positive count", r.Name)
 	}
+	r.Branch = strings.TrimSpace(r.Branch)
+	if r.Branch != "" && !ValidBranch(r.Branch) {
+		return fmt.Errorf("repository %q: branch %q is not a valid branch name", r.Name, r.Branch)
+	}
 	if len(r.Roles) > maxGlobs {
 		return fmt.Errorf("repository %q: at most %d roles", r.Name, maxGlobs)
 	}
@@ -167,6 +174,17 @@ func (r *Repo) Validate(allowedSchemes []string) error {
 		r.Roles[i] = role
 	}
 	return nil
+}
+
+// branchRE is the shape of a branch name the registry accepts: the
+// characters Git branch names are made of in practice, nothing a command
+// line could read as an option or a revision expression.
+var branchRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/+-]{0,199}$`)
+
+// ValidBranch reports whether b is a branch name the registry accepts.
+func ValidBranch(b string) bool {
+	return branchRE.MatchString(b) && !strings.Contains(b, "..") && !strings.Contains(b, "//") &&
+		!strings.HasSuffix(b, "/") && !strings.HasSuffix(b, ".lock") && !strings.HasSuffix(b, ".")
 }
 
 // urlScheme returns the scheme of a clone URL ("ssh" for scp-like), refusing
@@ -220,6 +238,16 @@ func (r Repo) clone() Repo {
 	}
 	out.Roles = append([]string(nil), r.Roles...)
 	return out
+}
+
+// cloneScan returns a deep copy of a release's scan summary.
+func (rs *ReleaseScan) clone() *ReleaseScan {
+	if rs == nil {
+		return nil
+	}
+	out := *rs
+	out.Flagged = append([]string(nil), rs.Flagged...)
+	return &out
 }
 
 // --- tag history ------------------------------------------------------------
@@ -350,6 +378,34 @@ type Manifest struct {
 	// Dependencies are the distinct dependencies of the lock files.
 	Dependencies []Dependency `json:"dependencies"`
 	Summary      Summary      `json:"summary"`
+	// Scan is the latest LLM dependency scan of the release (Task 181). Only
+	// the scanner writes it; the pinner keeps it as it finds it.
+	Scan *ReleaseScan `json:"scan,omitempty"`
+}
+
+// ReleaseScan summarizes a release's latest dependency scan in its manifest.
+type ReleaseScan struct {
+	// Status is ScanComplete, ScanIncomplete or ScanFailed; Result is
+	// ResultMalicious, ResultSuspicious, ResultIncomplete or ResultClean.
+	Status string `json:"status"`
+	Result string `json:"result"`
+	// ContainsMaliciousDependency marks the release "contains malicious
+	// dependency": the scan judged at least one of its dependencies
+	// malicious. Its bytes stay pinned, for forensics.
+	ContainsMaliciousDependency bool `json:"containsMaliciousDependency"`
+	// Flagged are the coordinates judged malicious, and suspicious ones the
+	// quarantine action holds.
+	Flagged    []string `json:"flagged,omitempty"`
+	Malicious  int      `json:"malicious"`
+	Suspicious int      `json:"suspicious"`
+	Unscanned  int      `json:"unscanned"`
+	Benign     int      `json:"benign"`
+	// Model and PromptVersion are the gate's when the scan ran; Action its
+	// action; ScannedAt when the scan finished.
+	Model         string    `json:"model,omitempty"`
+	PromptVersion int       `json:"promptVersion,omitempty"`
+	Action        string    `json:"action,omitempty"`
+	ScannedAt     time.Time `json:"scannedAt"`
 }
 
 // LockFile is one lock file read for a release.
@@ -440,6 +496,26 @@ type Object struct {
 	// Repairs counts integrity repairs (re-fetches after the cached bytes
 	// were found corrupted).
 	Repairs int `json:"repairs,omitempty"`
+	// LLM is the LLM package-content scan's reading of the bytes of an object
+	// another gate refused (Task 181): the release does not pin them, but its
+	// dependency scan reports what the LLM gate read in them.
+	LLM *LLMReading `json:"llm,omitempty"`
+}
+
+// LLMReading is the LLM package-content scan gate's reading of an object, as
+// a manifest keeps it: the gate's disposition and where it came from. The
+// model's own words are not kept here.
+type LLMReading struct {
+	Verdict       string    `json:"verdict"`
+	Reason        string    `json:"reason,omitempty"`
+	Digest        string    `json:"digest,omitempty"`
+	ModelVerdict  string    `json:"modelVerdict,omitempty"`
+	Confidence    float64   `json:"confidence,omitempty"`
+	Provider      string    `json:"provider,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	PromptVersion int       `json:"promptVersion,omitempty"`
+	ScannedAt     time.Time `json:"scannedAt,omitzero"`
+	BreakGlass    string    `json:"breakGlass,omitempty"`
 }
 
 // GateVerdict is one admission gate's judgement of an object.

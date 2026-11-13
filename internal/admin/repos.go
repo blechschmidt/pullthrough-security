@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/blechschmidt/pullthrough-security/internal/adminauth"
+	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/repos"
 )
 
@@ -26,6 +27,11 @@ type RepoRegistry interface {
 	Releases(ctx context.Context, tenant string, q repos.ReleaseQuery) ([]repos.ReleaseView, error)
 	Lookup(ctx context.Context, tenant string, q repos.LookupQuery) ([]repos.ReleaseView, error)
 	Stats() repos.Stats
+	// The dependency scans (Task 181).
+	Scan(ctx context.Context, tenant, name, rev, by string) (repos.ScanTicket, error)
+	ScanReport(ctx context.Context, tenant, name, rev string) (*repos.ScanReportView, error)
+	ScanOverview(ctx context.Context, tenant, name string) (*repos.ScanOverview, error)
+	ScanDocuments(ctx context.Context, tenant, name string) ([]findings.Document, error)
 }
 
 // maxRepoBody bounds a registration request.
@@ -51,6 +57,8 @@ func (s *Server) writeRepoError(w http.ResponseWriter, err error) {
 	case errors.As(err, &cerr):
 		s.writeError(w, http.StatusConflict, cerr.Error())
 	case errors.Is(err, repos.ErrHistoryTampered):
+		s.writeError(w, http.StatusConflict, err.Error())
+	case errors.As(err, new(*repos.ScanDisabledError)):
 		s.writeError(w, http.StatusConflict, err.Error())
 	default:
 		s.logger.Error("admin: repository registry", "error", err)
@@ -281,4 +289,103 @@ func (s *Server) handleReposRemove(w http.ResponseWriter, r *http.Request) {
 	}
 	s.writeJSON(w, http.StatusOK, map[string]string{"status": "removed", "repo": name,
 		"note": "its tag history, release manifests and pins are kept"})
+}
+
+// handleReposScan queues a dependency scan of a repository's revision (Task
+// 181): ?rev= is a tag, a branch or a commit; without it, the default branch's
+// head is fetched and scanned. A tagged release is scanned through its pinned
+// objects. The scan runs in the background, under the LLM gate's budget and
+// limits; GET /api/repos/scan reads its report.
+func (s *Server) handleReposScan(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	qp := r.URL.Query()
+	name := strings.TrimSpace(qp.Get("name"))
+	ticket, err := reg.Scan(r.Context(), mcpTenant(r), name, strings.TrimSpace(qp.Get("rev")), actor(r))
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusAccepted, ticket)
+}
+
+// handleReposScanReport returns the report of a repository's scan: of the
+// revision ?rev= names, or of the default branch's head. ?verdict= narrows the
+// dependencies listed to the verdicts named (malicious,suspicious,unscanned).
+func (s *Server) handleReposScanReport(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	qp := r.URL.Query()
+	rep, err := reg.ScanReport(r.Context(), mcpTenant(r), strings.TrimSpace(qp.Get("name")), strings.TrimSpace(qp.Get("rev")))
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	if v := strings.TrimSpace(qp.Get("verdict")); v != "" {
+		want := map[string]bool{}
+		for _, part := range strings.Split(v, ",") {
+			want[strings.ToLower(strings.TrimSpace(part))] = true
+		}
+		kept := rep.Dependencies[:0:0]
+		for _, d := range rep.Dependencies {
+			if want[d.Verdict] {
+				kept = append(kept, d)
+			}
+		}
+		rep.Dependencies = kept
+	}
+	s.writeJSON(w, http.StatusOK, rep)
+}
+
+// handleReposScans returns a repository's scans at a glance: the default
+// branch's head and its newest scan, every release scan, what is queued.
+func (s *Server) handleReposScans(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	ov, err := reg.ScanOverview(r.Context(), mcpTenant(r), strings.TrimSpace(r.URL.Query().Get("name")))
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, ov)
+}
+
+// handleReposScanSARIF exports a repository's scan as SARIF 2.1.0 for CI: each
+// dependency that is not benign is a result located at the lock file and the
+// line that pins it. ?rev= selects a revision's scan (default: the default
+// branch's head); ?all=1 exports every current scan — the head and each release.
+func (s *Server) handleReposScanSARIF(w http.ResponseWriter, r *http.Request) {
+	reg, ok := s.repoRegistry(w)
+	if !ok {
+		return
+	}
+	qp := r.URL.Query()
+	name := strings.TrimSpace(qp.Get("name"))
+	version := "dev"
+	if s.opts.Findings != nil {
+		version = s.opts.Findings.ToolVersion()
+	}
+	opts := findings.SARIFOptions{ToolVersion: version}
+	if all := qp.Get("all"); all == "1" || all == "true" {
+		docs, err := reg.ScanDocuments(r.Context(), mcpTenant(r), name)
+		if err != nil {
+			s.writeRepoError(w, err)
+			return
+		}
+		s.writeSARIF(w, findings.SARIFFromDocuments(docs, opts))
+		return
+	}
+	rep, err := reg.ScanReport(r.Context(), mcpTenant(r), name, strings.TrimSpace(qp.Get("rev")))
+	if err != nil {
+		s.writeRepoError(w, err)
+		return
+	}
+	doc := rep.FindingsDocument()
+	s.writeSARIF(w, doc.SARIF(opts))
 }

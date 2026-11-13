@@ -128,6 +128,29 @@ type MeteringProvider interface {
 	TenantUsage(tenant string) (metering.TenantTotals, bool)
 }
 
+// RepoScanProvider exposes the dependency scans of tracked repositories (Task
+// 181): the dependencies each repository's current scans — the default
+// branch's head and every release — flag or could not examine, used to stamp
+// each coordinate with what the scans read in it, and to add those no client
+// has pulled yet. (A benign verdict is not a fact here; it stamps nothing.)
+type RepoScanProvider interface {
+	RepoScanFacts() []RepoScanFact
+}
+
+// RepoScanFact is one dependency of a repository's current scan.
+type RepoScanFact struct {
+	Tenant    string
+	Ecosystem string
+	Name      string
+	Version   string
+	Digest    string
+	Repo      string
+	// Verdict is malicious, suspicious, benign or unscanned.
+	Verdict   string
+	Model     string
+	ScannedAt time.Time
+}
+
 // Providers bundles the optional subsystem read-models the query layer joins.
 // A nil field means the subsystem is disabled or unwired and contributes nothing.
 type Providers struct {
@@ -143,6 +166,7 @@ type Providers struct {
 	BuildProv BuildProvProvider
 	Rebuild   RebuildProvider
 	SbomDrift SbomDriftProvider
+	RepoScans RepoScanProvider
 }
 
 // enabled reports which subsystems are contributing to the model, so the schema
@@ -161,6 +185,7 @@ func (p Providers) enabled() map[string]bool {
 		"buildprov": p.BuildProv != nil && p.BuildProv.Enabled(),
 		"rebuild":   p.Rebuild != nil && p.Rebuild.Enabled(),
 		"sbomdrift": p.SbomDrift != nil && p.SbomDrift.Enabled(),
+		"reposcans": p.RepoScans != nil,
 	}
 }
 
@@ -258,6 +283,16 @@ type Record struct {
 	TimelineLastSource string    `json:"timelineLastSource,omitempty"`
 	TimelineLastAt     time.Time `json:"timelineLastAt,omitempty"`
 	TimelineProvable   bool      `json:"timelineProvable"`
+
+	// Repository dependency scans (Task 181): the worst verdict any current
+	// scan of a tracked repository read in the coordinate, and which
+	// repositories' lock files pin it.
+	RepoScanVerdict   string    `json:"repoScanVerdict,omitempty"`
+	RepoScanRepos     []string  `json:"repoScanRepos,omitempty"`
+	RepoScanFlagged   bool      `json:"repoScanFlagged"`
+	RepoScanUnscanned bool      `json:"repoScanUnscanned"`
+	RepoScanModel     string    `json:"repoScanModel,omitempty"`
+	RepoScanAt        time.Time `json:"repoScanAt,omitempty"`
 
 	// Consuming-tenant usage totals (metering, Task 84). These are tenant-grain
 	// cumulative values stamped onto every coordinate row for the tenant, so a
@@ -557,10 +592,65 @@ func (p Providers) build(now time.Time) []*Record {
 		}
 	}
 
+	// 13. Repository dependency scans — tenant-bearing. A coordinate a scan
+	// flags, or could not examine, gets a row of its own when no other source
+	// has one for the tenant.
+	if p.RepoScans != nil {
+		for _, f := range p.RepoScans.RepoScanFacts() {
+			coord := normalizeCoordinate(f.Ecosystem, f.Name, f.Version, "")
+			var targets []*Record
+			for _, r := range mi.byCoord[coordIndexKey(f.Ecosystem, coord)] {
+				if r.Tenant == strings.TrimSpace(f.Tenant) {
+					targets = append(targets, r)
+				}
+			}
+			if len(targets) == 0 {
+				targets = []*Record{mi.ensure(f.Tenant, f.Ecosystem, f.Name, f.Version, "", f.Digest, "")}
+			}
+			for _, r := range targets {
+				mergeRepoScan(r, f)
+				touch(r, f.ScannedAt)
+			}
+		}
+	}
+
 	for _, r := range mi.order {
 		finalize(r, now)
 	}
 	return mi.order
+}
+
+// repoScanRank orders repository-scan verdicts, worst highest.
+func repoScanRank(v string) int {
+	switch v {
+	case "malicious":
+		return 4
+	case "suspicious":
+		return 3
+	case "unscanned":
+		return 2
+	case "benign":
+		return 1
+	}
+	return 0
+}
+
+// mergeRepoScan folds one repository scan's reading of a coordinate into a
+// record: the worst verdict wins.
+func mergeRepoScan(r *Record, f RepoScanFact) {
+	addUnique(&r.RepoScanRepos, f.Repo)
+	if repoScanRank(f.Verdict) > repoScanRank(r.RepoScanVerdict) {
+		r.RepoScanVerdict, r.RepoScanModel = f.Verdict, f.Model
+	}
+	switch f.Verdict {
+	case "malicious", "suspicious":
+		r.RepoScanFlagged = true
+	case "unscanned":
+		r.RepoScanUnscanned = true
+	}
+	if f.ScannedAt.After(r.RepoScanAt) {
+		r.RepoScanAt = f.ScannedAt
+	}
 }
 
 // mergeBuildProv folds an inbound build-provenance report into a record.

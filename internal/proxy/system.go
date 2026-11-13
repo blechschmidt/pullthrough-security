@@ -52,6 +52,14 @@ type SystemFetchRequest struct {
 	// Hold, when set, is called with the cache key of a cacheable object once
 	// every admission gate has admitted it, before it is served.
 	Hold func(cacheKey string)
+	// DeferLLMRefusal has the LLM package-content scan gate judge the object
+	// without refusing it (Task 181): its reading is returned in LLMScan, and
+	// the caller — the repository registry's release pinner and dependency
+	// scanner — applies the action ladder itself. The object is admitted, so a
+	// release keeps the bytes of a dependency the gate refuses (pinned, for
+	// forensics). Nothing changes for clients: their own pulls of the object
+	// are judged, and refused, as always.
+	DeferLLMRefusal bool
 }
 
 // SystemGateVerdict is one admission gate's judgement of a system fetch.
@@ -77,6 +85,10 @@ type SystemFetchResult struct {
 	Reason string
 	// Verdicts are the gates that judged the object.
 	Verdicts []SystemGateVerdict
+	// LLMScan is the LLM package-content scan gate's reading of the object,
+	// when the gate looked at it: a verdict, the reason there is none, or why
+	// the gate does not examine the object at all.
+	LLMScan *SystemLLMScan
 }
 
 // systemReport collects what a system fetch learns along the pipeline.
@@ -90,6 +102,60 @@ type systemReport struct {
 	// signals is the request's admission-signal accumulator, which the
 	// verdicts are read from once the pipeline is done.
 	signals *admissionSignals
+	// deferLLM is SystemFetchRequest.DeferLLMRefusal; llm the gate's reading;
+	// deferredSignal the admission section of a deferred refusal, which only
+	// the request's findings document receives.
+	deferLLM       bool
+	llm            *SystemLLMScan
+	deferredSignal *policyengine.LLMPackageInput
+}
+
+// noteDeferredLLMSignal keeps the admission section of a deferred LLM refusal
+// for the request's findings document.
+func noteDeferredLLMSignal(ctx context.Context, in *policyengine.LLMPackageInput) {
+	rep := systemReportFrom(ctx)
+	if rep == nil || in == nil {
+		return
+	}
+	rep.mu.Lock()
+	rep.deferredSignal = in
+	rep.mu.Unlock()
+}
+
+// deferredLLMSignal returns the admission section of a deferred LLM refusal,
+// if the request is a system fetch that deferred one.
+func deferredLLMSignal(ctx context.Context) *policyengine.LLMPackageInput {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return nil
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	return rep.deferredSignal
+}
+
+// noteLLMScan records the LLM package-scan gate's reading of a system fetch's
+// object.
+func noteLLMScan(ctx context.Context, sl *SystemLLMScan) {
+	rep := systemReportFrom(ctx)
+	if rep == nil || sl == nil {
+		return
+	}
+	rep.mu.Lock()
+	rep.llm = sl
+	rep.mu.Unlock()
+}
+
+// deferringLLM reports whether the request is a system fetch that defers the
+// LLM package-scan gate's refusals to its caller.
+func deferringLLM(ctx context.Context) bool {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return false
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	return rep.deferLLM
 }
 
 type systemReportKey struct{}
@@ -157,7 +223,7 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 		httpReq.Header.Set("Accept", req.Accept)
 	}
 	httpReq.Header.Set("User-Agent", "pullthrough-release-pinner")
-	rep := &systemReport{hold: req.Hold}
+	rep := &systemReport{hold: req.Hold, deferLLM: req.DeferLLMRefusal}
 	// No client address: the download log records "system", via "system".
 	rec := &pullRecord{start: time.Now(), source: clientip.Info{Client: downloadlog.ViaSystem}}
 	sctx := context.WithValue(httpReq.Context(), systemReportKey{}, rep)
@@ -208,6 +274,7 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 	}
 	rep.mu.Lock()
 	sig := rep.signals
+	res.LLMScan = rep.llm
 	rep.mu.Unlock()
 	res.Verdicts = systemVerdicts(sig, gates)
 	if w.writeErr != nil {

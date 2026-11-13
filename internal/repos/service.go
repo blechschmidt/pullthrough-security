@@ -93,6 +93,11 @@ type FetchRequest struct {
 	// admission gate has admitted it and before it is served: from then on
 	// the object is held against eviction until the job's manifest pins it.
 	Hold func(cacheKey string)
+	// DeferLLMRefusal has the LLM package-content scan gate judge the object
+	// without refusing it: the registry applies the action ladder itself
+	// (Task 181), and a release keeps the bytes of a dependency the gate
+	// refuses to serve, for forensics.
+	DeferLLMRefusal bool
 }
 
 // FetchResult is what the proxy did with a FetchRequest.
@@ -113,6 +118,9 @@ type FetchResult struct {
 	Reason string
 	// Verdicts are the admission gates that judged the object.
 	Verdicts []GateVerdict
+	// LLM is the LLM package-content scan gate's reading of the object, when
+	// the gate looked at it on the way (Task 181).
+	LLM *ObjectScan
 }
 
 // Fetcher drives requests through the proxy's gated serve pipeline as a system
@@ -196,6 +204,8 @@ type Config struct {
 	// KnownRole, when set, reports whether a role is defined; registrations
 	// naming another are refused. Nil accepts any name (access control off).
 	KnownRole func(string) bool
+	// Scan tunes the LLM dependency scans (Task 181).
+	Scan ScanConfig
 }
 
 func (c Config) withDefaults() Config {
@@ -231,6 +241,7 @@ func (c Config) withDefaults() Config {
 	if c.Subject == "" {
 		c.Subject = "system:release-pinner"
 	}
+	c.Scan = c.Scan.withDefaults()
 	return c
 }
 
@@ -248,6 +259,10 @@ type Options struct {
 	Metrics   *Metrics
 	// Observer is told about releases (the provenance graph).
 	Observer ReleaseObserver
+	// Scans is the LLM package-content scan gate the dependency scans put
+	// each dependency before (Task 181); Findings takes their findings.
+	Scans    ObjectScanner
+	Findings FindingsSink
 	Logger   *slog.Logger
 	Now      func() time.Time
 }
@@ -286,6 +301,20 @@ type Service struct {
 	// time, and requests meanwhile make it run once more.
 	syncMu  sync.Mutex
 	syncing map[string]*bool
+
+	// The dependency scans (scan.go): their queue, the headers of the stored
+	// reports, and the default-branch states.
+	scanQ       chan scanJob
+	scanQMu     sync.Mutex
+	scanQueued  map[string]bool
+	scanHeads   map[string]ScanReport
+	scanFacts   map[string][]ScanFact
+	scanStamps  map[string]string
+	headStates  map[string]*HeadState
+	scanRunning map[string]bool
+	// scanAgain holds, per commit being scanned, a request that arrived
+	// meanwhile: the commit is scanned once more when the scan ends.
+	scanAgain map[string]scanJob
 
 	leader func() bool
 
@@ -333,6 +362,14 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 		queue:            make(chan pinJob, 4096),
 		repairing:        map[string]bool{},
 		syncing:          map[string]*bool{},
+		scanQ:            make(chan scanJob, 4096),
+		scanQueued:       map[string]bool{},
+		scanHeads:        map[string]ScanReport{},
+		scanFacts:        map[string][]ScanFact{},
+		scanStamps:       map[string]string{},
+		headStates:       map[string]*HeadState{},
+		scanRunning:      map[string]bool{},
+		scanAgain:        map[string]scanJob{},
 	}
 	if s.log == nil {
 		s.log = slog.Default()
@@ -357,6 +394,9 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 	}
 	s.recordConfigRegistrations(ctx)
 	if err := s.loadManifests(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.loadScanReports(ctx); err != nil {
 		return nil, err
 	}
 	s.metrics().setRepos(s.countTracked())
@@ -394,10 +434,17 @@ func (s *Service) Attach(o Options) {
 	if o.Observer != nil {
 		s.opts.Observer = o.Observer
 	}
+	if o.Scans != nil {
+		s.opts.Scans = o.Scans
+	}
+	if o.Findings != nil {
+		s.opts.Findings = o.Findings
+	}
 	if o.Metrics != nil {
 		s.opts.Metrics = o.Metrics
 		s.opts.Metrics.setRepos(s.countTracked())
 		s.refreshPinMetrics()
+		s.refreshScanMetrics()
 	}
 }
 
@@ -653,7 +700,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 		}
 		s.indexManifest(n, version, &m)
 	}
-	return nil
+	return s.refreshScanReports(ctx)
 }
 
 func (s *Service) readManifestObject(ctx context.Context, name string) (*Manifest, string, error) {
@@ -910,6 +957,9 @@ func (s *Service) Start(ctx context.Context) {
 	for i := 0; i < s.cfg.Workers; i++ {
 		s.spawn(s.worker)
 	}
+	for i := 0; i < s.cfg.Scan.Workers; i++ {
+		s.spawn(s.scanWorker)
+	}
 	s.spawn(s.loop)
 	s.log.Info("repository tracking started", "repos", s.countTracked(),
 		"pollInterval", s.cfg.PollInterval, "workers", s.cfg.Workers)
@@ -954,6 +1004,7 @@ func (s *Service) loop() {
 		if s.cfg.PollInterval > 0 {
 			s.SyncAll(ctx, "poll")
 		}
+		s.sweepScans(ctx)
 	}
 	tick := time.Minute
 	if s.cfg.PollInterval > 0 && s.cfg.PollInterval < tick {
@@ -994,6 +1045,7 @@ func (s *Service) loop() {
 		}
 		if leader {
 			s.sweepPending(ctx)
+			s.sweepScans(ctx)
 		}
 	}
 }

@@ -26,7 +26,11 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/cachegc"
 	"github.com/blechschmidt/pullthrough-security/internal/config"
 	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
+	"github.com/blechschmidt/pullthrough-security/internal/findings"
+	"github.com/blechschmidt/pullthrough-security/internal/llmpkgscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockfiles"
+	"github.com/blechschmidt/pullthrough-security/internal/notify"
+	"github.com/blechschmidt/pullthrough-security/internal/policyengine"
 	"github.com/blechschmidt/pullthrough-security/internal/proxy"
 	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/repos/locate"
@@ -160,6 +164,21 @@ type releaseStack struct {
 
 func startReleaseStack(t *testing.T, cfg *config.Config, stub *stubRegistry) *releaseStack {
 	t.Helper()
+	return startReleaseStackWith(t, cfg, stub, stackExtras{})
+}
+
+// stackExtras are the collaborators a test adds to the release stack: the LLM
+// package-content scan gate and the findings layer (Task 181).
+type stackExtras struct {
+	llm      *llmpkgscan.Service
+	findings *findings.Store
+	ledger   *findings.SuppressionLedger
+	notify   notify.Emitter
+	policy   *policyengine.Engine
+}
+
+func startReleaseStackWith(t *testing.T, cfg *config.Config, stub *stubRegistry, extra stackExtras) *releaseStack {
+	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	svc, err := buildRepos(context.Background(), cfg, logger)
@@ -203,11 +222,14 @@ func startReleaseStack(t *testing.T, cfg *config.Config, stub *stubRegistry) *re
 	gw, err := proxy.New(proxy.Dependencies{
 		Logger: logger, Cache: cacheImpl, Backends: registry, Pins: pinChecker(svc),
 		DownloadLog: dl, Ecosystems: ecosystemMap(cfg), Enforcer: enforcer,
+		LLMPkgScan: extra.llm, Findings: extra.findings, Suppressions: extra.ledger, Notify: extra.notify,
+		PolicyEngine: extra.policy,
 	}, proxy.Options{HTTPAddr: ":0", CacheNamespacing: true})
 	if err != nil {
 		t.Fatalf("proxy.New: %v", err)
 	}
-	if err := wireRepos(ctx, svc, cfg, gw, reposDeps{cache: cacheImpl, logger: logger}); err != nil {
+	if err := wireRepos(ctx, svc, cfg, gw, reposDeps{cache: cacheImpl, logger: logger, notify: extra.notify,
+		llmScan: extra.llm, findings: extra.findings, suppressions: extra.ledger}); err != nil {
 		t.Fatalf("wireRepos: %v", err)
 	}
 	st := &releaseStack{cfg: cfg, svc: svc, cache: cacheImpl, gateway: gw, log: dl, handler: gw.Handler()}
@@ -480,7 +502,7 @@ func TestRepositoryStateIsABackupSource(t *testing.T) {
 		got[src.name] = src.path
 	}
 	state := cfg.RepositoriesStateDir()
-	for name, sub := range map[string]string{"repos-registry": "repos", "repos-history": "history", "repos-manifests": "manifests"} {
+	for name, sub := range map[string]string{"repos-registry": "repos", "repos-history": "history", "repos-manifests": "manifests", "repos-scans": "scans"} {
 		if got[name] != filepath.Join(state, sub) {
 			t.Errorf("%s = %q, want %q", name, got[name], filepath.Join(state, sub))
 		}

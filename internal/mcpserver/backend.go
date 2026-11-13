@@ -7,6 +7,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/provgraph"
 	"github.com/blechschmidt/pullthrough-security/internal/queryapi"
+	"github.com/blechschmidt/pullthrough-security/internal/repos"
 	"github.com/blechschmidt/pullthrough-security/internal/riskscore"
 	"github.com/blechschmidt/pullthrough-security/internal/timeline"
 	"github.com/blechschmidt/pullthrough-security/internal/vulnscan"
@@ -65,4 +66,11 @@ type VulnProvider interface {
 // satisfies it.
 type RiskProvider interface {
 	Recent(limit int) []riskscore.Assessment
+}
+
+// RepoScanProvider supplies the dependency scans of tracked repositories (Task
+// 181) so get_repository_scan can return a revision's per-dependency verdicts.
+// *repos.Service satisfies it.
+type RepoScanProvider interface {
+	ScanReport(ctx context.Context, tenant, name, rev string) (*repos.ScanReportView, error)
 }

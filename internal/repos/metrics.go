@@ -21,9 +21,16 @@ type Metrics struct {
 	webhooks    *metrics.CounterVec
 	queue       *metrics.Gauge
 	repairs     *metrics.CounterVec
+	// The dependency scans (Task 181).
+	scans       *metrics.CounterVec
+	scanSeconds *metrics.Histogram
+	scanDeps    *metrics.CounterVec
+	scanQueue   *metrics.Gauge
+	malicious   *metrics.GaugeVec
 
-	mu      sync.Mutex
-	tagsNow map[string]int
+	mu           sync.Mutex
+	tagsNow      map[string]int
+	maliciousNow map[string]bool
 }
 
 // NewMetrics registers the series on reg; a nil registry yields nil.
@@ -59,7 +66,59 @@ func NewMetrics(reg *metrics.Registry) *Metrics {
 			"Releases waiting to be pinned."),
 		repairs: reg.NewCounterVec("pullthrough_repo_pin_repairs_total",
 			"Pinned objects fetched again after an integrity failure, by outcome (restored, lost).", []string{"outcome"}),
-		tagsNow: map[string]int{},
+		scans: reg.NewCounterVec("pullthrough_repo_scans_total",
+			"Dependency scans of repository revisions (Task 181), by kind (release, head, revision) and status (complete, incomplete, failed).",
+			[]string{"kind", "status"}),
+		scanSeconds: reg.NewHistogram("pullthrough_repo_scan_duration_seconds",
+			"Time taken by one dependency scan of a repository revision.",
+			[]float64{1, 5, 15, 60, 300, 900, 3600, 14400}),
+		scanDeps: reg.NewCounterVec("pullthrough_repo_scan_dependencies_total",
+			"Dependencies scanned, by verdict (malicious, suspicious, benign, unscanned).", []string{"verdict"}),
+		scanQueue: reg.NewGauge("pullthrough_repo_scan_queue",
+			"Repository revisions waiting for a dependency scan."),
+		malicious: reg.NewGaugeVec("pullthrough_repo_malicious_dependencies",
+			"Dependencies judged malicious (not released by break-glass) in each repository's current scans: the newest head scan and every release.",
+			[]string{"repo"}),
+		tagsNow:      map[string]int{},
+		maliciousNow: map[string]bool{},
+	}
+}
+
+func (m *Metrics) scan(kind, status string, took time.Duration) {
+	if m != nil {
+		m.scans.With(kind, status).Inc()
+		m.scanSeconds.Observe(took.Seconds())
+	}
+}
+
+func (m *Metrics) scannedDependency(verdict string) {
+	if m != nil && verdict != "" {
+		m.scanDeps.With(verdict).Inc()
+	}
+}
+
+func (m *Metrics) setScanQueue(n int) {
+	if m != nil {
+		m.scanQueue.Set(float64(n))
+	}
+}
+
+// setMaliciousDependencies publishes the per-repository count; a repository
+// that drops out keeps a 0 sample rather than a stale count.
+func (m *Metrics) setMaliciousDependencies(byRepo map[string]int) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for repo := range m.maliciousNow {
+		if _, ok := byRepo[repo]; !ok {
+			m.malicious.With(repo).Set(0)
+		}
+	}
+	for repo, n := range byRepo {
+		m.malicious.With(repo).Set(float64(n))
+		m.maliciousNow[repo] = true
 	}
 }
 

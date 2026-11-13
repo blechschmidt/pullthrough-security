@@ -866,6 +866,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST "+s.prefix+"/api/repos/sync", s.handleReposSync)
 	mux.HandleFunc("POST "+s.prefix+"/api/repos/pin", s.handleReposPin)
 	mux.HandleFunc("POST "+s.prefix+"/api/repos/remove", s.handleReposRemove)
+	// Dependency scans of tracked repositories (Task 181).
+	mux.HandleFunc("POST "+s.prefix+"/api/repos/scan", s.handleReposScan)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/scan", s.handleReposScanReport)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/scans", s.handleReposScans)
+	mux.HandleFunc("GET "+s.prefix+"/api/repos/scan/sarif", s.handleReposScanSARIF)
 	// TLS interception and NAT mode (Task 172): the listeners, the routing
 	// table, the hostnames to send to the proxy, and the CA to trust.
 	mux.HandleFunc("GET "+s.prefix+"/api/intercept", s.handleIntercept)

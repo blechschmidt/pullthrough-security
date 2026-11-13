@@ -352,6 +352,11 @@ func buildObservability(
 	if sbomDiffSvc != nil {
 		queryProviders.SbomDrift = sbomDiffSvc
 	}
+	if reposSvc != nil {
+		// What the dependency scans of tracked repositories read in each
+		// coordinate (Task 181).
+		queryProviders.RepoScans = queryRepoScans{svc: reposSvc}
+	}
 	queryEngine := queryapi.New(queryapi.Config{}, queryProviders)
 
 	// Build the read-only MCP server (Task 79). It projects over the federated
@@ -381,6 +386,9 @@ func buildObservability(
 		}
 		if riskEngine != nil {
 			mcpCfg.Risk = riskEngine
+		}
+		if reposSvc != nil {
+			mcpCfg.RepoScans = reposSvc
 		}
 		mcpSrv = mcpserver.New(mcpCfg)
 	}
@@ -5140,6 +5148,9 @@ func newDossierBuilder(
 		// "Shipped in release X" (Task 180): the releases whose lock files pin
 		// the coordinate.
 		dp.Releases = dossierReleases{svc: reposSvc}
+		// What the dependency scans of the repositories read in the
+		// coordinate (Task 181).
+		dp.RepositoryScans = dossierRepoScans{svc: reposSvc}
 	}
 	if findingsStore != nil {
 		dp.Findings = findingsStore

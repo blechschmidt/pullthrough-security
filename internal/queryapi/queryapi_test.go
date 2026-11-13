@@ -513,3 +513,45 @@ func TestEmptyModelDegrades(t *testing.T) {
 		t.Errorf("empty model should yield no rows, got %+v", res)
 	}
 }
+
+type fakeRepoScans struct{ facts []RepoScanFact }
+
+func (f fakeRepoScans) RepoScanFacts() []RepoScanFact { return f.facts }
+
+// The dependency scans of tracked repositories (Task 181) stamp the rows of
+// the coordinates they flag, and add a row for one no client has pulled.
+func TestRepoScanFacts(t *testing.T) {
+	providers := seededProviders()
+	providers.RepoScans = fakeRepoScans{facts: []RepoScanFact{
+		{Tenant: "acme", Ecosystem: "npm", Name: "evil", Version: "1.0.0", Repo: "widgets", Verdict: "malicious", Model: "model-1", ScannedAt: fixedNow},
+		{Tenant: "acme", Ecosystem: "npm", Name: "evil", Version: "1.0.0", Repo: "gadgets", Verdict: "unscanned", ScannedAt: fixedNow.Add(-time.Hour)},
+		{Tenant: "acme", Ecosystem: "cargo", Name: "never-pulled", Version: "0.1.0", Repo: "widgets", Verdict: "suspicious", Model: "model-1", ScannedAt: fixedNow},
+		{Tenant: "beta", Ecosystem: "npm", Name: "evil", Version: "1.0.0", Repo: "beta-repo", Verdict: "malicious", ScannedAt: fixedNow},
+	}}
+	e := New(Config{Now: func() time.Time { return fixedNow }}, providers)
+	res, err := e.Query(Query{
+		Tenant: "acme",
+		Select: []string{"ecosystem", "coordinate", "repoScanVerdict", "repoScanRepos", "repoScanFlagged", "repoScanUnscanned", "repoScanModel"},
+		Where:  &Filter{Field: "repoScanFlagged", Op: "eq", Value: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]map[string]any{}
+	for _, r := range res.Rows {
+		got[r["coordinate"].(string)] = r
+	}
+	evil := got["evil@1.0.0"]
+	if len(res.Rows) != 2 || evil == nil || got["never-pulled@0.1.0"] == nil {
+		t.Fatalf("rows: %+v", res.Rows)
+	}
+	if evil["repoScanVerdict"] != "malicious" || evil["repoScanModel"] != "model-1" || evil["repoScanUnscanned"] != true {
+		t.Fatalf("evil row: %+v", evil)
+	}
+	if repos, _ := evil["repoScanRepos"].([]string); len(repos) != 2 {
+		t.Fatalf("evil repos: %+v", evil["repoScanRepos"])
+	}
+	if !e.Schema().Sources["reposcans"] {
+		t.Fatal("the source is not advertised")
+	}
+}

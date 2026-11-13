@@ -63,6 +63,14 @@ const (
 	RuleDisallowedActionOwner     = "actionpin/disallowed-owner"
 )
 
+// The repository dependency scan (Task 181) reports each dependency a tracked
+// repository's lock files pin, located at the lock file's line.
+const (
+	RuleLLMMaliciousDependency  = "llmpkgscan/malicious-dependency"
+	RuleLLMSuspiciousDependency = "llmpkgscan/suspicious-dependency"
+	RuleLLMUnscannedDependency  = "llmpkgscan/unscanned-dependency"
+)
+
 // helpURIBase is the documentation anchor base every rule's HelpURI derives
 // from, so an operator following a CI annotation lands on the gate's docs.
 const helpURIBase = "https://github.com/blechschmidt/pullthrough-security/blob/main/docs/findings.md"
@@ -243,6 +251,30 @@ var catalog = map[string]Rule{
 		HelpText: "The artifact was served (fail-open) or refused (fail-closed) without an LLM verdict; the reason code is in the result properties. Raise the scan limits or exclude the ecosystem if this is expected for the package, and investigate it if it is not.",
 		Default:  LevelNote, Tags: []string{"security", "llm", "coverage", "supply-chain"},
 	},
+	RuleLLMMaliciousDependency: {
+		ID: RuleLLMMaliciousDependency, Gate: GateLLMPkgScan, Name: "LLMMaliciousDependency",
+		Short:    "A dependency a lock file pins was judged malicious by an LLM review of its package contents.",
+		Full:     "The repository dependency scan read the lock files of a tracked repository at a commit (a release, the default branch's head, or a revision asked for), fetched every dependency they pin through the proxy, and put each package before the sandboxed LLM package-content scan gate. The gate judged this dependency malicious: the model returned a malicious verdict at or above the configured confidence threshold. The result is located at the lock-file line that pins the dependency; the verdict, the model, when it was reached and the artifact digest are in the result properties. Nothing in the package was executed.",
+		HelpURI:  helpURIBase + "#llm-malicious-dependency",
+		HelpText: "Remove or replace the dependency and rebuild. The release that pins it keeps its bytes for forensics (they are never served while the gate refuses them). Review the model's reasons and cited files in the admin console before deciding; a confirmed false positive is released through the break-glass approval workflow.",
+		Default:  LevelError, Tags: []string{"security", "malware", "llm", "supply-chain", "dependency"},
+	},
+	RuleLLMSuspiciousDependency: {
+		ID: RuleLLMSuspiciousDependency, Gate: GateLLMPkgScan, Name: "LLMSuspiciousDependency",
+		Short:    "A dependency a lock file pins was flagged as suspicious by an LLM review of its package contents.",
+		Full:     "The repository dependency scan put a dependency the repository's lock files pin before the sandboxed LLM package-content scan gate, which flagged it short of a malicious verdict: the model returned suspicious, or malicious below the malicious threshold, or the package contains text addressed to the scanner, or the archive is built to attack an extractor. The result is located at the lock-file line that pins the dependency.",
+		HelpURI:  helpURIBase + "#llm-suspicious-dependency",
+		HelpText: "Review the dependency: the gate's reading and the model's reasons are in the admin console's repository view and in the dossier of the coordinate.",
+		Default:  LevelWarning, Tags: []string{"security", "llm", "supply-chain", "dependency"},
+	},
+	RuleLLMUnscannedDependency: {
+		ID: RuleLLMUnscannedDependency, Gate: GateLLMPkgScan, Name: "LLMUnscannedDependency",
+		Short:    "A dependency a lock file pins could not be examined by the LLM package-content scan.",
+		Full:     "The repository dependency scan could not produce a verdict for a dependency the repository's lock files pin. The reason code in the result properties says why: the dependency cannot be fetched through the proxy (a Git dependency, an unsupported registry), an admission gate refused it, it was served without a digest to bind a verdict to, its ecosystem or upstream is outside the scan's scope, none of its objects is package content, or the scan itself could not finish (the package is too large or not an archive the scanner unpacks, the provider failed, the cost budget is spent). An unscanned dependency is never reported as benign.",
+		HelpURI:  helpURIBase + "#llm-unscanned-dependency",
+		HelpText: "A reason marked transient (provider failure, busy scanner, spent budget) is retried automatically. For the others, decide whether the gap is acceptable: widen the scan's scope or limits, fetch the dependency through a supported upstream, or review the package by hand.",
+		Default:  LevelNote, Tags: []string{"security", "llm", "coverage", "supply-chain", "dependency"},
+	},
 	RuleReproducibilityMismatch: {
 		ID: RuleReproducibilityMismatch, Gate: GateRebuildVerify, Name: "ReproducibilityMismatch",
 		Short:    "The artifact could not be reproduced from its attested source commit.",
@@ -338,6 +370,9 @@ var catalogOrder = []string{
 	RuleLLMMaliciousPackage,
 	RuleLLMSuspiciousPackage,
 	RuleLLMScanIncomplete,
+	RuleLLMMaliciousDependency,
+	RuleLLMSuspiciousDependency,
+	RuleLLMUnscannedDependency,
 	RuleReproducibilityMismatch,
 	RuleProvenanceSourceMismatch,
 	RuleUnverifiedBuildProvenance,

@@ -9021,10 +9021,52 @@ type RepositoriesConfig struct {
 	Roles []string `yaml:"roles"`
 	// Pinning tunes how releases are pinned.
 	Pinning ReleasePinningConfig `yaml:"pinning"`
+	// Scan tunes the LLM malicious-behaviour scan of every dependency the
+	// repositories' lock files pin (Task 181). It runs through the LLM
+	// package-content scan gate (llmPackageScan), its verdict cache, cost
+	// budget and concurrency limits, and only when that gate is enabled.
+	Scan RepositoryScanConfig `yaml:"scan"`
 	// Repos are the repositories registered by configuration. More can be
 	// registered through the admin API (`ptctl repos add`).
 	Repos []RepositoryConfig `yaml:"repos"`
 }
+
+// RepositoryScanConfig tunes the dependency scans of tracked repositories.
+type RepositoryScanConfig struct {
+	// Enabled turns the scans on (default true; they also need
+	// llmPackageScan.enabled). Off, nothing is scanned and the release
+	// pinner refuses a dependency the LLM gate refuses, as before.
+	Enabled *bool `yaml:"enabled"`
+	// Releases scans each release manifest once it is pinned (default
+	// true). The release pinner then pins the bytes of a dependency the LLM
+	// gate refuses — they are kept for forensics, and refused to every
+	// client while the verdict stands — and the scan marks the release
+	// "contains malicious dependency" and reports it.
+	Releases *bool `yaml:"releases"`
+	// DefaultBranch scans the default branch's head when it moves (a push
+	// webhook or a poll) and every interval (default true).
+	DefaultBranch *bool `yaml:"defaultBranch"`
+	// Interval is how often the default branch's head is scanned again when
+	// it has not moved (default 24h; "0s" keeps the default, a negative
+	// value scans it only when it moves). A rescan costs no model call for
+	// bytes that already have a verdict.
+	Interval time.Duration `yaml:"interval"`
+	// Workers is how many revisions are scanned at a time (default 1);
+	// Concurrency how many dependencies of one revision (default 2). The
+	// LLM gate's own maxConcurrent and per-tenant share bound the model
+	// calls on top of these.
+	Workers     int `yaml:"workers"`
+	Concurrency int `yaml:"concurrency"`
+	// RetryInterval is the wait before dependencies left unscanned for a
+	// passing reason (a provider failure, a busy scanner, a spent budget)
+	// are tried again; it doubles per attempt (default 1h). MaxAttempts
+	// bounds the attempts (default 5).
+	RetryInterval time.Duration `yaml:"retryInterval"`
+	MaxAttempts   int           `yaml:"maxAttempts"`
+}
+
+// ScanEnabledOrDefault reports whether dependency scans are on (default true).
+func (s RepositoryScanConfig) ScanEnabledOrDefault() bool { return s.Enabled == nil || *s.Enabled }
 
 // ReleasePinningConfig tunes release pinning.
 type ReleasePinningConfig struct {
@@ -9091,6 +9133,9 @@ type RepositoryConfig struct {
 	BackfillTags *int `yaml:"backfillTags"`
 	// Roles overrides repositories.roles for this repository.
 	Roles []string `yaml:"roles"`
+	// Branch is the branch whose head the dependency scan follows (default:
+	// the repository's default branch, as its remote's HEAD names it).
+	Branch string `yaml:"branch"`
 }
 
 // RepositoriesStateDir returns the registry's state directory: the configured
@@ -9174,6 +9219,13 @@ func (c *Config) validateRepositories() error {
 			return fmt.Errorf("config: repositories.pinning.platforms: %q is not os/arch[/variant]", p)
 		}
 	}
+	sc := r.Scan
+	if sc.Workers < 0 || sc.Concurrency < 0 || sc.MaxAttempts < 0 || sc.RetryInterval < 0 {
+		return fmt.Errorf("config: repositories.scan values must not be negative (interval excepted)")
+	}
+	if sc.Interval > 0 && sc.Interval < time.Minute {
+		return fmt.Errorf("config: repositories.scan.interval must be at least 1m (or negative: only when the head moves), got %s", sc.Interval)
+	}
 	definedRole := map[string]bool{}
 	for _, role := range c.Auth.Roles {
 		definedRole[strings.TrimSpace(role.Name)] = true
@@ -9205,6 +9257,9 @@ func (c *Config) validateRepositories() error {
 		}
 		if seen[repo.Name] {
 			return fmt.Errorf("config: repositories.repos: %q is registered twice", repo.Name)
+		}
+		if b := strings.TrimSpace(repo.Branch); b != "" && (strings.HasPrefix(b, "-") || strings.ContainsAny(b, " \t\r\n:~^?*[\\") || strings.Contains(b, "..")) {
+			return fmt.Errorf("config: repositories.repos %q: branch %q is not a branch name", repo.Name, repo.Branch)
 		}
 		seen[repo.Name] = true
 		for t, up := range repo.Upstreams {

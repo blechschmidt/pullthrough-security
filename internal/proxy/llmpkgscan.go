@@ -58,6 +58,9 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 	// Scope first, before anything is read: an excluded upstream's artifacts are
 	// never opened for scanning, let alone sent to the LLM provider.
 	if !svc.AppliesTo(ecosystem, name) || entry == nil {
+		if svc.Enabled() && entry != nil {
+			noteLLMScan(r.Context(), &SystemLLMScan{NotApplicable: LLMOutOfScope, NotApplicableReason: llmScopeReason(svc, ecosystem, name)})
+		}
 		return true
 	}
 	digest := entry.Stat.Metadata[cache.MetaDigest]
@@ -67,6 +70,9 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 		art:       llmPkgScanArtifactFor(ecosystem, name, resolved, digest, entry.Stat.Size),
 		open:      g.llmScanCacheOpener(resolved.CacheKey, digest),
 		evict:     func(ctx context.Context) { g.evictLLMPkgScan(ctx, resolved) },
+		// A release pins these bytes (Task 180): a refusal keeps them, for
+		// forensics, and serving them stays refused all the same.
+		pinned: resolved.Cacheable && g.deps.Pins != nil && g.deps.Pins.IsPinned(resolved.CacheKey),
 	}
 	switch resolved.Artifact.Kind {
 	case backends.KindOCIManifest:
@@ -96,6 +102,9 @@ type llmScanSubject struct {
 	// reviewCoordinate and reviewDigest, when set, name the artifact a
 	// break-glass review is opened for: for a blob, the image it belongs to.
 	reviewCoordinate string
+	// pinned reports that a release pins the cached artifact: a refusal does
+	// not evict it (the cache would refuse to anyway), its bytes are kept.
+	pinned bool
 }
 
 // llmScanCacheOpener returns the scan's way to read a cached artifact. The scan
@@ -155,18 +164,60 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 	}
 	if report == nil {
 		// Nothing to examine: a metadata document, an index, an image index.
+		noteLLMScan(r.Context(), &SystemLLMScan{NotApplicable: LLMNotPackage,
+			NotApplicableReason: "the object is not package content the scan examines (a metadata document, an index)"})
 		return true
 	}
 	if report.Scanned() && !report.Cached && !report.Shared {
 		g.meterScan(r, "llmpkgscan")
 	}
 
-	recordLLMPkgScanSignal(r.Context(), svc, report)
-	decision := svc.Gate(report)
+	// A system fetch that defers the gate's refusal (the release pinner and
+	// the dependency scanner, Task 181) is no client decision: it is not
+	// counted, and a deferred refusal is not handed on to the gates that run
+	// after this one (policy, risk) either — they would only refuse the same
+	// verdict the caller has taken on to act on.
+	deferring := isSystemRequest(r) && deferringLLM(r.Context())
+	var decision llmpkgscan.Decision
+	if deferring {
+		decision = svc.Decide(report)
+	} else {
+		decision = svc.Gate(report)
+	}
+	if !deferring || decision.Served() {
+		recordLLMPkgScanSignal(r.Context(), svc, report)
+	}
 	coordinate := art.Coordinate()
 	reviewCoordinate := coordinate
 	if sub.reviewCoordinate != "" {
 		reviewCoordinate = sub.reviewCoordinate
+	}
+
+	if isSystemRequest(r) {
+		// The proxy asked itself (the repository registry, Tasks 180-181): its
+		// caller is told what the gate read, and the active break-glass grant
+		// that releases the bytes, if any.
+		sl := &SystemLLMScan{Applicable: true, Report: report, Decision: decision, Pinned: sub.pinned,
+			ReviewCoordinate: reviewCoordinate}
+		if !decision.Served() && llmPkgScanReviewable(report) {
+			sl.BreakGlass = g.activeBreakGlass(r, approvalGateLLMPkgScan, ecosystem, reviewCoordinate, llmPkgScanApprovalReason(report))
+		}
+		if !decision.Served() && deferring {
+			// The release pinner and the dependency scanner apply the action
+			// ladder themselves: the object is admitted — pinned, for a
+			// release, and kept for forensics — and a client's own pull of it
+			// is still judged, and refused, as always.
+			sl.Deferred = true
+			noteLLMScan(r.Context(), sl)
+			// The findings document of the request still carries the gate's
+			// reading: it is recorded after every gate ran, so it informs
+			// without refusing (recordFindings).
+			noteDeferredLLMSignal(r.Context(), llmPkgScanInput(svc, report))
+			g.auditLLMPkgScanDeferred(r, name, ecosystem, report, decision)
+			setLLMPkgScanHeaders(w.Header(), report, "deferred")
+			return true
+		}
+		noteLLMScan(r.Context(), sl)
 	}
 
 	if !decision.Served() {
@@ -180,16 +231,23 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 			setLLMPkgScanHeaders(w.Header(), report, "break-glass")
 			return true
 		}
-		if decision.Evict && sub.evict != nil {
+		evicted := false
+		switch {
+		case decision.Evict && sub.pinned:
+			// A release pins the bytes: they are kept, for forensics, and are
+			// refused to every client while the verdict stands.
+			decision.Evict = false
+		case decision.Evict && sub.evict != nil:
 			// Evict even if the client has gone: a refused artifact must not linger
 			// because the request that found it was abandoned.
 			sub.evict(context.WithoutCancel(r.Context()))
+			evicted = true
 		}
-		g.auditLLMPkgScan(r, name, ecosystem, report, decision)
+		g.auditLLMPkgScan(r, name, ecosystem, report, decision, sub.pinned)
 		g.deps.Logger.Warn("LLM package-scan gate refused artifact",
 			"backend", name, "ecosystem", ecosystem, "artifact", coordinate, "digest", report.Artifact.Digest,
 			"disposition", string(report.Disposition), "code", decision.Code, "action", decision.Action,
-			"evicted", decision.Evict && sub.evict != nil)
+			"evicted", evicted, "keptPinned", sub.pinned)
 		if report.Scanned() && sub.stored == nil {
 			g.notifyLLMPkgScan(r, name, ecosystem, report, decision)
 		}
@@ -206,14 +264,14 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 		if report.Unscanned.Content {
 			// The artifact itself defeated the scan: that is a decision worth a
 			// record every time. A passing fault is counted in the metrics instead.
-			g.auditLLMPkgScan(r, name, ecosystem, report, decision)
+			g.auditLLMPkgScan(r, name, ecosystem, report, decision, sub.pinned)
 		}
 		g.deps.Logger.Debug("LLM package scan produced no verdict; served under fail-open policy",
 			"backend", name, "ecosystem", ecosystem, "artifact", coordinate,
 			"code", report.Unscanned.Code, "detail", report.Unscanned.Detail)
 	case report.Disposition != llmpkgscan.DispositionBenign:
 		label = "annotate"
-		g.auditLLMPkgScan(r, name, ecosystem, report, decision)
+		g.auditLLMPkgScan(r, name, ecosystem, report, decision, sub.pinned)
 		g.deps.Logger.Warn("LLM package-scan gate flagged artifact (serving)",
 			"backend", name, "ecosystem", ecosystem, "artifact", coordinate, "digest", report.Artifact.Digest,
 			"disposition", string(report.Disposition), "action", decision.Action)
@@ -302,6 +360,14 @@ func recordLLMPkgScanSignal(ctx context.Context, svc *llmpkgscan.Service, report
 	if s == nil || report == nil {
 		return
 	}
+	in := llmPkgScanInput(svc, report)
+	s.mu.Lock()
+	s.input.LLMPackage = in
+	s.mu.Unlock()
+}
+
+// llmPkgScanInput is the admission document's section for a report.
+func llmPkgScanInput(svc *llmpkgscan.Service, report *llmpkgscan.Report) *policyengine.LLMPackageInput {
 	in := &policyengine.LLMPackageInput{
 		Scanned:      report.Scanned(),
 		Disposition:  string(report.Disposition),
@@ -355,9 +421,7 @@ func recordLLMPkgScanSignal(ctx context.Context, svc *llmpkgscan.Service, report
 			Line:     f.Line,
 		})
 	}
-	s.mu.Lock()
-	s.input.LLMPackage = in
-	s.mu.Unlock()
+	return in
 }
 
 // severityRank orders finding severities; an unknown or empty one ranks lowest.
@@ -514,7 +578,7 @@ func writeLLMPkgScanBlock(w http.ResponseWriter, report *llmpkgscan.Report, d ll
 // auditLLMPkgScan records a gate decision in the tamper-evident audit log. The
 // record identifies the verdict by digest and cache key; the verdict's full
 // text is kept in the verdict store rather than copied into every pull's record.
-func (g *Gateway) auditLLMPkgScan(r *http.Request, backend, ecosystem string, report *llmpkgscan.Report, d llmpkgscan.Decision) {
+func (g *Gateway) auditLLMPkgScan(r *http.Request, backend, ecosystem string, report *llmpkgscan.Report, d llmpkgscan.Decision, keptPinned bool) {
 	if g.deps.Audit == nil {
 		return
 	}
@@ -531,6 +595,10 @@ func (g *Gateway) auditLLMPkgScan(r *http.Request, backend, ecosystem string, re
 		"digest":      art.Digest,
 		"disposition": string(report.Disposition),
 		"evicted":     d.Evict,
+	}
+	if keptPinned {
+		// The bytes are pinned by a release (Task 180): refused, not deleted.
+		detail["keptPinned"] = true
 	}
 	if v := report.Verdict; v != nil {
 		detail["verdict"] = v.Verdict
@@ -593,4 +661,48 @@ func (g *Gateway) notifyLLMPkgScan(r *http.Request, backend, ecosystem string, r
 		ev.Subject = p.Subject
 	}
 	g.emit(context.WithoutCancel(r.Context()), ev)
+}
+
+// auditLLMPkgScanDeferred records a refusal the gate deferred to the system
+// caller that asked for the object (DeferLLMRefusal): the release pinner keeps
+// the bytes, the repository dependency scan applies the action ladder and
+// reports it. The record says what a client would have been told.
+func (g *Gateway) auditLLMPkgScanDeferred(r *http.Request, backend, ecosystem string, report *llmpkgscan.Report, d llmpkgscan.Decision) {
+	if g.deps.Audit == nil {
+		return
+	}
+	art := report.Artifact
+	detail := map[string]any{
+		"action":      d.Action,
+		"code":        d.Code,
+		"package":     art.Name,
+		"version":     art.Version,
+		"digest":      art.Digest,
+		"disposition": string(report.Disposition),
+		"deferred":    "repository-scan",
+	}
+	if v := report.Verdict; v != nil {
+		detail["verdict"] = v.Verdict
+		detail["confidence"] = v.Confidence
+		detail["model"] = v.Model
+		detail["verdictKey"] = v.Key
+	}
+	if u := report.Unscanned; u != nil {
+		detail["unscannedCode"] = u.Code
+	}
+	ev := audit.Event{
+		Type:      audit.EventPolicy,
+		Method:    r.Method,
+		Backend:   backend,
+		Ecosystem: ecosystem,
+		Resource:  r.URL.Path,
+		Decision:  audit.DecisionAllow,
+		Reason:    "llmpkgscan:deferred:" + d.Code,
+		Detail:    detail,
+	}
+	if p, ok := auth.FromContext(r.Context()); ok && p != nil {
+		ev.Subject = p.Subject
+		ev.Team = p.Team
+	}
+	g.logAudit(context.WithoutCancel(r.Context()), ev)
 }

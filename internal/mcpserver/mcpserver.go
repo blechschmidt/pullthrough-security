@@ -60,6 +60,8 @@ type Config struct {
 	Attest    AttestProvider
 	Vuln      VulnProvider
 	Risk      RiskProvider
+	// RepoScans is the repository registry's dependency scans (Task 181).
+	RepoScans RepoScanProvider
 }
 
 // Server is a read-only MCP server. It is safe for concurrent use: it holds no
@@ -75,6 +77,7 @@ type Server struct {
 	attest    AttestProvider
 	vuln      VulnProvider
 	risk      RiskProvider
+	repoScans RepoScanProvider
 
 	tools  []tool
 	byName map[string]tool
@@ -98,6 +101,7 @@ func New(cfg Config) *Server {
 		attest:    cfg.Attest,
 		vuln:      cfg.Vuln,
 		risk:      cfg.Risk,
+		repoScans: cfg.RepoScans,
 	}
 	if s.version == "" {
 		s.version = "dev"
