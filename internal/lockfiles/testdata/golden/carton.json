@@ -1,0 +1,70 @@
+[
+  {
+    "path": "cpanfile.snapshot",
+    "type": "cpan",
+    "format": "cpanfile.snapshot",
+    "formatVersion": "1.0",
+    "dependencies": [
+      {
+        "type": "cpan",
+        "name": "Class-Method-Modifiers",
+        "version": "2.15",
+        "id": "E/ET/ETHER/Class-Method-Modifiers-2.15.tar.gz",
+        "unverified": true,
+        "unverifiedReason": "cpanfile.snapshot records no hash (the CHECKSUMS file of the author's directory on CPAN has one, the snapshot does not)",
+        "file": "cpanfile.snapshot",
+        "line": 3
+      },
+      {
+        "type": "cpan",
+        "name": "Moo",
+        "version": "2.005005",
+        "id": "H/HA/HAARG/Moo-2.005005.tar.gz",
+        "unverified": true,
+        "unverifiedReason": "cpanfile.snapshot records no hash (the CHECKSUMS file of the author's directory on CPAN has one, the snapshot does not)",
+        "file": "cpanfile.snapshot",
+        "line": 16
+      },
+      {
+        "type": "cpan",
+        "name": "Role-Tiny",
+        "version": "2.002005",
+        "id": "H/HA/HAARG/Role-Tiny-2.002005.tar.gz",
+        "unverified": true,
+        "unverifiedReason": "cpanfile.snapshot records no hash (the CHECKSUMS file of the author's directory on CPAN has one, the snapshot does not)",
+        "file": "cpanfile.snapshot",
+        "line": 43
+      },
+      {
+        "type": "cpan",
+        "name": "Sub-Quote",
+        "version": "2.006009",
+        "id": "H/HA/HAARG/Sub-Quote-2.006009.tar.gz",
+        "unverified": true,
+        "unverifiedReason": "cpanfile.snapshot records no hash (the CHECKSUMS file of the author's directory on CPAN has one, the snapshot does not)",
+        "file": "cpanfile.snapshot",
+        "line": 51
+      },
+      {
+        "type": "cpan",
+        "name": "Test-Fatal",
+        "version": "0.019",
+        "id": "R/RJ/RJBS/Test-Fatal-0.019.tar.gz",
+        "unverified": true,
+        "unverifiedReason": "cpanfile.snapshot records no hash (the CHECKSUMS file of the author's directory on CPAN has one, the snapshot does not)",
+        "file": "cpanfile.snapshot",
+        "line": 60
+      },
+      {
+        "type": "cpan",
+        "name": "Try-Tiny",
+        "version": "0.32",
+        "id": "E/ET/ETHER/Try-Tiny-0.32.tar.gz",
+        "unverified": true,
+        "unverifiedReason": "cpanfile.snapshot records no hash (the CHECKSUMS file of the author's directory on CPAN has one, the snapshot does not)",
+        "file": "cpanfile.snapshot",
+        "line": 72
+      }
+    ]
+  }
+]

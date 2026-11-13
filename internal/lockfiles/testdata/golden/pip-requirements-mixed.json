@@ -8,6 +8,8 @@
         "type": "pip",
         "name": "urllib3",
         "version": "2.2.3",
+        "unverified": true,
+        "unverifiedReason": "no --hash is given for this requirement",
         "file": "requirements/constraints.txt",
         "line": 1
       }
@@ -23,6 +25,8 @@
         "name": "django",
         "version": "4.2.16",
         "registry": "https://pypi.example.com/simple",
+        "unverified": true,
+        "unverifiedReason": "no --hash is given for this requirement",
         "file": "requirements/dev.txt",
         "line": 7
       },
@@ -45,6 +49,8 @@
         "name": "numpy",
         "version": "1.26.4",
         "registry": "https://pypi.example.com/simple",
+        "unverified": true,
+        "unverifiedReason": "no --hash is given for this requirement",
         "file": "requirements/dev.txt",
         "line": 10
       },
@@ -71,6 +77,8 @@
         "name": "my-weird-name",
         "version": "0.1",
         "registry": "https://pypi.example.com/simple",
+        "unverified": true,
+        "unverifiedReason": "no --hash is given for this requirement",
         "file": "requirements/dev.txt",
         "line": 15
       },

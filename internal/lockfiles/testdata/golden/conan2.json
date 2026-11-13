@@ -1,0 +1,75 @@
+[
+  {
+    "path": "conan.lock",
+    "type": "conan",
+    "format": "conan.lock",
+    "formatVersion": "0.5",
+    "dependencies": [
+      {
+        "type": "conan",
+        "name": "zlib",
+        "version": "1.3.1",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "cac0f6daea041b0ccf42934163defb20",
+            "of": "conan-recipe"
+          }
+        ],
+        "unverified": true,
+        "unverifiedReason": "conan.lock pins the recipe revision, not the binary package the client downloads",
+        "file": "conan.lock",
+        "line": 4
+      },
+      {
+        "type": "conan",
+        "name": "fmt",
+        "version": "10.2.1",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "15db2a3ea0646365bf05a6f50369ac59",
+            "of": "conan-recipe"
+          }
+        ],
+        "unverified": true,
+        "unverifiedReason": "conan.lock pins the recipe revision, not the binary package the client downloads",
+        "file": "conan.lock",
+        "line": 5
+      },
+      {
+        "type": "conan",
+        "name": "cmake",
+        "version": "3.28.1",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "92f79424d7b65b12a84a2180866c3a78",
+            "of": "conan-recipe"
+          }
+        ],
+        "unverified": true,
+        "unverifiedReason": "conan.lock pins the recipe revision, not the binary package the client downloads",
+        "file": "conan.lock",
+        "line": 8
+      },
+      {
+        "type": "conan",
+        "name": "fixture-pyreq",
+        "version": "0.1",
+        "id": "fixture-pyreq/0.1@acme/stable",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "9dad71aa723229fbf54c68d975a01158",
+            "of": "conan-recipe"
+          }
+        ],
+        "unverified": true,
+        "unverifiedReason": "conan.lock pins the recipe revision, not the binary package the client downloads",
+        "file": "conan.lock",
+        "line": 11
+      }
+    ]
+  }
+]

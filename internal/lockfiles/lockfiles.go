@@ -23,6 +23,12 @@ type Dependency struct {
 	// platform gem it carries the platform ("1.16.7-x86_64-linux"), which names
 	// a separate artifact; for Docker it is the manifest digest.
 	Version string `json:"version"`
+	// ID is what the ecosystem identifies the package by when its name and
+	// version do not say it all: a Julia package's UUID (two registries may
+	// each have a package of the name), a Conan reference's user and channel
+	// ("zlib/1.3.1@acme/stable"), the author path of a CPAN distribution
+	// ("E/ET/ETHER/Try-Tiny-0.31.tar.gz") — which is what a client fetches.
+	ID string `json:"id,omitempty"`
 	// Digests are the integrity values the lock file records for the
 	// dependency. None when the format records none (gradle.lockfile, pom.xml,
 	// a go.mod without its go.sum).
@@ -48,6 +54,17 @@ type Dependency struct {
 	Revision string `json:"revision,omitempty"`
 	// Dev marks a dependency the lock file records as development-only.
 	Dev bool `json:"dev,omitempty"`
+	// Unverified is set when nothing the lock file records pins the
+	// dependency's content: no digest of the artifact (or of a manifest that
+	// hashes it) and, for a Git dependency, no commit ID. UnverifiedReason
+	// says why: the format records no digest at all (renv.lock, a
+	// Puppetfile, gradle.lockfile), this entry has none where others may (a
+	// requirement without --hash), or what is hashed is only a document next
+	// to the artifact (a go.mod). Later stages must treat such a dependency
+	// as unverified — its version names an artifact, but nothing in the lock
+	// file checks the bytes served for it. A digest is never made up.
+	Unverified       bool   `json:"unverified,omitempty"`
+	UnverifiedReason string `json:"unverifiedReason,omitempty"`
 	// File is the lock file's path in the repository (slash-separated) and Line
 	// the 1-based line the dependency's entry starts on.
 	File string `json:"file"`
@@ -65,13 +82,14 @@ const (
 // package version at two places in a node_modules tree, or in two target
 // frameworks) collapse onto one entry.
 func (d Dependency) Key() string {
-	return strings.Join([]string{d.Type, d.Name, d.Version, d.Source, d.Registry, d.Revision}, "\x00")
+	return strings.Join([]string{d.Type, d.Name, d.Version, d.ID, d.Source, d.Registry, d.Revision}, "\x00")
 }
 
 // Digest is an integrity value a lock file records.
 type Digest struct {
 	// Algorithm is the hash function: "sha1", "sha256", "sha384", "sha512",
-	// "md5", or "h1" (the Go checksum database's directory hash).
+	// "md5", or "h1" (the directory hash of Go modules and Terraform
+	// providers: a SHA-256 over the sorted SHA-256 sums of the files).
 	Algorithm string `json:"algorithm"`
 	// Value is the digest in lower-case hex, or for "h1" the base64 text as
 	// written.
@@ -80,7 +98,9 @@ type Digest struct {
 	// serves for the coordinate: a distribution file name (a Python package
 	// has a wheel per platform and an sdist, each with its own hash), "go.mod"
 	// for the hash of a Go module's go.mod, "yarn-cache" for Yarn Berry's
-	// checksum of the archive in its own cache.
+	// checksum of the archive in its own cache, "git-tree" for the hash of a
+	// Git tree object, "nar" for Nix's hash of a source tree's archive
+	// serialisation. DigestKinds lists every value with its meaning.
 	Of string `json:"of,omitempty"`
 }
 
@@ -105,6 +125,18 @@ type Result struct {
 	// dependency (a range instead of a pin, a local path, an unresolvable
 	// property) or could not read. They name packages, never quote URLs.
 	Warnings []string
+
+	// submodules are the submodules a .gitmodules file declares. They become
+	// dependencies once the tree's gitlinks say which commit each is pinned
+	// to (joinSubmodules).
+	submodules []submoduleDecl
+	// parsedAs is the parser whose format a file turned out to be in, when a
+	// file name two formats share was read as the other one (Rye's pip
+	// requirements.lock under Helm's name).
+	parsedAs Parser
+	// extra is what a parser keeps of a file for its Merger (the module
+	// blocks of a Terraform file).
+	extra any
 }
 
 func (r *Result) warnf(format string, args ...any) {

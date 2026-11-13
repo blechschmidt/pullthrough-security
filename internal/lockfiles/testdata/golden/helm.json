@@ -1,0 +1,42 @@
+[
+  {
+    "path": "Chart.lock",
+    "type": "helm",
+    "format": "Chart.lock",
+    "dependencies": [
+      {
+        "type": "helm",
+        "name": "kube-state-metrics",
+        "version": "8.7.1",
+        "registry": "https://prometheus-community.github.io/helm-charts",
+        "unverified": true,
+        "unverifiedReason": "Chart.lock records no digest of the chart archive (its digest covers the dependency list)",
+        "file": "Chart.lock",
+        "line": 2
+      },
+      {
+        "type": "helm",
+        "name": "redis",
+        "version": "28.3.12",
+        "registry": "oci://registry-1.docker.io/bitnamicharts",
+        "unverified": true,
+        "unverifiedReason": "Chart.lock records no digest of the chart archive (its digest covers the dependency list)",
+        "file": "Chart.lock",
+        "line": 5
+      },
+      {
+        "type": "helm",
+        "name": "prometheus-node-exporter",
+        "version": "4.56.3",
+        "registry": "https://prometheus-community.github.io/helm-charts",
+        "unverified": true,
+        "unverifiedReason": "Chart.lock records no digest of the chart archive (its digest covers the dependency list)",
+        "file": "Chart.lock",
+        "line": 8
+      }
+    ],
+    "warnings": [
+      "fixture-lib 0.1.0: a chart in a local directory, not fetched"
+    ]
+  }
+]

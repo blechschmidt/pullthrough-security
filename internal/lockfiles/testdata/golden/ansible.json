@@ -1,0 +1,72 @@
+[
+  {
+    "path": "requirements.yml",
+    "type": "ansible",
+    "format": "requirements.yml",
+    "dependencies": [
+      {
+        "type": "ansible",
+        "name": "community.general",
+        "version": "8.6.0",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 9
+      },
+      {
+        "type": "ansible",
+        "name": "ansible.posix",
+        "version": "1.5.4",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 13
+      },
+      {
+        "type": "ansible",
+        "name": "community.mysql",
+        "version": "a75d71a7ff9d6929a08616b90ee4b50d2b15b841",
+        "registry": "https://github.com/ansible-collections/community.mysql.git",
+        "source": "git",
+        "revision": "a75d71a7ff9d6929a08616b90ee4b50d2b15b841",
+        "file": "requirements.yml",
+        "line": 26
+      },
+      {
+        "type": "ansible",
+        "name": "community.postgresql",
+        "version": "3.4.1",
+        "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-postgresql-3.4.1.tar.gz",
+        "source": "url",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 31
+      },
+      {
+        "type": "ansible",
+        "name": "geerlingguy.docker",
+        "version": "7.4.1",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 36
+      },
+      {
+        "type": "ansible",
+        "name": "nginx",
+        "version": "3.2.0",
+        "registry": "https://github.com/geerlingguy/ansible-role-nginx.git",
+        "source": "git",
+        "unverified": true,
+        "unverifiedReason": "a Git dependency pinned to a branch or tag, not to a commit",
+        "file": "requirements.yml",
+        "line": 40
+      }
+    ],
+    "warnings": [
+      "line 17: collection \"community.crypto\" is not pinned to one version",
+      "line 22: collection \"ansible.utils\" is not pinned to one version"
+    ]
+  }
+]

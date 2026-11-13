@@ -1,0 +1,15 @@
+dependencies:
+- name: kube-state-metrics
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 8.7.1
+- name: redis
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 28.3.12
+- name: prometheus-node-exporter
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 4.56.3
+- name: fixture-lib
+  repository: file://subcharts/fixture-lib
+  version: 0.1.0
+digest: sha256:4aafa58d54c112dcae498168a4842be5ea933a73b47adfe6f8cc6509224b5771
+generated: "2026-11-12T22:59:54.62141309Z"

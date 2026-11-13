@@ -1,0 +1,11 @@
+{
+    "name": "fixture/composer-git",
+    "description": "A package installed from a plain Git repository, which has no dist archive",
+    "repositories": [
+        {"type": "git", "url": "https://github.com/php-fig/log.git"}
+    ],
+    "require": {
+        "psr/log": "3.0.2",
+        "psr/container": "2.0.2"
+    }
+}

@@ -1,0 +1,7 @@
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Example = "7876af07-990d-54b4-ab0e-23690620f79a"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+
+[sources]
+Example = {rev = "82d1224c32990c0105898fa44009864f5648e98d", url = "https://github.com/JuliaLang/Example.jl"}

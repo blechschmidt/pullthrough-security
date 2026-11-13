@@ -1,0 +1,48 @@
+[
+  {
+    "path": "stack.yaml.lock",
+    "type": "hackage",
+    "format": "stack.yaml.lock",
+    "dependencies": [
+      {
+        "type": "hackage",
+        "name": "acme-missiles",
+        "version": "0.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "614bc0cca76937507ea0a5ccc17a504c997ce458d7f2f9e43b15a10c8eaeb033",
+            "of": "pantry-tree"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "2ba66a092a32593880a87fb00f3213762d7bca65a687d45965778deb8694c5d1",
+            "of": "cabal-file"
+          }
+        ],
+        "file": "stack.yaml.lock",
+        "line": 8
+      },
+      {
+        "type": "hackage",
+        "name": "splitmix",
+        "version": "0.1.3.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "ba415e7b79cfefd12fd69797dad80c64d901d5b308d5e8d57332a777ce4fe6cb",
+            "of": "pantry-tree"
+          }
+        ],
+        "registry": "https://github.com/haskellari/splitmix.git",
+        "source": "git",
+        "revision": "419c763825d6e0dceb266ef64e9cbcb7e07a481f",
+        "file": "stack.yaml.lock",
+        "line": 15
+      }
+    ],
+    "warnings": [
+      "the snapshot lts-23.28 pins the packages not listed here; the lock file pins the snapshot by its SHA-256"
+    ]
+  }
+]

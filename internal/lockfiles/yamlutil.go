@@ -1,8 +1,10 @@
 package lockfiles
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -195,4 +197,72 @@ func (c *composeResolver) getMerged(m *yaml.Node, key string, depth int, seen ma
 		}
 	}
 	return nil, nil
+}
+
+// readYAMLLock reads a lock file that is one YAML document into its root
+// mapping (nil for an empty document). It refuses what readYAMLDoc refuses,
+// and a root that is not a mapping.
+func readYAMLLock(data []byte, format string) (*yaml.Node, error) {
+	root, err := readYAMLDoc(data, format)
+	if err != nil || root == nil {
+		return nil, err
+	}
+	if root.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("%s: not a YAML mapping", format)
+	}
+	return root, nil
+}
+
+// readYAMLDoc reads a file that is one YAML document and returns its root
+// node, or nil when the document is empty (or only comments). It refuses
+// what yamlCheck refuses, and a second document: the tools that read these
+// files take exactly one.
+func readYAMLDoc(data []byte, format string) (*yaml.Node, error) {
+	if err := checkYAMLInput(data); err != nil {
+		return nil, fmt.Errorf("%s: %w", format, err)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	var root yaml.Node
+	if err := dec.Decode(&root); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, nil // an empty file
+		}
+		return nil, yamlError(err)
+	}
+	var more yaml.Node
+	if err := dec.Decode(&more); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%s: more than one YAML document", format)
+	}
+	if err := yamlCheck(&root, false); err != nil {
+		return nil, fmt.Errorf("%s: %w", format, err)
+	}
+	n := yamlResolve(&root)
+	if n == nil || n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+		return nil, nil
+	}
+	return n, nil
+}
+
+// yamlSeq returns n as a sequence's elements, or nil.
+func yamlSeq(n *yaml.Node) []*yaml.Node {
+	n = yamlResolve(n)
+	if n == nil || n.Kind != yaml.SequenceNode {
+		return nil
+	}
+	return n.Content
+}
+
+// yamlPairs calls fn for every entry of mapping m, in document order.
+func yamlPairs(m *yaml.Node, fn func(key string, keyNode, value *yaml.Node)) {
+	m = yamlMapping(m)
+	if m == nil {
+		return
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k := m.Content[i]
+		if k.Kind != yaml.ScalarNode {
+			continue
+		}
+		fn(k.Value, k, m.Content[i+1])
+	}
 }

@@ -1,0 +1,144 @@
+[
+  {
+    "path": "pubspec.lock",
+    "type": "dart",
+    "format": "pubspec.lock",
+    "dependencies": [
+      {
+        "type": "dart",
+        "name": "args",
+        "version": "2.4.1",
+        "registry": "https://pub.dartlang.org",
+        "dev": true,
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 4
+      },
+      {
+        "type": "dart",
+        "name": "async",
+        "version": "2.11.0",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 11
+      },
+      {
+        "type": "dart",
+        "name": "collection",
+        "version": "1.18.0",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 18
+      },
+      {
+        "type": "dart",
+        "name": "equatable",
+        "version": "2.0.5",
+        "registry": "https://github.com/felangel/equatable.git",
+        "source": "git",
+        "revision": "2117551ff3054f8edb1a58f63ffe1832a8d25623",
+        "file": "pubspec.lock",
+        "line": 25
+      },
+      {
+        "type": "dart",
+        "name": "http",
+        "version": "0.13.5",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 41
+      },
+      {
+        "type": "dart",
+        "name": "http_parser",
+        "version": "4.0.2",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 48
+      },
+      {
+        "type": "dart",
+        "name": "lints",
+        "version": "2.0.1",
+        "registry": "https://pub.dartlang.org",
+        "dev": true,
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 55
+      },
+      {
+        "type": "dart",
+        "name": "meta",
+        "version": "1.8.0",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 62
+      },
+      {
+        "type": "dart",
+        "name": "path",
+        "version": "1.8.3",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 69
+      },
+      {
+        "type": "dart",
+        "name": "source_span",
+        "version": "1.10.0",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 76
+      },
+      {
+        "type": "dart",
+        "name": "string_scanner",
+        "version": "1.2.0",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 83
+      },
+      {
+        "type": "dart",
+        "name": "term_glyph",
+        "version": "1.2.1",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 90
+      },
+      {
+        "type": "dart",
+        "name": "typed_data",
+        "version": "1.3.2",
+        "registry": "https://pub.dartlang.org",
+        "unverified": true,
+        "unverifiedReason": "pubspec.lock records no sha256 for this package (pub writes one from Dart 2.19 on)",
+        "file": "pubspec.lock",
+        "line": 97
+      }
+    ],
+    "warnings": [
+      "helper: from a local path, not fetched"
+    ]
+  }
+]

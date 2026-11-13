@@ -1,0 +1,62 @@
+[
+  {
+    "path": "requirements.yml",
+    "type": "ansible",
+    "format": "requirements.yml",
+    "dependencies": [
+      {
+        "type": "ansible",
+        "name": "geerlingguy.java",
+        "version": "2.5.0",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 7
+      },
+      {
+        "type": "ansible",
+        "name": "firewall",
+        "version": "e946e0108fbb49090ed8756fda3737c0abbdb514",
+        "registry": "https://github.com/geerlingguy/ansible-role-firewall",
+        "source": "git",
+        "revision": "e946e0108fbb49090ed8756fda3737c0abbdb514",
+        "file": "requirements.yml",
+        "line": 14
+      },
+      {
+        "type": "ansible",
+        "name": "ansible-role-git",
+        "version": "3.0.0",
+        "registry": "https://github.com/geerlingguy/ansible-role-git.git",
+        "source": "git",
+        "unverified": true,
+        "unverifiedReason": "a Git dependency pinned to a branch or tag, not to a commit",
+        "file": "requirements.yml",
+        "line": 19
+      },
+      {
+        "type": "ansible",
+        "name": "apache",
+        "version": "4.0.0.tar.gz",
+        "url": "https://github.com/geerlingguy/ansible-role-apache/archive/refs/tags/4.0.0.tar.gz",
+        "source": "url",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 23
+      },
+      {
+        "type": "ansible",
+        "name": "geerlingguy.repo-epel",
+        "version": "3.1.1",
+        "unverified": true,
+        "unverifiedReason": "requirements.yml records no hash (Galaxy publishes the artifact's SHA-256, the requirements file does not)",
+        "file": "requirements.yml",
+        "line": 27
+      }
+    ],
+    "warnings": [
+      "line 11: role \"geerlingguy.ntp\" is not pinned to one version"
+    ]
+  }
+]

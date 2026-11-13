@@ -1,0 +1,27 @@
+---
+# Roles for the build servers, in the old roles-only format (a top-level list).
+# Install with:
+#   ansible-galaxy role install -r requirements.yml
+
+# From Galaxy, exact version.
+- src: geerlingguy.java
+  version: 2.5.0
+
+# From Galaxy, newest release.
+- name: geerlingguy.ntp
+
+# From GitHub, pinned to a commit (tag 2.6.0), installed under a new name.
+- src: https://github.com/geerlingguy/ansible-role-firewall
+  version: e946e0108fbb49090ed8756fda3737c0abbdb514
+  name: firewall
+
+# git+ prefix instead of "scm: git"; quoted so YAML keeps the version a string.
+- src: git+https://github.com/geerlingguy/ansible-role-git.git
+  version: "3.0.0"
+
+# A release tarball from a web server.
+- src: https://github.com/geerlingguy/ansible-role-apache/archive/refs/tags/4.0.0.tar.gz
+  name: apache
+
+# The oldest form: "src,version[,name]" in a single string.
+- geerlingguy.repo-epel,3.1.1

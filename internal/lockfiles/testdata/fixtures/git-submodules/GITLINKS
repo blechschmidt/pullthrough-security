@@ -1,0 +1,4 @@
+160000 commit bb4cc8d3b2e14b3af5df699876dd4ff3acd00b7f	libs/spoon
+160000 commit 57523742631876181d95bc268e09fb3fd1a4d85e	rel/test-repo1
+160000 commit d0dd1f61b33d64e29d8bc1372a94ef6a2fee76a9	tracking/spoon
+160000 commit 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d	vendor-hello

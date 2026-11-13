@@ -244,8 +244,10 @@ func sanitizeURL(raw string) string {
 // sshUserRE matches the account names ssh URLs use ("git", "org-12345").
 var sshUserRE = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
-// urlUserinfo matches the userinfo part of a URL ("scheme://user:secret@").
-var urlUserinfo = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s"<>]*@`)
+// urlUserinfo matches the userinfo part of a URL ("scheme://user:secret@"):
+// everything up to the last "@" of the authority, as net/url reads it — a
+// password may itself hold an "@".
+var urlUserinfo = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?#\s"<>]*@`)
 
 // stripUserinfo removes the userinfo of every URL in s, except the bare user
 // of an ssh URL ("ssh://git@…"), which names an account and is no secret.

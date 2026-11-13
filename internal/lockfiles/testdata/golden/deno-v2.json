@@ -1,0 +1,103 @@
+[
+  {
+    "path": "deno.lock",
+    "type": "jsr",
+    "format": "deno.lock",
+    "formatVersion": "2",
+    "dependencies": [
+      {
+        "type": "generic",
+        "name": "deno.land/std@0.224.0/fmt/colors.ts",
+        "version": "sha256:508563c0659dd7198ba4bbf87e97f654af3c34eb56ba790260f252ad8012e1c5",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "508563c0659dd7198ba4bbf87e97f654af3c34eb56ba790260f252ad8012e1c5"
+          }
+        ],
+        "url": "https://deno.land/std@0.224.0/fmt/colors.ts",
+        "source": "url",
+        "file": "deno.lock",
+        "line": 4
+      },
+      {
+        "type": "npm",
+        "name": "ansi-regex",
+        "version": "5.0.1",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "aae2505e54d25062f62c7f52517a3c570b18e2ca1a9e1828e8b3529bce04d4b05c13cb373b4c29762473c91f73fd9649325316bf7eea38e6fda5d26531410a15"
+          }
+        ],
+        "file": "deno.lock",
+        "line": 15
+      },
+      {
+        "type": "npm",
+        "name": "ansi-regex",
+        "version": "6.6.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5d9e5aa5bceb7826d748ac0f8c9b2dbbc474cce8b6e3bc375d8c16c6dc015e0a59ac2c9cd4a6bba7dff163403dfdd88c7b09876c42b3f8522b6966845a394de6"
+          }
+        ],
+        "file": "deno.lock",
+        "line": 19
+      },
+      {
+        "type": "npm",
+        "name": "chalk",
+        "version": "5.6.2",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "ecdcc12f4acde9f3145be7fb03a228e21e34a90946fb11a6b4cc5f6e71ff2bb4c0b6df094165502beea0d145ca31e549a3257912490db04ad0f29543ddb2c76c"
+          }
+        ],
+        "file": "deno.lock",
+        "line": 23
+      },
+      {
+        "type": "npm",
+        "name": "esbuild",
+        "version": "0.28.2",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "1ca54b4bc76f208fb1a0a5bd926ab16d12ab9d61177c926bfc56618499a2a880747b4e7740d605a8e068b9330efe4e6c203e0cbc28940afbfc6fd338877db020"
+          }
+        ],
+        "file": "deno.lock",
+        "line": 27
+      },
+      {
+        "type": "npm",
+        "name": "left-pad",
+        "version": "1.3.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "5c8e4c3f354d0298c0ca1433a615fc06498ab0a5310f82ddc8adb88997901a29c137dc93413ddb165081cbf695c761eb35ca901ac768b7c821ae3cabbcc0a810"
+          }
+        ],
+        "file": "deno.lock",
+        "line": 31
+      },
+      {
+        "type": "npm",
+        "name": "strip-ansi",
+        "version": "7.2.0",
+        "digests": [
+          {
+            "algorithm": "sha512",
+            "value": "c833cc363a785b27d80641e78c844b7dc6b58ba28cc860adb1582829eff3d7eeafba481a10d76018166df9998a3dce206afbc46793a01df1ddadace180dc86ef"
+          }
+        ],
+        "file": "deno.lock",
+        "line": 35
+      }
+    ]
+  }
+]

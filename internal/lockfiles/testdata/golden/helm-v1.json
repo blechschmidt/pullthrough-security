@@ -1,0 +1,19 @@
+[
+  {
+    "path": "requirements.lock",
+    "type": "helm",
+    "format": "requirements.lock",
+    "dependencies": [
+      {
+        "type": "helm",
+        "name": "prometheus-pushgateway",
+        "version": "3.11.2",
+        "registry": "https://prometheus-community.github.io/helm-charts",
+        "unverified": true,
+        "unverifiedReason": "Chart.lock records no digest of the chart archive (its digest covers the dependency list)",
+        "file": "requirements.lock",
+        "line": 2
+      }
+    ]
+  }
+]

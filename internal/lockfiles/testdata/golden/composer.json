@@ -10,6 +10,8 @@
         "version": "3.7.0",
         "url": "https://api.github.com/repos/Seldaek/monolog/zipball/f4393b648b78a5408747de94fca38beb5f7e9ef8",
         "revision": "f4393b648b78a5408747de94fca38beb5f7e9ef8",
+        "unverified": true,
+        "unverifiedReason": "composer.lock has no dist shasum for this package (Packagist leaves it empty for archives GitHub builds on demand)",
         "file": "composer.lock",
         "line": 10
       },
@@ -19,6 +21,8 @@
         "version": "3.0.2",
         "url": "https://api.github.com/repos/php-fig/log/zipball/f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
         "revision": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+        "unverified": true,
+        "unverifiedReason": "composer.lock has no dist shasum for this package (Packagist leaves it empty for archives GitHub builds on demand)",
         "file": "composer.lock",
         "line": 112
       },
@@ -29,6 +33,8 @@
         "url": "https://api.github.com/repos/php-fig/container/zipball/c71ecc56dfe541dbd90c5360474fbc405f8d5963",
         "revision": "c71ecc56dfe541dbd90c5360474fbc405f8d5963",
         "dev": true,
+        "unverified": true,
+        "unverifiedReason": "composer.lock has no dist shasum for this package (Packagist leaves it empty for archives GitHub builds on demand)",
         "file": "composer.lock",
         "line": 165
       }

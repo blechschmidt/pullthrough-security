@@ -1,0 +1,43 @@
+---
+# Ansible content for the web servers.
+# Install with:
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-galaxy role install -r requirements.yml
+
+collections:
+  # Exact pin, bare version.
+  - name: community.general
+    version: 8.6.0
+
+  # Exact pin written with the == operator.
+  - name: ansible.posix
+    version: "==1.5.4"
+
+  # Range: any 2.x release.
+  - name: community.crypto
+    type: galaxy
+    version: ">=2.0.0,<3.0.0"
+
+  # No version: the newest release, from an explicitly named Galaxy server.
+  - name: ansible.utils
+    source: https://galaxy.ansible.com/
+
+  # Straight from the collection's git repository, pinned to a commit (tag 3.10.3).
+  - name: https://github.com/ansible-collections/community.mysql.git
+    type: git
+    version: a75d71a7ff9d6929a08616b90ee4b50d2b15b841
+
+  # A collection tarball by URL.
+  - name: https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-postgresql-3.4.1.tar.gz
+    type: url
+
+roles:
+  # From Galaxy, exact version.
+  - name: geerlingguy.docker
+    version: 7.4.1
+
+  # From GitHub at a tag, installed under a shorter name.
+  - src: https://github.com/geerlingguy/ansible-role-nginx.git
+    scm: git
+    version: 3.2.0
+    name: nginx

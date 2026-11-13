@@ -8,6 +8,8 @@
         "type": "maven",
         "name": "org.slf4j:slf4j-api",
         "version": "1.7.36",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle/dependency-locks/compileClasspath.lockfile",
         "line": 4
       },
@@ -15,6 +17,8 @@
         "type": "maven",
         "name": "com.google.code.gson:gson",
         "version": "2.11.0",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle/dependency-locks/compileClasspath.lockfile",
         "line": 5
       }
@@ -29,6 +33,8 @@
         "type": "maven",
         "name": "junit:junit",
         "version": "4.13.2",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle/dependency-locks/testRuntimeClasspath.lockfile",
         "line": 4
       },
@@ -36,6 +42,8 @@
         "type": "maven",
         "name": "org.hamcrest:hamcrest-core",
         "version": "1.3",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle/dependency-locks/testRuntimeClasspath.lockfile",
         "line": 5
       }

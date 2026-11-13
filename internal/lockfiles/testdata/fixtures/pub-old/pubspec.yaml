@@ -1,0 +1,24 @@
+name: app
+description: A sample command-line application.
+version: 1.0.0
+# homepage: https://www.example.com
+
+environment:
+  sdk: '>=2.18.7 <3.0.0'
+
+dependencies:
+  path: ^1.8.0
+  http: ^0.13.5
+  equatable:
+    git:
+      url: https://github.com/felangel/equatable.git
+      ref: 2117551ff3054f8edb1a58f63ffe1832a8d25623
+  helper:
+    path: helper
+
+dev_dependencies:
+  lints: ^2.0.0
+  args: ^2.3.1
+
+dependency_overrides:
+  meta: 1.8.0

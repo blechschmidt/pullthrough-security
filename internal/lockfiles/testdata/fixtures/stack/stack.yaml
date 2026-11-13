@@ -1,0 +1,11 @@
+snapshot: lts-23.28
+
+packages:
+- .
+
+extra-deps:
+- acme-missiles-0.3
+- git: https://github.com/haskellari/splitmix.git
+  commit: 419c763825d6e0dceb266ef64e9cbcb7e07a481f
+- git: https://github.com/fpco/say.git
+  commit: e667d40e7e09bf94385892c3fe101fb290d25ed5

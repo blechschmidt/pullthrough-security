@@ -250,6 +250,215 @@ func FuzzCompose(f *testing.F) {
 		"x: &a\n  image: proxy.example.com/u/"+testToken+"/dockerhub/r@sha256:"+strings.Repeat("a", 64)+"\nservices:\n  s:\n    <<: *a\n  t:\n    image: ${T:-alpine}\n")
 }
 
+func FuzzCondaLock(f *testing.F) {
+	fuzzParser(f, condaLock{}, "conda-lock.yml",
+		"version: 1\npackage:\n- name: zlib\n  version: 1.3.1\n  manager: conda\n  platform: linux-64\n  url: https://proxy.example.com/u/"+testToken+"/v1/conda/linux-64/zlib-1.3.1-h_2.conda\n  hash: {md5: "+strings.Repeat("a", 32)+", sha256: "+strings.Repeat("b", 64)+"}\n  category: dev\n"+
+			"- name: six\n  version: '1.16.0'\n  manager: pip\n  url: git+https://u:"+testToken+"@github.com/o/r.git@"+strings.Repeat("c", 40)+"\n")
+}
+
+func FuzzCondaExplicit(f *testing.F) {
+	fuzzParser(f, condaExplicit{}, "conda-linux-64.lock",
+		"# platform: linux-64\n@EXPLICIT\nhttps://proxy.example.com/u/"+testToken+"/v1/conda/linux-64/zlib-1.3.1-h_2.conda#"+strings.Repeat("a", 32)+"\nhttps://c.example/x/noarch/a-1-0.tar.bz2#sha256:"+strings.Repeat("b", 64)+"\n")
+}
+
+func FuzzPixiLock(f *testing.F) {
+	fuzzParser(f, pixiLock{}, "pixi.lock",
+		"version: 6\npackages:\n- conda: https://proxy.example.com/u/"+testToken+"/v1/conda/linux-64/zlib-1.3.1-h_2.conda\n  sha256: "+strings.Repeat("b", 64)+"\n- pypi: git+https://github.com/o/r.git?tag=1#"+strings.Repeat("c", 40)+"\n  name: r\n  version: 1.0.0\n"+
+			"- kind: pypi\n  name: six\n  version: 1.16.0\n  url: https://proxy.example.com/u/"+testToken+"/v1/pypi/six-1.16.0-py2.py3-none-any.whl\n  sha256: "+strings.Repeat("d", 64)+"\n")
+}
+
+func FuzzRenvLock(f *testing.F) {
+	fuzzParser(f, renvLock{}, "renv.lock",
+		`{"R":{"Version":"4.4.1","Repositories":[{"Name":"CRAN","URL":"https://proxy.example.com/u/`+testToken+`/v1/cran"}]},"Packages":{"R6":{"Package":"R6","Version":"2.5.1","Source":"Repository","Repository":"CRAN","Hash":"`+strings.Repeat("a", 32)+`"},"x":{"Package":"x","Version":"1","Source":"GitHub","RemoteHost":"api.github.com","RemoteUsername":"o","RemoteRepo":"x","RemoteSha":"`+strings.Repeat("b", 40)+`"},"y":{"Package":"y","Version":"2","Source":"URL","RemoteUrl":"https://u:`+testToken+`@h.example/y.tar.gz"}}}`)
+}
+
+func FuzzMixLock(f *testing.F) {
+	fuzzParser(f, mixLock{}, "mix.lock",
+		"%{\n  \"jason\": {:hex, :jason, \"1.4.4\", \""+strings.Repeat("a", 64)+"\", [:mix], [{:decimal, \"~> 2.0\", [hex: :decimal, repo: \"hexpm\", optional: true]}], \"hexpm:acme\", \""+strings.Repeat("b", 64)+"\"},\n  \"d\": {:git, \"https://u:"+testToken+"@github.com/o/d.git\", \""+strings.Repeat("c", 40)+"\", [tag: \"v1\"]},\n  \"old\" => {:hex, :old, \"0.1.0\"},\n}\n",
+		"%{\"x\": {:hex, :x, \"#{System.cmd(\"id\", [])}\"}}")
+}
+
+func FuzzPackageResolved(f *testing.F) {
+	fuzzParser(f, packageResolved{}, "Package.resolved",
+		`{"object":{"pins":[{"package":"P","repositoryURL":"https://u:`+testToken+`@github.com/o/p.git","state":{"branch":null,"revision":"`+strings.Repeat("a", 40)+`","version":"1.0.0"}}]},"version":1}`,
+		`{"pins":[{"identity":"mona.linkedlist","kind":"registry","location":"","state":{"version":"1.0.0"}},{"identity":"x","kind":"remoteSourceControl","location":"https://proxy.example.com/u/`+testToken+`/v1/git/x.git","state":{"branch":"main","revision":"`+strings.Repeat("b", 40)+`"}}],"version":3,"originHash":"x"}`)
+}
+
+func FuzzPubspecLock(f *testing.F) {
+	fuzzParser(f, pubspecLock{}, "pubspec.lock",
+		"packages:\n  a:\n    dependency: \"direct dev\"\n    description:\n      name: a\n      sha256: \""+strings.Repeat("a", 64)+"\"\n      url: \"https://proxy.example.com/u/"+testToken+"/v1/pub\"\n    source: hosted\n    version: \"1.0.0\"\n  g:\n    dependency: transitive\n    description:\n      path: \".\"\n      ref: main\n      resolved-ref: \""+strings.Repeat("b", 40)+"\"\n      url: \"https://u:"+testToken+"@github.com/o/g.git\"\n    source: git\n    version: \"2.0.0\"\nsdks:\n  dart: \">=3.0.0 <4.0.0\"\n")
+}
+
+func FuzzJuliaManifest(f *testing.F) {
+	fuzzParser(f, juliaManifest{}, "Manifest.toml",
+		"julia_version = \"1.11.1\"\nmanifest_format = \"2.0\"\n[[deps.Example]]\ngit-tree-sha1 = \""+strings.Repeat("a", 40)+"\"\nrepo-rev = \""+strings.Repeat("b", 40)+"\"\nrepo-url = \"https://u:"+testToken+"@github.com/o/Example.jl\"\nuuid = \"7876af07-990d-54b4-ab0e-23690620f79a\"\nversion = \"0.5.4\"\n[[deps.Dates]]\nuuid = \"ade2ca70-3891-5945-98fb-dc099432e06a\"\n",
+		"[[JSON]]\ngit-tree-sha1 = \""+strings.Repeat("c", 40)+"\"\nuuid = \"682c06a0-de6a-54ab-a142-c8b1cf79cde6\"\nversion = \"0.21.1\"\n")
+}
+
+func FuzzModuleBazelLock(f *testing.F) {
+	fuzzParser(f, moduleBazelLock{}, "MODULE.bazel.lock",
+		`{"lockFileVersion":13,"registryFileHashes":{"https://proxy.example.com/u/`+testToken+`/v1/bcr/modules/platforms/0.0.10/MODULE.bazel":"`+strings.Repeat("a", 64)+`","https://proxy.example.com/u/`+testToken+`/v1/bcr/modules/platforms/0.0.10/source.json":"`+strings.Repeat("b", 64)+`"},"selectedYankedVersions":{"x@1":"r"}}`,
+		`{"lockFileVersion":3,"moduleDepGraph":{"<root>":{"name":"demo"},"a@1.0":{"name":"a","version":"1.0","repoSpec":{"ruleClassName":"http_archive","attributes":{"urls":["https://u:`+testToken+`@h.example/a.tar.gz"],"integrity":"sha256-`+strings.Repeat("A", 43)+`="}}},"g@_":{"name":"g","version":"","repoSpec":{"ruleClassName":"git_repository","attributes":{"remote":"https://github.com/o/g.git","commit":"`+strings.Repeat("c", 40)+`"}}}}}`)
+}
+
+func FuzzFlakeLock(f *testing.F) {
+	fuzzParser(f, flakeLock{}, "flake.lock",
+		`{"nodes":{"nixpkgs":{"locked":{"lastModified":1,"narHash":"sha256-`+strings.Repeat("A", 43)+`=","owner":"NixOS","repo":"nixpkgs","rev":"`+strings.Repeat("a", 40)+`","type":"github"}},"t":{"locked":{"narHash":"sha256:`+strings.Repeat("0", 52)+`","type":"tarball","url":"https://proxy.example.com/u/`+testToken+`/v1/x/t.tar.gz"}},"g":{"locked":{"narHash":"sha256-`+strings.Repeat("B", 43)+`=","rev":"`+strings.Repeat("b", 40)+`","type":"git","url":"https://u:`+testToken+`@h.example/g"}},"root":{"inputs":{"nixpkgs":"nixpkgs"}}},"root":"root","version":7}`)
+}
+
+func FuzzTerraformLock(f *testing.F) {
+	fuzzParser(f, terraformLock{}, ".terraform.lock.hcl",
+		"provider \"registry.terraform.io/hashicorp/null\" {\n  version     = \"3.2.3\"\n  constraints = \"~> 3.2\"\n  hashes = [\n    \"h1:"+strings.Repeat("A", 43)+"=\",\n    \"zh:"+strings.Repeat("a", 64)+"\",\n  ]\n}\n",
+		"provider \"h.example/a/b\" { version = \"1.0.0\" }\n/* c */ # d\n// e\n")
+}
+
+func FuzzTerraformModules(f *testing.F) {
+	fuzzParser(f, terraformModules{}, "main.tf",
+		"module \"a\" {\n  source  = \"cloudposse/label/null\"\n  version = \"0.25.0\"\n}\nmodule \"g\" {\n  source = \"git::https://u:"+testToken+"@github.com/o/r.git//sub?ref="+strings.Repeat("a", 40)+"\"\n}\n"+
+			"module \"h\" {\n  source = \"https://proxy.example.com/u/"+testToken+"/v1/x/m.zip?checksum=sha256:"+strings.Repeat("b", 64)+"\"\n  count = length([for x in var.y : x if x != \"${z}\"])\n  tags = <<-EOT\n    a ${b}\n  EOT\n}\n",
+		"locals {\n  x = { a = [1, 2], b = \"%{ if c }d%{ endif }\" }\n}\n")
+}
+
+func FuzzTerraformOverrides(f *testing.F) {
+	fuzzParser(f, terraformOverrides{}, "override.tf",
+		"module \"label\" {\n  version = \"0.25.0\"\n  source = \"git::https://u:"+testToken+"@github.com/o/r.git?ref="+strings.Repeat("a", 40)+"\"\n}\n")
+}
+
+// FuzzTerraformMerge: a directory of a configuration file and an override
+// file merges into well-formed dependencies without a token.
+func FuzzTerraformMerge(f *testing.F) {
+	f.Add([]byte("module \"a\" {\n  source = \"x/y/z\"\n  version = \"1.0.0\"\n}\n"), []byte("module \"a\" {\n  version = \"2.0.0\"\n}\n"))
+	f.Add([]byte("module \"a\" {\n  source = \"x/y/z\"\n}\n"), []byte("module \"a\" {\n  source = \"git::https://proxy.example.com/u/"+testToken+"/r.git?ref="+strings.Repeat("b", 40)+"\"\n}\nmodule \"b\" {}\n"))
+	f.Fuzz(func(t *testing.T, main, override []byte) {
+		if len(main)+len(override) > fuzzMaxInput {
+			return
+		}
+		files := []*File{parseOne(terraformModules{}, "main.tf", main), parseOne(terraformOverrides{}, "override.tf", override)}
+		finish(files, fuzzProxy)
+		for _, file := range files {
+			for _, d := range file.Dependencies {
+				if d.Name == "" || d.Version == "" || d.File != "main.tf" {
+					t.Fatalf("malformed dependency %+v", d)
+				}
+			}
+			out, _ := json.Marshal(file)
+			if loc := tokenLeft.FindIndex(out); loc != nil {
+				t.Fatalf("a link token survived: …%s…", out[max(0, loc[0]-40):min(len(out), loc[1]+40)])
+			}
+		}
+	})
+}
+
+func FuzzConanLock(f *testing.F) {
+	fuzzParser(f, conanLock{}, "conan.lock",
+		`{"version":"0.5","requires":["zlib/1.3.1#`+strings.Repeat("a", 32)+`%1708593606.497","x/1.0@acme/stable#`+strings.Repeat("b", 32)+`"],"build_requires":["cmake/3.28.1"],"python_requires":[],"config_requires":[]}`,
+		`{"graph_lock":{"nodes":{"0":{"path":"conanfile.txt","requires":["1"]},"1":{"ref":"zlib/1.2.13#`+strings.Repeat("c", 32)+`","package_id":"x","prev":"`+strings.Repeat("d", 32)+`"}},"revisions_enabled":true},"version":"0.4"}`)
+}
+
+func FuzzCpanfileSnapshot(f *testing.F) {
+	fuzzParser(f, cpanfileSnapshot{}, "cpanfile.snapshot",
+		"# carton snapshot format: version 1.0\nDISTRIBUTIONS\n  Try-Tiny-0.31\n    pathname: E/ET/ETHER/Try-Tiny-0.31.tar.gz\n    provides:\n      Try::Tiny 0.31\n    requirements:\n      Carp 0\n  "+testToken+"-1.0\n    pathname: X/"+testToken+"-1.0.tar.gz\n")
+}
+
+func FuzzCabalFreeze(f *testing.F) {
+	fuzzParser(f, cabalFreeze{}, "cabal.project.freeze",
+		"active-repositories: hackage.haskell.org:merge\nconstraints: any.aeson ==2.2.3.0,\n             aeson -ordered-keymap,\n             setup.Cabal ==3.10.3.0,\n             any.base installed,\n             any.text >=2\nindex-state: hackage.haskell.org 2024-11-11T15:28:27Z\n")
+}
+
+func FuzzStackLock(f *testing.F) {
+	fuzzParser(f, stackLock{}, "stack.yaml.lock",
+		"packages:\n- completed:\n    hackage: acme-missiles-0.3@sha256:"+strings.Repeat("a", 64)+",613\n    pantry-tree:\n      sha256: "+strings.Repeat("b", 64)+"\n      size: 226\n  original:\n    hackage: acme-missiles-0.3\n- completed:\n    commit: "+strings.Repeat("c", 40)+"\n    git: https://u:"+testToken+"@github.com/o/r.git\n    name: r\n    version: 0.1.0\n  original:\n    git: x\nsnapshots:\n- completed:\n    sha256: "+strings.Repeat("d", 64)+"\n    url: https://proxy.example.com/u/"+testToken+"/lts.yaml\n  original: lts-22.7\n")
+}
+
+func FuzzDenoLock(f *testing.F) {
+	fuzzParser(f, denoLock{}, "deno.lock",
+		`{"version":"4","specifiers":{"jsr:@std/path@^1":"1.0.8"},"jsr":{"@std/path@1.0.8":{"integrity":"`+strings.Repeat("a", 64)+`"}},"npm":{"chalk@5.3.0_x@1.0.0":{"integrity":"sha512-`+strings.Repeat("A", 86)+`==","tarball":"https://proxy.example.com/u/`+testToken+`/v1/npm/chalk/-/chalk-5.3.0.tgz"}},"remote":{"https://u:`+testToken+`@deno.land/std@0.200.0/fmt/colors.ts":"`+strings.Repeat("b", 64)+`"}}`,
+		`{"version":"2","remote":{},"npm":{"specifiers":{},"packages":{"a@1.0.0":{"integrity":"sha1-AAAAAAAAAAAAAAAAAAAAAAAAAAA="}}}}`)
+}
+
+func FuzzChartLock(f *testing.F) {
+	fuzzParser(f, chartLock{}, "Chart.lock",
+		"dependencies:\n- name: redis\n  repository: oci://proxy.example.com/u/"+testToken+"/v1/helm\n  version: 20.1.0\n- name: a\n  repository: https://u:"+testToken+"@charts.example\n  version: 1.0.0\n- name: l\n  repository: file://../l\n  version: 0.1.0\n- name: s\n  repository: '@stable'\n  version: 2.0.0\ndigest: sha256:"+strings.Repeat("a", 64)+"\ngenerated: \"2024-10-10T10:10:10Z\"\n")
+}
+
+func FuzzRequirementsLock(f *testing.F) {
+	fuzzParser(f, requirementsLock{}, "requirements.lock",
+		"dependencies:\n- name: a\n  Repository: https://proxy.example.com/u/"+testToken+"/v1/helm\n  version: \"1.10\"\ndigest: sha256:"+strings.Repeat("a", 64)+"\n",
+		"# generated by rye\n-e file:.\nanyio==4.4.0 \\\n  --hash=sha256:"+strings.Repeat("b", 64)+"\n    # via httpx\n--index-url https://u:"+testToken+"@proxy.example.com/v1/pypi/simple\n")
+}
+
+func FuzzBrewfileLock(f *testing.F) {
+	fuzzParser(f, brewfileLock{}, "Brewfile.lock.json",
+		`{"entries":{"tap":{"homebrew/core":{"revision":"`+strings.Repeat("a", 40)+`"}},"brew":{"hello":{"version":"2.12.1","bottle":{"rebuild":1,"root_url":"https://proxy.example.com/u/`+testToken+`/v1/homebrew","files":{"arm64_sonoma":{"cellar":":any","url":"https://u:`+testToken+`@ghcr.io/x","sha256":"`+strings.Repeat("b", 64)+`"}}}},"src":{"version":"1","bottle":false}},"cask":{"firefox":{"version":"120.0","options":{"full_name":"firefox"}}},"mas":{"Xcode":{"id":1,"version":"15"}}},"system":{}}`)
+}
+
+func FuzzAnsibleRequirements(f *testing.F) {
+	fuzzParser(f, ansibleRequirements{}, "requirements.yml",
+		"collections:\n  - name: community.general\n    version: 8.6.0\n    source: https://proxy.example.com/u/"+testToken+"/v1/galaxy\n  - name: https://u:"+testToken+"@github.com/o/c.git\n    type: git\n    version: "+strings.Repeat("a", 40)+"\n  - ns.c:1.0.0\nroles:\n  - name: geerlingguy.docker\n    version: 7.4.1\n  - src: git+https://github.com/o/r.git\n    version: v1\n",
+		"- src: geerlingguy.java\n  version: 2.5.0\n- geerlingguy.repo-epel,3.1.1\n- src: https://h.example/r/archive/1.0.tar.gz\n  name: r\n")
+}
+
+func FuzzPuppetfile(f *testing.F) {
+	fuzzParser(f, puppetfile{}, "Puppetfile",
+		"forge 'https://proxy.example.com/u/"+testToken+"/v1/forge'\nmod 'puppetlabs/stdlib', '9.4.1'\nmod 'apache',\n  :git => 'https://u:"+testToken+"@github.com/o/apache.git',\n  :commit => '"+strings.Repeat("a", 40)+"' # c\nmod('x', git: 'https://h/x', ref: 'v1')\n"+
+			"mod 'fw', type: 'tarball', source: 'https://proxy.example.com/u/"+testToken+"/fw.tar.gz', version: '"+strings.Repeat("b", 64)+"'\nif true then mod \"y#{z}\" end\n")
+}
+
+// FuzzGitmodules: .gitmodules is read as git reads it, and once every
+// submodule is pinned to a gitlink the dependencies are well-formed and carry
+// no token.
+func FuzzGitmodules(f *testing.F) {
+	p := gitmodules{}
+	for _, s := range fixtureSeeds(f, p) {
+		f.Add(s)
+	}
+	for _, s := range []string{
+		"[submodule \"a\"]\n\tpath = vendor/a\n\turl = https://u:" + testToken + "@proxy.example.com/u/" + testToken + "/v1/git/a.git\n",
+		"[submodule \"b\"] path = \"x y\" ; c\n url = git@github.com:o/r.git\n[Submodule.C]\npath=c\nurl=../c.git\\\n.d\n",
+		"[submodule \"..\"]\npath=-p\nurl=ext::sh\n[submodule \"e\"]\npath=e\npath=f\nurl=https://h/e\n",
+		"[submodule \"q\\\"\\\\\"]\npath = \"a\\tb\"\nurl = file:///x\n",
+	} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzMaxInput {
+			return
+		}
+		res1, err1 := p.Parse(data)
+		res2, err2 := p.Parse(data)
+		if (err1 == nil) != (err2 == nil) {
+			t.Fatal("non-deterministic error")
+		}
+		if err1 != nil {
+			return
+		}
+		if len(res1.submodules) != len(res2.submodules) {
+			t.Fatal("non-deterministic result")
+		}
+		file := parseOne(p, gitmodulesPath, data)
+		commit := strings.Repeat("c", 40)
+		if _, err := joinSubmodules(file, func(string) (string, error) { return commit, nil }, "", nil); err != nil {
+			t.Fatal(err)
+		}
+		finish([]*File{file}, fuzzProxy)
+		if len(file.Dependencies) > len(res1.submodules) {
+			t.Fatal("more dependencies than declarations")
+		}
+		for _, d := range file.Dependencies {
+			if d.Name == "" || d.Version != commit || d.Revision != commit || d.Source != SourceGit || d.Unverified {
+				t.Fatalf("malformed submodule dependency %+v", d)
+			}
+			if strings.HasPrefix(d.Name, "/") || strings.Contains("/"+d.Name+"/", "/../") || strings.HasPrefix(d.Registry, "-") {
+				t.Fatalf("a path or URL git would not use: %+v", d)
+			}
+		}
+		out, _ := json.Marshal(file)
+		if loc := tokenLeft.FindIndex(out); loc != nil {
+			t.Fatalf("a link token survived: …%s…", out[max(0, loc[0]-40):min(len(out), loc[1]+40)])
+		}
+	})
+}
+
 // FuzzTOML: the TOML reader never panics, and what it accepts it reads the
 // same way twice.
 func FuzzTOML(f *testing.F) {
@@ -269,6 +478,79 @@ func FuzzTOML(f *testing.F) {
 		_, err2 := parseTOML(data)
 		if (err1 == nil) != (err2 == nil) {
 			t.Fatal("non-deterministic")
+		}
+	})
+}
+
+// FuzzHCL: the HCL reader never panics, and what it accepts it reads the
+// same way twice.
+func FuzzHCL(f *testing.F) {
+	for _, p := range []Parser{terraformLock{}, terraformModules{}} {
+		for _, s := range fixtureSeeds(f, p) {
+			f.Add(s)
+		}
+	}
+	for _, s := range []string{"a = \"${b}\"", "b {\n c = <<EOT\nx\nEOT\n}", "c = [\"a\", \"b\",]", "d \"x\" { e = 1 }", "f = \"%{ if x }${\"}\"}%{ endif }\"", "g = " + strings.Repeat("[", 70)} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzMaxInput {
+			return
+		}
+		b1, err1 := parseHCL(data, "module", "provider")
+		b2, err2 := parseHCL(data, "module", "provider")
+		if (err1 == nil) != (err2 == nil) {
+			t.Fatal("non-deterministic")
+		}
+		if err1 == nil && (len(b1.blocks) != len(b2.blocks) || b1.attrCount != b2.attrCount || b1.blockCount != b2.blockCount) {
+			t.Fatal("non-deterministic body")
+		}
+	})
+}
+
+// FuzzGitConfig: the git configuration reader never panics and is
+// deterministic.
+func FuzzGitConfig(f *testing.F) {
+	for _, s := range fixtureSeeds(f, gitmodules{}) {
+		f.Add(s)
+	}
+	for _, s := range []string{"[a]\nb", "[a \"b\\\"c\"] d = \"e\\\\\" ; f", "[a.B]c=d\\\ne", "[a]\r\nb = c\\x"} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzMaxInput {
+			return
+		}
+		e1, err1 := parseGitConfig(string(data))
+		e2, err2 := parseGitConfig(string(data))
+		if (err1 == nil) != (err2 == nil) || len(e1) != len(e2) {
+			t.Fatal("non-deterministic")
+		}
+	})
+}
+
+// FuzzElixirTerms: the Elixir literal reader never panics and reads what it
+// accepts the same way twice.
+func FuzzElixirTerms(f *testing.F) {
+	for _, s := range fixtureSeeds(f, mixLock{}) {
+		f.Add(s)
+	}
+	for _, s := range []string{"%{}", "[a: 1, b: :c]", "{:x, \"y\\n\", -1.5e3}", "%{\"k\" => [{}]}", strings.Repeat("[", 70)} {
+		f.Add([]byte(s))
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > fuzzMaxInput {
+			return
+		}
+		p1 := &exParser{s: string(data), line: 1}
+		err1 := p1.skip()
+		p2 := &exParser{s: string(data), line: 1}
+		err2 := p2.skip()
+		if (err1 == nil) != (err2 == nil) || (err1 == nil && (p1.pos != p2.pos || p1.line != p2.line)) {
+			t.Fatal("non-deterministic")
+		}
+		if err1 == nil && p1.pos > len(data) {
+			t.Fatal("read past the end")
 		}
 	})
 }

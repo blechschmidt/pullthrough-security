@@ -1,6 +1,9 @@
 package lockfiles
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // Coverage is how the lock files of one upstream type are covered.
 type Coverage struct {
@@ -13,60 +16,43 @@ type Coverage struct {
 	// Unparsed names the ecosystem's lock-file formats that are not parsed,
 	// when it has any.
 	Unparsed []string `json:"unparsed,omitempty"`
+	// Note says what else covers the type: for "git", the formats whose Git
+	// dependencies are fetched through a Git upstream too.
+	Note string `json:"note,omitempty"`
+	// Details describe the formats with a parser, in Formats' order.
+	Details []FormatInfo `json:"details,omitempty"`
 }
 
 // noParser is the explicit entry of every upstream type without a parser: why
-// there is none, and which lock-file formats the ecosystem has that are not
-// read. A type the configuration accepts must have either a parser or an entry
-// here (see coverage_test.go), so a backend added later cannot be left out of
-// the lock-file scan without someone deciding so — and saying why.
+// there is none. A type the configuration accepts must have either a parser or
+// an entry here (see coverage_test.go), so a backend added later cannot be left
+// out of the lock-file scan without someone deciding so — and saying why. An
+// entry for a type that has a parser fails a test.
 var noParser = map[string]Coverage{
-	"git": {Reason: "no lock-file format: a repository pins another repository with a submodule, " +
-		"a commit ID stored as a tree entry (a gitlink) next to the URL in .gitmodules — not a file a " +
-		"parser reads. The tree walk records submodules separately (Report.Submodules)."},
 	"apt": {Reason: "no lock-file format: Debian packages are installed from repository indexes at " +
 		"build time; version pins in a Dockerfile's apt-get line are commands, not a lock file."},
 	"yum": {Reason: "no lock-file format: RPM packages are installed from repository metadata at build " +
 		"time; dnf has no lock file in general use."},
 	"generic": {Reason: "no lock-file format: a generic upstream serves whatever routes its operator " +
-		"declares, so there is no format to know in advance."},
-	"huggingface": {Reason: "no lock-file format: models and datasets are named by repository and " +
-		"revision in code or configuration, not in a lock file of the Hub's."},
-	"openvsx": {Reason: "no lock-file format: an editor's extensions are installed by ID; " +
-		".vscode/extensions.json recommends extensions without versions."},
-	"nix": {Reason: "no lock-file format for the binary cache: flake.lock pins flake inputs " +
-		"(source repositories by revision and NAR hash), not the store paths the binary cache serves.",
-		Unparsed: []string{"flake.lock (inputs only)"}},
-	"homebrew": {Reason: "no lock-file format in current use: a Brewfile names formulae without " +
-		"versions, and `brew bundle` no longer writes Brewfile.lock.json."},
-	"helm": {Reason: "Chart.lock pins chart dependencies by version, with a digest of the requirements; " +
-		"not parsed yet.", Unparsed: []string{"Chart.lock"}},
-	"terraform": {Reason: ".terraform.lock.hcl pins provider versions and package hashes; not parsed yet.",
-		Unparsed: []string{".terraform.lock.hcl"}},
-	"conan": {Reason: "conan.lock pins recipe revisions; not parsed yet.", Unparsed: []string{"conan.lock"}},
-	"swift": {Reason: "Package.resolved pins package versions and revisions; not parsed yet.",
-		Unparsed: []string{"Package.resolved"}},
-	"dart": {Reason: "pubspec.lock pins package versions and archive hashes; not parsed yet.",
-		Unparsed: []string{"pubspec.lock"}},
-	"conda": {Reason: "conda-lock files, pixi.lock and @EXPLICIT spec files pin package URLs and " +
-		"hashes; not parsed yet.", Unparsed: []string{"conda-lock.yml", "pixi.lock", "@EXPLICIT spec files"}},
-	"cran": {Reason: "renv.lock pins R package versions; not parsed yet.", Unparsed: []string{"renv.lock"}},
-	"hex": {Reason: "mix.lock pins Hex package versions and checksums; not parsed yet.",
-		Unparsed: []string{"mix.lock"}},
-	"bazel": {Reason: "MODULE.bazel.lock records the resolved module graph; not parsed yet.",
-		Unparsed: []string{"MODULE.bazel.lock"}},
-	"julia": {Reason: "Manifest.toml pins package versions and git tree hashes; not parsed yet.",
-		Unparsed: []string{"Manifest.toml"}},
-	"cpan": {Reason: "cpanfile.snapshot (Carton) pins distribution versions; not parsed yet.",
-		Unparsed: []string{"cpanfile.snapshot"}},
-	"jsr": {Reason: "deno.lock pins JSR package versions and integrity hashes; not parsed yet.",
-		Unparsed: []string{"deno.lock"}},
-	"hackage": {Reason: "cabal.project.freeze and stack.yaml.lock pin package versions; not parsed yet.",
-		Unparsed: []string{"cabal.project.freeze", "stack.yaml.lock"}},
-	"ansible": {Reason: "ansible-galaxy has no lock file; a requirements.yml can pin exact collection " +
-		"versions, which is not parsed yet.", Unparsed: []string{"requirements.yml (exact pins)"}},
-	"puppet": {Reason: "Puppet has no lock file; a Puppetfile (r10k) can pin exact module versions, " +
-		"which is not parsed yet.", Unparsed: []string{"Puppetfile (exact pins)"}},
+		"declares, so there is no format to know in advance. Remote modules of deno.lock are recorded as " +
+		"dependencies of this type."},
+	"huggingface": {Reason: "no declared manifest in general use: models and datasets are referenced by " +
+		"repository and revision in code (from_pretrained(…, revision=…)) or in each serving tool's own " +
+		"configuration (KServe storageUri, vLLM --revision). The .metadata files `hf download --local-dir` " +
+		"writes are a git-ignored download cache that does not record the repository, and DVC's .dvc files " +
+		"are DVC's own format."},
+	"openvsx": {Reason: "no lock-file format: .vscode/extensions.json recommends extension IDs " +
+		"(publisher.name), and its schema allows no version or hash. devcontainer.json can name an exact " +
+		"version (publisher.name@1.2.3) but records no hash, and devcontainer-lock.json pins Features, not " +
+		"extensions."},
+}
+
+// unparsedFormats names, for an upstream type that has parsers, the lock-file
+// formats of its ecosystem that are not read.
+var unparsedFormats = map[string][]string{
+	"npm":   {"bun.lock", "bun.lockb"},
+	"pip":   {"pylock.toml (PEP 751)"},
+	"nuget": {"paket.lock"},
 }
 
 // CoverageFor returns the coverage of an upstream type (aliases resolved) by
@@ -80,9 +66,20 @@ func coverageFor(r *Registry, t string) (Coverage, bool) {
 		c := Coverage{Type: t}
 		for _, p := range ps {
 			c.Formats = append(c.Formats, p.Format())
+			c.Details = append(c.Details, describe(p))
 		}
-		if np, ok := noParser[t]; ok {
-			c.Unparsed = np.Unparsed
+		c.Unparsed = unparsedFormats[t]
+		if t == "git" {
+			var others []string
+			for _, f := range gitSourceFormats(r) {
+				if f != ".gitmodules" {
+					others = append(others, f)
+				}
+			}
+			if len(others) > 0 {
+				c.Note = "Git dependencies recorded in other lock files (source git, pinned by commit) are fetched from a Git repository too: " +
+					strings.Join(others, ", ") + "."
+			}
 		}
 		return c, true
 	}

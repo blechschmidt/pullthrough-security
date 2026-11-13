@@ -61,6 +61,9 @@ func (requirementsTxt) Format() string { return "requirements.txt" }
 // directory.
 func (requirementsTxt) Detect(path string) bool {
 	name := strings.ToLower(baseName(path))
+	if name == "requirements-dev.lock" {
+		return true // Rye's; its requirements.lock is read through requirementsLock
+	}
 	if !strings.HasSuffix(name, ".txt") {
 		return false
 	}

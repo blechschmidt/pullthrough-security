@@ -1,0 +1,81 @@
+[
+  {
+    "path": "Puppetfile",
+    "type": "puppet",
+    "format": "Puppetfile",
+    "dependencies": [
+      {
+        "type": "puppet",
+        "name": "puppetlabs-stdlib",
+        "version": "9.4.1",
+        "registry": "https://forge.puppet.com",
+        "unverified": true,
+        "unverifiedReason": "a Puppetfile records no hash (the Forge publishes the release's checksums, the Puppetfile does not)",
+        "file": "Puppetfile",
+        "line": 7
+      },
+      {
+        "type": "puppet",
+        "name": "puppetlabs-concat",
+        "version": "9.0.2",
+        "registry": "https://forge.puppet.com",
+        "unverified": true,
+        "unverifiedReason": "a Puppetfile records no hash (the Forge publishes the release's checksums, the Puppetfile does not)",
+        "file": "Puppetfile",
+        "line": 8
+      },
+      {
+        "type": "puppet",
+        "name": "archive",
+        "version": "v9.0.0",
+        "registry": "https://github.com/voxpupuli/puppet-archive.git",
+        "source": "git",
+        "unverified": true,
+        "unverifiedReason": "a Git dependency pinned to a branch or tag, not to a commit",
+        "file": "Puppetfile",
+        "line": 17
+      },
+      {
+        "type": "puppet",
+        "name": "systemd",
+        "version": "5203ec6fce82858ff0ec077d7670a16388a05684",
+        "registry": "https://github.com/voxpupuli/puppet-systemd.git",
+        "source": "git",
+        "revision": "5203ec6fce82858ff0ec077d7670a16388a05684",
+        "file": "Puppetfile",
+        "line": 21
+      },
+      {
+        "type": "puppet",
+        "name": "cron",
+        "version": "v5.0.0",
+        "registry": "https://github.com/voxpupuli/puppet-cron.git",
+        "source": "git",
+        "unverified": true,
+        "unverifiedReason": "a Git dependency pinned to a branch or tag, not to a commit",
+        "file": "Puppetfile",
+        "line": 30
+      },
+      {
+        "type": "puppet",
+        "name": "puppetlabs-firewall",
+        "version": "sha256:99dc7544df882731b15f6124a9c426b9e8a40f4af902992901f050ad1a42a852",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "99dc7544df882731b15f6124a9c426b9e8a40f4af902992901f050ad1a42a852"
+          }
+        ],
+        "url": "https://forgeapi.puppet.com/v3/files/puppetlabs-firewall-8.1.0.tar.gz",
+        "source": "url",
+        "file": "Puppetfile",
+        "line": 33
+      }
+    ],
+    "warnings": [
+      "line 11: \"puppetlabs/apt\" is not pinned to a version (latest)",
+      "line 14: \"puppetlabs-inifile\" is not pinned to a version",
+      "line 25: \"motd\" follows a branch, not a pinned version"
+    ]
+  }
+]

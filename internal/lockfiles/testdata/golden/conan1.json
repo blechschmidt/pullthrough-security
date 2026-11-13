@@ -1,0 +1,108 @@
+[
+  {
+    "path": "conan.lock",
+    "type": "conan",
+    "format": "conan.lock",
+    "formatVersion": "0.4",
+    "dependencies": [
+      {
+        "type": "conan",
+        "name": "zlib",
+        "version": "1.2.13",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "4e74ebf1361fe6fb60326f473f276eb5",
+            "of": "conan-recipe"
+          }
+        ],
+        "unverified": true,
+        "unverifiedReason": "conan.lock pins the recipe revision, not the binary package the client downloads",
+        "file": "conan.lock",
+        "line": 4
+      }
+    ]
+  },
+  {
+    "path": "consumer/conan.lock",
+    "type": "conan",
+    "format": "conan.lock",
+    "formatVersion": "0.4",
+    "dependencies": [
+      {
+        "type": "conan",
+        "name": "libpng",
+        "version": "1.6.40",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "3e5bfaeeb94f87558582a88a3a1a7524",
+            "of": "conan-recipe"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f7e784d1ec88d0139a4529f46490c572",
+            "of": "conan-package"
+          }
+        ],
+        "file": "consumer/conan.lock",
+        "line": 16
+      },
+      {
+        "type": "conan",
+        "name": "zlib",
+        "version": "1.2.13",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "4e74ebf1361fe6fb60326f473f276eb5",
+            "of": "conan-recipe"
+          },
+          {
+            "algorithm": "md5",
+            "value": "5accbbf328e608560f652835ea5a50b3",
+            "of": "conan-package"
+          }
+        ],
+        "file": "consumer/conan.lock",
+        "line": 26
+      },
+      {
+        "type": "conan",
+        "name": "cmake",
+        "version": "3.27.9",
+        "digests": [
+          {
+            "algorithm": "md5",
+            "value": "e255e9c6cc3ac4856c44ad84476ec434",
+            "of": "conan-recipe"
+          },
+          {
+            "algorithm": "md5",
+            "value": "d5526ae751acca0ea3d4f55aad4467c2",
+            "of": "conan-package"
+          }
+        ],
+        "file": "consumer/conan.lock",
+        "line": 33
+      }
+    ]
+  },
+  {
+    "path": "no-revisions/conan.lock",
+    "type": "conan",
+    "format": "conan.lock",
+    "formatVersion": "0.4",
+    "dependencies": [
+      {
+        "type": "conan",
+        "name": "zlib",
+        "version": "1.2.13",
+        "unverified": true,
+        "unverifiedReason": "conan.lock records no revision for this reference",
+        "file": "no-revisions/conan.lock",
+        "line": 4
+      }
+    ]
+  }
+]

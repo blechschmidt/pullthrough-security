@@ -163,10 +163,11 @@ func Scan(ctx context.Context, objs Objects, rev string, opts Options) (*Report,
 		return nil, err
 	}
 	root := strings.Trim(path.Clean("/"+strings.TrimSpace(opts.Root)), "/")
-	commit, tree, err := objs.ResolveCommit(ctx, rev)
+	commit, rootTree, err := objs.ResolveCommit(ctx, rev)
 	if err != nil {
 		return nil, err
 	}
+	tree := rootTree
 	rep := &Report{Commit: commit, Root: root}
 	if root != "" {
 		info, err := objs.Info(ctx, commit+":"+root)
@@ -183,9 +184,12 @@ func Scan(ctx context.Context, objs Objects, rev string, opts Options) (*Report,
 	if err := w.walk(root, tree); err != nil {
 		return nil, err
 	}
+	if err := w.pinSubmodules(rootTree, root); err != nil {
+		return nil, err
+	}
 	sort.Slice(w.found, func(i, j int) bool { return w.found[i].Path < w.found[j].Path })
 	finish(w.found, opts.Proxy)
-	rep.Files = w.found
+	rep.Files = dropEmpty(w.found)
 	if rep.Files == nil {
 		rep.Files = []*File{}
 	}
@@ -319,4 +323,236 @@ func (w *walker) skipped(p, reason string) {
 	if len(w.rep.Skipped) < maxSkippedReported {
 		w.rep.Skipped = append(w.rep.Skipped, Skipped{Path: p, Reason: reason})
 	}
+}
+
+// pinSubmodules turns the submodules of the root .gitmodules under root into
+// dependencies, each pinned by the gitlink at its path. The walk finds the
+// root .gitmodules when it walks the whole tree; for a directory of the tree
+// it is read here, and reported only if it declares a submodule there (or
+// cannot be read). Gitlinks are looked up in the tree whatever the skip globs
+// say: a submodule in third_party/ is a dependency of this repository even
+// though the lock files inside such a directory are not. Gitlinks no
+// declaration names are reported as skipped.
+func (w *walker) pinSubmodules(rootTree, root string) error {
+	var gm *File
+	for _, f := range w.found {
+		if f.Path == gitmodulesPath && f.parser != nil && f.parser.Type() == "git" {
+			gm = f
+		}
+	}
+	if gm == nil && root != "" && !w.limitReached() {
+		var err error
+		if gm, err = w.readRootGitmodules(rootTree); err != nil {
+			return err
+		}
+		if gm != nil && (gm.Error != "" || declaresUnder(gm, root)) {
+			w.found = append(w.found, gm)
+		}
+	}
+	links := w.rep.Submodules
+	switch {
+	case gm != nil && gm.Error != "":
+		for _, l := range links {
+			w.skipped(l.Path, "a submodule whose .gitmodules cannot be read: the repository it pins is unknown")
+		}
+		return nil
+	case gm != nil:
+		var paths []string
+		for _, d := range gm.submodules {
+			if underRoot(d.path, root) {
+				paths = append(paths, d.path)
+			}
+		}
+		pinned, complete, err := w.gitlinksAt(rootTree, paths)
+		if err != nil {
+			return err
+		}
+		if !complete {
+			gm.addWarning(fmt.Sprintf("the submodule paths lead through more than %d tree entries; the submodules not reached are not pinned", w.opts.MaxTreeEntries))
+		}
+		lookup := func(p string) (string, error) { return pinned[p], nil }
+		if links, err = joinSubmodules(gm, lookup, root, links); err != nil {
+			return err
+		}
+	}
+	for _, l := range links {
+		w.skipped(l.Path, "a submodule .gitmodules does not declare: the repository it pins is unknown")
+	}
+	return nil
+}
+
+// declaresUnder reports whether a .gitmodules file declares a submodule
+// inside root.
+func declaresUnder(f *File, root string) bool {
+	for _, d := range f.submodules {
+		if underRoot(d.path, root) {
+			return true
+		}
+	}
+	return false
+}
+
+// limitReached reports whether the walk stopped at a limit.
+func (w *walker) limitReached() bool { return w.rep.Truncated != "" }
+
+// readRootGitmodules reads and parses the .gitmodules at the root of the tree,
+// when a parser of the registry detects it and no skip glob matches it. It
+// returns nil when there is none.
+func (w *walker) readRootGitmodules(rootTree string) (*File, error) {
+	parser := w.opts.Registry.Detect(gitmodulesPath)
+	if parser == nil || matchAny(w.skip, gitmodulesPath, gitmodulesPath) {
+		return nil, nil
+	}
+	entries, err := w.objs.ReadTree(w.ctx, rootTree)
+	if err != nil {
+		if errors.Is(err, git.ErrObjectNotFound) || errors.Is(err, git.ErrObjectTooLarge) || errors.Is(err, git.ErrMalformedObject) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.Name != gitmodulesPath || e.Kind != git.EntryFile {
+			continue
+		}
+		info, err := w.objs.Info(w.ctx, e.ID)
+		if err != nil {
+			if errors.Is(err, git.ErrObjectNotFound) {
+				w.skipped(gitmodulesPath, "the file's content is not in the repository (left out of a partial clone)")
+				return nil, nil
+			}
+			return nil, err
+		}
+		if info.Size > w.opts.MaxFileBytes {
+			w.skipped(gitmodulesPath, fmt.Sprintf("%d bytes, more than the %d-byte limit", info.Size, w.opts.MaxFileBytes))
+			return nil, nil
+		}
+		data, err := w.objs.ReadBlob(w.ctx, e.ID, w.opts.MaxFileBytes)
+		if err != nil {
+			if errors.Is(err, git.ErrObjectNotFound) || errors.Is(err, git.ErrObjectTooLarge) {
+				w.skipped(gitmodulesPath, "not readable: "+err.Error())
+				return nil, nil
+			}
+			return nil, err
+		}
+		w.rep.Stats.BytesRead += int64(len(data))
+		return parseOne(parser, gitmodulesPath, data), nil
+	}
+	return nil, nil
+}
+
+// pathNode is a directory or entry on the way to declared submodule paths.
+type pathNode struct {
+	path     string
+	tree     string // the tree object of a directory, once found
+	children map[string]*pathNode
+	leaf     bool // a declared path ends here
+}
+
+// gitlinksAt finds the gitlinks at the declared paths: the commit each pins,
+// keyed by path ("" or absent when the tree has no gitlink there). The paths
+// come from .gitmodules and are never handed to git: the lookup descends from
+// the root tree one level at a time, reading each tree object once per level
+// whatever number of paths lead through it, scanning its entries once for
+// every name wanted from it, and keeping nothing of it afterwards. The
+// entries read count against MaxTreeEntries; complete is false when the
+// budget ran out first. Paths deeper than MaxDepth are not followed.
+func (w *walker) gitlinksAt(rootTree string, paths []string) (pinned map[string]string, complete bool, err error) {
+	pinned = map[string]string{}
+	root := &pathNode{tree: rootTree, children: map[string]*pathNode{}}
+	for _, p := range paths {
+		parts := strings.Split(p, "/")
+		if len(parts) > w.opts.MaxDepth+1 {
+			continue
+		}
+		n := root
+		for _, name := range parts {
+			child := n.children[name]
+			if child == nil {
+				child = &pathNode{children: map[string]*pathNode{}}
+				if n.path == "" {
+					child.path = name
+				} else {
+					child.path = n.path + "/" + name
+				}
+				n.children[name] = child
+			}
+			n = child
+		}
+		n.leaf = true
+	}
+	budget := w.opts.MaxTreeEntries
+	level := []*pathNode{root}
+	for len(level) > 0 {
+		if err := w.ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		byTree := map[string][]*pathNode{}
+		var trees []string
+		for _, n := range level {
+			if _, ok := byTree[n.tree]; !ok {
+				trees = append(trees, n.tree)
+			}
+			byTree[n.tree] = append(byTree[n.tree], n)
+		}
+		var next []*pathNode
+		for _, id := range trees {
+			nodes := byTree[id]
+			entries, err := w.objs.ReadTree(w.ctx, id)
+			if err != nil {
+				if errors.Is(err, git.ErrObjectNotFound) || errors.Is(err, git.ErrObjectTooLarge) || errors.Is(err, git.ErrMalformedObject) {
+					continue
+				}
+				return nil, false, err
+			}
+			w.rep.Stats.Trees++
+			budget -= len(entries)
+			if budget < 0 {
+				return pinned, false, nil
+			}
+			wanted := map[string]bool{}
+			for _, n := range nodes {
+				for name := range n.children {
+					wanted[name] = true
+				}
+			}
+			found := make(map[string]git.TreeEntry, len(wanted))
+			for _, e := range entries {
+				if wanted[e.Name] {
+					found[e.Name] = e
+				}
+			}
+			for _, n := range nodes {
+				for name, child := range n.children {
+					e, ok := found[name]
+					if !ok {
+						continue
+					}
+					switch {
+					case child.leaf && e.Kind == git.EntrySubmodule:
+						pinned[child.path] = e.ID
+					case len(child.children) > 0 && e.Kind == git.EntryTree:
+						child.tree = e.ID
+						next = append(next, child)
+					}
+				}
+			}
+		}
+		level = next
+	}
+	return pinned, true, nil
+}
+
+// GitDependencies returns every dependency fetched from a Git repository:
+// the submodules .gitmodules declares and the Git dependencies of every other
+// lock file, in path order.
+func (r *Report) GitDependencies() []Dependency {
+	var out []Dependency
+	for _, f := range r.Files {
+		for _, d := range f.Dependencies {
+			if d.Source == SourceGit {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
 }

@@ -1,0 +1,10 @@
+{
+  "imports": {
+    "ansi-regex": "npm:ansi-regex@5",
+    "chalk": "npm:chalk@5",
+    "esbuild": "npm:esbuild@0.28",
+    "left-pad": "npm:left-pad@1",
+    "strip-ansi": "npm:strip-ansi@7",
+    "colors": "https://deno.land/std@0.224.0/fmt/colors.ts"
+  }
+}

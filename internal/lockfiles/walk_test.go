@@ -120,7 +120,15 @@ func skippedReasons(rep *Report) map[string]string {
 // by the tree walk exactly as the golden test reads it from disk.
 func TestScanMatchesGolden(t *testing.T) {
 	repo := newTestRepo(t)
-	names := fixtureNames(t)
+	var names []string
+	for _, name := range fixtureNames(t) {
+		// Git reads .gitmodules only at the root of a tree: such a fixture is
+		// scanned on its own (TestScanPinsSubmodulesAsTheGoldenSays).
+		if _, err := os.Stat(filepath.Join("testdata/fixtures", name, gitmodulesPath)); err == nil {
+			continue
+		}
+		names = append(names, name)
+	}
 	for _, name := range names {
 		repo.copyFixture(name, "cases/"+name)
 	}

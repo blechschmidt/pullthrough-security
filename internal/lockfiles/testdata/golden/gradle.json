@@ -8,6 +8,8 @@
         "type": "maven",
         "name": "com.fasterxml.jackson.core:jackson-annotations",
         "version": "2.17.2",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 4
       },
@@ -15,6 +17,8 @@
         "type": "maven",
         "name": "com.fasterxml.jackson.core:jackson-core",
         "version": "2.17.2",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 5
       },
@@ -22,6 +26,8 @@
         "type": "maven",
         "name": "com.fasterxml.jackson.core:jackson-databind",
         "version": "2.17.2",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 6
       },
@@ -29,6 +35,8 @@
         "type": "maven",
         "name": "com.fasterxml.jackson:jackson-bom",
         "version": "2.17.2",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 7
       },
@@ -37,6 +45,8 @@
         "name": "junit:junit",
         "version": "4.13.2",
         "dev": true,
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 8
       },
@@ -45,6 +55,8 @@
         "name": "org.hamcrest:hamcrest-core",
         "version": "1.3",
         "dev": true,
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 9
       },
@@ -52,6 +64,8 @@
         "type": "maven",
         "name": "org.slf4j:slf4j-api",
         "version": "2.0.13",
+        "unverified": true,
+        "unverifiedReason": "gradle.lockfile records no hashes (Gradle keeps them in gradle/verification-metadata.xml, which is not read)",
         "file": "gradle.lockfile",
         "line": 10
       }

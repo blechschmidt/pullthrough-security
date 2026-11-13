@@ -1,0 +1,30 @@
+[
+  {
+    "path": "composer.lock",
+    "type": "composer",
+    "format": "composer.lock",
+    "dependencies": [
+      {
+        "type": "composer",
+        "name": "psr/container",
+        "version": "2.0.2",
+        "url": "https://api.github.com/repos/php-fig/container/zipball/c71ecc56dfe541dbd90c5360474fbc405f8d5963",
+        "revision": "c71ecc56dfe541dbd90c5360474fbc405f8d5963",
+        "unverified": true,
+        "unverifiedReason": "composer.lock has no dist shasum for this package (Packagist leaves it empty for archives GitHub builds on demand)",
+        "file": "composer.lock",
+        "line": 10
+      },
+      {
+        "type": "composer",
+        "name": "psr/log",
+        "version": "3.0.2",
+        "registry": "https://github.com/php-fig/log.git",
+        "source": "git",
+        "revision": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+        "file": "composer.lock",
+        "line": 64
+      }
+    ]
+  }
+]

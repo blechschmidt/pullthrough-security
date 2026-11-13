@@ -1,0 +1,206 @@
+[
+  {
+    "path": "pubspec.lock",
+    "type": "dart",
+    "format": "pubspec.lock",
+    "dependencies": [
+      {
+        "type": "dart",
+        "name": "args",
+        "version": "2.7.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "dev": true,
+        "file": "pubspec.lock",
+        "line": 4
+      },
+      {
+        "type": "dart",
+        "name": "async",
+        "version": "2.13.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "e2eb0491ba5ddb6177742d2da23904574082139b07c1e33b8503b9f46f3e1a37"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 12
+      },
+      {
+        "type": "dart",
+        "name": "characters",
+        "version": "1.4.1",
+        "registry": "https://github.com/dart-lang/core.git",
+        "source": "git",
+        "revision": "b59ecf4ceebe6153e1c0166b7c9a7fdd9458a89d",
+        "file": "pubspec.lock",
+        "line": 20
+      },
+      {
+        "type": "dart",
+        "name": "collection",
+        "version": "1.19.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 29
+      },
+      {
+        "type": "dart",
+        "name": "http",
+        "version": "1.6.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 44
+      },
+      {
+        "type": "dart",
+        "name": "http_parser",
+        "version": "4.1.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 52
+      },
+      {
+        "type": "dart",
+        "name": "lints",
+        "version": "6.1.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "12f842a479589fea194fe5c5a3095abc7be0c1f2ddfa9a0e76aed1dbd26a87df"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "dev": true,
+        "file": "pubspec.lock",
+        "line": 60
+      },
+      {
+        "type": "dart",
+        "name": "meta",
+        "version": "1.19.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "307249ce4ff29d58a18e97f6345f539382eb9c9c29ecda628900f31de0443dd9"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 68
+      },
+      {
+        "type": "dart",
+        "name": "path",
+        "version": "1.9.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 76
+      },
+      {
+        "type": "dart",
+        "name": "source_span",
+        "version": "1.10.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "56a02f1f4cd1a2d96303c0144c93bd6d909eea6bee6bf5a0e0b685edbd4c47ab"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 84
+      },
+      {
+        "type": "dart",
+        "name": "string_scanner",
+        "version": "1.4.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "921cd31725b72fe181906c6a94d987c78e3b98c2e205b397ea399d4054872b43"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 92
+      },
+      {
+        "type": "dart",
+        "name": "term_glyph",
+        "version": "1.2.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "7f554798625ea768a7518313e58f83891c7f5024f88e46e7182a4558850a4b8e"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 100
+      },
+      {
+        "type": "dart",
+        "name": "typed_data",
+        "version": "1.4.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "f9049c039ebfeb4cf7a7104a675823cd72dba8297f264b6637062516699fa006"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 108
+      },
+      {
+        "type": "dart",
+        "name": "web",
+        "version": "1.1.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "e119e82ac4795c7925103b7cf3768191f33941b99e7ccffbd6c645201d9f606b"
+          }
+        ],
+        "registry": "https://pub.dev",
+        "file": "pubspec.lock",
+        "line": 116
+      }
+    ],
+    "warnings": [
+      "helper: from a local path, not fetched"
+    ]
+  }
+]

@@ -361,6 +361,34 @@ FUZZ_TARGETS := \
 	internal/lockfiles:FuzzComposerLock \
 	internal/lockfiles:FuzzDockerfile \
 	internal/lockfiles:FuzzCompose \
+	internal/lockfiles:FuzzGitmodules \
+	internal/lockfiles:FuzzCondaLock \
+	internal/lockfiles:FuzzCondaExplicit \
+	internal/lockfiles:FuzzPixiLock \
+	internal/lockfiles:FuzzRenvLock \
+	internal/lockfiles:FuzzMixLock \
+	internal/lockfiles:FuzzPackageResolved \
+	internal/lockfiles:FuzzPubspecLock \
+	internal/lockfiles:FuzzJuliaManifest \
+	internal/lockfiles:FuzzModuleBazelLock \
+	internal/lockfiles:FuzzFlakeLock \
+	internal/lockfiles:FuzzTerraformLock \
+	internal/lockfiles:FuzzTerraformModules \
+	internal/lockfiles:FuzzTerraformOverrides \
+	internal/lockfiles:FuzzTerraformMerge \
+	internal/lockfiles:FuzzConanLock \
+	internal/lockfiles:FuzzCpanfileSnapshot \
+	internal/lockfiles:FuzzCabalFreeze \
+	internal/lockfiles:FuzzStackLock \
+	internal/lockfiles:FuzzDenoLock \
+	internal/lockfiles:FuzzChartLock \
+	internal/lockfiles:FuzzRequirementsLock \
+	internal/lockfiles:FuzzBrewfileLock \
+	internal/lockfiles:FuzzAnsibleRequirements \
+	internal/lockfiles:FuzzPuppetfile \
+	internal/lockfiles:FuzzHCL \
+	internal/lockfiles:FuzzGitConfig \
+	internal/lockfiles:FuzzElixirTerms \
 	internal/lockfiles:FuzzTOML \
 	internal/lockfiles:FuzzProxyMapping
 
@@ -568,6 +596,14 @@ llmscan-coverage-gen: ## Regenerate docs/llm-package-scan-coverage.md from the L
 .PHONY: llmscan-coverage-check
 llmscan-coverage-check: ## Fail if docs/llm-package-scan-coverage.md is stale vs the coverage catalog
 	$(GO) run ./cmd/gen-llmscan-coverage -check -o docs/llm-package-scan-coverage.md
+
+.PHONY: lockfile-reference-gen
+lockfile-reference-gen: ## Regenerate the format tables of docs/lockfiles.md from the lock-file scanner's tables
+	$(GO) run ./cmd/gen-lockfile-reference -o docs/lockfiles.md
+
+.PHONY: lockfile-reference-check
+lockfile-reference-check: ## Fail if the format tables of docs/lockfiles.md are stale vs the lock-file scanner
+	$(GO) run ./cmd/gen-lockfile-reference -check -o docs/lockfiles.md
 
 .PHONY: config-validate
 config-validate: ## Validate a config file: make config-validate CONFIG=path/to/config.yaml

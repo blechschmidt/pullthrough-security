@@ -1,0 +1,942 @@
+[
+  {
+    "path": "conda-lock.yml",
+    "type": "conda",
+    "format": "conda-lock.yml",
+    "formatVersion": "1",
+    "dependencies": [
+      {
+        "type": "conda",
+        "name": "_openmp_mutex",
+        "version": "4.5",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "1dd3fffd892081df9726d7eb7e0dea6198962ba775bd88842135a4ddb4deb3c9",
+            "of": "linux-64/_openmp_mutex-4.5-20_gnu.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "a9f577daf3de00bca7c3c76c0ecbd1de",
+            "of": "linux-64/_openmp_mutex-4.5-20_gnu.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda",
+        "file": "conda-lock.yml",
+        "line": 33
+      },
+      {
+        "type": "conda",
+        "name": "bzip2",
+        "version": "1.0.8",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "1a0d382c515ebf55f8ee1f38c8b81bc95af5c2acc42ad53b66bc5df932032f96",
+            "of": "linux-64/bzip2-1.0.8-hda65f42_10.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "e675fabcf81499adc7edf58124fb1e01",
+            "of": "linux-64/bzip2-1.0.8-hda65f42_10.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "8ec22f0ba25cbfc2e64d70cf29459eccd7ffdf6436f6a6ff15bbfef799f7d4f6",
+            "of": "osx-arm64/bzip2-1.0.8-h4e30115_10.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "b50612e7d190b8061ab4e7dc119cf4d5",
+            "of": "osx-arm64/bzip2-1.0.8-h4e30115_10.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/bzip2-1.0.8-hda65f42_10.conda",
+        "file": "conda-lock.yml",
+        "line": 46
+      },
+      {
+        "type": "conda",
+        "name": "ca-certificates",
+        "version": "2026.10.23",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "95619b9c1184be7175392eeb0ee7eeb5ccf25d280951f4225f2d62e725790be3",
+            "of": "noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "3fd02989038a1e1cee627c14c2d73f29",
+            "of": "noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.10.23-hbd8a1cb_0.conda",
+        "file": "conda-lock.yml",
+        "line": 71
+      },
+      {
+        "type": "conda",
+        "name": "jq",
+        "version": "1.6",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "00e69aec19174e61c70b652bb62c77c0947a27d6720bda0cb8d5be654020804a",
+            "of": "linux-64/jq-1.6-h36c2ea0_1000.tar.bz2"
+          },
+          {
+            "algorithm": "md5",
+            "value": "8578ae83310b8c9f5717f1aa65054f36",
+            "of": "linux-64/jq-1.6-h36c2ea0_1000.tar.bz2"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "9bf14b2752a567cf669179169717fdc1fa1d247969a1647040a80706112a02ce",
+            "of": "osx-arm64/jq-1.6-h27ca646_1000.tar.bz2"
+          },
+          {
+            "algorithm": "md5",
+            "value": "4828e462499d335cdeb3a4ff81eb1d1f",
+            "of": "osx-arm64/jq-1.6-h27ca646_1000.tar.bz2"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/jq-1.6-h36c2ea0_1000.tar.bz2",
+        "dev": true,
+        "file": "conda-lock.yml",
+        "line": 95
+      },
+      {
+        "type": "conda",
+        "name": "ld_impl_linux-64",
+        "version": "2.46.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "901649b1edbe841fd4ee7e2d491a05184ed540eb01cdae506872f344babc1d28",
+            "of": "linux-64/ld_impl_linux-64-2.46.1-default_hbd61a6d_103.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "2362c70e7e79827c32db35547d9c179b",
+            "of": "linux-64/ld_impl_linux-64-2.46.1-default_hbd61a6d_103.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/ld_impl_linux-64-2.46.1-default_hbd61a6d_103.conda",
+        "file": "conda-lock.yml",
+        "line": 120
+      },
+      {
+        "type": "conda",
+        "name": "libexpat",
+        "version": "2.9.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "7b930a8b6bc6553cb754b4977a11f9c862c719a652fc2d128d89270992ce8beb",
+            "of": "linux-64/libexpat-2.9.0-hd2095e1_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "317ecabe4a58b3068c7958dc5eb89e43",
+            "of": "linux-64/libexpat-2.9.0-hd2095e1_0.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "b155c524118f751ad8b1c823397bab8b7f715f7e3ca10479925867a7e23e7e9d",
+            "of": "osx-arm64/libexpat-2.9.0-h6111c0a_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f85a1fda9a2758a7aef2a7787d9c0203",
+            "of": "osx-arm64/libexpat-2.9.0-h6111c0a_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libexpat-2.9.0-hd2095e1_0.conda",
+        "file": "conda-lock.yml",
+        "line": 133
+      },
+      {
+        "type": "conda",
+        "name": "libffi",
+        "version": "3.7.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "c8c7583ef063bc3c430f1d48298e5ad24f796a35c22ed5b14183325825a61106",
+            "of": "linux-64/libffi-3.7.0-h81df57d_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "6525a0b06aa4fd390795f0740636a9dd",
+            "of": "linux-64/libffi-3.7.0-h81df57d_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "2783389a7b9dda04c62cc54c6bbeb03dd3cef24b3fc642715d02a3fa19464a9a",
+            "of": "osx-arm64/libffi-3.7.0-h47dc5ef_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "216bbcc23c11e9695b3db4a8771d76eb",
+            "of": "osx-arm64/libffi-3.7.0-h47dc5ef_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libffi-3.7.0-h81df57d_1.conda",
+        "file": "conda-lock.yml",
+        "line": 158
+      },
+      {
+        "type": "conda",
+        "name": "libgcc",
+        "version": "16.2.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "e031634c3a928f9594eba868bc46ef5230d6571a364a0c63215b06c4563bfcea",
+            "of": "linux-64/libgcc-16.2.0-ha9f2e26_7.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "735629b400b70eeab21a2ba8f5b1c2ce",
+            "of": "linux-64/libgcc-16.2.0-ha9f2e26_7.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda",
+        "file": "conda-lock.yml",
+        "line": 183
+      },
+      {
+        "type": "conda",
+        "name": "libgcc-ng",
+        "version": "16.2.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "03b54d7008de080a17cc2174b0e4acd6d06e1c981b2eb19846f46d8f59966034",
+            "of": "linux-64/libgcc-ng-16.2.0-h69a702a_7.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "2005515ac9340f816fb2ac7e83afe553",
+            "of": "linux-64/libgcc-ng-16.2.0-h69a702a_7.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libgcc-ng-16.2.0-h69a702a_7.conda",
+        "dev": true,
+        "file": "conda-lock.yml",
+        "line": 196
+      },
+      {
+        "type": "conda",
+        "name": "libgomp",
+        "version": "16.2.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "92a0bb350c7be6a4eedcb4e111c60aefd176018e6b1c009a6e025dbe9bbcd758",
+            "of": "linux-64/libgomp-16.2.0-he0feb66_7.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "d904c7ddd95e026254b4b80808ee9e12",
+            "of": "linux-64/libgomp-16.2.0-he0feb66_7.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libgomp-16.2.0-he0feb66_7.conda",
+        "file": "conda-lock.yml",
+        "line": 208
+      },
+      {
+        "type": "conda",
+        "name": "liblzma",
+        "version": "5.8.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "9787df8c22a59c9a70d3e5a10db9ad663485e75e9ccc3f09bd092cb7b95e0dab",
+            "of": "linux-64/liblzma-5.8.3-hb03c661_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "1390b7c5ac0b1d8e447bc5efa6d3c8c2",
+            "of": "linux-64/liblzma-5.8.3-hb03c661_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "23d0630046a3e8b164d8f80f2b74ed2605af2e7050ab9913018056402fae4311",
+            "of": "osx-arm64/liblzma-5.8.3-h8088a28_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "8ab10323068b107661a4b9a4af84f3b5",
+            "of": "osx-arm64/liblzma-5.8.3-h8088a28_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/liblzma-5.8.3-hb03c661_1.conda",
+        "file": "conda-lock.yml",
+        "line": 220
+      },
+      {
+        "type": "conda",
+        "name": "liblzma-devel",
+        "version": "5.8.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "adef6e8b60afb684110b06b5310977c6836e1c923ce3ec199f45c0f000b42f20",
+            "of": "linux-64/liblzma-devel-5.8.3-hb03c661_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "6d83d6a332c19424e9e66b69b180ec11",
+            "of": "linux-64/liblzma-devel-5.8.3-hb03c661_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "dc1b1369813f946ac40207222f439f40f6c4c9b5eac6746f61676d819b247282",
+            "of": "osx-arm64/liblzma-devel-5.8.3-h8088a28_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "2f003d60c66aa780d26c5aec7ee1c94d",
+            "of": "osx-arm64/liblzma-devel-5.8.3-h8088a28_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/liblzma-devel-5.8.3-hb03c661_1.conda",
+        "file": "conda-lock.yml",
+        "line": 245
+      },
+      {
+        "type": "conda",
+        "name": "libnsl",
+        "version": "2.0.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "927fe72b054277cde6cb82597d0fcf6baf127dcbce2e0a9d8925a68f1265eef5",
+            "of": "linux-64/libnsl-2.0.1-hb9d3cd8_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "d864d34357c3b65a4b731f78c0801dc4",
+            "of": "linux-64/libnsl-2.0.1-hb9d3cd8_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libnsl-2.0.1-hb9d3cd8_1.conda",
+        "file": "conda-lock.yml",
+        "line": 272
+      },
+      {
+        "type": "conda",
+        "name": "libpython",
+        "version": "3.12.16",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "71126cad347dfd1be645b1207baa3729e64f055edb5f785dadeb84872480a015",
+            "of": "linux-64/libpython-3.12.16-ha57cdbe_0_cpython.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "e1442492859319edcd76293a2488156e",
+            "of": "linux-64/libpython-3.12.16-ha57cdbe_0_cpython.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "8a80694471620730a260bfb158714c9f109945661450c1661f01df0648ed02c3",
+            "of": "osx-arm64/libpython-3.12.16-h0677fcb_0_cpython.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "302378a22f885badd851b1d298268906",
+            "of": "osx-arm64/libpython-3.12.16-h0677fcb_0_cpython.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libpython-3.12.16-ha57cdbe_0_cpython.conda",
+        "file": "conda-lock.yml",
+        "line": 285
+      },
+      {
+        "type": "conda",
+        "name": "libsqlite",
+        "version": "3.54.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "c294029f893d05286f1061bbab85b820f1eea73dd859af4bcc619197bcc34810",
+            "of": "linux-64/libsqlite-3.54.1-h0737f62_101.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "36e097bf5f1e0699e88c8ac801f2dc65",
+            "of": "linux-64/libsqlite-3.54.1-h0737f62_101.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "c49adf700ad17332b938ac627845a3fdc70a0810660d3ec3814de25b156fbf60",
+            "of": "osx-arm64/libsqlite-3.54.1-h34a968b_101.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "6b3b2ea51e2685192a790730c59dbb01",
+            "of": "osx-arm64/libsqlite-3.54.1-h34a968b_101.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.54.1-h0737f62_101.conda",
+        "file": "conda-lock.yml",
+        "line": 310
+      },
+      {
+        "type": "conda",
+        "name": "libuuid",
+        "version": "2.42.4",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "0e2e8f2daa9306e67f046e31092d637431d8cf0a26c407ab22401d108c2d4631",
+            "of": "linux-64/libuuid-2.42.4-hcfc3c73_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "d852293faea3c04a6e896b908b43aded",
+            "of": "linux-64/libuuid-2.42.4-hcfc3c73_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libuuid-2.42.4-hcfc3c73_1.conda",
+        "file": "conda-lock.yml",
+        "line": 337
+      },
+      {
+        "type": "conda",
+        "name": "libxcrypt",
+        "version": "4.4.38",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "f7e9292dd219a6435bbb1223da9586c3e70d66d169c5a92f08db3f2127df04e9",
+            "of": "linux-64/libxcrypt-4.4.38-h280c20c_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f7a7ff5a6ab331e037abd34f379a631d",
+            "of": "linux-64/libxcrypt-4.4.38-h280c20c_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libxcrypt-4.4.38-h280c20c_0.conda",
+        "file": "conda-lock.yml",
+        "line": 350
+      },
+      {
+        "type": "conda",
+        "name": "libzlib",
+        "version": "1.3.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "eb8a0db0aa570124f7d2a93d7c7f596e3390df5e047818d873baad32985fc736",
+            "of": "linux-64/libzlib-1.3.2-h25fd6f3_3.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "0de0122d9570a8ab637c6b73db268389",
+            "of": "linux-64/libzlib-1.3.2-h25fd6f3_3.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "a18fa5d5bac452401459f966cf0d872224e8080c4ff93c77e168d43ab42ef9d7",
+            "of": "osx-arm64/libzlib-1.3.2-h8088a28_3.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f39288f0ea63ae962e1a2e4f355a0d75",
+            "of": "osx-arm64/libzlib-1.3.2-h8088a28_3.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/libzlib-1.3.2-h25fd6f3_3.conda",
+        "file": "conda-lock.yml",
+        "line": 363
+      },
+      {
+        "type": "conda",
+        "name": "ncurses",
+        "version": "6.6",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "5d46557214ed184381dafe835b7c94a474a1c3b307a08a250b1ea4779b44ffb3",
+            "of": "linux-64/ncurses-6.6-hdb14827_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "ee6c0cd80a60961a1f48aa3e0b91f986",
+            "of": "linux-64/ncurses-6.6-hdb14827_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "7024a48c8c0d0114ed4ab53c76bf9275d50e91ba7cea367a9aead638d3c29c68",
+            "of": "osx-arm64/ncurses-6.6-he64c551_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "3dfa0d0316dc246cd44937a557de4501",
+            "of": "osx-arm64/ncurses-6.6-he64c551_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.6-hdb14827_1.conda",
+        "file": "conda-lock.yml",
+        "line": 387
+      },
+      {
+        "type": "conda",
+        "name": "oniguruma",
+        "version": "6.9.10",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "098de630b10d3276d52b075360fa8492574ac3f60ff098a8f32cc1738274f1dd",
+            "of": "linux-64/oniguruma-6.9.10-hebe6cf0_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "d0d628a0259bb9cbcd73f792b0b61387",
+            "of": "linux-64/oniguruma-6.9.10-hebe6cf0_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "d27ba8980696e12c7b2893ca99a22ab40c8417dc5f0bcde66234938b20ba3a24",
+            "of": "osx-arm64/oniguruma-6.9.10-h74c22ad_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "c5b6aa57046805d1754719269f08714e",
+            "of": "osx-arm64/oniguruma-6.9.10-h74c22ad_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/oniguruma-6.9.10-hebe6cf0_1.conda",
+        "dev": true,
+        "file": "conda-lock.yml",
+        "line": 412
+      },
+      {
+        "type": "conda",
+        "name": "openssl",
+        "version": "3.6.5",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "9c1533f1cf784f0e250919c0c9762d0b0e6bc727a79290ffb7cea1ceca1d038c",
+            "of": "linux-64/openssl-3.6.5-h781a0a9_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "5a51a2ea653f120240b1a9bf76e0aae9",
+            "of": "linux-64/openssl-3.6.5-h781a0a9_0.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "44fbc526456571a9fb8fa18157f6f269d4d4bd40eef20183a93b9c9296f94497",
+            "of": "osx-arm64/openssl-3.6.5-h55eecbc_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "45d9179cdf6e53d88aec034246f0dad6",
+            "of": "osx-arm64/openssl-3.6.5-h55eecbc_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/openssl-3.6.5-h781a0a9_0.conda",
+        "file": "conda-lock.yml",
+        "line": 462
+      },
+      {
+        "type": "conda",
+        "name": "packaging",
+        "version": "26.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "c432626b16768b8dab228bfb706f7060c2d462a21c516d240f68f2f902b5a044",
+            "of": "noarch/packaging-26.3-pyhc364b38_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "936687ed80f295a1f5dbcf8bd34c252c",
+            "of": "noarch/packaging-26.3-pyhc364b38_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/noarch/packaging-26.3-pyhc364b38_0.conda",
+        "file": "conda-lock.yml",
+        "line": 489
+      },
+      {
+        "type": "conda",
+        "name": "pip",
+        "version": "26.2.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "27543e132e4f80285e638a08d6d90de631227186ba96901e1e069fa587d9e62f",
+            "of": "noarch/pip-26.2.2-pyh8b19718_2.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "475fb40617684d16415f574187bc974b",
+            "of": "noarch/pip-26.2.2-pyh8b19718_2.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/noarch/pip-26.2.2-pyh8b19718_2.conda",
+        "file": "conda-lock.yml",
+        "line": 513
+      },
+      {
+        "type": "conda",
+        "name": "python",
+        "version": "3.12.16",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "a40188b47c3995bc42a33820be4d780af5c11cc295409413fb925549f0abfe92",
+            "of": "linux-64/python-3.12.16-h5f976f7_0_cpython.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "bef9f5422e5246840497b4ae3d968001",
+            "of": "linux-64/python-3.12.16-h5f976f7_0_cpython.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "23d06f02f64e6c768fce624cf369a92544a49e9cee29d3ee6762058474c912c2",
+            "of": "osx-arm64/python-3.12.16-hd05a0c4_0_cpython.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "f368ebd7a850ac640059edb82313e86f",
+            "of": "osx-arm64/python-3.12.16-hd05a0c4_0_cpython.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/python-3.12.16-h5f976f7_0_cpython.conda",
+        "file": "conda-lock.yml",
+        "line": 543
+      },
+      {
+        "type": "conda",
+        "name": "readline",
+        "version": "8.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "01b3fe073a66e321970d09e04b388708f8cbdca5cdfbfcb7c9eeb470ad10383d",
+            "of": "linux-64/readline-8.3-hd6e31c0_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "69c01c781e7c8190bbdaf79e3848c5ca",
+            "of": "linux-64/readline-8.3-hd6e31c0_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "d6782b430e6dce4fe8c7ac118cd988d5a193eb4a7f60741edfaede58016b6110",
+            "of": "osx-arm64/readline-8.3-h8b90a29_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "9347fd56a002e6b58946831d48fe62f6",
+            "of": "osx-arm64/readline-8.3-h8b90a29_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/readline-8.3-hd6e31c0_1.conda",
+        "file": "conda-lock.yml",
+        "line": 596
+      },
+      {
+        "type": "conda",
+        "name": "setuptools",
+        "version": "84.2.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "17add609d1a31c874e39a03935072be59bcafb06d42383eceabea746d12e6025",
+            "of": "noarch/setuptools-84.2.1-pyhe730653_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "d41f95b8f1553165b2cc2f37162dac9c",
+            "of": "noarch/setuptools-84.2.1-pyhe730653_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/noarch/setuptools-84.2.1-pyhe730653_0.conda",
+        "file": "conda-lock.yml",
+        "line": 623
+      },
+      {
+        "type": "conda",
+        "name": "tk",
+        "version": "8.6.13",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "a1a241d172c1ccab067ba245206dd048bc3c2d1b84504b53c9468e99adfc16a1",
+            "of": "linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "676a2f9b1c4fcf57b70aa5c65f6c60d0",
+            "of": "linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "857d89087ae7f2c328cf256728affcb7343031a148b4af847334d248a9cf564c",
+            "of": "osx-arm64/tk-8.6.13-hbeba79b_4.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "90a01bf394d1c594e0eb9258f967d828",
+            "of": "osx-arm64/tk-8.6.13-hbeba79b_4.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h1df4ec4_4.conda",
+        "file": "conda-lock.yml",
+        "line": 647
+      },
+      {
+        "type": "conda",
+        "name": "tzdata",
+        "version": "2026e",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "2b7ca858879f183ce2dcc65b300f48a0133d5430550f35b23d80d405a0788dbf",
+            "of": "noarch/tzdata-2026e-h5d301ff_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "abccc3810d2b97e570dee487f2b46e38",
+            "of": "noarch/tzdata-2026e-h5d301ff_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda",
+        "file": "conda-lock.yml",
+        "line": 674
+      },
+      {
+        "type": "conda",
+        "name": "wheel",
+        "version": "0.48.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "ba64b29b6d418024cb565081a1799262cb2780d2534ff4c14f76aa858c4286cd",
+            "of": "noarch/wheel-0.48.0-pyhd8ed1ab_0.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "9a2124517bfd5d792e0f7b86eefdfeb8",
+            "of": "noarch/wheel-0.48.0-pyhd8ed1ab_0.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/noarch/wheel-0.48.0-pyhd8ed1ab_0.conda",
+        "file": "conda-lock.yml",
+        "line": 696
+      },
+      {
+        "type": "conda",
+        "name": "xz",
+        "version": "5.8.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "547b2392d8f7b76efd4a0970946f6da2a1136ad5fe3dc936af81e02eb7181076",
+            "of": "linux-64/xz-5.8.3-ha02ee65_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "36a079606b3aaf9d726211825f182452",
+            "of": "linux-64/xz-5.8.3-ha02ee65_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "f83d8ac2c553ba4898c42646a3697e19071b061032f802a83c9b8d7a613775ef",
+            "of": "osx-arm64/xz-5.8.3-hd0f0c4f_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "6a20980b26ab5768ba04beb4d8706b9d",
+            "of": "osx-arm64/xz-5.8.3-hd0f0c4f_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-5.8.3-ha02ee65_1.conda",
+        "file": "conda-lock.yml",
+        "line": 722
+      },
+      {
+        "type": "conda",
+        "name": "xz-gpl-tools",
+        "version": "5.8.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "ed6dbec5e4f0f71e7ac629b90dc4c9fba38d194cc88eab891c29e461b408977a",
+            "of": "linux-64/xz-gpl-tools-5.8.3-ha02ee65_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "137db930adb0b3c5407485e0e1a50cfa",
+            "of": "linux-64/xz-gpl-tools-5.8.3-ha02ee65_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "7a1b1ef6c5a46e45dc0148873878927d4271ffd7b7bd13ca48351b937b45947d",
+            "of": "osx-arm64/xz-gpl-tools-5.8.3-hd0f0c4f_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "787cabcdc011595e8c66af8ca4333a49",
+            "of": "osx-arm64/xz-gpl-tools-5.8.3-hd0f0c4f_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-gpl-tools-5.8.3-ha02ee65_1.conda",
+        "file": "conda-lock.yml",
+        "line": 755
+      },
+      {
+        "type": "conda",
+        "name": "xz-tools",
+        "version": "5.8.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "c74fa3eddd3ea648456517948f85068d8a07acad7752fd83c7e95b6cebb7114a",
+            "of": "linux-64/xz-tools-5.8.3-hb03c661_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "10d693a2db6e8339e4eebcb3a3dae88d",
+            "of": "linux-64/xz-tools-5.8.3-hb03c661_1.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "aea9831ac6909a6d6624289acf04e4d336345eb77bc89a7380a82d848bb9be0f",
+            "of": "osx-arm64/xz-tools-5.8.3-h8088a28_1.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "8a3fe07ffa645440462fe537318d373d",
+            "of": "osx-arm64/xz-tools-5.8.3-h8088a28_1.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/xz-tools-5.8.3-hb03c661_1.conda",
+        "file": "conda-lock.yml",
+        "line": 782
+      },
+      {
+        "type": "conda",
+        "name": "zlib",
+        "version": "1.3.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "16080a1c7724f7d25727cdc23c7658e0cec2db52448c1dc0c33467ee2c6e1c62",
+            "of": "linux-64/zlib-1.3.2-h25fd6f3_3.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "6acb86426229f96f93e5468d1df3a5e8",
+            "of": "linux-64/zlib-1.3.2-h25fd6f3_3.conda"
+          },
+          {
+            "algorithm": "sha256",
+            "value": "ab46d85e4fcffff1b1c5cac517afa40b7ae784cf76fc9da1f55f6a6934291eb6",
+            "of": "osx-arm64/zlib-1.3.2-h8088a28_3.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "2c966485853aa27985fbec7e3fcc4e77",
+            "of": "osx-arm64/zlib-1.3.2-h8088a28_3.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.2-h25fd6f3_3.conda",
+        "file": "conda-lock.yml",
+        "line": 809
+      },
+      {
+        "type": "conda",
+        "name": "zstd",
+        "version": "1.5.7",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "47d682b9f6d6ec9eb1a6e6c3e75ea6273e899e78fb7fc59f81d39745009fbc60",
+            "of": "linux-64/zstd-1.5.7-hb78ec9c_7.conda"
+          },
+          {
+            "algorithm": "md5",
+            "value": "aa459086047c0e5e27023ab19f8cb86a",
+            "of": "linux-64/zstd-1.5.7-hb78ec9c_7.conda"
+          }
+        ],
+        "registry": "https://conda.anaconda.org/conda-forge",
+        "url": "https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_7.conda",
+        "file": "conda-lock.yml",
+        "line": 835
+      },
+      {
+        "type": "pip",
+        "name": "six",
+        "version": "1.16.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "8abb2f1d86890a2dfb989f9a77cfcfd3e47c2a354b01111771326f8aa26e0254",
+            "of": "six-1.16.0-py2.py3-none-any.whl"
+          }
+        ],
+        "url": "https://files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl",
+        "file": "conda-lock.yml",
+        "line": 848
+      },
+      {
+        "type": "pip",
+        "name": "tomli",
+        "version": "2.0.1",
+        "registry": "https://github.com/hukkin/tomli.git",
+        "source": "git",
+        "revision": "36ef51d6a5a55e0eca077b58695390d041061bd4",
+        "file": "conda-lock.yml",
+        "line": 868
+      }
+    ]
+  }
+]

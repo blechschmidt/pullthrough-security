@@ -1,0 +1,39 @@
+{
+  "originHash" : "57b6287545eac2170a6e43e5f112320c946cb70257895a2c60de6dee83e1798b",
+  "pins" : [
+    {
+      "identity" : "apple.swift-algorithms",
+      "kind" : "registry",
+      "location" : "",
+      "state" : {
+        "version" : "1.2.1"
+      }
+    },
+    {
+      "identity" : "apple.swift-argument-parser",
+      "kind" : "registry",
+      "location" : "",
+      "state" : {
+        "version" : "1.8.2"
+      }
+    },
+    {
+      "identity" : "apple.swift-log",
+      "kind" : "registry",
+      "location" : "",
+      "state" : {
+        "version" : "1.17.0"
+      }
+    },
+    {
+      "identity" : "apple.swift-numerics",
+      "kind" : "registry",
+      "location" : "",
+      "originalLocation" : "https://github.com/apple/swift-numerics.git",
+      "state" : {
+        "version" : "1.1.1"
+      }
+    }
+  ],
+  "version" : 3
+}

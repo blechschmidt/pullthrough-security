@@ -89,6 +89,25 @@ func TestTheTaskEcosystemsHaveParsers(t *testing.T) {
 		"rubygems": {"Gemfile.lock"},
 		"composer": {"composer.lock"},
 		"docker":   {"Dockerfile", "compose"},
+		// Task 179: the remaining ecosystems.
+		"conda":     {"conda-lock.yml", "@EXPLICIT spec", "pixi.lock"},
+		"cran":      {"renv.lock"},
+		"hex":       {"mix.lock"},
+		"swift":     {"Package.resolved"},
+		"dart":      {"pubspec.lock"},
+		"julia":     {"Manifest.toml"},
+		"bazel":     {"MODULE.bazel.lock"},
+		"nix":       {"flake.lock"},
+		"terraform": {".terraform.lock.hcl", "*.tf modules", "*.tf overrides"},
+		"conan":     {"conan.lock"},
+		"cpan":      {"cpanfile.snapshot"},
+		"hackage":   {"cabal.project.freeze", "stack.yaml.lock"},
+		"jsr":       {"deno.lock"},
+		"helm":      {"Chart.lock", "requirements.lock"},
+		"homebrew":  {"Brewfile.lock.json"},
+		"ansible":   {"requirements.yml"},
+		"puppet":    {"Puppetfile"},
+		"git":       {".gitmodules"},
 	}
 	for typ, formats := range want {
 		c, _ := lockfiles.CoverageFor(typ)
@@ -98,6 +117,21 @@ func TestTheTaskEcosystemsHaveParsers(t *testing.T) {
 		if strings.Join(got, ",") != strings.Join(formats, ",") {
 			t.Errorf("%s formats = %v, want %v", typ, got, formats)
 		}
+	}
+}
+
+// TestOnlyTypesWithoutAFormatAreJustified pins the types that have no
+// lock-file format, each with its reason.
+func TestOnlyTypesWithoutAFormatAreJustified(t *testing.T) {
+	var without []string
+	for _, c := range lockfiles.CoverageTable() {
+		if len(c.Formats) == 0 {
+			without = append(without, c.Type)
+		}
+	}
+	sort.Strings(without)
+	if got := strings.Join(without, ","); got != "apt,generic,huggingface,openvsx,yum" {
+		t.Errorf("types without a parser: %s", got)
 	}
 }
 

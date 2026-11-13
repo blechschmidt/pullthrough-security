@@ -155,9 +155,18 @@ func parseGitURL(raw string) gitSource {
 }
 
 // cleanGitRepoURL removes the "git+" prefix and what cleanURL removes, but
-// keeps the user of an ssh URL ("git@"), which is not a secret.
+// keeps the user of an ssh URL ("git@"), which is not a secret. In the
+// scp-like form ("user@host:path") anything but such a bare user is dropped
+// with the "@": "user:secret@host:path" keeps "host:path".
 func cleanGitRepoURL(raw string) string {
 	raw = strings.TrimPrefix(strings.TrimSpace(raw), "git+")
+	if !strings.Contains(raw, "://") {
+		if at := strings.LastIndex(raw, "@"); at >= 0 && !strings.Contains(raw[:at], "/") {
+			if user := raw[:at]; !sshUserRE.MatchString(user) || strings.HasPrefix(user, linkTokenPrefix) {
+				raw = raw[at+1:]
+			}
+		}
+	}
 	if strings.HasPrefix(strings.ToLower(raw), "ssh://") {
 		rest := raw[len("ssh://"):]
 		if at := strings.Index(rest, "@"); at >= 0 && at < strings.IndexAny(rest+"/", "/") {

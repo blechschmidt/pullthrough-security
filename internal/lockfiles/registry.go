@@ -33,5 +33,47 @@ func builtinParsers() []Parser {
 		// docker
 		dockerfile{},
 		composeFile{},
+		// conda
+		condaLock{},
+		condaExplicit{},
+		pixiLock{},
+		// cran
+		renvLock{},
+		// hex
+		mixLock{},
+		// swift
+		packageResolved{},
+		// dart
+		pubspecLock{},
+		// julia
+		juliaManifest{},
+		// bazel
+		moduleBazelLock{},
+		// nix
+		flakeLock{},
+		// terraform
+		terraformLock{},
+		terraformModules{},
+		terraformOverrides{},
+		// conan
+		conanLock{},
+		// cpan
+		cpanfileSnapshot{},
+		// hackage
+		cabalFreeze{},
+		stackLock{},
+		// jsr
+		denoLock{},
+		// helm
+		chartLock{},
+		requirementsLock{},
+		// homebrew
+		brewfileLock{},
+		// ansible
+		ansibleRequirements{},
+		// puppet
+		puppetfile{},
+		// git
+		gitmodules{},
 	}
 }

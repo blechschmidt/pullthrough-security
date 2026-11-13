@@ -295,11 +295,20 @@ func printLockfilesReport(w io.Writer, repo string, r *lockfiles.Report) {
 		fmt.Fprintln(tw, "LOCATION\tTYPE\tNAME\tVERSION\tFROM\tDIGEST")
 		for _, d := range deps {
 			fmt.Fprintf(tw, "%s:%d\t%s\t%s\t%s\t%s\t%s\n", printable(d.File), d.Line, printable(d.Type), printable(d.Name),
-				printable(shorten(d.Version, 40)), printable(dependencySource(d)), printable(digestSummary(d.Digests)))
+				printable(shorten(d.Version, 40)), printable(dependencySource(d)), printable(dependencyDigest(d)))
 		}
 		_ = tw.Flush()
 	}
 	fmt.Fprintf(w, "\n%d dependencies in %d lock files.\n", len(deps), len(r.Files))
+	unverified := 0
+	for _, d := range deps {
+		if d.Unverified {
+			unverified++
+		}
+	}
+	if unverified > 0 {
+		fmt.Fprintf(w, "%d of them unverified: nothing in the lock file pins their content (--json gives each one's reason).\n", unverified)
+	}
 
 	var problems []string
 	for _, f := range r.Files {
@@ -396,6 +405,18 @@ func dependencySource(d lockfiles.Dependency) string {
 	return shorten(s, 72)
 }
 
+// dependencyDigest shows what pins a dependency: its first digest, its commit,
+// or that nothing does.
+func dependencyDigest(d lockfiles.Dependency) string {
+	switch {
+	case d.Unverified:
+		return "unverified"
+	case len(d.Digests) == 0 && d.Revision != "":
+		return "commit " + shorten(d.Revision, 12)
+	}
+	return digestSummary(d.Digests)
+}
+
 // digestSummary shows the first digest, abbreviated, and how many more.
 func digestSummary(ds []lockfiles.Digest) string {
 	if len(ds) == 0 {
@@ -431,13 +452,27 @@ func lockfilesFormats(args []string, stdout io.Writer) error {
 		return enc.Encode(table)
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "TYPE\tFORMATS READ\tNOTES")
+	fmt.Fprintln(tw, "TYPE\tFORMAT\tDIGESTS\tNOTES")
 	for _, c := range table {
-		formats := strings.Join(c.Formats, ", ")
-		if formats == "" {
-			formats = "-"
+		if len(c.Details) == 0 {
+			fmt.Fprintf(tw, "%s\t-\t-\t%s\n", c.Type, c.Reason)
+			continue
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", c.Type, formats, c.Reason)
+		for _, f := range c.Details {
+			note := ""
+			if f.GitSources {
+				note = "records Git dependencies"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", c.Type, f.Format, f.Digests, note)
+		}
+		if len(c.Unparsed) > 0 {
+			fmt.Fprintf(tw, "%s\t-\t-\tnot read: %s\n", c.Type, strings.Join(c.Unparsed, ", "))
+		}
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "\nDigests: all = every registry entry carries one; some = an entry or an older file may lack one;")
+	fmt.Fprintln(stdout, "none = the format records none. An entry nothing pins is reported unverified. See docs/lockfiles.md.")
+	return nil
 }

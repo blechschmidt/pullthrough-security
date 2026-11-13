@@ -3,6 +3,7 @@ package lockfiles
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io/fs"
 	"os"
@@ -73,8 +74,46 @@ func parseFixture(t *testing.T, dir string) []*File {
 		t.Fatal(err)
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	// A fixture with submodules lists its gitlinks in GITLINKS (the gitlink
+	// lines of `git ls-tree -r HEAD`), standing in for the tree the scan
+	// would find them in.
+	links := readGitlinks(t, dir)
+	for _, f := range files {
+		if f.Path == gitmodulesPath && f.Error == "" {
+			byPath := map[string]string{}
+			for _, l := range links {
+				byPath[l.Path] = l.Commit
+			}
+			lookup := func(p string) (string, error) { return byPath[p], nil }
+			if _, err := joinSubmodules(f, lookup, "", links); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	finish(files, goldenProxy)
-	return files
+	return dropEmpty(files)
+}
+
+// readGitlinks reads a fixture's GITLINKS file: lines "160000 commit <id>\t<path>".
+func readGitlinks(t *testing.T, dir string) []Submodule {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "GITLINKS"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []Submodule
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		meta, p, ok := strings.Cut(line, "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) != 3 || fields[0] != "160000" || fields[1] != "commit" || !isCommitID(fields[2]) {
+			t.Fatalf("%s/GITLINKS: bad line %q", dir, line)
+		}
+		out = append(out, Submodule{Path: p, Commit: fields[2]})
+	}
+	return out
 }
 
 func fixtureNames(t *testing.T) []string {
@@ -111,20 +150,23 @@ func TestGolden(t *testing.T) {
 			if len(files) == 0 {
 				t.Fatal("no lock file detected in the fixture")
 			}
-			deps := 0
+			deps, warnings := 0, 0
 			for _, f := range files {
 				if f.Error != "" {
 					t.Errorf("%s: %s", f.Path, f.Error)
 				}
 				deps += len(f.Dependencies)
+				warnings += len(f.Warnings)
 				for _, d := range f.Dependencies {
 					if d.Name == "" || d.Version == "" || d.Line <= 0 || d.File != f.Path || d.Type == "" {
 						t.Errorf("%s: incomplete dependency %+v", f.Path, d)
 					}
 				}
 			}
-			if deps == 0 {
-				t.Error("the fixture yields no dependency")
+			// A real-world file that pins nothing (puppet-control-repo: every
+			// module :latest) must say why, entry by entry.
+			if deps == 0 && warnings == 0 {
+				t.Error("the fixture yields no dependency and no warning")
 			}
 			got := marshalFiles(t, files)
 			for _, secret := range []string{testToken, "ptl1abc", "s3cret", "ci-user"} {

@@ -1,0 +1,648 @@
+[
+  {
+    "path": "cabal.project.freeze",
+    "type": "hackage",
+    "format": "cabal.project.freeze",
+    "dependencies": [
+      {
+        "type": "hackage",
+        "name": "OneTuple",
+        "version": "0.4.3",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 2
+      },
+      {
+        "type": "hackage",
+        "name": "QuickCheck",
+        "version": "2.19.0.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 4
+      },
+      {
+        "type": "hackage",
+        "name": "StateVar",
+        "version": "1.2.2",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 6
+      },
+      {
+        "type": "hackage",
+        "name": "aeson",
+        "version": "2.3.2.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 7
+      },
+      {
+        "type": "hackage",
+        "name": "ansi-terminal",
+        "version": "1.1.5",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 9
+      },
+      {
+        "type": "hackage",
+        "name": "ansi-terminal-types",
+        "version": "1.1.3",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 11
+      },
+      {
+        "type": "hackage",
+        "name": "array",
+        "version": "0.5.8.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 12
+      },
+      {
+        "type": "hackage",
+        "name": "assoc",
+        "version": "1.1.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 13
+      },
+      {
+        "type": "hackage",
+        "name": "base",
+        "version": "4.19.2.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 15
+      },
+      {
+        "type": "hackage",
+        "name": "base-orphans",
+        "version": "0.9.4",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 16
+      },
+      {
+        "type": "hackage",
+        "name": "bifunctors",
+        "version": "5.6.3",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 17
+      },
+      {
+        "type": "hackage",
+        "name": "binary",
+        "version": "0.8.9.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 19
+      },
+      {
+        "type": "hackage",
+        "name": "bytestring",
+        "version": "0.12.1.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 20
+      },
+      {
+        "type": "hackage",
+        "name": "character-ps",
+        "version": "0.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 21
+      },
+      {
+        "type": "hackage",
+        "name": "colour",
+        "version": "2.3.7",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 22
+      },
+      {
+        "type": "hackage",
+        "name": "comonad",
+        "version": "5.0.10",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 23
+      },
+      {
+        "type": "hackage",
+        "name": "containers",
+        "version": "0.6.8",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 25
+      },
+      {
+        "type": "hackage",
+        "name": "contravariant",
+        "version": "1.5.6",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 26
+      },
+      {
+        "type": "hackage",
+        "name": "data-fix",
+        "version": "0.3.4",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 28
+      },
+      {
+        "type": "hackage",
+        "name": "deepseq",
+        "version": "1.5.1.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 29
+      },
+      {
+        "type": "hackage",
+        "name": "directory",
+        "version": "1.3.8.5",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 30
+      },
+      {
+        "type": "hackage",
+        "name": "distributive",
+        "version": "0.6.3",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 31
+      },
+      {
+        "type": "hackage",
+        "name": "dlist",
+        "version": "1.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 33
+      },
+      {
+        "type": "hackage",
+        "name": "exceptions",
+        "version": "0.10.7",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 35
+      },
+      {
+        "type": "hackage",
+        "name": "filepath",
+        "version": "1.4.301.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 36
+      },
+      {
+        "type": "hackage",
+        "name": "ghc-bignum",
+        "version": "1.3",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 37
+      },
+      {
+        "type": "hackage",
+        "name": "ghc-boot-th",
+        "version": "9.8.4",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 38
+      },
+      {
+        "type": "hackage",
+        "name": "ghc-prim",
+        "version": "0.11.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 39
+      },
+      {
+        "type": "hackage",
+        "name": "hashable",
+        "version": "1.5.1.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 40
+      },
+      {
+        "type": "hackage",
+        "name": "hsc2hs",
+        "version": "0.68.10",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 42
+      },
+      {
+        "type": "hackage",
+        "name": "indexed-traversable",
+        "version": "0.1.5",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 44
+      },
+      {
+        "type": "hackage",
+        "name": "indexed-traversable-instances",
+        "version": "0.1.2.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 46
+      },
+      {
+        "type": "hackage",
+        "name": "integer-conversion",
+        "version": "0.1.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 47
+      },
+      {
+        "type": "hackage",
+        "name": "integer-logarithms",
+        "version": "1.0.5",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 48
+      },
+      {
+        "type": "hackage",
+        "name": "mtl",
+        "version": "2.3.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 50
+      },
+      {
+        "type": "hackage",
+        "name": "network-uri",
+        "version": "2.6.4.2",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 51
+      },
+      {
+        "type": "hackage",
+        "name": "optparse-applicative",
+        "version": "0.19.0.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 52
+      },
+      {
+        "type": "hackage",
+        "name": "os-string",
+        "version": "2.0.11",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 54
+      },
+      {
+        "type": "hackage",
+        "name": "parsec",
+        "version": "3.1.17.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 55
+      },
+      {
+        "type": "hackage",
+        "name": "pretty",
+        "version": "1.1.3.6",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 56
+      },
+      {
+        "type": "hackage",
+        "name": "prettyprinter",
+        "version": "1.7.2",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 57
+      },
+      {
+        "type": "hackage",
+        "name": "prettyprinter-ansi-terminal",
+        "version": "1.1.4",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 59
+      },
+      {
+        "type": "hackage",
+        "name": "primitive",
+        "version": "0.9.1.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 61
+      },
+      {
+        "type": "hackage",
+        "name": "process",
+        "version": "1.6.25.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 62
+      },
+      {
+        "type": "hackage",
+        "name": "random",
+        "version": "1.3.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 63
+      },
+      {
+        "type": "hackage",
+        "name": "scientific",
+        "version": "0.3.10.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 65
+      },
+      {
+        "type": "hackage",
+        "name": "semialign",
+        "version": "1.4",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 67
+      },
+      {
+        "type": "hackage",
+        "name": "semigroupoids",
+        "version": "6.0.2",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 69
+      },
+      {
+        "type": "hackage",
+        "name": "splitmix",
+        "version": "0.1.3.2",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 71
+      },
+      {
+        "type": "hackage",
+        "name": "stm",
+        "version": "2.5.3.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 73
+      },
+      {
+        "type": "hackage",
+        "name": "strict",
+        "version": "0.5.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 74
+      },
+      {
+        "type": "hackage",
+        "name": "tagged",
+        "version": "0.8.11",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 75
+      },
+      {
+        "type": "hackage",
+        "name": "tasty",
+        "version": "1.5.5",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 77
+      },
+      {
+        "type": "hackage",
+        "name": "template-haskell",
+        "version": "2.21.0.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 79
+      },
+      {
+        "type": "hackage",
+        "name": "terminal-size",
+        "version": "0.3.4",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 80
+      },
+      {
+        "type": "hackage",
+        "name": "text",
+        "version": "2.1.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 81
+      },
+      {
+        "type": "hackage",
+        "name": "text-iso8601",
+        "version": "0.2.0.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 82
+      },
+      {
+        "type": "hackage",
+        "name": "text-short",
+        "version": "0.1.6.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 83
+      },
+      {
+        "type": "hackage",
+        "name": "th-abstraction",
+        "version": "0.7.2.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 85
+      },
+      {
+        "type": "hackage",
+        "name": "th-compat",
+        "version": "0.1.7",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 86
+      },
+      {
+        "type": "hackage",
+        "name": "these",
+        "version": "1.2.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 87
+      },
+      {
+        "type": "hackage",
+        "name": "time",
+        "version": "1.12.2",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 88
+      },
+      {
+        "type": "hackage",
+        "name": "time-compat",
+        "version": "1.9.9",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 89
+      },
+      {
+        "type": "hackage",
+        "name": "transformers",
+        "version": "0.6.1.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 90
+      },
+      {
+        "type": "hackage",
+        "name": "transformers-compat",
+        "version": "0.8",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 91
+      },
+      {
+        "type": "hackage",
+        "name": "unix",
+        "version": "2.8.6.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 93
+      },
+      {
+        "type": "hackage",
+        "name": "unordered-containers",
+        "version": "0.2.21",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 94
+      },
+      {
+        "type": "hackage",
+        "name": "uuid-types",
+        "version": "1.0.6.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 96
+      },
+      {
+        "type": "hackage",
+        "name": "vector",
+        "version": "0.13.2.0",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 97
+      },
+      {
+        "type": "hackage",
+        "name": "vector-stream",
+        "version": "0.1.0.1",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 99
+      },
+      {
+        "type": "hackage",
+        "name": "witherable",
+        "version": "0.5",
+        "unverified": true,
+        "unverifiedReason": "cabal.project.freeze pins versions only (its index-state pins the package index, not the packages)",
+        "file": "cabal.project.freeze",
+        "line": 100
+      }
+    ]
+  }
+]

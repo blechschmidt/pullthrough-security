@@ -1,0 +1,11 @@
+name: lockfixture
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - zlib
+  - xz
+  - pip
+  - pip:
+      - six==1.16.0
+      - tomli @ git+https://github.com/hukkin/tomli.git@2.0.1

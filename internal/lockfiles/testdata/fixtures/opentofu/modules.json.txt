@@ -1,0 +1,1 @@
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"label","Source":"registry.opentofu.org/cloudposse/label/null","Version":"0.25.0","Dir":".terraform/modules/label"}]}

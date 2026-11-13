@@ -1,0 +1,14 @@
+Type: project
+Package: lockfixture
+Version: 0.1.0
+Title: renv lock-file fixture
+Imports:
+    jsonlite,
+    R6,
+    glue,
+    lifecycle,
+    crayon
+Suggests:
+    praise
+Remotes:
+    r-lib/crayon@v1.5.3

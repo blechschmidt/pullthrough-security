@@ -1,0 +1,180 @@
+[
+  {
+    "path": "renv.lock",
+    "type": "cran",
+    "format": "renv.lock",
+    "dependencies": [
+      {
+        "type": "cran",
+        "name": "R6",
+        "version": "2.6.1",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 12
+      },
+      {
+        "type": "cran",
+        "name": "cli",
+        "version": "3.6.6",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 38
+      },
+      {
+        "type": "cran",
+        "name": "crayon",
+        "version": "1.5.3",
+        "registry": "https://github.com/r-lib/crayon",
+        "source": "git",
+        "revision": "acaa229926a3ee0ffe6dd5509cce1726f2d33fec",
+        "file": "renv.lock",
+        "line": 86
+      },
+      {
+        "type": "cran",
+        "name": "glue",
+        "version": "1.8.1",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 121
+      },
+      {
+        "type": "cran",
+        "name": "jsonlite",
+        "version": "2.0.0",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 162
+      },
+      {
+        "type": "cran",
+        "name": "lifecycle",
+        "version": "1.0.5",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 192
+      },
+      {
+        "type": "cran",
+        "name": "renv",
+        "version": "1.3.1",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 232
+      },
+      {
+        "type": "cran",
+        "name": "rlang",
+        "version": "1.3.0",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash for this package",
+        "file": "renv.lock",
+        "line": 288
+      }
+    ],
+    "warnings": [
+      "packages from the repository \"RSPM\", whose URL R.Repositories does not give: renv"
+    ]
+  },
+  {
+    "path": "v1/renv.lock",
+    "type": "cran",
+    "format": "renv.lock",
+    "dependencies": [
+      {
+        "type": "cran",
+        "name": "R6",
+        "version": "2.6.1",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 12
+      },
+      {
+        "type": "cran",
+        "name": "cli",
+        "version": "3.6.6",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 22
+      },
+      {
+        "type": "cran",
+        "name": "crayon",
+        "version": "1.5.3",
+        "registry": "https://github.com/r-lib/crayon",
+        "source": "git",
+        "revision": "acaa229926a3ee0ffe6dd5509cce1726f2d33fec",
+        "file": "v1/renv.lock",
+        "line": 33
+      },
+      {
+        "type": "cran",
+        "name": "glue",
+        "version": "1.8.1",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 50
+      },
+      {
+        "type": "cran",
+        "name": "jsonlite",
+        "version": "2.0.0",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 61
+      },
+      {
+        "type": "cran",
+        "name": "lifecycle",
+        "version": "1.0.5",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 71
+      },
+      {
+        "type": "cran",
+        "name": "renv",
+        "version": "1.3.1",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 83
+      },
+      {
+        "type": "cran",
+        "name": "rlang",
+        "version": "1.3.0",
+        "registry": "https://p3m.dev/cran/latest",
+        "unverified": true,
+        "unverifiedReason": "renv.lock records no hash of the package archive (its Hash is renv's own hash of DESCRIPTION fields)",
+        "file": "v1/renv.lock",
+        "line": 93
+      }
+    ],
+    "warnings": [
+      "packages from the repository \"RSPM\", whose URL R.Repositories does not give: renv"
+    ]
+  }
+]

@@ -118,6 +118,13 @@ jobs:
         if: matrix.arch == 'amd64'
         run: make llmscan-coverage-check
 
+      # The lock-file format tables of docs/lockfiles.md are generated from the
+      # scanner's own tables (internal/lockfiles), which tests hold to the
+      # golden fixtures: what each format records, its digests and its limits.
+      - name: Check lock-file reference is up to date
+        if: matrix.arch == 'amd64'
+        run: make lockfile-reference-check
+
       - name: Test (race + coverage)
         run: go test -race -covermode=atomic -coverprofile=coverage-${{ matrix.arch }}.out ./...
 

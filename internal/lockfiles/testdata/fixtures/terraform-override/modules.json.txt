@@ -1,0 +1,1 @@
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"iam_account","Source":"registry.terraform.io/terraform-aws-modules/iam/aws//modules/iam-account","Version":"5.48.0","Dir":".terraform/modules/iam_account/modules/iam-account"},{"Key":"label","Source":"registry.terraform.io/cloudposse/label/null","Version":"0.25.0","Dir":".terraform/modules/label"}]}

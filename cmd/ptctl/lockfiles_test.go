@@ -247,7 +247,7 @@ func TestLockfilesFormats(t *testing.T) {
 	if err := lockfilesFormats(nil, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"npm", "package-lock.json, npm-shrinkwrap.json, yarn.lock, pnpm-lock.yaml", "apt", "no lock-file format"} {
+	for _, want := range []string{"npm", "package-lock.json", "pnpm-lock.yaml", "apt", "no lock-file format", "renv.lock", "none", ".gitmodules", "records Git dependencies"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("formats lack %q:\n%s", want, out.String())
 		}
@@ -259,6 +259,11 @@ func TestLockfilesFormats(t *testing.T) {
 	var table []lockfiles.Coverage
 	if err := json.Unmarshal(out.Bytes(), &table); err != nil || len(table) < 30 {
 		t.Fatalf("JSON table: %v (%d entries)", err, len(table))
+	}
+	for _, c := range table {
+		if len(c.Formats) != len(c.Details) {
+			t.Errorf("%s: %d formats, %d described", c.Type, len(c.Formats), len(c.Details))
+		}
 	}
 }
 

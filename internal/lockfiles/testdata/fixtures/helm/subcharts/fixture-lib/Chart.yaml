@@ -1,0 +1,5 @@
+apiVersion: v2
+name: fixture-lib
+description: Local library chart referenced with file://
+type: library
+version: 0.1.0

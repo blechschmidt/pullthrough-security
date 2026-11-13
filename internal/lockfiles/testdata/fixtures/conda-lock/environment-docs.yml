@@ -1,0 +1,5 @@
+category: docs
+channels:
+  - conda-forge
+dependencies:
+  - oniguruma

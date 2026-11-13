@@ -1,0 +1,39 @@
+# Puppetfile for the production environment.
+# r10k installs these modules into ./modules.
+
+forge "https://forge.puppet.com"
+
+# Forge modules pinned to exact versions, in both name forms.
+mod 'puppetlabs/stdlib', '9.4.1'
+mod 'puppetlabs-concat', '9.0.2'
+
+# Always the newest release on the Forge.
+mod 'puppetlabs/apt', :latest
+
+# No version.
+mod 'puppetlabs-inifile'
+
+# Git modules.
+mod 'archive',
+  :git => 'https://github.com/voxpupuli/puppet-archive.git',
+  :tag => 'v9.0.0'
+
+mod 'systemd',
+  :git    => 'https://github.com/voxpupuli/puppet-systemd.git',
+  :commit => '5203ec6fce82858ff0ec077d7670a16388a05684' # v11.1.0
+
+mod 'motd',
+  :git    => 'https://github.com/puppetlabs/puppetlabs-motd.git',
+  :branch => 'main'
+
+# Newer Ruby hash syntax.
+mod 'cron', git: 'https://github.com/voxpupuli/puppet-cron.git', ref: 'v5.0.0'
+
+# A module tarball from a web server, pinned by its sha256 digest.
+mod 'puppetlabs-firewall',
+  type:    'tarball',
+  source:  'https://forgeapi.puppet.com/v3/files/puppetlabs-firewall-8.1.0.tar.gz',
+  version: '99dc7544df882731b15f6124a9c426b9e8a40f4af902992901f050ad1a42a852'
+
+# Kept in this repository; r10k does not manage it.
+mod 'profile', :local => true

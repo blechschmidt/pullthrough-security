@@ -9,6 +9,8 @@
         "name": "org.springframework.boot:spring-boot-starter-parent",
         "version": "3.3.2",
         "registry": "https://repo.maven.apache.org/maven2",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 7
       },
@@ -17,6 +19,8 @@
         "name": "com.fasterxml.jackson:jackson-bom",
         "version": "2.17.2",
         "registry": "https://repo.maven.apache.org/maven2",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 36
       },
@@ -25,6 +29,8 @@
         "name": "com.google.guava:guava",
         "version": "33.2.1-jre",
         "registry": "https://repo.maven.apache.org/maven2",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 52
       },
@@ -34,6 +40,8 @@
         "version": "5.10.3",
         "registry": "https://repo.maven.apache.org/maven2",
         "dev": true,
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 62
       },
@@ -42,6 +50,8 @@
         "name": "com.example:fixture-model",
         "version": "1.0.0",
         "registry": "https://repo.maven.apache.org/maven2",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 73
       },
@@ -49,6 +59,8 @@
         "type": "maven",
         "name": "org.apache.maven.plugins:maven-compiler-plugin",
         "version": "3.13.0",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 92
       },
@@ -56,6 +68,8 @@
         "type": "maven",
         "name": "org.codehaus.mojo:exec-maven-plugin",
         "version": "3.3.0",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 100
       },
@@ -63,6 +77,8 @@
         "type": "maven",
         "name": "org.ow2.asm:asm",
         "version": "9.7",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 105
       },
@@ -71,6 +87,8 @@
         "name": "org.postgresql:postgresql",
         "version": "42.7.3",
         "registry": "https://repo.maven.apache.org/maven2",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "pom.xml",
         "line": 119
       }

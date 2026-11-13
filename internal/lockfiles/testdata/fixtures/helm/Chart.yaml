@@ -1,0 +1,25 @@
+apiVersion: v2
+name: fixture-app
+description: Chart.lock fixture for the lock-file parsers
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  # HTTPS chart repository, exact version.
+  - name: kube-state-metrics
+    version: 8.7.1
+    repository: https://prometheus-community.github.io/helm-charts
+  # OCI registry, exact version.
+  - name: redis
+    version: 28.3.12
+    repository: oci://registry-1.docker.io/bitnamicharts
+  # HTTPS chart repository, version range, with alias and condition.
+  - name: prometheus-node-exporter
+    version: "~4.56"
+    repository: https://prometheus-community.github.io/helm-charts
+    alias: node-exporter
+    condition: node-exporter.enabled
+  # Local chart.
+  - name: fixture-lib
+    version: 0.1.0
+    repository: file://subcharts/fixture-lib

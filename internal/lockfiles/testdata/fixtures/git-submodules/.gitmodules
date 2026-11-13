@@ -1,0 +1,13 @@
+[submodule "vendor-hello"]
+	path = vendor-hello
+	url = https://github.com/octocat/Hello-World.git
+[submodule "lib-spoon"]
+	path = libs/spoon
+	url = https://github.com/octocat/Spoon-Knife.git
+[submodule "rel/test-repo1"]
+	path = rel/test-repo1
+	url = ../test-repo1.git
+[submodule "tracking/spoon"]
+	path = tracking/spoon
+	url = https://github.com/octocat/Spoon-Knife.git
+	branch = main

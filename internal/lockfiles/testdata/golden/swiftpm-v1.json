@@ -1,0 +1,70 @@
+[
+  {
+    "path": "Package.resolved",
+    "type": "swift",
+    "format": "Package.resolved",
+    "formatVersion": "1",
+    "dependencies": [
+      {
+        "type": "swift",
+        "name": "swift-algorithms",
+        "version": "1.2.0",
+        "registry": "https://github.com/apple/swift-algorithms.git",
+        "source": "git",
+        "revision": "f6919dfc309e7f1b56224378b11e28bab5bccc42",
+        "file": "Package.resolved",
+        "line": 4
+      },
+      {
+        "type": "swift",
+        "name": "swift-argument-parser",
+        "version": "1.2.3",
+        "registry": "https://github.com/apple/swift-argument-parser.git",
+        "source": "git",
+        "revision": "8f4d2753f0e4778c76d5f05ad16c74f707390531",
+        "file": "Package.resolved",
+        "line": 13
+      },
+      {
+        "type": "swift",
+        "name": "swift-collections",
+        "version": "d029d9d39c87bed85b1c50adee7c41795261a192",
+        "registry": "https://github.com/apple/swift-collections.git",
+        "source": "git",
+        "revision": "d029d9d39c87bed85b1c50adee7c41795261a192",
+        "file": "Package.resolved",
+        "line": 22
+      },
+      {
+        "type": "swift",
+        "name": "swift-log",
+        "version": "1.5.4",
+        "registry": "https://github.com/apple/swift-log.git",
+        "source": "git",
+        "revision": "e97a6fcb1ab07462881ac165fdbb37f067e205d5",
+        "file": "Package.resolved",
+        "line": 31
+      },
+      {
+        "type": "swift",
+        "name": "swift-numerics",
+        "version": "1.0.3",
+        "registry": "https://github.com/apple/swift-numerics.git",
+        "source": "git",
+        "revision": "e0ec0f5f3af6f3e4d5e7a19d2af26b481acb6ba8",
+        "file": "Package.resolved",
+        "line": 40
+      },
+      {
+        "type": "swift",
+        "name": "swift-system",
+        "version": "836bc4557b74fe6d2660218d56e3ce96aff76574",
+        "registry": "https://github.com/apple/swift-system.git",
+        "source": "git",
+        "revision": "836bc4557b74fe6d2660218d56e3ce96aff76574",
+        "file": "Package.resolved",
+        "line": 49
+      }
+    ]
+  }
+]

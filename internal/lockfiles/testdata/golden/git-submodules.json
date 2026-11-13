@@ -1,0 +1,52 @@
+[
+  {
+    "path": ".gitmodules",
+    "type": "git",
+    "format": ".gitmodules",
+    "dependencies": [
+      {
+        "type": "git",
+        "name": "vendor-hello",
+        "version": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+        "registry": "https://github.com/octocat/Hello-World.git",
+        "source": "git",
+        "revision": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+        "file": ".gitmodules",
+        "line": 1
+      },
+      {
+        "type": "git",
+        "name": "libs/spoon",
+        "version": "bb4cc8d3b2e14b3af5df699876dd4ff3acd00b7f",
+        "registry": "https://github.com/octocat/Spoon-Knife.git",
+        "source": "git",
+        "revision": "bb4cc8d3b2e14b3af5df699876dd4ff3acd00b7f",
+        "file": ".gitmodules",
+        "line": 4
+      },
+      {
+        "type": "git",
+        "name": "rel/test-repo1",
+        "version": "57523742631876181d95bc268e09fb3fd1a4d85e",
+        "registry": "../test-repo1.git",
+        "source": "git",
+        "revision": "57523742631876181d95bc268e09fb3fd1a4d85e",
+        "file": ".gitmodules",
+        "line": 7
+      },
+      {
+        "type": "git",
+        "name": "tracking/spoon",
+        "version": "d0dd1f61b33d64e29d8bc1372a94ef6a2fee76a9",
+        "registry": "https://github.com/octocat/Spoon-Knife.git",
+        "source": "git",
+        "revision": "d0dd1f61b33d64e29d8bc1372a94ef6a2fee76a9",
+        "file": ".gitmodules",
+        "line": 10
+      }
+    ],
+    "warnings": [
+      "submodule \"rel/test-repo1\": its URL is relative to the superproject's own remote"
+    ]
+  }
+]

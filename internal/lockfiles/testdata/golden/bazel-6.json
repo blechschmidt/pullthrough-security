@@ -1,0 +1,164 @@
+[
+  {
+    "path": "MODULE.bazel.lock",
+    "type": "bazel",
+    "format": "MODULE.bazel.lock",
+    "formatVersion": "3",
+    "dependencies": [
+      {
+        "type": "bazel",
+        "name": "platforms",
+        "version": "1.1.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "dbad4a23abcca6171e47b79edc53bd6a41067a3b75f9e8b104656b459ff25046"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/platforms/releases/download/1.1.0/platforms-1.1.0.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 37
+      },
+      {
+        "type": "bazel",
+        "name": "bazel_skylib",
+        "version": "1.9.2",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "37cdfbc6faefea94f7b37760a305c98c08981116c2bc9e821e3b423221fad8c8"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/bazel-skylib/releases/download/1.9.2/bazel-skylib-1.9.2.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 84
+      },
+      {
+        "type": "bazel",
+        "name": "rules_testing",
+        "version": "0.0.5",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "0c2abee201f566a088c720e12bc1d968bc56e6a51b692d9c81b1fe861bdf2be2"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/rules_testing/releases/download/v0.0.5/rules_testing-v0.0.5.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 116
+      },
+      {
+        "type": "bazel",
+        "name": "package_metadata",
+        "version": "0.0.3",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "0e89367f1cb6d93a5a1afea4b55b11ea6b28f63f653b47154153677ca7d4afea"
+          }
+        ],
+        "url": "https://github.com/bazel-contrib/supply-chain/releases/download/v0.0.3/supply-chain-v0.0.3.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 296
+      },
+      {
+        "type": "bazel",
+        "name": "rules_license",
+        "version": "1.0.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "26d4021f6898e23b82ef953078389dd49ac2b5618ac564ade4ef87cced147b38"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/rules_license/releases/download/1.0.0/rules_license-1.0.0.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 323
+      },
+      {
+        "type": "bazel",
+        "name": "rules_cc",
+        "version": "0.0.9",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "2037875b9a4456dce4a79d112a8ae885bbc4aad968e6587dca6e64f3a0900cdf"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/rules_cc/releases/download/0.0.9/rules_cc-0.0.9.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 350
+      },
+      {
+        "type": "bazel",
+        "name": "rules_java",
+        "version": "5.5.1",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "73b88f34dc251bce7bc6c472eb386a6c2b312ed5b473c81fe46855c248f792e0"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/rules_java/releases/download/5.5.1/rules_java-5.5.1.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 400
+      },
+      {
+        "type": "bazel",
+        "name": "rules_proto",
+        "version": "4.0.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "2ebe73eb1cae440d7da4db5160c1a329aca7c10a5c9381ff970632563ca1a2ae"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/rules_proto/archive/refs/tags/4.0.0.zip",
+        "file": "MODULE.bazel.lock",
+        "line": 487
+      },
+      {
+        "type": "bazel",
+        "name": "rules_python",
+        "version": "0.4.0",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "954aa89b491be4a083304a2cb838019c8b8c3720a7abb9c4cb81ac7a24230cea"
+          }
+        ],
+        "url": "https://github.com/bazelbuild/rules_python/releases/download/0.4.0/rules_python-0.4.0.tar.gz",
+        "file": "MODULE.bazel.lock",
+        "line": 518
+      },
+      {
+        "type": "bazel",
+        "name": "protobuf",
+        "version": "3.19.6",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "387e2c559bb2c7c1bc3798c4e6cff015381a79b2758696afcbf8e88730b47389"
+          }
+        ],
+        "url": "https://github.com/protocolbuffers/protobuf/archive/refs/tags/v3.19.6.zip",
+        "file": "MODULE.bazel.lock",
+        "line": 573
+      },
+      {
+        "type": "bazel",
+        "name": "zlib",
+        "version": "1.2.13",
+        "digests": [
+          {
+            "algorithm": "sha256",
+            "value": "c2856951bbf30e30861ace3765595d86ba13f2cf01279d901f6c62258c57f4ff"
+          }
+        ],
+        "url": "https://github.com/madler/zlib/archive/refs/tags/v1.2.13.zip",
+        "file": "MODULE.bazel.lock",
+        "line": 611
+      }
+    ]
+  }
+]

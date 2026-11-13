@@ -1,0 +1,45 @@
+{
+ "graph_lock": {
+  "nodes": {
+   "0": {
+    "options": "libpng:api_prefix=\nlibpng:fPIC=True\nlibpng:shared=False\nlibpng:sse=True\nzlib:fPIC=True\nzlib:shared=False",
+    "requires": [
+     "1",
+     "2"
+    ],
+    "build_requires": [
+     "3"
+    ],
+    "path": "conanfile.txt",
+    "context": "host"
+   },
+   "1": {
+    "ref": "libpng/1.6.40#3e5bfaeeb94f87558582a88a3a1a7524",
+    "options": "api_prefix=\nfPIC=True\nshared=False\nsse=True\nzlib:fPIC=True\nzlib:shared=False",
+    "package_id": "025ffc7158b5e62f5f3ed9af91d48958d216f972",
+    "prev": "f7e784d1ec88d0139a4529f46490c572",
+    "requires": [
+     "2"
+    ],
+    "context": "host"
+   },
+   "2": {
+    "ref": "zlib/1.2.13#4e74ebf1361fe6fb60326f473f276eb5",
+    "options": "fPIC=True\nshared=False",
+    "package_id": "dfbe50feef7f3c6223a476cd5aeadb687084a646",
+    "prev": "5accbbf328e608560f652835ea5a50b3",
+    "context": "host"
+   },
+   "3": {
+    "ref": "cmake/3.27.9#e255e9c6cc3ac4856c44ad84476ec434",
+    "options": "",
+    "package_id": "4db1be536558d833e52e862fd84d64d75c2b3656",
+    "prev": "d5526ae751acca0ea3d4f55aad4467c2",
+    "context": "host"
+   }
+  },
+  "revisions_enabled": true
+ },
+ "version": "0.4",
+ "profile_host": "[settings]\narch=x86_64\narch_build=x86_64\nbuild_type=Release\ncompiler=gcc\ncompiler.libcxx=libstdc++\ncompiler.version=11\nos=Linux\nos_build=Linux\n[options]\n[build_requires]\n[env]\n"
+}

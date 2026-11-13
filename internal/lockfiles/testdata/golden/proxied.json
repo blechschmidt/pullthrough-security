@@ -51,6 +51,8 @@
         "version": "2.0.13",
         "registry": "https://repo.maven.apache.org/maven2",
         "upstream": "central",
+        "unverified": true,
+        "unverifiedReason": "a POM records no hashes",
         "file": "java/pom.xml",
         "line": 14
       }
@@ -69,6 +71,8 @@
         "url": "https://proxy.example.com/v1/packagist/dist/psr/log/f16e1d5863e37f8d8c2a01719f5b34baa2b714d3.zip",
         "upstream": "packagist",
         "revision": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+        "unverified": true,
+        "unverifiedReason": "composer.lock has no dist shasum for this package (Packagist leaves it empty for archives GitHub builds on demand)",
         "file": "php/composer.lock",
         "line": 6
       }
@@ -86,6 +90,8 @@
         "version": "3.1.8",
         "registry": "https://rubygems.org",
         "upstream": "rubygems",
+        "unverified": true,
+        "unverifiedReason": "Gemfile.lock has no CHECKSUMS entry for this gem (Bundler writes them from 2.6 on, with bundle lock --add-checksums)",
         "file": "ruby/Gemfile.lock",
         "line": 4
       }

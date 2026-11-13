@@ -24,6 +24,11 @@ type File struct {
 	Error string `json:"error,omitempty"`
 
 	parser Parser
+	// submodules are the submodules a .gitmodules file declares, waiting for
+	// the gitlinks that pin them (joinSubmodules).
+	submodules []submoduleDecl
+	// extra is what the parser kept of the file for its Merger.
+	extra any
 }
 
 // ParseFile parses one file with the parser that detects it, and finishes the
@@ -64,14 +69,19 @@ func parseOne(p Parser, filePath string, data []byte) (f *File) {
 	if res == nil {
 		return f
 	}
+	if res.parsedAs != nil {
+		f.Type, f.Format, f.parser = res.parsedAs.Type(), res.parsedAs.Format(), res.parsedAs
+	}
 	f.FormatVersion = res.FormatVersion
 	f.Warnings = res.Warnings
 	f.Dependencies = res.Dependencies
+	f.submodules = res.submodules
+	f.extra = res.extra
 	for i := range f.Dependencies {
 		d := &f.Dependencies[i]
 		d.File = filePath
 		if d.Type == "" {
-			d.Type = p.Type()
+			d.Type = f.Type
 		}
 	}
 	return f
@@ -107,6 +117,12 @@ func finish(files []*File, proxy *Proxy) {
 			}
 		}
 		f.Dependencies = dedupe(f.Dependencies)
+		info := formatInfo[f.Type+"/"+f.Format]
+		for i := range f.Dependencies {
+			d := &f.Dependencies[i]
+			markVerification(d, info)
+			d.UnverifiedReason = redactText(d.UnverifiedReason, prefix)
+		}
 		for i, w := range f.Warnings {
 			f.Warnings[i] = redactText(w, prefix)
 		}
@@ -116,6 +132,24 @@ func finish(files []*File, proxy *Proxy) {
 			f.Dependencies = []Dependency{}
 		}
 	}
+}
+
+// emptyOmitter is implemented by a parser whose files are worth reporting only
+// when they yield something: most Terraform files hold no module block.
+type emptyOmitter interface{ omitEmpty() bool }
+
+// dropEmpty removes the files of such parsers that yielded no dependency, no
+// warning and no error.
+func dropEmpty(files []*File) []*File {
+	out := files[:0]
+	for _, f := range files {
+		if o, ok := f.parser.(emptyOmitter); ok && o.omitEmpty() &&
+			len(f.Dependencies) == 0 && len(f.Warnings) == 0 && f.Error == "" {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // safeMerge runs a Merger as parseOne runs a parser: one that panics fails its
@@ -150,10 +184,11 @@ func dedupe(deps []Dependency) []Dependency {
 	}
 	index := map[string]int{}
 	out := deps[:0:0]
+	m := &digestMerger{}
 	for _, d := range deps {
 		k := d.Key()
 		if i, ok := index[k]; ok {
-			mergeInto(&out[i], d)
+			m.mergeInto(out, i, d)
 			continue
 		}
 		index[k] = len(out)
@@ -176,7 +211,7 @@ func dedupe(deps []Dependency) []Dependency {
 			continue
 		}
 		if targets := withRegistry[d.Key()]; len(targets) == 1 {
-			mergeInto(&out[targets[0]], d)
+			m.mergeInto(out, targets[0], d)
 			merged[i] = true
 		}
 	}
@@ -200,10 +235,37 @@ func dedupe(deps []Dependency) []Dependency {
 	return out
 }
 
-// mergeInto folds a duplicate entry into the one kept: the digests of both,
-// the earlier line, development-only only if both are, a URL if one has it.
-func mergeInto(keep *Dependency, d Dependency) {
-	keep.Digests = mergeDigests(keep.Digests, d.Digests)
+// digestMerger folds duplicate entries into the ones kept, keeping for each
+// kept entry the set of its digests across merges: thousands of entries
+// merging into one cost linear time, not quadratic.
+type digestMerger struct {
+	sets map[int]map[Digest]bool
+}
+
+// mergeInto folds d into out[i]: the digests of both, the earlier line,
+// development-only only if both are, a URL if one has it.
+func (m *digestMerger) mergeInto(out []Dependency, i int, d Dependency) {
+	keep := &out[i]
+	if len(d.Digests) > 0 {
+		if m.sets == nil {
+			m.sets = map[int]map[Digest]bool{}
+		}
+		set := m.sets[i]
+		if set == nil {
+			set = make(map[Digest]bool, len(keep.Digests)+len(d.Digests))
+			for _, dg := range keep.Digests {
+				set[dg] = true
+			}
+			m.sets[i] = set
+		}
+		for _, dg := range d.Digests {
+			if dg.Algorithm == "" || dg.Value == "" || set[dg] {
+				continue
+			}
+			set[dg] = true
+			keep.Digests = append(keep.Digests, dg)
+		}
+	}
 	if d.Line > 0 && (keep.Line == 0 || d.Line < keep.Line) {
 		keep.Line = d.Line
 	}
@@ -272,6 +334,7 @@ func (p *Proxy) finishDependency(d *Dependency) string {
 	d.Name = redactText(cleanIfURL(d.Name), prefix)
 	d.Version = redactText(cleanIfURL(d.Version), prefix)
 	d.Revision = redactText(d.Revision, prefix)
+	d.ID = redactText(cleanIfURL(d.ID), prefix)
 	for i := range d.Digests {
 		// A file name taken from a URL can be the URL's last segment.
 		d.Digests[i].Of = redactText(d.Digests[i].Of, prefix)
