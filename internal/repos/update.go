@@ -75,6 +75,7 @@ const (
 	SkipLimit         = "limit"              // beyond updates.maxCandidates or maxUpdates
 	SkipUnsupported   = "unsupported"        // its versions cannot be listed through the proxy
 	SkipListingFailed = "listing-failed"     // the registry's version list could not be read
+	SkipRedirected    = "redirected"         // the repository builds something else for it (a replace, patch or override)
 )
 
 // UpdateConfig tunes the maintenance updater.

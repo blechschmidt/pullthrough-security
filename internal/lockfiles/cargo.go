@@ -40,6 +40,19 @@ func (cargoLock) Parse(data []byte) (*Result, error) {
 	if pkgs == nil && doc.get("version") == nil && doc.get("metadata") == nil {
 		return nil, errors.New("not a Cargo.lock: no [[package]]")
 	}
+	// Cargo reads a file of format 2 or later — inline checksums, or a
+	// version key — that still has [metadata] checksums as a bad merge, and
+	// discards every checksum of it: none pins anything.
+	discarded := false
+	if len(legacy) > 0 {
+		discarded = doc.get("version") != nil
+		for _, pkg := range pkgs {
+			discarded = discarded || pkg.str("checksum") != ""
+		}
+		if discarded {
+			res.warnf("a format 2 or later Cargo.lock with [metadata] checksums: Cargo discards every checksum of it")
+		}
+	}
 	for _, pkg := range pkgs {
 		name, version, source := pkg.str("name"), pkg.str("version"), pkg.str("source")
 		if !validPackageName(name) || !validVersion(version) {
@@ -65,7 +78,11 @@ func (cargoLock) Parse(data []byte) (*Result, error) {
 		if checksum == "" {
 			checksum = legacy[name+" "+version+" ("+source+")"]
 		}
-		if dg, ok := hexDigest("sha256", checksum, ""); ok {
+		if discarded {
+			if d.Source != SourceGit {
+				d.UnverifiedReason = "Cargo discards every checksum of this file (a format 2 or later lock file with [metadata] checksums)"
+			}
+		} else if dg, ok := hexDigest("sha256", checksum, ""); ok {
 			d.Digests = append(d.Digests, dg)
 		}
 		res.add(d)

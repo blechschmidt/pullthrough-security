@@ -413,7 +413,8 @@ FUZZ_TARGETS := \
 	internal/lockfiles:FuzzProxyMapping \
 	internal/lockfiles:FuzzNPMRequirements \
 	internal/lockfiles:FuzzCargoManifests \
-	internal/lockfiles:FuzzPythonRequirements
+	internal/lockfiles:FuzzPythonRequirements \
+	internal/lockfiles:FuzzOverrides
 
 # The targets can be split into FUZZ_SHARDS slices, FUZZ_SHARD (0-based)
 # selecting one: target i belongs to shard i mod FUZZ_SHARDS. The nightly CI

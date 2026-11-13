@@ -513,9 +513,29 @@ func (s *Service) writeLockFile(ctx context.Context, repo Repo, run *UpdateRun, 
 		fail(plans, SkipNotWritable, "the lock file could not be read")
 		return res
 	}
-	if why := s.vendored(ctx, repo, run.Base, key, lf.Path); why != "" {
-		fail(plans, SkipNotWritable, why)
+	// What the repository says besides the lock file may have a client
+	// build something other than the vetted version: such updates are not
+	// written, natively or in the sandbox.
+	red := s.redirects(ctx, repo, run.Base, key, lf, before, plans)
+	if red.all != "" {
+		fail(plans, red.code, red.all)
 		return res
+	}
+	if len(red.byName) > 0 {
+		var keep, refused []*plannedUpdate
+		for _, p := range plans {
+			if why := red.byName[p.dep.Name]; why != "" {
+				res.failed[p] = skipWhy{red.code, why}
+				refused = append(refused, p)
+			} else {
+				keep = append(keep, p)
+			}
+		}
+		if len(keep) == 0 {
+			res.report.Error = refused[0].dep.Name + ": " + red.byName[refused[0].dep.Name]
+			return res
+		}
+		plans = keep
 	}
 	current := map[string][]byte{}
 	for k, v := range before {
@@ -628,40 +648,6 @@ func (s *Service) writeLockFile(ctx context.Context, repo Repo, run *UpdateRun, 
 		res.report.Updates = 0
 	}
 	return res
-}
-
-// vendored reports a project whose dependencies are vendored next to the lock
-// file: the build reads the vendored copies, which a lock-file update does
-// not change (go mod vendor, cargo vendor), so the update would break it.
-func (s *Service) vendored(ctx context.Context, repo Repo, commit, key, lockPath string) string {
-	dir := path.Dir(lockPath)
-	join := func(n string) string {
-		if dir == "." {
-			return n
-		}
-		return dir + "/" + n
-	}
-	switch key {
-	case "go/go.mod", "go/go.sum":
-		files, err := s.opts.Branches.ReadFiles(ctx, repo, commit, []string{join("vendor/modules.txt")}, 1<<20)
-		if err != nil {
-			return "whether the module vendors its dependencies could not be read: " + err.Error()
-		}
-		if _, ok := files[join("vendor/modules.txt")]; ok {
-			return "the module vendors its dependencies (vendor/modules.txt): the update needs go mod vendor, which the updater does not run"
-		}
-	case "cargo/Cargo.lock":
-		files, err := s.opts.Branches.ReadFiles(ctx, repo, commit, []string{join(".cargo/config.toml"), join(".cargo/config")}, 1<<20)
-		if err != nil {
-			return "whether the crates are vendored could not be read: " + err.Error()
-		}
-		for _, data := range files {
-			if strings.Contains(string(data), "vendored-sources") || strings.Contains(string(data), "directory =") {
-				return "the crates are vendored (cargo vendor source replacement in .cargo/config.toml): the update needs cargo vendor, which the updater does not run"
-			}
-		}
-	}
-	return ""
 }
 
 func firstWhy(ps []*plannedUpdate) string {

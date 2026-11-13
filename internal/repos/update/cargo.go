@@ -52,7 +52,16 @@ type cargoDoc struct {
 	pkgs  []*cargoPkg
 	lists [][]cargoRef // every dependency list
 	meta  []cargoMeta
+	// version is the top-level format version ("3", "4"), when the file
+	// has one; patchUnused the crates [[patch.unused]] names.
+	version     string
+	patchUnused map[string]bool
 }
+
+// cargoChanged indexes the [[package]] each change moves by the crate's name
+// and old version: a lookup costs the same whatever the number of crates of a
+// name.
+type cargoChanged map[[2]string]*cargoPkg
 
 func (cargoUpdater) Apply(lockPath string, files map[string][]byte, changes []Change) (map[string][]byte, error) {
 	data, ok := files[lockPath]
@@ -70,13 +79,31 @@ func (cargoUpdater) Apply(lockPath string, files map[string][]byte, changes []Ch
 	if err != nil {
 		return nil, err
 	}
+	// Cargo reads a file of format 2 or later (inline checksums, or a
+	// version key) that still has [metadata] checksums as a bad merge and
+	// discards every checksum: none would pin the new version's bytes.
+	inline := doc.version != ""
+	for _, p := range doc.pkgs {
+		inline = inline || p.keys["checksum"]
+	}
+	for _, m := range doc.meta {
+		if strings.HasPrefix(m.key, "checksum ") && inline {
+			return nil, errors.New("Cargo.lock has [metadata] checksums besides inline ones: Cargo discards every checksum of such a file")
+		}
+	}
 	byName := map[string][]*cargoPkg{}
 	for _, p := range doc.pkgs {
 		byName[p.name] = append(byName[p.name], p)
 	}
+	changed := cargoChanged{}
 	var edits []edit
 	for i := range changes {
 		c := &changes[i]
+		if doc.patchUnused[c.Name] {
+			// A patch Cargo has not used yet, which the new version may
+			// match: then Cargo builds the patch, not the vetted crate.
+			return nil, fmt.Errorf("%s: the workspace patches it ([[patch.unused]] in Cargo.lock)", c.Name)
+		}
 		var target *cargoPkg
 		for _, p := range byName[c.Name] {
 			switch {
@@ -95,6 +122,7 @@ func (cargoUpdater) Apply(lockPath string, files map[string][]byte, changes []Ch
 			return nil, fmt.Errorf("%s %s from a registry is not in the lock file", c.Name, c.From)
 		}
 		target.change = c
+		changed[[2]string{c.Name, c.From}] = target
 		edits = append(edits, edit{target.versionAt.start, target.versionAt.end, c.To})
 		if target.keys["checksum"] {
 			sum, err := cargoChecksum(c, target.checksum)
@@ -104,14 +132,14 @@ func (cargoUpdater) Apply(lockPath string, files map[string][]byte, changes []Ch
 			edits = append(edits, edit{target.checksumAt.start, target.checksumAt.end, sum})
 		}
 	}
-	if err := cargoCheckOrder(doc, byName); err != nil {
+	if err := cargoCheckOrder(doc, changed); err != nil {
 		return nil, err
 	}
-	metaEdits, err := cargoMetadata(doc, byName)
+	metaEdits, err := cargoMetadata(doc, changed)
 	if err != nil {
 		return nil, err
 	}
-	refEdits, err := cargoRefs(data, doc, byName)
+	refEdits, err := cargoRefs(data, doc, changed)
 	if err != nil {
 		return nil, err
 	}
@@ -136,19 +164,14 @@ func cargoChecksum(c *Change, old string) (string, error) {
 }
 
 // changeOf returns the changed crate a name and version name, if any.
-func changeOf(byName map[string][]*cargoPkg, name, version string) *cargoPkg {
-	for _, p := range byName[name] {
-		if p.change != nil && p.change.From == version {
-			return p
-		}
-	}
-	return nil
+func changeOf(changed cargoChanged, name, version string) *cargoPkg {
+	return changed[[2]string{name, version}]
 }
 
 // cargoCheckOrder holds the crates of a changed name to the order Cargo
 // writes them in (by version), so that the rewritten file is the one Cargo
 // would write.
-func cargoCheckOrder(doc *cargoDoc, byName map[string][]*cargoPkg) error {
+func cargoCheckOrder(doc *cargoDoc, changed cargoChanged) error {
 	newVersion := func(p *cargoPkg) string {
 		if p.change != nil {
 			return p.change.To
@@ -178,7 +201,7 @@ func cargoCheckOrder(doc *cargoDoc, byName map[string][]*cargoPkg) error {
 			continue
 		}
 		f := strings.SplitN(p.replace, " ", 3)
-		if len(f) >= 2 && changeOf(byName, f[0], f[1]) != nil {
+		if len(f) >= 2 && changeOf(changed, f[0], f[1]) != nil {
 			return fmt.Errorf("%s %s is the replacement of another crate", f[0], f[1])
 		}
 	}
@@ -187,7 +210,7 @@ func cargoCheckOrder(doc *cargoDoc, byName map[string][]*cargoPkg) error {
 
 // cargoMetadata moves the [metadata] checksums of format 1 to the new
 // versions, keeping the table's order.
-func cargoMetadata(doc *cargoDoc, byName map[string][]*cargoPkg) ([]edit, error) {
+func cargoMetadata(doc *cargoDoc, changed cargoChanged) ([]edit, error) {
 	var edits []edit
 	for i, m := range doc.meta {
 		rest, ok := strings.CutPrefix(m.key, "checksum ")
@@ -198,7 +221,7 @@ func cargoMetadata(doc *cargoDoc, byName map[string][]*cargoPkg) ([]edit, error)
 		if len(f) != 3 {
 			continue
 		}
-		p := changeOf(byName, f[0], f[1])
+		p := changeOf(changed, f[0], f[1])
 		if p == nil || f[2] != "("+p.source+")" {
 			continue
 		}
@@ -221,12 +244,12 @@ func cargoMetadata(doc *cargoDoc, byName map[string][]*cargoPkg) ([]edit, error)
 // name, by "name version" when there are several, and adds "(source)" when
 // even that is ambiguous, and in format 1 always; the source must be the
 // changed crate's.
-func cargoRefs(data []byte, doc *cargoDoc, byName map[string][]*cargoPkg) ([]edit, error) {
+func cargoRefs(data []byte, doc *cargoDoc, changed cargoChanged) ([]edit, error) {
 	var edits []edit
 	for _, list := range doc.lists {
 		texts := make([]string, len(list))
 		moved := make([]string, len(list))
-		changed := false
+		touched := false
 		for i, r := range list {
 			texts[i] = r.text(data)
 			moved[i] = texts[i]
@@ -234,7 +257,7 @@ func cargoRefs(data []byte, doc *cargoDoc, byName map[string][]*cargoPkg) ([]edi
 			if len(f) < 2 {
 				continue
 			}
-			p := changeOf(byName, f[0], f[1])
+			p := changeOf(changed, f[0], f[1])
 			if p == nil {
 				continue
 			}
@@ -246,10 +269,10 @@ func cargoRefs(data []byte, doc *cargoDoc, byName map[string][]*cargoPkg) ([]edi
 				text += " " + f[2]
 			}
 			moved[i] = text
-			changed = true
+			touched = true
 			edits = append(edits, edit{r.at.start, r.at.end, text})
 		}
-		if !changed {
+		if !touched {
 			continue
 		}
 		// Cargo sorts a list by name, then by the version as text.
@@ -384,9 +407,10 @@ func parseCargoLock(data []byte, names map[string]bool) (*cargoDoc, error) {
 		inTop = iota
 		inPackage
 		inMetadata
+		inPatchUnused
 		inOther
 	)
-	doc := &cargoDoc{}
+	doc := &cargoDoc{patchUnused: map[string]bool{}}
 	table := inTop
 	var pkg *cargoPkg
 	// The list being read; into is where its entries go — the scratch list
@@ -446,6 +470,8 @@ func parseCargoLock(data []byte, names map[string]bool) (*cargoDoc, error) {
 				table = inPackage
 			case !array && name == "metadata":
 				table = inMetadata
+			case array && name == "patch.unused":
+				table = inPatchUnused
 			default:
 				table = inOther
 			}
@@ -542,6 +568,17 @@ func parseCargoLock(data []byte, names map[string]bool) (*cargoDoc, error) {
 				return nil, t.errorf("a [metadata] value that is not a string")
 			}
 			doc.meta = append(doc.meta, cargoMeta{key: key, value: value, keyAt: keyAt, valAt: valueAt})
+		case inPatchUnused:
+			if key == "name" && kind == isString {
+				doc.patchUnused[value] = true
+			}
+		case inTop:
+			if key == "version" {
+				if kind != isWord {
+					return nil, t.errorf("the format version is not a number")
+				}
+				doc.version = value
+			}
 		}
 	}
 	if listOpen {

@@ -2,8 +2,10 @@ package update
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // cargoUpdate is a change of a crate whose new .crate has the SHA-256 sum.
@@ -89,9 +91,48 @@ func TestCargoRefuses(t *testing.T) {
 			[]Change{cargoUpdate("itoa", "1.0.10", "1.0.95", sum)}, "would need another order"},
 		{"not UTF-8", v4 + "# \xff\n", []Change{itoa}, "not valid UTF-8"},
 		{"bad name", v4, []Change{cargoUpdate("it oa", "1.0.10", "1.0.11", sum)}, "is not a cargo package name"},
+		// A patch of the workspace that no locked version uses yet: at the
+		// version it provides, Cargo would build it, not the vetted crate.
+		{"patch unused", v4 + "\n[[patch.unused]]\nname = \"itoa\"\nversion = \"1.0.11\"\n", []Change{itoa}, "the workspace patches it"},
+		// Cargo reads [metadata] checksums in a lock file of format 2 or
+		// later as a bad merge, and discards every checksum.
+		{"metadata checksums besides inline ones", v4 + "\n[metadata]\n\"checksum nothing-here 9.9.9 (registry+https://github.com/rust-lang/crates.io-index)\" = \"" + sum + "\"\n",
+			[]Change{itoa}, "Cargo discards every checksum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			applyFails(t, NativeUpdater("cargo/Cargo.lock"), "Cargo.lock", map[string][]byte{"Cargo.lock": []byte(tc.lock)}, tc.changes, tc.want)
 		})
+	}
+}
+
+// TestCargoManyCratesOfAName: the rewrite costs the size of the file, however
+// many crates share the changed crate's name and however many lists name them.
+func TestCargoManyCratesOfAName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a large Cargo.lock")
+	}
+	const n = 40000
+	var b strings.Builder
+	b.WriteString("version = 4\n\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\ndependencies = [\n")
+	for i := 0; i < 4*n; i++ {
+		b.WriteString(" \"itoa 2.0.0\",\n")
+	}
+	b.WriteString("]\n")
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, "\n[[package]]\nname = \"itoa\"\nversion = \"0.%d.0\"\n", i)
+	}
+	b.WriteString("\n[[package]]\nname = \"itoa\"\nversion = \"2.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"" + fakeSHA256("x") + "\"\n")
+	data := []byte(b.String())
+	start := time.Now()
+	_, err := NativeUpdater("cargo/Cargo.lock").Apply("Cargo.lock", map[string][]byte{"Cargo.lock": data}, []Change{cargoUpdate("itoa", "2.0.0", "2.0.1", fakeSHA256("y"))})
+	took := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Looking up the changed crate for every reference among all the crates
+	// of its name took 8 s here.
+	t.Logf("%d crates of a name, %d references: %v", n, 4*n, took)
+	if !raceEnabled && took > 2*time.Second {
+		t.Errorf("rewriting a %d KB Cargo.lock took %v", len(data)>>10, took)
 	}
 }

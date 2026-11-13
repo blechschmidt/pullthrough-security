@@ -350,8 +350,8 @@ ptctl repos updates widgets            # the branch's state and the newest runs
    Every candidate passed over is reported with its reason (`malicious`,
    `suspicious`, `unscanned`, `incompatible`, `constraint-unknown`, `ignored`,
    `firewall`, `cooldown`, `refused`, `digest`, `fetch-failed`, `limit`,
-   `not-writable`, `resolution`, `verify-failed`), and so is the newest
-   incompatible version of each dependency.
+   `not-writable`, `redirected`, `resolution`, `verify-failed`), and so is the
+   newest incompatible version of each dependency.
 
 The updater runs on the proxy's own behalf, never on a client's: nothing it
 does uses a client's network, credentials or address. Registry metadata and
@@ -370,7 +370,15 @@ else changed. A rewrite that does not pass is not committed.
 * **Natively**, when the new version declares the same dependencies as the
   pinned one (its packument entry, index entry, go.mod or Requires-Dist
   compares equal): only the targeted entries' version, resolved URL and
-  digests change, byte for byte, and go.mod's `require` line with them.
+  digests change, byte for byte, and go.mod's `require` line with them. Every
+  entry moved must record a digest (an npm entry without `integrity` would take
+  whatever its registry serves), the entries of a package must all come from
+  the one registry the proxy vetted it from, and an npm lock file is checked
+  entry by entry: a scan's reading merges the entries of a package version,
+  which would hide one entry's change behind another's. A Cargo.lock of format 2
+  or later that still has `[metadata]` checksums is not rewritten — Cargo
+  discards every checksum of such a file, and the scan reports its crates as
+  unverified.
 * **Through the sandboxed package manager**, when the dependency graph has to
   be resolved again: `npm update --package-lock-only`, `cargo update
   --precise`, `go get`. The tool runs in a container of its official image
@@ -402,6 +410,23 @@ else changed. A rewrite that does not pass is not committed.
   that vendors its dependencies next to the lock file (`vendor/modules.txt`, a
   `cargo vendor` source replacement): its build reads the vendored copies,
   which only `go mod vendor` or `cargo vendor` would update.
+
+**Redirected dependencies** (`redirected`). Files besides the lock file can
+have a client build something other than what the lock file pins: a `replace`
+directive of go.mod, or of a go.work anywhere in the repository that uses the
+module (and the go.mod of the workspace's other modules); a `[patch]` or
+`[replace]` of Cargo.toml, a patch Cargo.lock lists under `[[patch.unused]]`,
+and a `.cargo/config.toml` (or `.cargo/config`) in the lock file's directory,
+above it or below it with a source replacement, path overrides, another
+crates.io index or a `[patch]`; an `overrides` entry of package.json; and, for
+a requirement pinned without `--hash`, a package source the requirements file
+or a file it includes names (`--index-url`, `--extra-index-url`,
+`--find-links`) other than this proxy or a registry it fetches from. Such a
+redirection may name the new version only and do nothing until the update
+lands — the pull request would show a version bump while the build takes code
+nobody vetted. The updater does not update what one of these redirects, natively
+or in the sandbox; a source replacement or a file it cannot read refuses every
+update of the lock file.
 
 <!-- BEGIN GENERATED: maintenance update formats. Regenerate with `go test ./internal/repos/update -run TestRepositoriesDocIsCurrent -update`; source: internal/repos/update/catalog.go. -->
 

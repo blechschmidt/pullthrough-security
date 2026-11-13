@@ -186,6 +186,18 @@ func (p *Proxy) mapURL(raw string) (m mapped, ok bool) {
 	return m, true
 }
 
+// Serves reports whether a URL is this proxy's, for one of its configured
+// upstreams: under one of its public base URLs, or on an intercepted host
+// that is the upstream's own. What a client fetches there passes the proxy's
+// gates.
+func (p *Proxy) Serves(raw string) bool {
+	if p == nil {
+		return false
+	}
+	m, ok := p.mapURL(raw)
+	return ok && m.upstreamURL != ""
+}
+
 // sameHost reports whether rawURL is on host (host[:port], lower case).
 func sameHost(rawURL, host string) bool {
 	u, err := url.Parse(strings.TrimSpace(rawURL))

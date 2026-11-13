@@ -32,6 +32,10 @@ type npmChange struct {
 	integrityErr error
 	// matched counts the entries moved in each section.
 	inPackages, inLegacy int
+	// registry is the registry the moved entries' tarballs come from: the
+	// proxy vetted the package of one registry, and an entry from another
+	// does not move under that vetting.
+	registry string
 }
 
 func (u npmUpdater) Apply(lockPath string, files map[string][]byte, changes []Change) (map[string][]byte, error) {
@@ -287,8 +291,10 @@ func (r *npmRewrite) change(name string, version jsonField) *npmChange {
 	return nil
 }
 
-// move writes the edits that move an entry: its version, its tarball URL and
-// its integrity — the latter two only where the entry records them.
+// move writes the edits that move an entry: its version, its tarball URL
+// where it records one, and its integrity, which it must record — npm checks
+// the bytes it installs against it, and an entry without one would take
+// whatever its registry serves for the new version.
 func (r *npmRewrite) move(c *npmChange, e *npmEntry, version string) error {
 	if e.version.repeated || e.resolved.repeated || e.integrity.repeated || e.name.repeated {
 		return fmt.Errorf("%s %s: an entry repeats a key", c.Name, c.From)
@@ -298,24 +304,31 @@ func (r *npmRewrite) move(c *npmChange, e *npmEntry, version string) error {
 		if !e.resolved.isString {
 			return fmt.Errorf("%s %s: an entry's resolved is not a string", c.Name, c.From)
 		}
-		url, err := npmTarballURL(e.resolved.value, c.Change)
+		moved, registry, err := npmTarballURL(e.resolved.value, c.Change)
 		if err != nil {
 			return err
 		}
-		r.edits = append(r.edits, edit{e.resolved.at.start, e.resolved.at.end, jsonString(url)})
+		switch {
+		case c.registry == "":
+			c.registry = registry
+		case c.registry != registry:
+			return fmt.Errorf("%s %s comes from two registries (%s, %s)", c.Name, c.From, c.registry, registry)
+		}
+		r.edits = append(r.edits, edit{e.resolved.at.start, e.resolved.at.end, jsonString(moved)})
 	}
-	if e.integrity.present {
-		if !e.integrity.isString {
-			return fmt.Errorf("%s %s: an entry's integrity is not a string", c.Name, c.From)
-		}
-		if !readableIntegrity(e.integrity.value) {
-			return fmt.Errorf("%s %s: an entry's integrity is not one the updater reads", c.Name, c.From)
-		}
-		if c.integrityErr != nil {
-			return c.integrityErr
-		}
-		r.edits = append(r.edits, edit{e.integrity.at.start, e.integrity.at.end, jsonString(c.integrity)})
+	if !e.integrity.present {
+		return fmt.Errorf("%s %s: an entry records no integrity, so nothing would check the bytes npm installs for %s", c.Name, c.From, c.To)
 	}
+	if !e.integrity.isString {
+		return fmt.Errorf("%s %s: an entry's integrity is not a string", c.Name, c.From)
+	}
+	if !readableIntegrity(e.integrity.value) {
+		return fmt.Errorf("%s %s: an entry's integrity is not one the updater reads", c.Name, c.From)
+	}
+	if c.integrityErr != nil {
+		return c.integrityErr
+	}
+	r.edits = append(r.edits, edit{e.integrity.at.start, e.integrity.at.end, jsonString(c.integrity)})
 	return nil
 }
 
@@ -327,43 +340,50 @@ func (r *npmRewrite) move(c *npmChange, e *npmEntry, version string) error {
 // a URL with a query or a fragment — is not rewritten: the new version's
 // digests would end up on an entry fetched from somewhere the proxy never
 // fetched from.
-func npmTarballURL(resolved string, c Change) (string, error) {
+//
+// It also returns the registry: the URL before the package's name.
+func npmTarballURL(resolved string, c Change) (moved, registry string, err error) {
 	fail := fmt.Errorf("%s %s: the entry's resolved URL is not a registry tarball of that version", c.Name, c.From)
 	lower := strings.ToLower(resolved)
 	if (!strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "http://")) || strings.ContainsAny(resolved, "?#") {
-		return "", fail
+		return "", "", fail
 	}
 	base := c.Name[strings.LastIndexByte(c.Name, '/')+1:]
 	prefix, ok := strings.CutSuffix(resolved, "/-/"+base+"-"+c.From+".tgz")
-	if !ok || !npmNamesPackage(prefix, c.Name) {
-		return "", fail
+	if !ok {
+		return "", "", fail
 	}
-	return prefix + "/-/" + base + "-" + c.To + ".tgz", nil
+	registry, ok = npmRegistryOf(prefix, c.Name)
+	if !ok {
+		return "", "", fail
+	}
+	return prefix + "/-/" + base + "-" + c.To + ".tgz", registry, nil
 }
 
 // npmScopedEscape matches the escaped spellings of a scoped name's slash.
 var npmScopedEscape = regexp.MustCompile(`(?i)%2f`)
 
-// npmNamesPackage reports whether the path of a tarball URL before "/-/" ends
-// in the package's name as internal/lockfiles recognises it: as written, with
-// the scope's slash escaped, or escaped altogether ("%40scope%2fname").
-func npmNamesPackage(before, name string) bool {
+// npmRegistryOf reports whether the path of a tarball URL before "/-/" ends
+// in the package's name as internal/lockfiles recognises it — as written, with
+// the scope's slash escaped, or escaped altogether ("%40scope%2fname") — and
+// returns what precedes the name: the registry.
+func npmRegistryOf(before, name string) (string, bool) {
 	for _, spelled := range []string{name, strings.Replace(name, "/", "%2f", 1), strings.Replace(name, "/", "%2F", 1)} {
-		if strings.HasSuffix(before, "/"+spelled) {
-			return true
+		if reg, ok := strings.CutSuffix(before, "/"+spelled); ok {
+			return reg, true
 		}
 	}
 	j := strings.LastIndex(before, "/")
 	if j < 0 {
-		return false
+		return "", false
 	}
 	if u, err := url.PathUnescape(npmScopedEscape.ReplaceAllString(before[j+1:], "/")); err == nil && u == name {
-		return true
+		return before[:j], true
 	}
 	if k := strings.LastIndex(before[:j], "/"); k >= 0 && strings.HasPrefix(name, "@") {
 		if u, err := url.PathUnescape(before[k+1:]); err == nil && u == name {
-			return true
+			return before[:k], true
 		}
 	}
-	return false
+	return "", false
 }

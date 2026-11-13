@@ -48,6 +48,26 @@ func ParseFile(reg *Registry, proxy *Proxy, path string, data []byte) *File {
 	return f
 }
 
+// ParseEntries parses one file as ParseFile does, but keeps one dependency
+// per entry of the file: nothing is merged with a sibling file or with
+// another entry of the same package version, and the dependencies come in the
+// order the parser read them. The repository updater (internal/repos/update)
+// holds a rewritten npm lock file to what was intended entry by entry with it:
+// npm installs every entry for itself, and the merged reading a scan makes
+// would hide one entry's change behind another's.
+func ParseEntries(reg *Registry, proxy *Proxy, path string, data []byte) *File {
+	if reg == nil {
+		reg = DefaultRegistry()
+	}
+	p := reg.Detect(path)
+	if p == nil {
+		return nil
+	}
+	f := parseOne(p, path, data)
+	finishFiles([]*File{f}, proxy, false)
+	return f
+}
+
 // ParseFiles parses files held in memory — keyed by path, slash-separated and
 // relative to the repository root — and finishes them together the way Scan
 // finishes the files of a tree: go.mod and go.sum in one directory merged,
@@ -120,7 +140,10 @@ func parseOne(p Parser, filePath string, data []byte) (f *File) {
 
 // finish completes parsed files: siblings merged (go.mod and go.sum), URLs
 // mapped and redacted, duplicates collapsed, text redacted.
-func finish(files []*File, proxy *Proxy) {
+func finish(files []*File, proxy *Proxy) { finishFiles(files, proxy, true) }
+
+// finishFiles is finish; without merge, siblings and duplicates stay apart.
+func finishFiles(files []*File, proxy *Proxy, merge bool) {
 	byDir := map[string][]*File{}
 	var dirs []string
 	for _, f := range files {
@@ -134,7 +157,7 @@ func finish(files []*File, proxy *Proxy) {
 	for _, d := range dirs {
 		group := byDir[d]
 		for _, f := range group {
-			if m, ok := f.parser.(Merger); ok && f.Error == "" {
+			if m, ok := f.parser.(Merger); ok && f.Error == "" && merge {
 				safeMerge(m, f, group)
 			}
 		}
@@ -147,7 +170,13 @@ func finish(files []*File, proxy *Proxy) {
 				f.addWarning(w)
 			}
 		}
-		f.Dependencies = dedupe(f.Dependencies)
+		if merge {
+			f.Dependencies = dedupe(f.Dependencies)
+		} else {
+			for i := range f.Dependencies {
+				f.Dependencies[i].Digests = mergeDigests(nil, f.Dependencies[i].Digests)
+			}
+		}
 		info := formatInfo[f.Type+"/"+f.Format]
 		for i := range f.Dependencies {
 			d := &f.Dependencies[i]

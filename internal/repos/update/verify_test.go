@@ -66,16 +66,16 @@ func TestVerifyCatchesWrongRewrites(t *testing.T) {
 		{"digest dropped", "package-lock.json", npmBefore, tamper(t, npmAfter, "package-lock.json", "\"integrity\": \""+ms213Integrity+"\",\n", ""),
 			[]Change{ms}, "is pinned with the digests none after the rewrite"},
 		{"unrelated entry moved", "package-lock.json", npmBefore,
-			tamper(t, npmAfter, "package-lock.json", `"version": "1.3.0",`, `"version": "1.3.1",`), []Change{ms}, "left-pad 1.3.1 (package-lock.json) is not read as before"},
+			tamper(t, npmAfter, "package-lock.json", `"version": "1.3.0",`, `"version": "1.3.1",`), []Change{ms}, "left-pad 1.3.0 (package-lock.json line 144) is not read as before"},
 		{"unrelated digest changed", "package-lock.json", npmBefore,
 			tamper(t, npmAfter, "package-lock.json", "sha512-XI5MPzVNApjAyhQzphX8BkmKsKUxD4LdyK24iZeQGinBN9yTQT3bFlCBy/aVx2HrNcqQGsdot8ghrjyrvMCoEA==", "sha512-"+b64(t, fakeSHA512("lp"))),
-			[]Change{ms}, "left-pad 1.3.0 (package-lock.json) is not read as before"},
+			[]Change{ms}, "left-pad 1.3.0 (package-lock.json line 144) is not read as before"},
 		{"entry dropped", "package-lock.json", npmBefore,
 			tamper(t, npmAfter, "package-lock.json", "\"node_modules/etag\": {", "\"node_modules/etag-gone\": {\"link\": true},\n    \"x\": {"),
-			[]Change{ms}, "etag 1.8.1 is not read as before"},
+			[]Change{ms}, "27 entries before the rewrite, 26 after"},
 		{"stray entry", "package-lock.json", npmBefore,
 			tamper(t, npmAfter, "package-lock.json", "\"node_modules/etag\": {", "\"node_modules/etag/node_modules/ms\": {\"version\": \"2.1.3\", \"resolved\": \"https://evil.example/ms/-/ms-2.1.3.tgz\"},\n    \"node_modules/etag\": {"),
-			[]Change{ms}, "ms 2.1.3 appears from https://evil.example after the rewrite"},
+			[]Change{ms}, "27 entries before the rewrite, 28 after"},
 		{"old version left", "package-lock.json", npmBefore,
 			tamper(t, nestedAfter, "package-lock.json", "\"version\": \"2.0.1\"", "\"version\": \"2.0.0\""), []Change{nested}, "ms 2.0.0 is still pinned after the rewrite"},
 		{"dev flag", "package-lock.json", npmBefore,
@@ -175,4 +175,57 @@ func TestVerifyAcceptsPinsTheFileHad(t *testing.T) {
 	}
 	verifyFails(t, "package-lock.json", before, merged(before, out), []Change{npmUpdate("ms", "2.0.0", "2.0.1", sum)},
 		"ms 2.0.1 was already pinned with sha512:")
+}
+
+// TestVerifyHoldsEveryEntry: npm installs every entry of a lock file for
+// itself. A reading that merges the entries of a package version — as a scan's
+// does, with their digests together — would not see one entry lose its
+// integrity or point elsewhere while another keeps them; Verify reads the
+// entries one by one.
+func TestVerifyHoldsEveryEntry(t *testing.T) {
+	const old = "sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="
+	lp := fakeSHA512("left-pad")
+	lock := `{
+  "lockfileVersion": 3,
+  "packages": {
+    "node_modules/a/node_modules/ms": {
+      "version": "2.1.2",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.2.tgz",
+      "integrity": "` + old + `"
+    },
+    "node_modules/ms": {
+      "version": "2.1.2",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.2.tgz",
+      "integrity": "` + old + `"
+    },
+    "node_modules/b/node_modules/left-pad": {
+      "version": "1.3.0",
+      "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+      "integrity": "sha512-` + b64(t, lp) + `"
+    },
+    "node_modules/left-pad": {
+      "version": "1.3.0",
+      "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+      "integrity": "sha512-` + b64(t, lp) + `"
+    }
+  }
+}
+`
+	ms := npmUpdate("ms", "2.1.2", "2.1.3", sriHex(t, ms213Integrity))
+	before := map[string][]byte{"package-lock.json": []byte(lock)}
+	after := apply(t, NativeUpdater("npm/package-lock.json"), "package-lock.json", before, []Change{ms})
+
+	// One of the two moved entries loses its integrity and points at
+	// another tarball; the other is as intended.
+	nested := strings.Replace(string(after["package-lock.json"]),
+		"\"resolved\": \"https://registry.npmjs.org/ms/-/ms-2.1.3.tgz\",\n      \"integrity\": \""+ms213Integrity+"\"",
+		"\"resolved\": \"https://registry.npmjs.org/ms/-/ms-2.1.3-x.tgz\",\n      \"integrity\": \"\"", 1)
+	verifyFails(t, "package-lock.json", before, map[string][]byte{"package-lock.json": []byte(nested)}, []Change{ms},
+		"ms 2.1.3 is pinned with the digests none after the rewrite")
+
+	// An entry of another package loses its integrity while its sibling
+	// keeps it.
+	other := strings.Replace(string(after["package-lock.json"]), "\"integrity\": \"sha512-"+b64(t, lp)+"\"", "\"integrity\": \"\"", 1)
+	verifyFails(t, "package-lock.json", before, map[string][]byte{"package-lock.json": []byte(other)}, []Change{ms},
+		"left-pad 1.3.0 (package-lock.json line 14) is not read as before the rewrite")
 }

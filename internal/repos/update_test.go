@@ -8,9 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/blechschmidt/pullthrough-security/internal/lockfiles"
 	"github.com/blechschmidt/pullthrough-security/internal/repos/locate"
 	"github.com/blechschmidt/pullthrough-security/internal/repos/sandbox"
 	"github.com/blechschmidt/pullthrough-security/internal/repos/update"
@@ -373,21 +375,119 @@ func (f filesOf) ReadFiles(_ context.Context, _ Repo, _ string, paths []string, 
 	return out, nil
 }
 
-func TestVendoredProjectsAreNotUpdated(t *testing.T) {
-	s := &Service{opts: Options{Branches: filesOf{files: map[string][]byte{
-		"svc/vendor/modules.txt":   []byte("# example.com/a v1.0.0\n"),
-		"rust/.cargo/config.toml":  []byte("[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.vendored-sources]\ndirectory = \"vendor\"\n"),
-		"plain/.cargo/config.toml": []byte("[net]\noffline = true\n"),
-		"other/go.mod":             []byte("module x\n"),
-	}}}}
-	ctx := context.Background()
-	for lock, vendored := range map[string]bool{"svc/go.mod": true, "other/go.mod": false, "rust/Cargo.lock": true, "plain/Cargo.lock": false} {
-		key := "go/go.mod"
-		if strings.HasSuffix(lock, "Cargo.lock") {
-			key = "cargo/Cargo.lock"
+// ListFiles answers from the map's paths, as the tree listing does: sorted,
+// at most max+1.
+func (f filesOf) ListFiles(_ context.Context, _ Repo, _, dir string, match func(string) bool, max int) ([]string, error) {
+	var out []string
+	for p := range f.files {
+		if (dir == "" || dir == "." || strings.HasPrefix(p, dir+"/")) && (match == nil || match(p)) {
+			out = append(out, p)
 		}
-		if got := s.vendored(ctx, Repo{Name: "r"}, strings.Repeat("a", 40), key, lock) != ""; got != vendored {
-			t.Errorf("%s: vendored %v, want %v", lock, got, vendored)
-		}
+	}
+	sort.Strings(out)
+	if len(out) > max+1 {
+		out = out[:max+1]
+	}
+	return out, nil
+}
+
+// TestRedirectedDependenciesAreNotUpdated: what the repository says besides
+// the lock file — a vendored tree, a replace directive of go.mod or of a
+// workspace, a Cargo patch or source replacement, an npm override, a package
+// source for a pin without a hash — keeps the updater from moving what it
+// redirects: the new version may be what the redirection names.
+func TestRedirectedDependenciesAreNotUpdated(t *testing.T) {
+	hashed := []lockfiles.Digest{{Algorithm: "sha256", Value: strings.Repeat("a", 64)}}
+	plan := func(typ, name string, digests []lockfiles.Digest) *plannedUpdate {
+		return &plannedUpdate{dep: Dependency{Type: typ, Name: name, Version: "1.0.0", LockDigests: digests, Unverified: len(digests) == 0}}
+	}
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		lf    LockFile
+		plans []*plannedUpdate
+		// all: the reason refusing every update; refused: the names refused.
+		all     string
+		code    string
+		refused []string
+	}{
+		{name: "go vendored", files: map[string]string{"svc/go.mod": "module x\n", "svc/vendor/modules.txt": "# example.com/a v1.0.0\n"},
+			lf: LockFile{Path: "svc/go.mod", Type: "go", Format: "go.mod"}, plans: []*plannedUpdate{plan("go", "example.com/a", hashed)},
+			all: "vendors its dependencies", code: SkipNotWritable},
+		{name: "go plain", files: map[string]string{"go.mod": "module x\n\nrequire example.com/a v1.0.0\n"},
+			lf: LockFile{Path: "go.mod", Type: "go", Format: "go.mod"}, plans: []*plannedUpdate{plan("go", "example.com/a", hashed)}},
+		{name: "go.mod replace", files: map[string]string{"go.mod": "module x\n\nrequire example.com/a v1.0.0\nreplace example.com/a v1.0.1 => ./evil\n"},
+			lf: LockFile{Path: "go.mod", Type: "go", Format: "go.sum"}, plans: []*plannedUpdate{plan("go", "example.com/a", hashed), plan("go", "example.com/b", hashed)},
+			refused: []string{"example.com/a"}, code: SkipRedirected},
+		{name: "workspace replace", files: map[string]string{
+			"svc/go.mod": "module x\n", "go.work": "go 1.22\n\nuse (\n\t./svc\n\t./lib\n)\n\nreplace example.com/a v1.0.1 => ./evil\n",
+			"lib/go.mod": "module example.com/b\n\nreplace example.com/c => ../c\n"},
+			lf:      LockFile{Path: "svc/go.mod", Type: "go", Format: "go.mod"},
+			plans:   []*plannedUpdate{plan("go", "example.com/a", hashed), plan("go", "example.com/b", hashed), plan("go", "example.com/c", hashed), plan("go", "example.com/d", hashed)},
+			refused: []string{"example.com/a", "example.com/b", "example.com/c"}, code: SkipRedirected},
+		{name: "a workspace without the module", files: map[string]string{
+			"svc/go.mod": "module x\n", "other/go.work": "go 1.22\nuse ./lib\nreplace example.com/a => ./evil\n"},
+			lf: LockFile{Path: "svc/go.mod", Type: "go", Format: "go.mod"}, plans: []*plannedUpdate{plan("go", "example.com/a", hashed)}},
+
+		{name: "cargo patch unused", files: map[string]string{"Cargo.toml": "[package]\nname = \"app\"\n",
+			"Cargo.lock": "version = 4\n\n[[package]]\nname = \"app\"\nversion = \"0.1.0\"\n\n[[patch.unused]]\nname = \"itoa\"\nversion = \"1.0.11\"\n"},
+			lf: LockFile{Path: "Cargo.lock", Type: "cargo", Format: "Cargo.lock"}, plans: []*plannedUpdate{plan("cargo", "itoa", hashed), plan("cargo", "ryu", hashed)},
+			refused: []string{"itoa"}, code: SkipRedirected},
+		{name: "cargo manifest patch", files: map[string]string{"rust/Cargo.toml": "[package]\nname = \"app\"\n\n[patch.crates-io]\nitoa = { path = \"evil-itoa\" }\n",
+			"rust/Cargo.lock": "version = 4\n"},
+			lf: LockFile{Path: "rust/Cargo.lock", Type: "cargo", Format: "Cargo.lock"}, plans: []*plannedUpdate{plan("cargo", "itoa", hashed), plan("cargo", "ryu", hashed)},
+			refused: []string{"itoa"}, code: SkipRedirected},
+		{name: "cargo vendored", files: map[string]string{"rust/Cargo.lock": "version = 4\n",
+			"rust/.cargo/config.toml": "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.vendored-sources]\ndirectory=\"vendor\"\n"},
+			lf: LockFile{Path: "rust/Cargo.lock", Type: "cargo", Format: "Cargo.lock"}, plans: []*plannedUpdate{plan("cargo", "itoa", hashed)},
+			all: "a source replacement", code: SkipRedirected},
+		{name: "cargo configuration above and below", files: map[string]string{"rust/Cargo.lock": "version = 4\n",
+			".cargo/config.toml": "[source.crates-io]\nreplace-with = \"mirror\"\n\n[source.mirror]\nregistry = \"https://m.example/index\"\n"},
+			lf: LockFile{Path: "rust/Cargo.lock", Type: "cargo", Format: "Cargo.lock"}, plans: []*plannedUpdate{plan("cargo", "itoa", hashed)},
+			all: ".cargo/config.toml redirects every crate", code: SkipRedirected},
+		{name: "cargo member's patch", files: map[string]string{"rust/Cargo.lock": "version = 4\n",
+			"rust/member/.cargo/config": "[patch.crates-io]\nitoa = { path = \"x\" }\n", "other/.cargo/config.toml": "paths = [\"../x\"]\n"},
+			lf: LockFile{Path: "rust/Cargo.lock", Type: "cargo", Format: "Cargo.lock"}, plans: []*plannedUpdate{plan("cargo", "itoa", hashed), plan("cargo", "ryu", hashed)},
+			refused: []string{"itoa"}, code: SkipRedirected},
+
+		{name: "npm override", files: map[string]string{"web/package.json": `{"name":"web","overrides":{"left-pad@1.0.1":"file:./evil"}}`, "web/package-lock.json": "{}"},
+			lf: LockFile{Path: "web/package-lock.json", Type: "npm", Format: "package-lock.json"}, plans: []*plannedUpdate{plan("npm", "left-pad", hashed), plan("npm", "ms", hashed)},
+			refused: []string{"left-pad"}, code: SkipRedirected},
+
+		{name: "pip unhashed with local wheels", files: map[string]string{"requirements.txt": "-f ./wheels\ntinyutil==1.0.0\nsafe==1.0.0 --hash=sha256:" + strings.Repeat("a", 64) + "\n"},
+			lf: LockFile{Path: "requirements.txt", Type: "pip", Format: "requirements.txt"}, plans: []*plannedUpdate{plan("pip", "tinyutil", nil), plan("pip", "safe", hashed)},
+			refused: []string{"tinyutil"}, code: SkipRedirected},
+		{name: "pip unhashed through the proxy and the registry", files: map[string]string{"requirements.txt": "-i https://proxy.example.com/v1/pypi/simple/\n--extra-index-url https://pypi.org/simple\ntinyutil==1.0.0\n"},
+			lf: LockFile{Path: "requirements.txt", Type: "pip", Format: "requirements.txt"}, plans: []*plannedUpdate{plan("pip", "tinyutil", nil)}},
+		{name: "pip include names another index", files: map[string]string{"py/requirements.txt": "-r base.txt\ntinyutil==1.0.0\n", "py/base.txt": "--extra-index-url https://evil.example/simple\n"},
+			lf: LockFile{Path: "py/requirements.txt", Type: "pip", Format: "requirements.txt"}, plans: []*plannedUpdate{plan("pip", "tinyutil", nil)},
+			refused: []string{"tinyutil"}, code: SkipRedirected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := map[string][]byte{}
+			for k, v := range tc.files {
+				files[k] = []byte(v)
+			}
+			s := &Service{opts: Options{Branches: filesOf{files: files},
+				Upstreams: []locate.Upstream{{Name: "pypi", Type: "pip", URLs: []string{"https://pypi.org/simple"}}}}}
+			s.cfg.Lockfiles.Proxy = &lockfiles.Proxy{PublicURLs: []string{"https://proxy.example.com"},
+				Upstreams: map[string]lockfiles.ProxyUpstream{"pypi": {Type: "pip", URL: "https://pypi.org/simple"}}}
+			key := tc.lf.Type + "/" + tc.lf.Format
+			r := s.redirects(context.Background(), Repo{Name: "r"}, strings.Repeat("a", 40), key, tc.lf, files, tc.plans)
+			if (tc.all == "") != (r.all == "") || !strings.Contains(r.all, tc.all) {
+				t.Fatalf("all: %q, want %q", r.all, tc.all)
+			}
+			var refused []string
+			for n := range r.byName {
+				refused = append(refused, n)
+			}
+			sort.Strings(refused)
+			if strings.Join(refused, ",") != strings.Join(tc.refused, ",") {
+				t.Fatalf("refused %v (%v), want %v", refused, r.byName, tc.refused)
+			}
+			if (r.all != "" || len(r.byName) > 0) && r.code != tc.code {
+				t.Fatalf("code %q, want %q", r.code, tc.code)
+			}
+		})
 	}
 }

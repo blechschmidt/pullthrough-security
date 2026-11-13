@@ -642,3 +642,58 @@ func FuzzPythonRequirements(f *testing.F) {
 		_, _ = PyProjectRequirements([]byte(line))
 	})
 }
+
+// FuzzOverrides: the readers of what redirects a dependency (Task 182) never
+// panic, and return only non-empty names, each once, and only the options they
+// name.
+func FuzzOverrides(f *testing.F) {
+	f.Add([]byte("go 1.22\nuse (\n\t./svc\n)\nreplace example.com/a v1.1.0 => ./evil\n"))
+	f.Add([]byte("[patch.crates-io]\nitoa = { path = \"x\", package = \"itoa2\" }\n[replace]\n\"foo:0.1.0\" = { path = \"f\" }\n[source.crates-io]\nreplace-with = \"v\"\n"))
+	f.Add([]byte(`{"overrides":{"a@1":"2","@s/b":{"c":"1",".":"2"}}}`))
+	f.Add([]byte("-ihttps://x\n--extra-i y --find z\n-f\n"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		names := func(what string, list []string) {
+			seen := map[string]bool{}
+			for _, n := range list {
+				if strings.TrimSpace(n) == "" || seen[n] {
+					t.Fatalf("%s: an empty or repeated name in %q", what, list)
+				}
+				seen[n] = true
+			}
+		}
+		if uses, replaced, err := GoWork(data); err == nil {
+			_ = uses
+			for _, m := range replaced {
+				if m == "" {
+					t.Fatal("GoWork: an empty module")
+				}
+			}
+		}
+		if _, replaced, err := GoModReplaced(data); err == nil {
+			for _, m := range replaced {
+				if m == "" {
+					t.Fatal("GoModReplaced: an empty module")
+				}
+			}
+		}
+		if list, err := CargoPatched(data); err == nil {
+			names("CargoPatched", list)
+		}
+		if list, err := CargoPatchUnused(data); err == nil {
+			names("CargoPatchUnused", list)
+		}
+		if _, list, err := CargoConfigRedirects(data); err == nil {
+			names("CargoConfigRedirects", list)
+		}
+		if list, err := NPMOverrides(data); err == nil {
+			names("NPMOverrides", list)
+		}
+		for _, s := range PythonSources(data) {
+			switch s.Option {
+			case "--index-url", "--extra-index-url", "--find-links":
+			default:
+				t.Fatalf("PythonSources: option %q", s.Option)
+			}
+		}
+	})
+}

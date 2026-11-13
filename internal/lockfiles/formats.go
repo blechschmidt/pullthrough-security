@@ -142,7 +142,7 @@ var formatInfo = map[string]FormatInfo{
 		Digests:    DigestsAll,
 		Hashed:     "`checksum`: the SHA-256 of the `.crate` archive.",
 		NoDigest:   "Cargo.lock records no checksum for this crate",
-		Limits:     "Workspace and path crates are left out. Git crates carry no checksum, only the commit.",
+		Limits:     "Workspace and path crates are left out. Git crates carry no checksum, only the commit. A format 2 or later file that still has `[metadata]` checksums is read as Cargo reads it: Cargo discards every checksum of such a file, so its crates are unverified.",
 		GitSources: true,
 	},
 	// go

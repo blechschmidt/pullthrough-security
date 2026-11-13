@@ -126,6 +126,13 @@ func TestRequirementsByHand(t *testing.T) {
 	after = apply(t, NativeUpdater("pip/requirements.txt"), "requirements.txt",
 		map[string][]byte{"requirements.txt": []byte(before)}, []Change{pipUpdate("six", "1.16.0", "1.17.0", h("S2"), h("S1"))})
 	sameBytes(t, "requirements.txt", after["requirements.txt"], []byte(want))
+
+	// A byte order mark is not part of the first requirement, and stays.
+	before = "\xef\xbb\xbfidna==3.7 --hash=sha256:" + h("i1") + "\n"
+	want = "\xef\xbb\xbfidna==3.8 --hash=sha256:" + h("I1") + "\n"
+	after = apply(t, NativeUpdater("pip/requirements.txt"), "requirements.txt",
+		map[string][]byte{"requirements.txt": []byte(before)}, []Change{pipUpdate("idna", "3.7", "3.8", h("I1"))})
+	sameBytes(t, "requirements.txt", after["requirements.txt"], []byte(want))
 }
 
 // TestRequirementsRefuses: what the requirements updater does not rewrite.

@@ -135,10 +135,15 @@ func TestNpmAliasAndScope(t *testing.T) {
 // slash escaped, or escaped altogether, as some registries write it.
 func TestNpmScopeSpellings(t *testing.T) {
 	c := npmUpdate("@types/node", "20.14.10", "20.14.11", fakeSHA512("n"))
+	sri, err := npmIntegrity(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const old = "sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="
 	for _, path := range []string{"@types/node", "@types%2fnode", "@types%2Fnode", "%40types%2fnode"} {
-		lock := `{"lockfileVersion":3,"packages":{"node_modules/@types/node":{"version":"20.14.10","resolved":"https://r.example/npm/` + path + `/-/node-20.14.10.tgz"}}}`
+		lock := `{"lockfileVersion":3,"packages":{"node_modules/@types/node":{"version":"20.14.10","resolved":"https://r.example/npm/` + path + `/-/node-20.14.10.tgz","integrity":"` + old + `"}}}`
 		after := apply(t, NativeUpdater("npm/package-lock.json"), "package-lock.json", map[string][]byte{"package-lock.json": []byte(lock)}, []Change{c})
-		if want := strings.ReplaceAll(lock, "20.14.10", "20.14.11"); string(after["package-lock.json"]) != want {
+		if want := strings.ReplaceAll(strings.ReplaceAll(lock, "20.14.10", "20.14.11"), old, sri); string(after["package-lock.json"]) != want {
 			t.Errorf("%s: %s", path, after["package-lock.json"])
 		}
 	}
@@ -158,26 +163,25 @@ func TestNpmKeepsTheBytes(t *testing.T) {
 	after := apply(t, NativeUpdater("npm/package-lock.json"), "package-lock.json", map[string][]byte{"package-lock.json": before}, []Change{c})
 	sameBytes(t, "package-lock.json", after["package-lock.json"], want)
 
-	// Escapes and members in any order; an entry without resolved or
-	// integrity gets none.
+	// Escapes and members in any order; an entry without resolved keeps
+	// none (npm fetches it from its configured registry, and checks it
+	// against the integrity).
+	const old = `"integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="`
 	lock := `{"lockfileVersion":3,"packages":{"":{"name":"x"},` +
-		`"node_modules/m` + "\\" + `u0073":{"integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g=","resolved":"https:\/\/r.example\/ms\/-\/ms-2.1.2.tgz","version":"2.1.2","dev":true},` +
-		`"node_modules/a/node_modules/ms":{"version":"2.1.2"},` +
-		`"node_modules/b/node_modules/ms":{"version":"2.1.2","resolved":"https://r.example/ms/-/ms-2.1.2.tgz"}}}`
+		`"node_modules/m` + "\\" + `u0073":{` + old + `,"resolved":"https:\/\/r.example\/ms\/-\/ms-2.1.2.tgz","version":"2.1.2","dev":true},` +
+		`"node_modules/a/node_modules/ms":{"version":"2.1.2",` + old + `},` +
+		`"node_modules/b/node_modules/ms":{"version":"2.1.2","resolved":"https://r.example/ms/-/ms-2.1.2.tgz",` + old + `}}}`
+	moved := `"integrity":"` + ms213Integrity + `"`
 	wantLock := `{"lockfileVersion":3,"packages":{"":{"name":"x"},` +
-		`"node_modules/m` + "\\" + `u0073":{"integrity":"` + ms213Integrity + `","resolved":"https://r.example/ms/-/ms-2.1.3.tgz","version":"2.1.3","dev":true},` +
-		`"node_modules/a/node_modules/ms":{"version":"2.1.3"},` +
-		`"node_modules/b/node_modules/ms":{"version":"2.1.3","resolved":"https://r.example/ms/-/ms-2.1.3.tgz"}}}`
+		`"node_modules/m` + "\\" + `u0073":{` + moved + `,"resolved":"https://r.example/ms/-/ms-2.1.3.tgz","version":"2.1.3","dev":true},` +
+		`"node_modules/a/node_modules/ms":{"version":"2.1.3",` + moved + `},` +
+		`"node_modules/b/node_modules/ms":{"version":"2.1.3","resolved":"https://r.example/ms/-/ms-2.1.3.tgz",` + moved + `}}}`
 	after = apply(t, NativeUpdater("npm/package-lock.json"), "package-lock.json", map[string][]byte{"package-lock.json": []byte(lock)}, []Change{c})
 	sameBytes(t, "package-lock.json", after["package-lock.json"], []byte(wantLock))
 
-	// Without integrity anywhere, no artifact is needed.
-	bare := strings.ReplaceAll(lock, `"integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g=",`, "")
-	noArt := Change{Type: "npm", Name: "ms", From: "2.1.2", To: "2.1.3"}
-	after = apply(t, NativeUpdater("npm/package-lock.json"), "package-lock.json", map[string][]byte{"package-lock.json": []byte(bare)}, []Change{noArt})
-	if bytes.Contains(after["package-lock.json"], []byte("integrity")) {
-		t.Error("an integrity was added")
-	}
+	// An entry without integrity pins nothing: it does not move.
+	bare := strings.Replace(lock, `"version":"2.1.2",`+old, `"version":"2.1.2"`, 1)
+	applyFails(t, NativeUpdater("npm/package-lock.json"), "package-lock.json", map[string][]byte{"package-lock.json": []byte(bare)}, []Change{c}, "records no integrity")
 }
 
 // TestNpmRefuses: what the npm updater does not rewrite.
@@ -210,7 +214,14 @@ func TestNpmRefuses(t *testing.T) {
 		{"no artifact", entry(`{"version":"2.1.2","integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="}`), []Change{{Type: "npm", Name: "ms", From: "2.1.2", To: "2.1.3"}}, "no \"package\" artifact"},
 		{"no sha512", entry(`{"version":"2.1.2","integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="}`),
 			[]Change{{Type: "npm", Name: "ms", From: "2.1.2", To: "2.1.3", Artifacts: []Artifact{{Role: "package", SHA256: fakeSHA256("x")}}}}, "no SHA-512"},
-		{"install path twice", `{"packages":{"node_modules/ms":{"version":"2.1.2"},"node_modules/ms":{"version":"2.1.2"}}}`, []Change{ms}, "twice"},
+		{"install path twice", `{"packages":{"node_modules/ms":{"version":"2.1.2","integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="},"node_modules/ms":{"version":"2.1.2"}}}`, []Change{ms}, "twice"},
+		{"no integrity", entry(`{"version":"2.1.2","resolved":"https://r.example/ms/-/ms-2.1.2.tgz"}`), []Change{ms}, "records no integrity"},
+		// The proxy vetted the package of one registry; an entry from
+		// another does not move under that vetting.
+		{"two registries", `{"lockfileVersion":3,"packages":{` +
+			`"node_modules/ms":{"version":"2.1.2","resolved":"https://registry.npmjs.org/ms/-/ms-2.1.2.tgz","integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="},` +
+			`"node_modules/a/node_modules/ms":{"version":"2.1.2","resolved":"https://evil.example/ms/-/ms-2.1.2.tgz","integrity":"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g="}}}`,
+			[]Change{ms}, "comes from two registries"},
 		{"two packages sections", `{"packages":{},"packages":{}}`, []Change{ms}, "two \"packages\" sections"},
 		{"sections disagree", strings.Replace(v2, "\"ms\": {\n      \"version\": \"2.1.2\"", "\"ms\": {\n      \"version\": \"2.1.1\"", 1), []Change{ms},
 			"packages section has 1 entries of it, its dependencies section 0"},
@@ -246,7 +257,7 @@ func TestNpmLargeLockFile(t *testing.T) {
 		fmt.Fprintf(&b, ",\n    \"node_modules/pkg-%d\": {\n      \"version\": \"1.0.%d\",\n      \"resolved\": \"https://registry.npmjs.org/pkg-%d/-/pkg-%d-1.0.%d.tgz\",\n      \"integrity\": \"%s\",\n      \"dependencies\": {\"ms\": \"^2.1.0\"}\n    }",
 			i, i%7, i, i, i%7, ms213Integrity)
 		if i%100 == 0 {
-			fmt.Fprintf(&b, ",\n    \"node_modules/pkg-%d/node_modules/ms\": {\n      \"version\": \"2.1.2\",\n      \"resolved\": \"https://registry.npmjs.org/ms/-/ms-2.1.2.tgz\"\n    }", i)
+			fmt.Fprintf(&b, ",\n    \"node_modules/pkg-%d/node_modules/ms\": {\n      \"version\": \"2.1.2\",\n      \"resolved\": \"https://registry.npmjs.org/ms/-/ms-2.1.2.tgz\",\n      \"integrity\": \"sha1-VgiurfwAvmwpAd9fmGF4jeDVl8g=\"\n    }", i)
 		}
 	}
 	b.WriteString("\n  }\n}\n")
@@ -264,5 +275,18 @@ func TestNpmLargeLockFile(t *testing.T) {
 	t.Logf("%d MB rewritten in %v", len(data)>>20, took)
 	if !raceEnabled && took > 2*time.Second {
 		t.Errorf("rewriting %d MB took %v", len(data)>>20, took)
+	}
+	// Verify reads both versions of the file entry by entry, once each.
+	files := map[string][]byte{"package-lock.json": data}
+	start = time.Now()
+	if err := Verify("package-lock.json", files, merged(files, out), []Change{c}); err != nil {
+		t.Fatal(err)
+	}
+	took = time.Since(start)
+	t.Logf("%d MB verified in %v", len(data)>>20, took)
+	// A bound against a blow-up (it reads every entry twice), not a
+	// benchmark: shared CI runners are slow.
+	if !raceEnabled && took > 20*time.Second {
+		t.Errorf("verifying %d MB took %v", len(data)>>20, took)
 	}
 }

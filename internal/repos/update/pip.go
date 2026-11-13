@@ -133,7 +133,13 @@ func (r *reqRewrite) run() error {
 	}
 	var b strings.Builder
 	first := -1 // where the logical line being joined starts
-	for off := 0; ; {
+	// A byte order mark is not content: pip decodes it away, and so does
+	// internal/lockfiles. It stays where it is.
+	start := 0
+	if bytes.HasPrefix(r.data, []byte("\xef\xbb\xbf")) {
+		start = 3
+	}
+	for off := start; ; {
 		l, ok := nextLine(r.data, off)
 		if !ok {
 			break

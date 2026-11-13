@@ -36,11 +36,13 @@ import (
 //   - Every other dependency is read exactly as before: same identity, same
 //     digests, same URL and dev flag, none appearing or disappearing.
 //
-// For an npm lock file with both sections (lockfileVersion 2) the legacy
+// An npm lock file is held to these rules entry by entry (verifyNPM): npm
+// installs every entry for itself, and a reading that merges the entries of a
+// package version, as a scan's does, would hide one entry's change behind
+// another's. One with both sections (lockfileVersion 2) has its legacy
 // "dependencies" tree, which npm 6 reads and internal/lockfiles passes over
-// when "packages" is there, is held to the same rules on its own. For Go,
-// go.sum must also hold the new version's "/go.mod" hash, which nothing
-// reads as a dependency.
+// when "packages" is there, held to them on its own. For Go, go.sum must also
+// hold the new version's "/go.mod" hash, which nothing reads as a dependency.
 //
 // before and after hold the files keyed by repository path; after is before
 // with the rewrite's files replaced. The error names the first discrepancy.
@@ -50,6 +52,9 @@ func Verify(lockPath string, before, after map[string][]byte, changes []Change) 
 	}
 	paths := []string{lockPath}
 	base := path.Base(lockPath)
+	if base == "package-lock.json" || base == "npm-shrinkwrap.json" {
+		return verifyNPM(lockPath, before, after, changes)
+	}
 	if base == "go.mod" || base == "go.sum" {
 		dir := lockPath[:len(lockPath)-len(base)]
 		paths = nil
@@ -83,26 +88,6 @@ func Verify(lockPath string, before, after map[string][]byte, changes []Change) 
 	if err := v.check(bf, af); err != nil {
 		return err
 	}
-	if key == "npm/package-lock.json" || key == "npm/npm-shrinkwrap.json" {
-		lb, hasB, err := npmLegacyView(b[lockPath])
-		if err != nil {
-			return err
-		}
-		la, hasA, err := npmLegacyView(a[lockPath])
-		if err != nil {
-			return err
-		}
-		if hasB != hasA {
-			return errors.New("the rewrite changed the lock file's sections")
-		}
-		if hasB {
-			lbf := lockfiles.ParseFiles(nil, nil, map[string][]byte{lockPath: lb})
-			laf := lockfiles.ParseFiles(nil, nil, map[string][]byte{lockPath: la})
-			if err := v.check(lbf, laf); err != nil {
-				return fmt.Errorf("the dependencies section: %w", err)
-			}
-		}
-	}
 	if key == "go/go.mod" || key == "go/go.sum" {
 		for _, p := range paths {
 			if path.Base(p) == "go.sum" {
@@ -113,6 +98,179 @@ func Verify(lockPath string, before, after map[string][]byte, changes []Change) 
 		}
 	}
 	return nil
+}
+
+// verifyNPM holds an npm lock file to the changes entry by entry.
+func verifyNPM(lockPath string, before, after map[string][]byte, changes []Change) error {
+	b, ok := before[lockPath]
+	if !ok {
+		return fmt.Errorf("%s is not among the files before the rewrite", lockPath)
+	}
+	a, ok := after[lockPath]
+	if !ok {
+		return fmt.Errorf("%s is not among the files after the rewrite", lockPath)
+	}
+	v := &verifier{key: "npm/" + path.Base(lockPath), changes: changes}
+	if err := v.consistent(); err != nil {
+		return err
+	}
+	if err := v.entries(lockfiles.ParseEntries(nil, nil, lockPath, b), lockfiles.ParseEntries(nil, nil, lockPath, a)); err != nil {
+		return err
+	}
+	lb, hasB, err := npmLegacyView(b)
+	if err != nil {
+		return err
+	}
+	la, hasA, err := npmLegacyView(a)
+	if err != nil {
+		return err
+	}
+	if hasB != hasA {
+		return errors.New("the rewrite changed the lock file's sections")
+	}
+	if hasB {
+		if err := v.entries(lockfiles.ParseEntries(nil, nil, lockPath, lb), lockfiles.ParseEntries(nil, nil, lockPath, la)); err != nil {
+			return fmt.Errorf("the dependencies section: %w", err)
+		}
+	}
+	return nil
+}
+
+// consistent checks that the changes name each old version once, of the
+// format's type, and that none starts where another ends.
+func (v *verifier) consistent() error {
+	type nv struct{ name, version string }
+	from, to := map[nv]bool{}, map[nv]bool{}
+	for _, c := range v.changes {
+		if lockfiles.CanonicalType(c.Type) != strings.SplitN(v.key, "/", 2)[0] {
+			return fmt.Errorf("a %s change for a %s lock file", c.Type, v.key)
+		}
+		if c.From == c.To || from[nv{c.Name, c.From}] {
+			return fmt.Errorf("the changes of %s %s contradict each other", c.Name, c.From)
+		}
+		from[nv{c.Name, c.From}] = true
+		to[nv{c.Name, c.To}] = true
+	}
+	for _, c := range v.changes {
+		if to[nv{c.Name, c.From}] {
+			return fmt.Errorf("the changes of %s %s contradict each other", c.Name, c.From)
+		}
+	}
+	return nil
+}
+
+// entries compares two entry-by-entry readings of an npm lock file
+// (lockfiles.ParseEntries). The rewrite changes no line structure, so the
+// entries pair up in order, on the same lines. An entry of a changed package
+// at its old version must come out at the new version with the same identity,
+// URL moved to the new version's tarball, dev flag kept, and exactly the
+// digest of the bytes the proxy verified — and it must have recorded a digest
+// (npm checks nothing for an entry without one). Every other entry reads
+// exactly as before; one of a changed package at its new version, which the
+// file had already, must be pinned with that digest only.
+func (v *verifier) entries(bf, af *lockfiles.File) error {
+	if bf == nil || af == nil {
+		return errors.New("not an npm lock file")
+	}
+	if bf.Error != "" {
+		return fmt.Errorf("%s could not be read before the rewrite: %s", bf.Path, bf.Error)
+	}
+	if af.Error != "" {
+		return fmt.Errorf("%s cannot be read after the rewrite: %s", af.Path, af.Error)
+	}
+	if bf.FormatVersion != af.FormatVersion {
+		return fmt.Errorf("%s: format version %q before the rewrite, %q after", af.Path, bf.FormatVersion, af.FormatVersion)
+	}
+	if err := sameWarnings(bf, af); err != nil {
+		return err
+	}
+	if len(bf.Dependencies) != len(af.Dependencies) {
+		return fmt.Errorf("%d entries before the rewrite, %d after", len(bf.Dependencies), len(af.Dependencies))
+	}
+	type nv struct{ name, version string }
+	byFrom, byTo := map[nv]*Change{}, map[nv]*Change{}
+	for i := range v.changes {
+		c := &v.changes[i]
+		byFrom[nv{c.Name, c.From}] = c
+		byTo[nv{c.Name, c.To}] = c
+	}
+	moved := map[*Change]int{}
+	for i := range bf.Dependencies {
+		d0, d1 := bf.Dependencies[i], af.Dependencies[i]
+		if d0.Line != d1.Line {
+			return fmt.Errorf("%s %s on line %d is on line %d after the rewrite", d0.Name, d0.Version, d0.Line, d1.Line)
+		}
+		c := byFrom[nv{d0.Name, d0.Version}]
+		if c == nil {
+			if fingerprint(d0) != fingerprint(d1) {
+				return fmt.Errorf("%s %s (%s line %d) is not read as before the rewrite", d0.Name, d0.Version, d0.File, d0.Line)
+			}
+			if pre := byTo[nv{d0.Name, d0.Version}]; pre != nil {
+				ds, err := changeDigests(v.key, *pre)
+				if err != nil {
+					return err
+				}
+				for _, dg := range d0.Digests {
+					if !containsDigest(ds, dg) {
+						return fmt.Errorf("%s %s was already pinned with %s, which is not a digest of the bytes the proxy verified (line %d)", d0.Name, d0.Version, dg, d0.Line)
+					}
+				}
+			}
+			continue
+		}
+		if d0.Source != lockfiles.SourceRegistry {
+			return fmt.Errorf("%s %s (line %d) is pinned from a %s source, which a native rewrite does not move", c.Name, c.From, d0.Line, d0.Source)
+		}
+		if len(d0.Digests) == 0 {
+			return fmt.Errorf("%s %s (line %d) recorded no digest, so nothing would check the bytes installed for %s", c.Name, c.From, d0.Line, c.To)
+		}
+		want := d0
+		want.Version = c.To
+		ds, err := changeDigests(v.key, *c)
+		if err != nil {
+			return err
+		}
+		want.Digests = ds
+		if want.URL, err = npmMovedURL(d0.URL, *c); err != nil {
+			return err
+		}
+		switch {
+		case d1.Name == c.Name && d1.Version == c.From:
+			return fmt.Errorf("%s %s is still pinned after the rewrite (line %d)", c.Name, c.From, d0.Line)
+		case d1.Key() != want.Key():
+			return fmt.Errorf("%s %s comes from %s after the rewrite, not %s (line %d)", d1.Name, d1.Version, sourceOf(d1), sourceOf(want), d0.Line)
+		case !sameDigests(digestSet(want.Digests), digestSet(d1.Digests)):
+			return fmt.Errorf("%s %s is pinned with the digests %s after the rewrite, not %s (line %d)", c.Name, c.To,
+				digestList(digestSet(d1.Digests)), digestList(digestSet(want.Digests)), d0.Line)
+		case d1.Dev != want.Dev:
+			return fmt.Errorf("%s %s: the rewrite changed whether it is development-only (line %d)", c.Name, c.To, d0.Line)
+		case d1.URL != want.URL:
+			return fmt.Errorf("%s %s is downloaded from another URL after the rewrite (line %d)", c.Name, c.To, d0.Line)
+		case fingerprint(want) != fingerprint(d1):
+			return fmt.Errorf("%s %s is not read as intended after the rewrite (line %d)", c.Name, c.To, d0.Line)
+		}
+		moved[c]++
+	}
+	for i := range v.changes {
+		if moved[&v.changes[i]] == 0 {
+			return fmt.Errorf("the lock file did not pin %s %s before the rewrite", v.changes[i].Name, v.changes[i].From)
+		}
+	}
+	return nil
+}
+
+// npmMovedURL returns the download URL a moved npm entry is read with: the
+// registry tarball URL of the new version ("" where the entry recorded none).
+func npmMovedURL(u string, c Change) (string, error) {
+	if u == "" {
+		return "", nil
+	}
+	base := c.Name[strings.LastIndexByte(c.Name, '/')+1:]
+	prefix, ok := strings.CutSuffix(u, "/-/"+base+"-"+c.From+".tgz")
+	if !ok {
+		return "", fmt.Errorf("%s %s: the entry's URL is not a registry tarball of that version", c.Name, c.From)
+	}
+	return prefix + "/-/" + base + "-" + c.To + ".tgz", nil
 }
 
 // verifier compares the reading of files before and after a rewrite.
@@ -516,6 +674,14 @@ func sourceOf(d lockfiles.Dependency) string {
 		return d.Source
 	}
 	return "the default registry"
+}
+
+func digestSet(ds []lockfiles.Digest) map[lockfiles.Digest]bool {
+	out := make(map[lockfiles.Digest]bool, len(ds))
+	for _, d := range ds {
+		out[d] = true
+	}
+	return out
 }
 
 func sameDigests(want, got map[lockfiles.Digest]bool) bool {
