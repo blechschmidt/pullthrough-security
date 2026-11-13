@@ -838,6 +838,80 @@ func TestReplicasShareTheRegistry(t *testing.T) {
 	}
 }
 
+// countingStore counts the manifests read from a DirStore.
+type countingStore struct {
+	*DirStore
+	mu    sync.Mutex
+	reads int
+}
+
+func (c *countingStore) Get(ctx context.Context, name string) ([]byte, error) {
+	if strings.HasPrefix(name, "manifests/") {
+		c.mu.Lock()
+		c.reads++
+		c.mu.Unlock()
+	}
+	return c.DirStore.Get(ctx, name)
+}
+
+func (c *countingStore) manifestReads() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reads
+}
+
+// A replica re-reading the shared state every minute reads only the
+// manifests that changed since it last did.
+func TestRefreshReadsOnlyChangedManifests(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	ds, err := NewDirStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := newHarness(t, ds, widgets)
+	writer.commitDeps(commitA, writer.publish("left-pad", "1.0.0"))
+	writer.commitDeps(commitB, writer.publish("is-odd", "1.0.0"))
+	writer.refs.set("widgets", "v1", commitA)
+	writer.refs.set("widgets", "v2", commitB)
+	writer.sync("widgets")
+
+	ds2, err := NewDirStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs := &countingStore{DirStore: ds2}
+	reader := &harness{t: t, store: cs, refs: writer.refs, scanner: writer.scanner, fetcher: writer.fetcher, sink: audit.NewMemorySink(), notes: &fakeNotifier{}, now: writer.now}
+	reader.start(widgets)
+	if err := reader.svc.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := cs.manifestReads()
+	if err := reader.svc.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := cs.manifestReads() - first; n != 0 {
+		t.Fatalf("an unchanged state cost %d manifest reads", n)
+	}
+	// One release changes: one read, and its new state is seen.
+	if err := writer.svc.Repin(ctx, "", "widgets", commitA); err != nil {
+		t.Fatal(err)
+	}
+	before := cs.manifestReads()
+	if err := reader.svc.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := cs.manifestReads() - before; n != 1 {
+		t.Fatalf("one changed manifest cost %d reads", n)
+	}
+	reader.svc.mu.RLock()
+	head := reader.svc.summaries[manifestObject("widgets", commitA)]
+	reader.svc.mu.RUnlock()
+	if head.Attempts != 1 || !head.NextAttempt.IsZero() {
+		t.Fatalf("the reader did not see the change: %+v", head)
+	}
+}
+
 func TestStaleMirrorIsNotReadAsDeletion(t *testing.T) {
 	h := newHarness(t, NewMemoryStore(), widgets)
 	h.commitDeps(commitA, h.publish("left-pad", "1.0.0"))

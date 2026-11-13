@@ -191,9 +191,10 @@ Some details:
   its history and releases are kept, and only the same tenant can register the
   name again, for the same URL, which continues the history.
 * **High availability.** The state directory must be one every replica
-  mounts: the pins in it protect the shared cache on every replica. Every
-  replica re-reads the shared state every minute: registrations made through
-  another replica's API, and the manifests, which are the pins. The garbage
+  mounts: the pins in it protect the shared cache on every replica. With
+  `coordination.enabled`, every replica re-reads the shared state every
+  minute: registrations made through another replica's API, and the
+  manifests, which are the pins (only those that changed are read). The garbage
   collector re-reads the manifests before each pass. Only the leader polls,
   takes webhook deliveries and pins. A release that a sync or a `ptctl repos
   pin` on another replica queued stays pending in the shared state, and the

@@ -87,6 +87,7 @@ func reposConfig(cfg *config.Config) (repos.Config, error) {
 		SpoolDir:                  pc.SpoolDir,
 		Lockfiles:                 lockfiles.Options{Proxy: lockfileProxy(cfg)},
 		Roles:                     rc.Roles,
+		Replicated:                cfg.Coordination.Enabled,
 	}
 	if cfg.Auth.Enabled {
 		defined := map[string]bool{}

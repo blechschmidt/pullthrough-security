@@ -175,8 +175,11 @@ type Config struct {
 	// attempts (default 5).
 	RetryInterval time.Duration
 	MaxAttempts   int
-	// RefreshInterval is how often a replica re-reads manifests other
-	// replicas wrote to a shared state directory (default 1m; negative off).
+	// Replicated says other replicas share the state directory
+	// (coordination on): every replica then re-reads it every
+	// RefreshInterval (default 1m; negative off). A single replica writes
+	// all of it itself and does not.
+	Replicated      bool
 	RefreshInterval time.Duration
 	// Lockfiles are the base options of the lock-file scans (proxy URL map,
 	// skip globs, limits); each repository's lock-file globs are added.
@@ -266,6 +269,9 @@ type Service struct {
 	// header, so that listings do not read every manifest from the store.
 	manifestVersions map[string]string
 	summaries        map[string]Manifest
+	// manifestStamps are the store versions (DirStore.Version) of the
+	// manifests last read by Refresh: an unchanged one is not read again.
+	manifestStamps map[string]string
 
 	locks keyedMutex
 
@@ -320,6 +326,7 @@ func New(ctx context.Context, cfg Config, opts Options) (*Service, error) {
 		repos:            map[string]*registration{},
 		live:             map[string]*liveState{},
 		manifestVersions: map[string]string{},
+		manifestStamps:   map[string]string{},
 		summaries:        map[string]Manifest{},
 		locks:            newKeyedMutex(),
 		queued:           map[string]bool{},
@@ -608,10 +615,30 @@ func (s *Service) Refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	vs, _ := s.st.(versionedStore)
 	for _, n := range names {
+		stamp := ""
+		if vs != nil {
+			if v, err := vs.Version(ctx, n); err == nil {
+				s.mu.RLock()
+				seen := s.manifestStamps[n]
+				s.mu.RUnlock()
+				if v == seen {
+					continue
+				}
+				stamp = v
+			}
+		}
 		data, err := s.st.Get(ctx, n)
 		if err != nil {
 			continue
+		}
+		if stamp != "" {
+			// The content read is at least as new as the stamp: a later
+			// write changes the stamp again.
+			s.mu.Lock()
+			s.manifestStamps[n] = stamp
+			s.mu.Unlock()
 		}
 		version := contentVersion(data)
 		s.mu.RLock()
@@ -950,7 +977,7 @@ func (s *Service) loop() {
 		// registrations made through another replica's API, the manifests
 		// (pins) the leader stores, the releases a sync on another replica
 		// left pending for the leader.
-		if s.cfg.RefreshInterval > 0 && now.Sub(lastRefresh) >= s.cfg.RefreshInterval {
+		if s.cfg.Replicated && s.cfg.RefreshInterval > 0 && now.Sub(lastRefresh) >= s.cfg.RefreshInterval {
 			lastRefresh = now
 			if err := s.Refresh(ctx); err != nil {
 				s.log.Warn("re-reading the registry's shared state failed", "error", err)

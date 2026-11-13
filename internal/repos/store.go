@@ -83,6 +83,12 @@ type MemoryStore struct {
 	objects map[string][]byte
 }
 
+// versionedStore is a Store that can tell an object's version without
+// reading it (DirStore).
+type versionedStore interface {
+	Version(ctx context.Context, name string) (string, error)
+}
+
 // NewMemoryStore returns an empty store.
 func NewMemoryStore() *MemoryStore { return &MemoryStore{objects: map[string][]byte{}} }
 
@@ -211,6 +217,28 @@ func (d *DirStore) sweepTemporaries() {
 		}
 		return nil
 	})
+}
+
+// Version identifies the stored content of an object without reading it: a
+// replica re-reading the shared state reads only the manifests that changed.
+// Every write is a rename of a fresh file: a new write is a new file (inode)
+// and modification time.
+func (d *DirStore) Version(ctx context.Context, name string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	p, err := d.path(name)
+	if err != nil {
+		return "", err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return fmt.Sprintf("%d:%d:%d", fileID(fi), fi.Size(), fi.ModTime().UnixNano()), nil
 }
 
 func (d *DirStore) Get(ctx context.Context, name string) ([]byte, error) {
