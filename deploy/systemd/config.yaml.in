@@ -1,0 +1,177 @@
+# pullthrough on one host, run by systemd (docs/systemd.md).
+#
+# deploy/systemd/install.sh wrote this file on the first install and never
+# overwrites it: edit it, then `systemctl restart pullthrough`. The unit
+# validates the file before it starts the proxy.
+#
+# Nothing in this file is secret. Both tokens are stored as hashes (the
+# plaintext is in /etc/pullthrough/tokens/, readable by root only) and the audit
+# key is read from a file only the service account can read.
+#@
+#@ Template: the installer drops the lines starting "#@" and fills in
+#@   @LISTEN@             the listen address, e.g. ":8443"
+#@   @PUBLIC_URL@         the address clients use, e.g. "https://proxy.example.com:8443"
+#@   @TLS_CERT_FILE@      the certificate chain and key the proxy serves, both ""
+#@   @TLS_KEY_FILE@       when a load balancer in front terminates TLS
+#@   @CACHE_MAX_BYTES@    how large the package cache may grow
+#@   @CLIENT_TOKEN_HASH@  sha256 of the package clients' token
+#@   @ADMIN_TOKEN_HASH@   sha256 of the admin console's token
+#@ internal/config/systemd_template_test.go renders it the same way and
+#@ validates the result.
+
+server:
+  httpAddr: "@LISTEN@"
+  publicUrl: "@PUBLIC_URL@"
+  tlsCertFile: "@TLS_CERT_FILE@"
+  tlsKeyFile: "@TLS_KEY_FILE@"
+  readTimeout: 30s
+  # A response must be written within writeTimeout. A large image layer or
+  # model file sent to a slow client needs much more than the 5m default.
+  writeTimeout: 1h
+  shutdownTimeout: 30s
+  registry:
+    # Image names without an upstream prefix are Docker Hub's, so the proxy
+    # also works as a registry mirror.
+    defaultUpstream: dockerhub
+
+logging:
+  level: info
+  format: json # one JSON object per line in the journal
+
+cache:
+  backend: filesystem
+  dir: /var/lib/pullthrough/cache
+  # The garbage collector evicts least-recently-used artifacts when the cache
+  # passes 90 % of this size (cacheGc.highWatermarkPct).
+  maxSizeBytes: @CACHE_MAX_BYTES@
+
+# Every request needs a token; there is no anonymous access. Package managers
+# send it as a bearer token or as the password of HTTP Basic (docs/clients.md),
+# `docker login` included.
+auth:
+  enabled: true
+  allowAnonymous: false
+  roles:
+    - name: reader
+      ecosystems: ["*"]
+      upstreams: ["*"]
+  tokens:
+    - name: owner
+      team: default
+      roles: [reader]
+      tokenHash: "@CLIENT_TOKEN_HASH@"
+
+# A leaked token cannot saturate the host.
+rateLimit:
+  enabled: true
+  default:
+    rps: 50
+    burst: 200
+    maxConcurrent: 32
+
+audit:
+  enabled: true
+  file: /var/lib/pullthrough/audit/audit.log
+  hmacKey: file:///etc/pullthrough/secrets/audit-hmac-key
+
+# Which package was downloaded from which address: the admin console's
+# Downloads tab. The path keeps it across restarts.
+downloadLog:
+  path: /var/lib/pullthrough/downloads.jsonl
+
+observability:
+  # The Prometheus endpoint has no authentication of its own and is served on
+  # the same listener as the packages. Turn it on only where that listener is
+  # not reachable from the internet.
+  metrics: false
+  admin: true
+  adminPathPrefix: /admin
+
+# The admin console (<publicUrl>/admin/) and its API accept only the admin
+# token; the console asks for it.
+adminAuth:
+  enabled: true
+  allowLegacyToken: false
+  staticTokens:
+    - name: owner-admin
+      roles: [admin]
+      tokenHash: "@ADMIN_TOKEN_HASH@"
+
+# Gates that need no account anywhere. Both report what they find (findings,
+# the console's Security Ops tab) and block nothing; raise `action` to block.
+# The gates that are on by default stay on: install hooks, model weights,
+# content heuristics, maturity, publisher continuity, build provenance.
+vulnerabilities:
+  enabled: true # OSV (api.osv.dev)
+  action: warn
+  failSeverity: high
+  warnSeverity: medium
+nameguard:
+  enabled: true # typosquatting and look-alike names
+  action: warn
+
+# The LLM scans need a provider key and are therefore off. To turn on the
+# package-content scan, put an API key into a file owned by the service
+# account with mode 0400 and add (docs/llm-package-scan.md):
+#
+#   llmPackageScan:
+#     enabled: true
+#     provider: claude
+#     apiKey: file:///etc/pullthrough/secrets/llm-api-key
+
+# The upstream names are the ones docs/clients/ uses, so every example there
+# works with this proxy's address in place of proxy.example.com.
+upstreams:
+  npm: { type: npm, url: https://registry.npmjs.org }
+  npm-jsr: { type: npm, url: https://npm.jsr.io }
+  pypi: { type: pip, url: https://pypi.org }
+  crates: { type: cargo, url: https://index.crates.io }
+  goproxy: { type: go, url: https://proxy.golang.org }
+  nuget: { type: nuget, url: https://api.nuget.org }
+  maven: { type: maven, url: https://repo1.maven.org/maven2 }
+  gradle-plugins: { type: maven, url: https://plugins.gradle.org/m2 }
+  rubygems: { type: rubygems, url: https://rubygems.org }
+  packagist: { type: composer, url: https://repo.packagist.org }
+  helm-oci: { type: helm, url: https://ghcr.io, settings: { oci: "true" } }
+  debian: { type: apt, url: https://deb.debian.org/debian }
+  ubuntu: { type: apt, url: https://archive.ubuntu.com/ubuntu }
+  rocky: { type: yum, url: https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os }
+  dockerhub: { type: docker, url: https://registry-1.docker.io }
+  ghcr: { type: docker, url: https://ghcr.io }
+  quay: { type: docker, url: https://quay.io }
+  terraform: { type: terraform, url: https://registry.terraform.io }
+  opentofu: { type: terraform, url: https://registry.opentofu.org }
+  conancenter: { type: conan, url: https://center2.conan.io }
+  conda-forge: { type: conda, url: https://conda.anaconda.org/conda-forge }
+  cran: { type: cran, url: https://cloud.r-project.org }
+  hex: { type: hex, url: https://repo.hex.pm }
+  bazel: { type: bazel, url: https://bcr.bazel.build }
+  julia: { type: julia, url: https://pkg.julialang.org }
+  cpan: { type: cpan, url: https://www.cpan.org }
+  pub: { type: dart, url: https://pub.dev }
+  huggingface: { type: huggingface, url: https://huggingface.co }
+  openvsx: { type: openvsx, url: https://open-vsx.org }
+  nix:
+    type: nix
+    url: https://cache.nixos.org
+    settings:
+      trustedPublicKeys: "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+  homebrew: { type: homebrew, url: https://formulae.brew.sh }
+  ansible: { type: ansible, url: https://galaxy.ansible.com }
+  puppet: { type: puppet, url: https://forgeapi.puppet.com }
+  jsr: { type: jsr, url: https://jsr.io }
+  hackage: { type: hackage, url: https://hackage.haskell.org }
+  github: { type: git, url: https://github.com }
+  swiftpm: { type: swift, url: https://tuist.dev/api/registry/swift }
+  # Alpine's package mirror has no dedicated backend: the generic one serves
+  # the indexes and packages its routes allow (docs/generic-backend.md).
+  alpine:
+    type: generic
+    url: https://dl-cdn.alpinelinux.org/alpine
+    generic:
+      routes:
+        - name: index
+          match: '^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/APKINDEX\.tar\.gz$'
+        - name: package
+          match: '^/v3\.[0-9]+/(main|community)/[a-z0-9_]+/[A-Za-z0-9._+-]+\.apk$'
+          cacheable: true

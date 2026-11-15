@@ -1,0 +1,14 @@
+# Publishes a renewed TLS certificate to /etc/pullthrough/tls and restarts
+# pullthrough when it changed (deploy/systemd/pullthrough-sync-certs).
+# Started daily by pullthrough-sync-certs.timer; docs/systemd.md.
+
+[Unit]
+Description=Publish the TLS certificate for pullthrough
+Documentation=https://github.com/blechschmidt/pullthrough-security/blob/main/docs/systemd.md
+ConditionPathExists=/etc/pullthrough/sync-certs.env
+
+[Service]
+Type=oneshot
+# PT_TLS_SOURCE: the directory holding fullchain.pem and privkey.pem.
+EnvironmentFile=/etc/pullthrough/sync-certs.env
+ExecStart=/usr/local/sbin/pullthrough-sync-certs

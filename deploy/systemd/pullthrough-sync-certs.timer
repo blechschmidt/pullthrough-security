@@ -1,0 +1,15 @@
+# Checks once a day whether the certificate pullthrough serves was renewed.
+# ACME clients renew 30 days before expiry, so a renewal reaches the proxy
+# long before the old certificate lapses, whichever client renewed it.
+
+[Unit]
+Description=Daily check for a renewed pullthrough TLS certificate
+Documentation=https://github.com/blechschmidt/pullthrough-security/blob/main/docs/systemd.md
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,80 @@
+#!/bin/bash
+# pullthrough-sync-certs — publish a TLS certificate for the pullthrough service.
+#
+# Copies fullchain.pem and privkey.pem from a source directory (typically a
+# certbot "live" directory, whose archive/ the service account cannot read)
+# into /etc/pullthrough/tls, readable by the pullthrough group, and restarts the
+# service when the certificate changed: the proxy reads it once, at startup.
+#
+#   pullthrough-sync-certs [SOURCE_DIR]
+#
+# SOURCE_DIR defaults to $PT_TLS_SOURCE (set in /etc/pullthrough/sync-certs.env
+# by deploy/systemd/install.sh). Idempotent: it compares before it writes and
+# does nothing when the published files are current, so it can run from a
+# timer (pullthrough-sync-certs.timer, daily), a certbot deploy hook or by hand.
+#
+# Overridable for tests: PT_TLS_DIR (destination), PT_GROUP, PT_SERVICE.
+set -euo pipefail
+
+SRC="${1:-${PT_TLS_SOURCE:-}}"
+DST="${PT_TLS_DIR:-/etc/pullthrough/tls}"
+GROUP="${PT_GROUP:-pullthrough}"
+SERVICE="${PT_SERVICE:-pullthrough.service}"
+me="pullthrough-sync-certs"
+
+if [[ -z "${SRC}" ]]; then
+  echo "${me}: no source directory (argument or PT_TLS_SOURCE)" >&2
+  exit 2
+fi
+if [[ ! -r "${SRC}/fullchain.pem" || ! -r "${SRC}/privkey.pem" ]]; then
+  echo "${me}: no readable fullchain.pem and privkey.pem in ${SRC}" >&2
+  exit 1
+fi
+
+# Refuse a pair that does not match (a renewal caught half-way): the proxy
+# could not serve a certificate its key does not belong to.
+cert_pub=$(openssl x509 -in "${SRC}/fullchain.pem" -noout -pubkey)
+key_pub=$(openssl pkey -in "${SRC}/privkey.pem" -pubout)
+if [[ "${cert_pub}" != "${key_pub}" ]]; then
+  echo "${me}: certificate and key in ${SRC} do not match; nothing published" >&2
+  exit 1
+fi
+# Refuse an expired certificate: publishing it would only replace a working one.
+if ! openssl x509 -in "${SRC}/fullchain.pem" -noout -checkend 0 >/dev/null; then
+  echo "${me}: the certificate in ${SRC} has expired; nothing published" >&2
+  exit 1
+fi
+
+install -d -o root -g "${GROUP}" -m 0750 "${DST}"
+
+changed=0
+publish() {
+  local src="$1" dst="$2" mode="$3" tmp
+  if [[ -f "${dst}" ]] && cmp -s "${src}" "${dst}"; then
+    return 0
+  fi
+  # Write next to the target and rename, so the proxy never reads half a file.
+  tmp="$(mktemp "${dst}.XXXXXX")"
+  cat "${src}" >"${tmp}"
+  chown "root:${GROUP}" "${tmp}"
+  chmod "${mode}" "${tmp}"
+  mv -f "${tmp}" "${dst}"
+  changed=1
+}
+# The proxy reads both files only when it starts, and the restart below comes
+# after both are in place.
+publish "${SRC}/privkey.pem" "${DST}/privkey.pem" 0640
+publish "${SRC}/fullchain.pem" "${DST}/fullchain.pem" 0644
+
+not_after=$(openssl x509 -in "${DST}/fullchain.pem" -noout -enddate | cut -d= -f2)
+if [[ "${changed}" -eq 0 ]]; then
+  echo "${me}: ${DST} is current (certificate valid until ${not_after})"
+  exit 0
+fi
+echo "${me}: published the certificate from ${SRC} (valid until ${not_after})"
+
+# There is no reload path: restart, and only a running service.
+if systemctl is-active --quiet "${SERVICE}"; then
+  echo "${me}: restarting ${SERVICE} to serve it"
+  systemctl restart "${SERVICE}"
+fi
