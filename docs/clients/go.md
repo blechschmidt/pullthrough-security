@@ -58,6 +58,11 @@ machine proxy.example.com
   password <token>
 ```
 
+When the proxy's address has a port (`https://proxy.example.com:8443`), the go
+command looks the credentials up under the host *and* the port: the machine
+line is `machine proxy.example.com:8443`. An entry without the port is not used
+for it. (curl-based clients need the opposite; see [nix.md](nix.md).)
+
 or in the `GOPROXY` URL:
 
 <!-- verified: lab:go lab:refused-go -->

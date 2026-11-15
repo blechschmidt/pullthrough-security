@@ -13,6 +13,7 @@ package onboard
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -47,6 +48,18 @@ type Context struct {
 	// credential — the link is the credential — and each snippet says where the
 	// link must not end up (a lock file, a file under version control).
 	Personal string
+}
+
+// curlNetrcHost is the machine name of a .netrc entry that curl reads (Nix,
+// Homebrew and cabal hand it their requests). curl looks an entry up by the host
+// name alone and never uses one whose machine names a port, so for a proxy
+// address with a port the entry leaves the port out. The go command matches
+// host and port instead, which is why goSnippet writes Host as it is.
+func (c Context) curlNetrcHost() string {
+	if host, _, err := net.SplitHostPort(c.Host); err == nil {
+		return host
+	}
+	return c.Host
 }
 
 // personal reports whether the snippets are for a personal cache link.
@@ -315,6 +328,8 @@ func goSnippet(ctx Context, b Backend) Snippet {
 	body := "# No \",direct\" after the address: with it, go fetches from the version-control host what the proxy answers 404 or 410 for.\ngo env -w GOPROXY=" + mount + "\n"
 	notes := append(ctx.authNote(),
 		"The GOPROXY protocol is path-relative, so no URL rewriting is needed.")
+	// The go command looks .netrc credentials up under host AND port, so the
+	// machine keeps the port when the proxy's address has one.
 	if ctx.Token != "" {
 		body += "\n# ~/.netrc (Go reads it for module-proxy auth):\nmachine " + ctx.Host + " login pullthrough password " + ctx.Token + "\n"
 	} else if !ctx.personal() {
@@ -727,7 +742,7 @@ func hackageSnippet(ctx Context, b Backend) Snippet {
 		// for one — cabal has no setting for it.
 		Notes: []string{
 			"Then: cabal update. Sdists are verified against the SHA-256 their signed package.json declares, where available.",
-			"The stanza carries no token: cabal has no credential setting the proxy can use. Where the proxy requires one, cabal's curl takes it from ~/.netrc ('machine " + ctx.Host + " login pullthrough password <your proxy token>') once ~/.curlrc contains the line `netrc` (docs/clients/hackage.md).",
+			"The stanza carries no token: cabal has no credential setting the proxy can use. Where the proxy requires one, cabal's curl takes it from ~/.netrc ('machine " + ctx.curlNetrcHost() + " login pullthrough password <your proxy token>') once ~/.curlrc contains the line `netrc` (docs/clients/hackage.md).",
 		},
 	}
 }

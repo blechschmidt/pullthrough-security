@@ -54,6 +54,10 @@ machine proxy.example.com
   password <token>
 ```
 
+Nix fetches with curl, which looks the entry up by host name alone: when the
+proxy's address has a port (`https://proxy.example.com:8443`), the machine line
+still names only the host. An entry with the port is never used.
+
 ## Trust a private CA
 
 In `nix.conf`:

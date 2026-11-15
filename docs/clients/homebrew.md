@@ -69,6 +69,10 @@ machine proxy.example.com
   password <token>
 ```
 
+curl looks the entry up by host name alone: when the proxy's address has a
+port (`https://proxy.example.com:8443`), the machine line still names only the
+host, `machine proxy.example.com`. An entry with the port is never used.
+
 ## Trust a private CA
 
 brew runs `curl` with a scrubbed environment and without `~/.curlrc`: neither

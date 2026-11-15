@@ -60,6 +60,10 @@ machine proxy.example.com
   password <token>
 ```
 
+curl looks the entry up by host name alone: when the proxy's address has a
+port (`https://proxy.example.com:8443`), the machine line still names only the
+host, `machine proxy.example.com`. An entry with the port is never used.
+
 `~/.curlrc` applies to every `curl` the user runs; `netrc` only ever sends
 credentials to the hosts listed in `~/.netrc`.
 

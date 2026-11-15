@@ -118,10 +118,10 @@ func nixSnippet(ctx Context, b Backend) Snippet {
 	if ctx.Token != "" {
 		sb.WriteString("netrc-file = /etc/nix/netrc\n")
 		sb.WriteString("\n# /etc/nix/netrc (mode 600; with a Nix daemon, readable by the daemon)\n")
-		sb.WriteString(netrcEntry(ctx.Host, ctx.Token))
+		sb.WriteString(netrcEntry(ctx.curlNetrcHost(), ctx.Token))
 		notes = append(notes, "The netrc file holds your proxy token; keep it private.")
 	} else {
-		notes = append(notes, "If the proxy requires a token: netrc-file = /etc/nix/netrc, and in that file 'machine "+ctx.Host+" login pullthrough password <your proxy token>'.")
+		notes = append(notes, "If the proxy requires a token: netrc-file = /etc/nix/netrc, and in that file 'machine "+ctx.curlNetrcHost()+" login pullthrough password <your proxy token>'.")
 	}
 	return Snippet{
 		Title: fmt.Sprintf("Nix — %s (binary cache)", b.Name),
@@ -148,7 +148,7 @@ func homebrewSnippet(ctx Context, b Backend) Snippet {
 		sb.WriteString("export HOMEBREW_CURLRC=1\n")
 		sb.WriteString("\n# ~/.curlrc\nnetrc\n")
 		sb.WriteString("\n# ~/.netrc (mode 600)\n")
-		sb.WriteString(netrcEntry(ctx.Host, ctx.Token))
+		sb.WriteString(netrcEntry(ctx.curlNetrcHost(), ctx.Token))
 		notes = append(notes, "brew sends the registry token to the artifact domain for bottles; for the formula API its curl takes the token from ~/.netrc, which HOMEBREW_CURLRC and the netrc line in ~/.curlrc switch on.")
 	} else {
 		notes = append(notes, "If the proxy requires a token, see docs/clients/homebrew.md: bottles and the formula API take it by different routes.")

@@ -68,6 +68,7 @@ pull-through proxy focused on software supply-chain security.
 | Encrypt the cache at rest (AES-256-GCM envelope, KEK rotation) | [cache-encryption.md](cache-encryption.md) |
 | Coordinate scheduled jobs across replicas (leader election) | [coordination.md](coordination.md) |
 | Deploy it (Docker, Helm, Kubernetes) | [../deploy/README.md](../deploy/README.md) |
+| Run it on one host as a systemd service (TLS, upgrades with rollback, certificate renewal) | [systemd.md](systemd.md) |
 | Know which OS/CPU architectures are supported (amd64, arm64) & how they're tested | [platforms.md](platforms.md) |
 | Test & fuzz it (unit, integration, parser fuzzing) | [testing.md](testing.md) |
 | See every ecosystem's real package manager install through the proxy (CI-verified client configurations) | [ecosystem-tests.md](ecosystem-tests.md) · [reference](ecosystem-tests-reference.md) |

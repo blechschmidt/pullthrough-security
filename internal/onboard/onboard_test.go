@@ -365,3 +365,41 @@ func TestSwiftSnippetUsesRealCommands(t *testing.T) {
 		t.Errorf("swift snippet prints `swift package-registry resolve`, which is not a SwiftPM command:\n%s", body)
 	}
 }
+
+// On a proxy address with a port, curl (which Nix, Homebrew and cabal hand
+// their requests) never uses a .netrc entry whose machine names the port, and
+// the go command never uses one that leaves it out. Each snippet writes the
+// form its client looks up; the host-only form also works without a port.
+func TestNetrcMachineIsTheFormEachClientMatches(t *testing.T) {
+	withPort := Context{ProxyBase: "https://proxy.example.com:8443", Host: "proxy.example.com:8443", Token: "secret-tok"}
+	noPort := Context{ProxyBase: "https://proxy.example.com", Host: "proxy.example.com", Token: "secret-tok"}
+	for _, tc := range []struct {
+		c              Context
+		typ, want, not string
+	}{
+		{withPort, "go", "machine proxy.example.com:8443 login", ""},
+		{withPort, "nix", "machine proxy.example.com\n", "machine proxy.example.com:8443"},
+		{withPort, "homebrew", "machine proxy.example.com\n", "machine proxy.example.com:8443"},
+		{noPort, "go", "machine proxy.example.com login", ""},
+		{noPort, "nix", "machine proxy.example.com\n", ""},
+	} {
+		snip := For(tc.c, Backend{Name: "x", Type: tc.typ, URL: "https://cache.nixos.org"})[0]
+		if !strings.Contains(snip.Body, tc.want) {
+			t.Errorf("%s on %s: snippet lacks %q\n%s", tc.typ, tc.c.Host, tc.want, snip.Body)
+		}
+		if tc.not != "" && strings.Contains(snip.Body, tc.not) {
+			t.Errorf("%s on %s: snippet has %q, which curl never uses\n%s", tc.typ, tc.c.Host, tc.not, snip.Body)
+		}
+	}
+
+	// Without a token the curl-based snippets name the entry in a note.
+	for _, typ := range []string{"nix", "hackage"} {
+		c := withPort
+		c.Token = ""
+		snip := For(c, Backend{Name: "x", Type: typ})[0]
+		notes := strings.Join(snip.Notes, "\n")
+		if !strings.Contains(notes, "'machine proxy.example.com login") {
+			t.Errorf("%s note does not name the host-only machine:\n%s", typ, notes)
+		}
+	}
+}

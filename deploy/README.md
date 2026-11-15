@@ -10,6 +10,7 @@ Containerization and deployment assets for the pull-through security proxy.
 | `helm/pullthrough/` | Helm chart (primary k8s deploy path). |
 | `k8s/` | Plain manifests / kustomize base (Helm-free path). |
 | `k8s/webhook/` | Opt-in overlay: Kubernetes admission webhook for in-cluster enforcement ([docs](../docs/admission-webhook.md)). |
+| `systemd/` | One Linux host without containers: installer, hardened unit, configuration template, certificate renewal ([docs](../docs/systemd.md)). |
 | `observability/` | Grafana dashboards + Prometheus alerting rules ([README](observability/README.md)). |
 | `../.github/workflows/ci.yml` | CI: test, lint, build & publish multi-arch images. |
 
