@@ -194,6 +194,20 @@ new_secret "$ETC/secrets/audit-hmac-key" "$ACCOUNT:$ACCOUNT" 0400
 new_secret "$ETC/tokens/client-token" root:root 0600
 new_secret "$ETC/tokens/admin-token" root:root 0600
 
+# The key that signs audit checkpoints and attestations (ECDSA P-256), and its
+# public half for whoever verifies them.
+signing_key="$ETC/secrets/signing-key.pem"
+if [ ! -s "$signing_key" ]; then
+  tmp="$(mktemp "$signing_key.XXXXXX")"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$tmp" 2>/dev/null
+  chown "$ACCOUNT:$ACCOUNT" "$tmp"
+  chmod 0400 "$tmp"
+  mv -f "$tmp" "$signing_key"
+  log "generated $signing_key"
+fi
+openssl pkey -in "$signing_key" -pubout -out "$ETC/signing-key.pub"
+chmod 0644 "$ETC/signing-key.pub"
+
 # --- 5. TLS certificate ------------------------------------------------------
 install -m 0755 "$here/pullthrough-sync-certs" "$SBIN/pullthrough-sync-certs"
 if [ -n "$tls_source" ]; then

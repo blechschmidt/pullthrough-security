@@ -73,11 +73,27 @@ audit:
   enabled: true
   file: /var/lib/pullthrough/audit/audit.log
   hmacKey: file:///etc/pullthrough/secrets/audit-hmac-key
+  transparency:
+    # Signs the audit log's checkpoints and, by default, the provenance
+    # attestations of served artifacts (attest.*). The public key, for
+    # `pullthrough verify-audit -pubkey` and attestation verifiers, is
+    # /etc/pullthrough/signing-key.pub.
+    signingKeyFile: /etc/pullthrough/secrets/signing-key.pem
 
 # Which package was downloaded from which address: the admin console's
 # Downloads tab. The path keeps it across restarts.
 downloadLog:
   path: /var/lib/pullthrough/downloads.jsonl
+
+# Personal cache links (docs/user-links.md): <publicUrl>/u/<link>/v1/<upstream>/…
+# A link in the path is a credential every client presents, so it also serves
+# the clients that cannot send a token (cargo crate downloads, NuGet, Terraform
+# providers, Conan, mix, ovsx), and the download log names its user. With no
+# identity provider configured, the admin issues links:
+#   ptctl userlinks issue --user <name> --roles reader
+userLinks:
+  enabled: true
+  defaultRoles: [reader]
 
 observability:
   # The Prometheus endpoint has no authentication of its own and is served on

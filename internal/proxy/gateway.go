@@ -711,6 +711,12 @@ func (g *Gateway) routes() http.Handler {
 		prefix := strings.TrimRight(g.opts.AdminPrefix, "/")
 		mux.Handle(prefix, g.deps.AdminHandler)
 		mux.Handle(prefix+"/", g.deps.AdminHandler)
+		// The proxy's bare address, opened in a browser, leads to the console
+		// rather than to a 404. Only "/" itself: any other path nothing serves
+		// is still a 404, and the console asks for its own credentials.
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, prefix+"/", http.StatusFound)
+		})
 	}
 	// The self-service portal serves its front-end under one prefix and its scoped
 	// JSON API under another; both route into the same handler (a single mux with

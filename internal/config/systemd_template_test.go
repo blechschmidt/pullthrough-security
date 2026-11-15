@@ -121,17 +121,23 @@ func TestSystemdTemplateRendersToAValidConfig(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// What `pullthrough verify-config` reports: nothing at all, not
-			// even a warning.
+			// What `pullthrough verify-config` reports: no error, and no
+			// warning but the one that describes the intended setup (links
+			// exist only when the admin issues them; there is no identity
+			// provider to sign in at).
+			expected := map[string]bool{"userLinks.oidc.enabled": true}
 			report, err := CheckFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !report.OK || len(report.Issues) > 0 {
-				for _, is := range report.Issues {
-					t.Errorf("%s %s: %s", is.Severity, is.Path, is.Message)
+			for _, is := range report.Issues {
+				if is.Severity == SeverityWarning && expected[is.Path] {
+					continue
 				}
-				t.Fatalf("rendered template does not validate cleanly (ok=%v)", report.OK)
+				t.Errorf("%s %s: %s", is.Severity, is.Path, is.Message)
+			}
+			if !report.OK {
+				t.Fatalf("rendered template does not validate (%d errors)", report.Errors)
 			}
 
 			cfg, err := Load(path)
@@ -161,11 +167,21 @@ func TestSystemdTemplateRendersToAValidConfig(t *testing.T) {
 					t.Errorf("client token %q is stored in plaintext", tok.Name)
 				}
 			}
+			// Personal links issued by the admin are how cargo, NuGet and the
+			// other clients that cannot send a token get in.
+			if !cfg.UserLinks.Enabled || cfg.UserLinks.OIDC.Enabled {
+				t.Errorf("userLinks.enabled=%v oidc.enabled=%v, want admin-issued links", cfg.UserLinks.Enabled, cfg.UserLinks.OIDC.Enabled)
+			}
 			if cfg.Observability.Metrics {
 				t.Error("the unauthenticated metrics endpoint must stay off on a public listener")
 			}
 			if !strings.HasPrefix(cfg.Audit.HMACKey, "file:///etc/pullthrough/secrets/") {
 				t.Errorf("audit.hmacKey = %q, want a file reference the installer creates", cfg.Audit.HMACKey)
+			}
+			// The installer generates this key; without it checkpoints and
+			// attestations go unsigned.
+			if got := cfg.Audit.Transparency.SigningKeyFile; got != "/etc/pullthrough/secrets/signing-key.pem" {
+				t.Errorf("audit.transparency.signingKeyFile = %q, want the key install.sh generates", got)
 			}
 			if cfg.Cache.Backend != "filesystem" || !strings.HasPrefix(cfg.Cache.Dir, "/var/lib/pullthrough/") {
 				t.Errorf("cache = %s %s, want the filesystem under /var/lib/pullthrough", cfg.Cache.Backend, cfg.Cache.Dir)

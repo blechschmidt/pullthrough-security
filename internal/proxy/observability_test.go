@@ -115,6 +115,43 @@ func TestAdminSurfaceMounted(t *testing.T) {
 	}
 }
 
+// TestRootLeadsToTheAdminConsole: the bare address redirects to the console
+// when there is one; nothing else changes (other unrouted paths, other
+// methods, a proxy without a console stay 404 / not served).
+func TestRootLeadsToTheAdminConsole(t *testing.T) {
+	admin := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "admin:"+r.URL.Path)
+	})
+	g := newGatewayWithDeps(t, "https://registry.npmjs.org",
+		Dependencies{AdminHandler: admin}, Options{AdminPrefix: "/console/"})
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		rr := httptest.NewRecorder()
+		g.routes().ServeHTTP(rr, httptest.NewRequest(method, "/", nil))
+		if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/console/" {
+			t.Errorf("%s / = %d Location %q, want 302 to /console/", method, rr.Code, rr.Header().Get("Location"))
+		}
+	}
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodGet, "/index.html"},
+		{http.MethodGet, "/v1"},
+		{http.MethodPost, "/"},
+	} {
+		rr := httptest.NewRecorder()
+		g.routes().ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path, nil))
+		if rr.Code == http.StatusFound || rr.Code == http.StatusOK {
+			t.Errorf("%s %s = %d, want it left unrouted", tc.method, tc.path, rr.Code)
+		}
+	}
+
+	bare := newGateway(t, "https://registry.npmjs.org", upstream.Credentials{})
+	rr := httptest.NewRecorder()
+	bare.routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("GET / without an admin console = %d, want 404", rr.Code)
+	}
+}
+
 func TestRequestAndUpstreamMetricsRecorded(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ARTIFACT")
