@@ -678,13 +678,27 @@ enforcement (Task 24). The limiter runs as a middleware in the reverse-proxy cor
 **inside** the access-control envelope, so the tenant is the authenticated
 principal's team; `auth.teams.<team>.rateLimit` overrides `rateLimit.default`.
 Every request must satisfy **both** the global policy and its tenant policy.
-Throttled requests receive `429 Too Many Requests` with a `Retry-After` header
-and an `X-RateLimit-Limit: rps|concurrency|bytes` marker.
+
+A request over its rate or concurrency limit **waits for its turn** before it is
+refused: a rate token due within `maxWait` is reserved and waited for, and a
+full concurrency limit is queued for, first come first served (the tenant's slot
+is taken before the global one, so one tenant's queue holds no capacity other
+tenants could use). Package managers fetch many files at once — cargo keeps up
+to 200 requests in flight over HTTP/2 — and many of them give up on the first
+`429` instead of retrying it (cargo before 1.89, for one), so a limit that
+refused such a burst at once failed the whole build. With every gate on, a
+4-core host clears a 233-crate `cargo fetch` in about 45 seconds under a limit
+of 32: the last requests of the burst wait half a minute. Only a request that is
+still over the limit after `maxWait`, one beyond `maxQueue` waiters, or one over
+an exhausted byte quota receives `429 Too Many Requests`, always with a
+`Retry-After` header, and an `X-RateLimit-Limit: rps|concurrency|bytes` marker.
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `enabled` | `false` | Master switch; when false the middleware is not installed. |
 | `shared` | `false` | Coordinate byte quotas across replicas via the shared object store (requires `cache.backend: s3`). RPS/burst and concurrency are always per replica. |
+| `maxWait` | `1m` | How long a request over its rate or concurrency limit waits for its turn before it is answered `429`. A client that stops waiting first (cargo after 30 s without data, pip after 15 s) leaves the queue at once and, unlike a `429`, usually retries its own timeout. `0s` answers `429` at once. |
+| `maxQueue` | `1024` | Requests of one tenant that may wait at a time (for a concurrency slot or a rate token; also per global concurrency limit); one more is answered `429` at once. `0` means the default. |
 | `global.*` | — | Process-wide ceiling applied to every request. |
 | `default.*` | — | Policy for tenants without an explicit override. |
 
@@ -701,6 +715,8 @@ or `{"global":true,"policy":{…}}`) replaces a policy without a restart, preser
 live bucket/concurrency state. Metrics: `pullthrough_ratelimit_allowed_total`,
 `pullthrough_ratelimit_throttled_total`,
 `pullthrough_ratelimit_throttled_by_reason_total{reason}`,
+`pullthrough_ratelimit_delayed_total` (admitted after waiting),
+`pullthrough_ratelimit_waiting{tenant}` (waiting right now),
 `pullthrough_ratelimit_concurrent_inflight{tenant}`, and
 `pullthrough_ratelimit_bytes_used{tenant}`.
 

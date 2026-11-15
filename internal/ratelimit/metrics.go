@@ -17,6 +17,14 @@ type Snapshot struct {
 	Throttled int64 `json:"throttled"`
 	// ThrottledByReason breaks throttled down by limit type (rps|concurrency|bytes).
 	ThrottledByReason map[string]int64 `json:"throttledByReason"`
+	// Delayed counts the admitted requests that waited for their turn first;
+	// Waiting is how many are waiting right now.
+	Delayed int64 `json:"delayed"`
+	Waiting int64 `json:"waiting"`
+	// MaxWait is how long a request may wait for its turn ("0s": not at all);
+	// MaxQueue how many may wait for a concurrency slot of one scope.
+	MaxWait  string `json:"maxWait"`
+	MaxQueue int    `json:"maxQueue"`
 	// Global is the snapshot of the process-wide policy/state.
 	Global TenantSnapshot `json:"global"`
 	// Tenants holds one row per tenant the limiter has observed, sorted by name.
@@ -31,6 +39,10 @@ type TenantSnapshot struct {
 	Throttled int64  `json:"throttled"`
 	// InFlight is the number of concurrency slots currently held.
 	InFlight int `json:"inFlight"`
+	// Delayed counts the tenant's admitted requests that waited for their turn
+	// first; Waiting is how many are waiting right now.
+	Delayed int64 `json:"delayed"`
+	Waiting int64 `json:"waiting"`
 	// BytesUsed is the bytes consumed in the current quota window.
 	BytesUsed int64 `json:"bytesUsed"`
 	// WindowEnds is when the current byte-quota window resets (zero when unknown

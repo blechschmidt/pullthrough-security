@@ -702,6 +702,8 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `rateLimit.default.byteQuota` | int | 0 |
 | `rateLimit.default.window` | duration | 0s |
 | `rateLimit.shared` | bool | false |
+| `rateLimit.maxWait` | duration | 1m0s |
+| `rateLimit.maxQueue` | int | 1024 |
 
 ## `coalesce`
 

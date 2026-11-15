@@ -15,6 +15,10 @@
 //     admits up to its configured rate.
 //   - Upstream concurrency: a counting semaphore bounding simultaneous in-flight
 //     pulls per tenant. Also per replica.
+//
+// A request over the rate or concurrency limit waits for its turn, up to
+// Options.MaxWait, before it is refused (see Limiter.Admit): package managers
+// fetch many files at once and many of them give up on the first 429.
 //   - Byte quota: a windowed cumulative byte cap (e.g. a monthly egress budget).
 //     Coordinated across replicas through a pluggable Store, so a multi-replica
 //     deployment shares one budget rather than N independent ones.
@@ -128,6 +132,9 @@ type Decision struct {
 	Type       LimitType
 	Reason     string
 	RetryAfter time.Duration
+	// Waited is how long an admitted request waited for its turn (zero when it
+	// went ahead at once).
+	Waited time.Duration
 }
 
 // Reservation represents the resources held by an admitted request: any acquired

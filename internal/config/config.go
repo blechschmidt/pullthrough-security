@@ -4602,6 +4602,17 @@ type RateLimitConfig struct {
 	// coordinates byte quotas across replicas through that store rather than
 	// per-replica in-memory counters.
 	Shared bool `yaml:"shared"`
+	// MaxWait is how long a request over its rate or concurrency limit waits
+	// for its turn before it is answered 429. Package managers fetch many files
+	// at once (cargo keeps up to 200 requests in flight) and many give up on
+	// the first 429 while they retry a timeout, so a burst is delayed rather
+	// than refused, and a client that stops waiting first leaves the queue at
+	// once. 0 answers 429 at once.
+	MaxWait time.Duration `yaml:"maxWait"`
+	// MaxQueue caps how many requests may wait per tenant (for a concurrency
+	// slot or a rate token; for the global policy's slots too); one more is
+	// answered 429 at once. 0 means the default, 1024.
+	MaxQueue int `yaml:"maxQueue"`
 }
 
 // RateLimitPolicyConfig is a single rate-limit policy. A zero value on any
@@ -5220,6 +5231,10 @@ func Default() Config {
 			GrantTTL:          time.Hour,
 			RequestTTL:        72 * time.Hour,
 			SweepInterval:     time.Minute,
+		},
+		RateLimit: RateLimitConfig{
+			MaxWait:  time.Minute,
+			MaxQueue: 1024,
 		},
 		Coalesce: CoalesceConfig{
 			Enabled:        true,
@@ -6900,6 +6915,12 @@ func (c *Config) validateCoalesce() error {
 func (c *Config) validateRateLimit() error {
 	if !c.RateLimit.Enabled {
 		return nil
+	}
+	if c.RateLimit.MaxWait < 0 {
+		return fmt.Errorf("config: rateLimit.maxWait must not be negative")
+	}
+	if c.RateLimit.MaxQueue < 0 {
+		return fmt.Errorf("config: rateLimit.maxQueue must not be negative")
 	}
 	if err := validateRateLimitPolicy("rateLimit.global", c.RateLimit.Global); err != nil {
 		return err

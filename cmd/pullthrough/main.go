@@ -1756,10 +1756,14 @@ func buildRateLimiter(cfg *config.Config, logger *slog.Logger) (*ratelimit.Limit
 		Default:   toRatePolicy(cfg.RateLimit.Default),
 		PerTenant: perTenant,
 		Store:     store,
+		MaxWait:   cfg.RateLimit.MaxWait,
+		MaxQueue:  cfg.RateLimit.MaxQueue,
 	})
 	logger.Info("rate limiting enabled",
 		"perTenantPolicies", len(perTenant),
-		"shared", store != nil)
+		"shared", store != nil,
+		"maxWait", cfg.RateLimit.MaxWait.String(),
+		"maxQueue", lim.Metrics().MaxQueue)
 	return lim, closer, nil
 }
 

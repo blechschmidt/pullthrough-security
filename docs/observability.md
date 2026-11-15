@@ -197,9 +197,11 @@ become a label value.
 ### Rate limiting (per-tenant)
 
 `pullthrough_ratelimit_` + `allowed_total`, `throttled_total`,
-`throttled_by_reason_total{reason}` (rps\|concurrency\|bytes),
-`concurrent_inflight{tenant}` (gauge), `bytes_used{tenant}` (gauge). The `tenant`
-gauges include a `__global__` series for the global policy.
+`throttled_by_reason_total{reason}` (rps\|concurrency\|bytes), `delayed_total`
+(admitted after waiting for their turn, `rateLimit.maxWait`), `waiting{tenant}`
+(gauge: waiting right now), `concurrent_inflight{tenant}` (gauge),
+`bytes_used{tenant}` (gauge). The `concurrent_inflight` and `bytes_used` gauges
+include a `__global__` series for the global policy.
 
 ### Notifications & commit scan
 
@@ -433,6 +435,10 @@ metrics first.
 
 **Respond:** review per-tenant policy or scale out; a single tenant spiking may
 indicate abuse ([access-control-and-audit.md](access-control-and-audit.md)).
+Requests over a limit wait up to `rateLimit.maxWait` before they are refused, so
+a refusal means the limit stayed saturated that long: a rising
+`pullthrough_ratelimit_delayed_total` with few refusals is a limit doing its
+job, a rising `pullthrough_ratelimit_waiting` with refusals one set too low.
 
 ### Notify alerts
 

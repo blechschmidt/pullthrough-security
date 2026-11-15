@@ -61,7 +61,9 @@ auth:
       roles: [reader]
       tokenHash: "@CLIENT_TOKEN_HASH@"
 
-# A leaked token cannot saturate the host.
+# A leaked token cannot saturate the host. A request over a limit waits up to
+# rateLimit.maxWait (1m) for its turn before it is answered 429: cargo alone
+# keeps up to 200 requests in flight, and old cargo fails on the first 429.
 rateLimit:
   enabled: true
   default:

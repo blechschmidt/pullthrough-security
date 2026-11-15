@@ -2,6 +2,8 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -24,14 +26,38 @@ type Options struct {
 	// Now overrides the clock (for tests). When nil, time.Now is used; the
 	// in-memory store (when Store is nil) shares this clock.
 	Now func() time.Time
+	// MaxWait is how long a request over its rate or concurrency limit waits
+	// for its turn — a rate token, a free slot — before it is refused. Package
+	// managers fetch dozens to hundreds of files at once (cargo keeps up to 200
+	// requests in flight), and many of them give up on the first 429 instead of
+	// retrying it, so a burst a limit can absorb by delaying it should be
+	// delayed, not refused. A client that gives up waiting first leaves the
+	// queue at once (its context ends). Zero refuses at once.
+	MaxWait time.Duration
+	// MaxQueue bounds how many requests may wait for a concurrency slot of one
+	// scope (a tenant, or the global policy), and how many of one tenant may
+	// wait for a rate token, at a time; a request beyond it is refused at once,
+	// so a flood of requests cannot pile up waiting. Zero or less uses
+	// DefaultMaxQueue.
+	MaxQueue int
 }
+
+// DefaultMaxQueue is the number of requests that may wait for a concurrency
+// slot of one scope when Options.MaxQueue is not set.
+const DefaultMaxQueue = 1024
+
+// concurrencyRetryAfter is the Retry-After hint of a request refused by a
+// concurrency limit: slots come free as soon as requests finish.
+const concurrencyRetryAfter = time.Second
 
 // Limiter enforces per-tenant and global rate, concurrency, and byte-quota
 // policies. It is safe for concurrent use. A nil *Limiter admits everything, so
 // rate limiting can be disabled without nil checks at call sites.
 type Limiter struct {
-	now   func() time.Time
-	store Store
+	now      func() time.Time
+	store    Store
+	maxWait  time.Duration
+	maxQueue int
 
 	mu       sync.RWMutex
 	global   Policy
@@ -45,6 +71,8 @@ type Limiter struct {
 	thrRPS    atomic.Int64
 	thrConc   atomic.Int64
 	thrBytes  atomic.Int64
+	delayed   atomic.Int64 // admitted after waiting for their turn
+	waiting   atomic.Int64 // waiting for their turn right now
 }
 
 // tenantState holds the live, mutable enforcement state for one tenant.
@@ -54,6 +82,8 @@ type tenantState struct {
 
 	allowed   atomic.Int64
 	throttled atomic.Int64
+	delayed   atomic.Int64
+	waiting   atomic.Int64
 }
 
 // New constructs a Limiter from Options.
@@ -66,9 +96,19 @@ func New(opts Options) *Limiter {
 	if store == nil {
 		store = newMemStore(now)
 	}
+	maxQueue := opts.MaxQueue
+	if maxQueue <= 0 {
+		maxQueue = DefaultMaxQueue
+	}
+	maxWait := opts.MaxWait
+	if maxWait < 0 {
+		maxWait = 0
+	}
 	l := &Limiter{
 		now:      now,
 		store:    store,
+		maxWait:  maxWait,
+		maxQueue: maxQueue,
 		global:   opts.Global,
 		def:      opts.Default,
 		policies: make(map[string]Policy, len(opts.PerTenant)),
@@ -115,7 +155,9 @@ func (l *Limiter) stateFor(key string, p Policy) *tenantState {
 		} else {
 			st.sem.setMax(p.MaxConcurrent)
 		}
-	} else {
+	} else if st.sem != nil {
+		// The limit is lifted: let everyone waiting for a slot go ahead.
+		st.sem.setMax(0)
 		st.sem = nil
 	}
 	return st
@@ -132,12 +174,20 @@ type scope struct {
 }
 
 // Admit performs the full admission decision for one request on behalf of
-// tenant: it checks the byte quota, acquires concurrency slots, and consumes a
-// rate token, for both the global and the per-tenant policy. On success it
-// returns a Reservation the caller must Release when the request completes (and
-// whose RecordBytes it should call with the served byte count) and a Decision
-// with Allowed true. On rejection it returns a no-op Reservation and a Decision
+// tenant: it checks the byte quota, takes a rate token and acquires concurrency
+// slots, for both the per-tenant and the global policy. On success it returns a
+// Reservation the caller must Release when the request completes (and whose
+// RecordBytes it should call with the served byte count) and a Decision with
+// Allowed true. On rejection it returns a no-op Reservation and a Decision
 // describing the violated limit (with a Retry-After hint where applicable).
+//
+// A request over its rate or concurrency limit waits for its turn, up to
+// Options.MaxWait in all: a rate token due within that time is reserved and
+// waited for, and a full concurrency limit is queued for, first come first
+// served. The tenant's slot is taken before the global one, so a tenant's
+// queued requests never hold global capacity other tenants could use. A request
+// whose context ends while it waits is refused. Waiting never applies to an
+// exhausted byte quota, which lasts until its window ends.
 //
 // A nil *Limiter admits everything.
 func (l *Limiter) Admit(ctx context.Context, tenant string) (Reservation, Decision) {
@@ -153,12 +203,12 @@ func (l *Limiter) Admit(ctx context.Context, tenant string) (Reservation, Decisi
 	// to retain past the unlock.
 	tenantState := l.stateFor(tenant, tp)
 	scopes := make([]scope, 0, 2)
+	if !tp.unlimited() {
+		scopes = append(scopes, scope{key: tenant, policy: tp, bucket: tenantState.bucket, sem: tenantState.sem})
+	}
 	if !l.global.unlimited() {
 		gst := l.stateFor(GlobalKey, l.global)
 		scopes = append(scopes, scope{key: GlobalKey, policy: l.global, bucket: gst.bucket, sem: gst.sem})
-	}
-	if !tp.unlimited() {
-		scopes = append(scopes, scope{key: tenant, policy: tp, bucket: tenantState.bucket, sem: tenantState.sem})
 	}
 	l.mu.Unlock()
 
@@ -169,6 +219,8 @@ func (l *Limiter) Admit(ctx context.Context, tenant string) (Reservation, Decisi
 	}
 
 	now := l.now()
+	started := time.Now()
+	deadline := started.Add(l.maxWait)
 
 	// 1) Byte-quota pre-check (read-only). A quota already exhausted is rejected
 	// before any rate token is spent or slot acquired. Store errors fail open:
@@ -186,34 +238,72 @@ func (l *Limiter) Admit(ctx context.Context, tenant string) (Reservation, Decisi
 		}
 	}
 
-	// 2) Concurrency acquisition, in scope order. On failure, release whatever we
-	// already acquired so a rejection never leaks a slot.
+	// 2) Rate tokens, in scope order: taken, or reserved when the next one is
+	// due within the wait. On failure, give back what was reserved, so a refused
+	// request costs nothing.
+	var reserved []*tokenBucket
+	refund := func() {
+		for _, b := range reserved {
+			b.refund()
+		}
+	}
+	var rateWait time.Duration
+	for _, sc := range scopes {
+		if sc.bucket == nil {
+			continue
+		}
+		wait, ok := sc.bucket.reserve(now, l.maxWait)
+		if !ok {
+			refund()
+			return l.reject(tenantState, LimitRPS, "request rate limit exceeded", wait)
+		}
+		reserved = append(reserved, sc.bucket)
+		if wait > rateWait {
+			rateWait = wait
+		}
+	}
+	waited := rateWait > 0
+	if waited {
+		if err := l.sleep(ctx, tenantState, rateWait); err != nil {
+			refund()
+			if errors.Is(err, errQueueFull) {
+				return l.reject(tenantState, LimitRPS, "request rate limit exceeded; too many requests are waiting", rateWait)
+			}
+			return l.reject(tenantState, LimitRPS, "request rate limit exceeded; the client went away while waiting", 0)
+		}
+	}
+
+	// 3) Concurrency slots, in scope order, waiting for each within what is left
+	// of the wait. On failure, release whatever was acquired so a rejection never
+	// leaks a slot.
 	var acquired []*semaphore
 	for _, sc := range scopes {
 		if sc.sem == nil {
 			continue
 		}
-		if !sc.sem.acquire() {
-			for _, s := range acquired {
-				s.release()
-			}
-			return l.reject(tenantState, LimitConcurrency, "concurrency limit reached", 0)
+		var remaining time.Duration
+		if l.maxWait > 0 {
+			remaining = time.Until(deadline)
 		}
+		semWaited, err := l.acquireSlot(ctx, tenantState, sc.sem, remaining)
+		if err != nil {
+			for _, sem := range acquired {
+				sem.release()
+			}
+			refund()
+			reason, retry := "concurrency limit reached", concurrencyRetryAfter
+			switch {
+			case errors.Is(err, errQueueFull):
+				reason = "concurrency limit reached; too many requests are waiting"
+			case errors.Is(err, errWaitExpired):
+				reason = fmt.Sprintf("concurrency limit reached; no slot came free within %s", l.maxWait)
+			case ctx.Err() != nil:
+				reason, retry = "concurrency limit reached; the client went away while waiting", 0
+			}
+			return l.reject(tenantState, LimitConcurrency, reason, retry)
+		}
+		waited = waited || semWaited
 		acquired = append(acquired, sc.sem)
-	}
-
-	// 3) Rate token, in scope order. On failure, release acquired slots.
-	for _, sc := range scopes {
-		if sc.bucket == nil {
-			continue
-		}
-		ok, retry := sc.bucket.take(now)
-		if !ok {
-			for _, s := range acquired {
-				s.release()
-			}
-			return l.reject(tenantState, LimitRPS, "request rate limit exceeded", retry)
-		}
 	}
 
 	// Admitted. Build the reservation: release slots and record bytes against
@@ -226,6 +316,12 @@ func (l *Limiter) Admit(ctx context.Context, tenant string) (Reservation, Decisi
 	}
 	l.allowed.Add(1)
 	tenantState.allowed.Add(1)
+	dec := Decision{Allowed: true}
+	if waited {
+		l.delayed.Add(1)
+		tenantState.delayed.Add(1)
+		dec.Waited = time.Since(started)
+	}
 
 	res := Reservation{
 		release: func() {
@@ -241,7 +337,49 @@ func (l *Limiter) Admit(ctx context.Context, tenant string) (Reservation, Decisi
 			}
 		}
 	}
-	return res, Decision{Allowed: true}
+	return res, dec
+}
+
+// sleep waits d for a reserved rate token, counted as waiting. At most
+// MaxQueue requests of a tenant wait at a time (errQueueFull beyond), so the
+// requests a long wait lets in cannot pile up; it returns ctx's error when ctx
+// ends first.
+func (l *Limiter) sleep(ctx context.Context, st *tenantState, d time.Duration) error {
+	if st.waiting.Add(1) > int64(l.maxQueue) {
+		st.waiting.Add(-1)
+		return errQueueFull
+	}
+	l.waiting.Add(1)
+	defer func() {
+		l.waiting.Add(-1)
+		st.waiting.Add(-1)
+	}()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// acquireSlot takes a slot of sem, queueing for up to wait when none is free,
+// counted as waiting while it queues.
+func (l *Limiter) acquireSlot(ctx context.Context, st *tenantState, sem *semaphore, wait time.Duration) (bool, error) {
+	if sem.acquire() {
+		return false, nil
+	}
+	if wait <= 0 {
+		return false, errSlotsFull
+	}
+	l.waiting.Add(1)
+	st.waiting.Add(1)
+	defer func() {
+		l.waiting.Add(-1)
+		st.waiting.Add(-1)
+	}()
+	return sem.acquireWait(ctx, wait, l.maxQueue)
 }
 
 // reject increments the appropriate counters and returns a denial decision.
@@ -360,6 +498,8 @@ func (l *Limiter) tenantSnapshot(ctx context.Context, key string, p Policy, st *
 		Policy:    p,
 		Allowed:   st.allowed.Load(),
 		Throttled: st.throttled.Load(),
+		Delayed:   st.delayed.Load(),
+		Waiting:   st.waiting.Load(),
 	}
 	if st.sem != nil {
 		ts.InFlight = st.sem.inFlight()
@@ -387,6 +527,10 @@ func (l *Limiter) Metrics() Snapshot {
 	snap := Snapshot{
 		Allowed:   l.allowed.Load(),
 		Throttled: l.throttled.Load(),
+		Delayed:   l.delayed.Load(),
+		Waiting:   l.waiting.Load(),
+		MaxWait:   l.maxWait.String(),
+		MaxQueue:  l.maxQueue,
 		ThrottledByReason: map[string]int64{
 			string(LimitRPS):         l.thrRPS.Load(),
 			string(LimitConcurrency): l.thrConc.Load(),

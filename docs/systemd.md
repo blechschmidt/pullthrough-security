@@ -104,7 +104,10 @@ complete configuration for a proxy on the internet. In short:
 - **Audit log** with its key in a file, checkpoints signed; the same key signs
   the attestations of served artifacts ([attestbundle.md](attestbundle.md)).
 - **Download log** persisted across restarts ([download-log.md](download-log.md)).
-- **Rate limit** of 50 requests/s (burst 200, 32 concurrent) per tenant.
+- **Rate limit** of 50 requests/s (burst 200, 32 concurrent) per tenant. A
+  request over it waits up to a minute for its turn (`rateLimit.maxWait`)
+  before it is answered `429`, so a package manager's burst of parallel
+  requests is slowed down, not failed.
 - **Gates**: those on by default stay on (install hooks, model weights, content
   heuristics, maturity, publisher continuity, build provenance); OSV
   vulnerabilities and typosquatting are added in `warn` mode — they record

@@ -3788,6 +3788,20 @@ func bindRateLimitMetrics(c *metrics.Collector, lim *ratelimit.Limiter) {
 			}
 			return out
 		})
+	c.BindCounter("pullthrough_ratelimit_delayed_total",
+		"Total backend requests admitted after waiting for their turn at a rate or concurrency limit.",
+		func() float64 { return float64(lim.Metrics().Delayed) })
+	c.Registry().RegisterFuncVec("pullthrough_ratelimit_waiting",
+		"Requests waiting for their turn at a rate or concurrency limit right now, by tenant.",
+		"gauge", []string{"tenant"},
+		func() []metrics.LabeledValue {
+			snap := lim.Metrics()
+			out := make([]metrics.LabeledValue, 0, len(snap.Tenants))
+			for _, t := range snap.Tenants {
+				out = append(out, metrics.LabeledValue{Labels: []string{t.Tenant}, Value: float64(t.Waiting)})
+			}
+			return out
+		})
 	c.Registry().RegisterFuncVec("pullthrough_ratelimit_concurrent_inflight",
 		"Current in-flight pulls held against the concurrency cap, by tenant.",
 		"gauge", []string{"tenant"},

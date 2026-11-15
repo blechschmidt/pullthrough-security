@@ -17,9 +17,13 @@ import (
 //
 // On admission it acquires a Reservation (holding any concurrency slot) that is
 // released when the handler returns, and meters the served bytes against the
-// tenant's byte quota. A rejected request is answered with 429 Too Many Requests
-// and, where meaningful, a Retry-After hint; it never reaches the upstream or the
-// cache. The middleware is a no-op when no limiter is configured.
+// tenant's byte quota. A request over its rate or concurrency limit first waits
+// for its turn (rateLimit.maxWait): package managers send bursts of parallel
+// requests, and many of them — cargo before 1.89, for one — fail the whole
+// build on the first 429. A request still refused is answered with 429 Too Many
+// Requests and, where meaningful, a Retry-After hint; it never reaches the
+// upstream or the cache. The middleware is a no-op when no limiter is
+// configured.
 func (g *Gateway) withRateLimit(next http.Handler) http.Handler {
 	if g.deps.RateLimit == nil {
 		return next
@@ -31,6 +35,9 @@ func (g *Gateway) withRateLimit(next http.Handler) http.Handler {
 			tracing.StringIf("pullthrough.tenant", tenant))
 		res, dec := g.deps.RateLimit.Admit(rlCtx, tenant)
 		rlSpan.SetAttributes(tracing.Bool("pullthrough.ratelimit.allowed", dec.Allowed))
+		if dec.Waited > 0 {
+			rlSpan.SetAttributes(tracing.Int64("pullthrough.ratelimit.waited_ms", dec.Waited.Milliseconds()))
+		}
 		if !dec.Allowed {
 			rlSpan.SetAttributes(tracing.StringIf("pullthrough.ratelimit.reason", string(dec.Type)))
 			rlSpan.SetStatus(tracing.StatusError, "throttled")
