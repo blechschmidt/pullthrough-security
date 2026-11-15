@@ -80,13 +80,21 @@ type Rule struct {
 	Title    string
 	Severity Severity
 	re       *regexp.Regexp
+	// lang holds the patterns that replace re for hooks written in a given
+	// language (hookLanguage).
+	lang map[string]*regexp.Regexp
 }
 
-// match returns one entry per line of script that the rule's pattern matches,
+// match returns one entry per line of script that the rule's pattern for lang
+// matches (lang "" or one without a pattern of its own: the generic pattern),
 // each carrying the 1-based line number and a redacted excerpt. A rule matches
 // at most once per line (the pattern's first hit drives the excerpt).
-func (r *Rule) match(script string) []match {
-	if r.re == nil || script == "" {
+func (r *Rule) match(script, lang string) []match {
+	re := r.re
+	if l, ok := r.lang[lang]; ok {
+		re = l
+	}
+	if re == nil || script == "" {
 		return nil
 	}
 	var out []match
@@ -97,7 +105,7 @@ func (r *Rule) match(script string) []match {
 		if norm == "" {
 			continue
 		}
-		if r.re.MatchString(norm) {
+		if re.MatchString(norm) {
 			out = append(out, match{line: line, excerpt: excerpt(norm)})
 		}
 	}
@@ -117,6 +125,11 @@ type RuleSpec struct {
 	Title    string
 	Severity Severity
 	Pattern  string
+	// LangPatterns replaces Pattern for hooks written in a programming language
+	// whose ordinary code the generic pattern misreads, keyed by language
+	// (langRust: Cargo build scripts). An operator override of Pattern drops
+	// them, so a re-tuned pattern applies to every hook.
+	LangPatterns map[string]string
 }
 
 // builtinRuleSpecs is the fixed catalog of high-risk install-hook patterns, in
@@ -147,6 +160,11 @@ var builtinRuleSpecs = []RuleSpec{
 		// process.env / os.environ / printenv / $ENV serialized toward a network
 		// sink (a URL, an http client, or a curl/wget data flag).
 		Pattern: `(?i)(?:process\.env|os\.environ|printenv|env\b)[^\n]{0,120}(?:https?://|fetch\(|axios|requests\.(?:post|get)|urllib|net\.connect|\bcurl\b|\bwget\b|-d\s|--data|nc\s)`,
+		LangPatterns: map[string]string{
+			// Build scripts read their configuration from the environment
+			// (env::var) all the time; the sink must be a network one.
+			langRust: `(?i)(?:\benv\b|printenv)[^\n]{0,120}(?:\b(?:curl|wget)\b|--data\b|\bstd::net\b|\b(?:TcpStream|UdpSocket)\b|\b(?:reqwest|ureq|attohttpc|minreq|isahc|hyper|surf|http_req|ehttp|curl)::)`,
+		},
 	},
 	{
 		ID:       RuleNetworkEgress,
@@ -154,6 +172,12 @@ var builtinRuleSpecs = []RuleSpec{
 		Severity: SeverityHigh,
 		// A download/exfil primitive anywhere in an install hook.
 		Pattern: `(?i)\b(?:curl|wget|nc|ncat|netcat|telnet)\b|\b(?:https?|ftp)://|(?:require\(['"](?:https?|net|dgram|tls)['"]\))|fetch\(|axios|urllib\.request|requests\.(?:get|post)|net\.connect|new\s+xmlhttprequest`,
+		LangPatterns: map[string]string{
+			// A build script reaches the network through a download tool or a
+			// networking API. A URL alone is no egress: build scripts cite issues,
+			// release notes and licences, in comments and in error messages.
+			langRust: `(?i)\b(?:curl|wget|nc|ncat|netcat|telnet|iwr)\b|invoke-webrequest|\bstd::net\b|\b(?:TcpStream|UdpSocket|TcpListener)\b|\b(?:reqwest|ureq|attohttpc|minreq|isahc|hyper|surf|http_req|ehttp|curl)::|\b(?:tokio|async_std|smol)::net\b`,
+		},
 	},
 	{
 		ID:       RuleShellSpawn,
@@ -162,6 +186,13 @@ var builtinRuleSpecs = []RuleSpec{
 		// child_process.exec/spawn/execSync, os.system, subprocess, Kernel#system,
 		// backticks, sh -c.
 		Pattern: `(?i)child_process|\b(?:exec|execsync|spawn|spawnsync|execfile)\s*\(|os\.system\s*\(|subprocess\.(?:popen|call|run|check_output)|\bsystem\s*\(|\bpopen\s*\(|\bsh\s+-c\b|\bbash\s+-c\b|backtick`,
+		LangPatterns: map[string]string{
+			// Running programs is what build scripts are for (rustc probes,
+			// compilers, pkg-config), and Rust starts every one of them alike
+			// (.spawn(), .output(), .status()). What stands out is a shell: a
+			// shell program, libc's system/popen, or "sh -c" in a string.
+			langRust: `(?i)\bCommand::new\s*\(\s*(?:r#*)?"(?:[^"\n]*[/\\])?(?:sh|bash|zsh|dash|ksh|csh|tcsh|fish|cmd|powershell|pwsh)(?:\.exe)?"|\b(?:system|popen)\s*\(|\b(?:sh|bash|zsh|dash|ksh)\s+-c\b|child_process|os\.system\s*\(|subprocess\.(?:popen|call|run|check_output)`,
+		},
 	},
 	{
 		ID:       RuleFSWriteOutside,

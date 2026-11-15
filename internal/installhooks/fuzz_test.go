@@ -74,3 +74,28 @@ func FuzzExtractHooks(f *testing.F) {
 		}
 	})
 }
+
+// FuzzStripRustComments: whatever the text, the stripper only ever turns
+// comment bytes into spaces — same length, newlines where they were, nothing
+// added — so findings keep their line numbers and no code can appear that the
+// build script does not contain; and stripping twice changes nothing.
+func FuzzStripRustComments(f *testing.F) {
+	f.Add("fn main() { let u = \"https://x\"; } // https://y\n/* a /* b */ c */")
+	f.Add("let q = '\"'; let r = r#\"// \"#; let s = b\"\\\"//\"; 'a: loop {} // c")
+	f.Add("m!(\"a\"r\"\\\"//\"); m!('r\"\\\"//\"); let c = '\\u{10FFFF}'; /* unterminated")
+	f.Add("'\\")
+	f.Fuzz(func(t *testing.T, src string) {
+		got := stripRustComments(src)
+		if len(got) != len(src) {
+			t.Fatalf("length %d, want %d", len(got), len(src))
+		}
+		for i := 0; i < len(src); i++ {
+			if got[i] != src[i] && (got[i] != ' ' || src[i] == '\n') {
+				t.Fatalf("byte %d: %q became %q", i, src[i], got[i])
+			}
+		}
+		if again := stripRustComments(got); again != got {
+			t.Fatalf("not idempotent:\n once: %q\ntwice: %q", got, again)
+		}
+	})
+}

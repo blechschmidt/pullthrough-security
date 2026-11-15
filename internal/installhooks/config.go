@@ -207,7 +207,10 @@ func mergeSpec(base, ov RuleSpec) RuleSpec {
 		out.Severity = ov.Severity
 	}
 	if strings.TrimSpace(ov.Pattern) != "" {
+		// The operator's pattern replaces the built-in one for every hook, in
+		// whatever language, unless the override brings its own.
 		out.Pattern = ov.Pattern
+		out.LangPatterns = ov.LangPatterns
 	}
 	return out
 }
@@ -226,7 +229,18 @@ func compileSpec(spec RuleSpec) (Rule, error) {
 	if strings.TrimSpace(title) == "" {
 		title = spec.ID
 	}
-	return Rule{ID: spec.ID, Title: title, Severity: sev, re: re}, nil
+	var lang map[string]*regexp.Regexp
+	for l, p := range spec.LangPatterns {
+		lre, err := regexp.Compile(p)
+		if err != nil {
+			return Rule{}, fmt.Errorf("installhooks: compiling rule %q for %s: %w", spec.ID, l, err)
+		}
+		if lang == nil {
+			lang = make(map[string]*regexp.Regexp, len(spec.LangPatterns))
+		}
+		lang[l] = lre
+	}
+	return Rule{ID: spec.ID, Title: title, Severity: sev, re: re, lang: lang}, nil
 }
 
 // resolveThresholds returns the effective (failSeverity, warnSeverity, action)

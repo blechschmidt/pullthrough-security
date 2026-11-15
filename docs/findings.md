@@ -191,8 +191,14 @@ deterministic catalog of high-risk behaviors **without executing anything**:
 remote script piped into a shell (`curl … | sh`), base64/hex-decoded `eval`,
 environment-variable exfiltration, network egress during install, shell/process
 spawning, writes outside the package directory, obfuscated one-liners, and
-native-build steps. The matched rule id, the hook (e.g. `npm:postinstall`), the
-file, and a redacted excerpt appear in the result properties. A finding at or
+native-build steps. A Cargo `build.rs` is read as the Rust program it is: its
+comments are skipped, a URL alone (in a comment or an error message) is no
+network egress — a download tool or a networking API is — and starting a
+program counts as shell spawning only when the program is a shell (build
+scripts run rustc probes and compilers as a matter of course); a crate whose
+manifest says `build = false` has no build script. The matched rule id, the
+hook (e.g. `npm:postinstall`), the file, and a redacted excerpt appear in the
+result properties. A finding at or
 above the configured `failSeverity` warns on or blocks (and evicts) the
 artifact.
 

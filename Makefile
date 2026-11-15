@@ -336,6 +336,7 @@ FUZZ_TARGETS := \
 	internal/installhooks:FuzzParseCargoBuildField \
 	internal/installhooks:FuzzParsePyprojectBuildBackend \
 	internal/installhooks:FuzzExtractHooks \
+	internal/installhooks:FuzzStripRustComments \
 	internal/actionpin:FuzzParseContent \
 	internal/actionpin:FuzzClassify \
 	internal/actionpin:FuzzParseUsesValue \

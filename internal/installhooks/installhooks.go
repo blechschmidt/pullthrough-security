@@ -224,10 +224,12 @@ func (s *Service) scanHooks(hooks []Hook) []Finding {
 	maxPer := s.cfg.MaxFindingsPerHook
 	for hi := range hooks {
 		h := hooks[hi]
+		lang := hookLanguage(h)
+		text := scanText(h, lang)
 		perHook := 0
 		for ri := range s.rules {
 			rule := &s.rules[ri]
-			matches := rule.match(h.Script)
+			matches := rule.match(text, lang)
 			for _, m := range matches {
 				key := fmt.Sprintf("%s|%s|%d", rule.ID, h.Label, m.line)
 				if _, dup := seen[key]; dup {

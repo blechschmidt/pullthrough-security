@@ -545,18 +545,28 @@ func extractCargo(r io.Reader) ([]Hook, bool, error) {
 			cargoToml = f
 		}
 	}
+	declared := ""
+	if cargoToml != nil {
+		declared = ParseCargoBuildField(cargoToml.data)
+	}
+	// `build = false` turns the build script off: Cargo then neither compiles
+	// nor runs a build.rs, and `cargo publish` writes it into the manifest of
+	// every crate without one.
+	if declared == "false" {
+		return nil, truncated, nil
+	}
 	var hooks []Hook
 	if buildRS != nil {
 		hooks = append(hooks, Hook{
 			Ecosystem: "cargo", Kind: "build.rs", Label: "cargo:build.rs",
 			File: buildRS.name, Script: boundScript(string(buildRS.data)),
 		})
-	} else if cargoToml != nil && ParseCargoBuildField(cargoToml.data) != "" {
+	} else if declared != "" && declared != "true" {
 		// A custom build script is declared but lived outside our shallow scan; flag
 		// its declaration so the native-build signal is not lost.
 		hooks = append(hooks, Hook{
 			Ecosystem: "cargo", Kind: "build.rs", Label: "cargo:build.rs",
-			File: cargoToml.name, Script: "build = " + ParseCargoBuildField(cargoToml.data),
+			File: cargoToml.name, Script: "build = " + declared,
 		})
 	}
 	return hooks, truncated, nil
