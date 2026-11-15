@@ -12,8 +12,10 @@
 package signin
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 )
 
 // State is what a request that came back from an identity provider says about
@@ -41,6 +43,33 @@ type Callback interface {
 	CallbackState(r *http.Request) State
 	// HandleCallback completes the sign-in r answers.
 	HandleCallback(w http.ResponseWriter, r *http.Request)
+}
+
+// CheckPath checks a callback path the gateway is to serve: an absolute path
+// of one or more segments of letters, digits, "-", ".", "_" and "~", without
+// "." or ".." segments, an empty segment ("//") or a trailing slash. Anything
+// else is either ambiguous — percent-encoding, which the router decodes, would
+// make two spellings one route — or a route Go's ServeMux refuses at start-up,
+// taking the whole proxy down with it.
+func CheckPath(p string) error {
+	if p == "" || p[0] != '/' || p == "/" {
+		return fmt.Errorf("callback path %q is not an absolute path below /", p)
+	}
+	for _, seg := range strings.Split(p[1:], "/") {
+		switch seg {
+		case "":
+			return fmt.Errorf("callback path %q has an empty segment or a trailing slash", p)
+		case ".", "..":
+			return fmt.Errorf("callback path %q has a %q segment", p, seg)
+		}
+		for i := 0; i < len(seg); i++ {
+			c := seg[i]
+			if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~') {
+				return fmt.Errorf("callback path %q contains %q: use letters, digits, \"-\", \".\", \"_\" and \"~\" only", p, string(c))
+			}
+		}
+	}
+	return nil
 }
 
 // Routes returns the handlers the gateway mounts for the given callbacks: one

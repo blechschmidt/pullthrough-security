@@ -114,6 +114,16 @@ func TestSignInCallbackPaths(t *testing.T) {
 		{origin + "/admin/auth/callback", origin + "/links/other", "the personal-links page"},
 		{origin + "/admin/auth/callback", origin + "/v1/cb", "the package-source mounts"},
 		{origin + "/admin/auth/callback", "/relative/cb", "absolute http(s) URL"},
+		// Paths Go's router would panic on at start-up, or decode into
+		// another route: refused by validation, never reaching the gateway.
+		{origin + "//auth/oidc", origin + "/links/callback", "empty segment"},
+		{origin + "/auth//oidc", origin + "/links/callback", "empty segment"},
+		{origin + "/auth/./oidc", origin + "/links/callback", `"." segment`},
+		{origin + "/x/../auth/oidc", origin + "/links/callback", `".." segment`},
+		{origin + "/auth/oidc/", origin + "/links/callback", "trailing slash"},
+		{origin + "/auth/%6Fidc", origin + "/links/callback", "contains"},
+		{origin + "/admin/auth/callback", origin + "//auth/oidc", "empty segment"},
+		{origin + "/admin/auth/callback", origin + "/auth/%6Fidc", "contains"},
 	}
 	for _, tc := range bad {
 		if _, err := loadSSO(t, tc.admin, tc.links, ""); err == nil || !strings.Contains(err.Error(), tc.want) {

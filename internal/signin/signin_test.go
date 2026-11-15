@@ -73,3 +73,22 @@ func TestSharedCallbackDispatch(t *testing.T) {
 		}
 	}
 }
+
+// A callback path is served by Go's ServeMux at the root of the gateway: a path
+// it would refuse — and panic on, at start-up — or decode into another route
+// is refused before.
+func TestCheckPath(t *testing.T) {
+	for _, p := range []string{"/auth/oidc", "/a", "/sso/back-2_x.y~z", "/A/B"} {
+		if err := CheckPath(p); err != nil {
+			t.Errorf("CheckPath(%q) = %v", p, err)
+		}
+	}
+	for _, p := range []string{
+		"", "/", "auth/oidc", "//auth/oidc", "/auth//oidc", "/auth/oidc/", "/auth/./oidc", "/x/../auth/oidc",
+		"/.", "/..", "/auth/%6Fidc", "/auth/{x}", "/auth/{$}", "/auth/oidc?x=1", "/auth/o idc", "/auth/ö",
+	} {
+		if err := CheckPath(p); err == nil {
+			t.Errorf("CheckPath(%q) accepted it", p)
+		}
+	}
+}

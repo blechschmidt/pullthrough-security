@@ -31,19 +31,21 @@ type CodeRedemption struct {
 }
 
 // TokenResponse is the provider's answer to a code redemption: whatever the
-// HTTP status, as long as the body was JSON.
+// HTTP status, as long as the body was a JSON object. Only the members a relying
+// party needs are read, and only those that are strings by the specification;
+// a provider's own spelling of anything else (Azure AD's v1 endpoint sends
+// "expires_in" as a string) cannot make an answer unreadable.
 type TokenResponse struct {
 	// StatusCode is the HTTP status of the answer.
 	StatusCode int `json:"-"`
 
 	AccessToken      string `json:"access_token"`
 	IDToken          string `json:"id_token"`
-	TokenType        string `json:"token_type"`
-	ExpiresIn        int64  `json:"expires_in"`
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
-	// ErrorCodes is Microsoft Entra ID's list of AADSTS numbers.
-	ErrorCodes []int64 `json:"error_codes"`
+	// ErrorCodes is Microsoft Entra ID's list of AADSTS numbers, kept as sent:
+	// it is read only by hasEntraCode, which tolerates any shape.
+	ErrorCodes json.RawMessage `json:"error_codes"`
 
 	// CrossOrigin reports that the request this answers carried an Origin
 	// header (see CodeRedeemer).
@@ -175,9 +177,14 @@ func (tr *TokenResponse) hasEntraCode(code int64) bool {
 	if tr == nil || tr.Error == "" {
 		return false
 	}
-	for _, c := range tr.ErrorCodes {
-		if c == code {
-			return true
+	var codes []json.Number
+	dec := json.NewDecoder(strings.NewReader(string(tr.ErrorCodes)))
+	dec.UseNumber()
+	if len(tr.ErrorCodes) > 0 && dec.Decode(&codes) == nil {
+		for _, c := range codes {
+			if n, err := c.Int64(); err == nil && n == code {
+				return true
+			}
 		}
 	}
 	return strings.Contains(tr.ErrorDescription, fmt.Sprintf("AADSTS%d", code))

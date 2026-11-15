@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
+	"github.com/blechschmidt/pullthrough-security/internal/signin"
 )
 
 // OIDCConfig configures the OIDC/OAuth2 integration for the admin surface.
@@ -92,6 +93,9 @@ type oidcProvider struct {
 	resolved *oidcEndpoints
 	failedAt time.Time
 	failure  error
+	// resolving is closed when the resolution in progress ends; nil when none
+	// is. The lock is not held across it.
+	resolving chan struct{}
 }
 
 // oidcEndpoints is what is known about the provider once resolved.
@@ -184,6 +188,9 @@ func CallbackPathOf(redirectURL string) (string, error) {
 	if p == "" || p == "/" {
 		return "", fmt.Errorf("adminauth: oidc redirectUrl %q names no callback path", redirectURL)
 	}
+	if err := signin.CheckPath(p); err != nil {
+		return "", fmt.Errorf("adminauth: oidc redirectUrl: %w", err)
+	}
 	return p, nil
 }
 
@@ -207,26 +214,59 @@ func (p *oidcProvider) verifier(audience, jwksURL string) (*auth.OIDCAuthenticat
 // endpoints returns the provider's endpoints and verifiers, resolving them on
 // first use. A failure is remembered for discoveryRetry, so a provider that is
 // down is asked once per interval, not once per request.
+//
+// One request resolves; the others wait for it, each only as long as its own
+// context allows — a provider that stops answering must not hold every
+// sign-in and bearer request for the length of a timeout.
 func (p *oidcProvider) endpoints(ctx context.Context) (*oidcEndpoints, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.resolved != nil {
-		return p.resolved, nil
+	for {
+		p.mu.Lock()
+		if p.resolved != nil {
+			ep := p.resolved
+			p.mu.Unlock()
+			return ep, nil
+		}
+		if p.failure != nil && p.now().Sub(p.failedAt) < discoveryRetry {
+			err := p.failure
+			p.mu.Unlock()
+			return nil, err
+		}
+		if wait := p.resolving; wait != nil {
+			p.mu.Unlock()
+			select {
+			case <-wait:
+				continue
+			case <-ctx.Done():
+				return nil, fmt.Errorf("%w: %v", errIdPUnavailable, ctx.Err())
+			}
+		}
+		p.resolving = make(chan struct{})
+		p.mu.Unlock()
+		return p.resolveOnce(ctx)
 	}
-	if p.failure != nil && p.now().Sub(p.failedAt) < discoveryRetry {
-		return nil, p.failure
-	}
+}
+
+// resolveOnce performs the resolution endpoints started, records its outcome
+// and releases the requests waiting for it — also should the resolution panic.
+func (p *oidcProvider) resolveOnce(ctx context.Context) (ep *oidcEndpoints, err error) {
+	err = errors.New("the resolution did not complete")
+	defer func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if err != nil {
+			p.failure, p.failedAt = fmt.Errorf("%w: %v", errIdPUnavailable, err), p.now()
+			err = p.failure
+		} else {
+			p.resolved, p.failure = ep, nil
+		}
+		close(p.resolving)
+		p.resolving = nil
+	}()
 	// The provider's answer is not the asking request's: a request that gives
 	// up does not cancel the resolution for everyone else.
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 	defer cancel()
-	ep, err := p.resolve(rctx)
-	if err != nil {
-		p.failure, p.failedAt = fmt.Errorf("%w: %v", errIdPUnavailable, err), p.now()
-		return nil, p.failure
-	}
-	p.resolved, p.failure = ep, nil
-	return ep, nil
+	return p.resolve(rctx)
 }
 
 // resolve discovers what the configuration does not pin, and builds the

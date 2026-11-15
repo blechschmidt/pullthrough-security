@@ -416,3 +416,64 @@ func TestSessionCookieMutationsNeedTheCSRFHeader(t *testing.T) {
 		t.Errorf("POST with cookie and token: %+v %v", id, err)
 	}
 }
+
+// While one request resolves the provider, the others wait only as long as
+// their own context allows, and do not start a resolution of their own.
+func TestResolutionDoesNotHoldOtherRequests(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		<-release // the provider has stopped answering
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(unblock) // runs first: lets the hanging handler return
+	count := func() int { mu.Lock(); defer mu.Unlock(); return calls }
+
+	svc, err := New(Options{
+		Prefix:     "/admin",
+		SessionKey: []byte("0123456789abcdef0123456789abcdef"),
+		OIDC:       &OIDCConfig{Issuer: srv.URL, ClientID: "c", RedirectURL: "https://proxy.example.com/admin/auth/callback"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := make(chan error, 1)
+	go func() {
+		_, err := svc.oidc.endpoints(context.Background())
+		first <- err
+	}()
+	for deadline := time.Now().Add(5 * time.Second); count() == 0; {
+		if time.Now().After(deadline) {
+			t.Fatal("the first request never reached the provider")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := svc.oidc.endpoints(ctx); err == nil || !errors.Is(err, errIdPUnavailable) {
+		t.Fatalf("a waiting request: err = %v", err)
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Fatalf("a waiting request was held for %s", waited)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("the provider was asked %d times while one resolution was running", n)
+	}
+
+	unblock()
+	if err := <-first; err == nil {
+		t.Fatal("the resolution succeeded against a provider that answered 503")
+	}
+	if _, err := svc.oidc.endpoints(context.Background()); err == nil || count() != 1 {
+		t.Fatalf("after the failure: err = %v, %d requests", err, count())
+	}
+}

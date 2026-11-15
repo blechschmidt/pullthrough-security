@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
+	"github.com/blechschmidt/pullthrough-security/internal/signin"
 )
 
 // OIDCConfig configures the identity provider cache users sign in at.
@@ -340,6 +341,9 @@ func CallbackPaths(redirectURL, publicURL string) (cookiePath, route string, err
 	cookiePath = u.EscapedPath()
 	if cookiePath == "" || cookiePath == "/" {
 		return "", "", fmt.Errorf("userlinks: oidc redirectUrl %q names no callback path", redirectURL)
+	}
+	if err := signin.CheckPath(cookiePath); err != nil {
+		return "", "", fmt.Errorf("userlinks: oidc redirectUrl: %w", err)
 	}
 	route = cookiePath
 	if pub, perr := url.Parse(strings.TrimSpace(publicURL)); perr == nil {

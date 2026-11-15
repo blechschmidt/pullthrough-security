@@ -106,10 +106,17 @@ adminAuth:
 
 A subject that contains `@` is compared ASCII case-insensitively, any other
 exactly. A user holds the roles of their groups and of their subject together;
-`defaultRole` applies only when neither gives them one. Bind by a claim the
-identity provider does not let users change for themselves: an e-mail-like
-`preferred_username` or `upn` is fine when the issuer is a single organization's
-(as below), an `email` claim a user can edit is not.
+`defaultRole` applies only when neither gives them one.
+
+Bind by a claim that names the same person for as long as the binding exists.
+Never by one users can set for themselves, such as an `email` claim a user may
+edit. A sign-in name like Entra's `preferred_username` is set by the
+organization's administrators, and the issuer check limits it to that one
+organization. But it can be renamed, and once freed it can be given to someone
+else, who then inherits the binding. Microsoft therefore advises against
+authorizing by it. Where that matters, bind by the immutable object ID instead
+(`subjectClaim: oid`). The console and the audit log then show that ID rather
+than the name.
 
 ## The callback path
 
@@ -256,8 +263,11 @@ curl -s https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-kno
    A **Web** redirect URI needs `clientSecret`.
 2. Entra puts the user's sign-in name in `preferred_username`, emits `email` only
    for some accounts, and releases no groups by default; its `sub` differs per
-   application. Bind users with `subjectBindings` (or add a groups claim / app
-   roles and use `roleBindings` with `groupsClaim: groups` or `roles`).
+   application, while `oid` names the user in the tenant for good. Bind users
+   with `subjectBindings` — by `preferred_username` for readable names, by `oid`
+   where names get reassigned (see [Binding individual users](#binding-individual-users))
+   — or add a groups claim / app roles and use `roleBindings` with
+   `groupsClaim: groups` or `roles`.
 3. Do not request the `groups` scope: Entra knows no such scope.
 
 ```yaml

@@ -207,3 +207,38 @@ func TestIssuerMismatchExplainsTheAlias(t *testing.T) {
 		}
 	}
 }
+
+// Members other than the ones a relying party reads may come in any shape:
+// Azure AD's v1 endpoint sends expires_in as a string. And Entra's error codes
+// are recognised whether they come as numbers or as strings.
+func TestTokenResponseToleratesOtherShapes(t *testing.T) {
+	answers := map[string]string{
+		"/string-expiry": `{"token_type":"Bearer","expires_in":"3599","ext_expires_in":"3599","id_token":"a.b.c"}`,
+		"/string-codes":  `{"error":"invalid_request","error_description":"refused","error_codes":["9002327"]}`,
+		"/odd-codes":     `{"error":"invalid_request","error_description":"AADSTS9002327: refused","error_codes":"9002327"}`,
+	}
+	var origins []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origins = append(origins, r.Header.Get("Origin"))
+		if r.Header.Get("Origin") != "" {
+			_, _ = w.Write([]byte(`{"id_token":"x.y.z"}`))
+			return
+		}
+		_, _ = w.Write([]byte(answers[r.URL.Path]))
+	}))
+	defer srv.Close()
+
+	var rd CodeRedeemer
+	tr, err := rd.Redeem(context.Background(), redemption(srv.URL+"/string-expiry"))
+	if err != nil || tr.IDToken != "a.b.c" {
+		t.Fatalf("string expires_in: %+v %v", tr, err)
+	}
+	for _, path := range []string{"/string-codes", "/odd-codes"} {
+		var fresh CodeRedeemer
+		origins = nil
+		tr, err := fresh.Redeem(context.Background(), redemption(srv.URL+path))
+		if err != nil || tr.IDToken != "x.y.z" || !sameStrings(origins, []string{"", "https://proxy.example.com:8889"}) {
+			t.Errorf("%s: %+v %v, origins %q", path, tr, err, origins)
+		}
+	}
+}

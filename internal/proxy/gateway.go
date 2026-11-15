@@ -61,6 +61,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/riskscore"
 	"github.com/blechschmidt/pullthrough-security/internal/sbomdiff"
 	"github.com/blechschmidt/pullthrough-security/internal/scan"
+	"github.com/blechschmidt/pullthrough-security/internal/signin"
 	"github.com/blechschmidt/pullthrough-security/internal/sigverify"
 	"github.com/blechschmidt/pullthrough-security/internal/simreplay"
 	"github.com/blechschmidt/pullthrough-security/internal/snapshot"
@@ -614,6 +615,12 @@ func New(deps Dependencies, opts Options) (*Gateway, error) {
 	}
 	if opts.TLSClientAuth != tls.NoClientCert && opts.TLSCertFile == "" {
 		return nil, errors.New("proxy: mutual-TLS client auth requires TLS termination (TLSCertFile/TLSKeyFile)")
+	}
+	// A path the router cannot take would panic when the routes are built.
+	for path := range deps.SignInCallbacks {
+		if err := signin.CheckPath(path); err != nil {
+			return nil, fmt.Errorf("proxy: sign-in callback: %w", err)
+		}
 	}
 
 	g := &Gateway{deps: deps, opts: opts, serve: &serveStats{}}
