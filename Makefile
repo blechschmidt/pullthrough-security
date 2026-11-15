@@ -654,6 +654,14 @@ lockfile-reference-gen: ## Regenerate the format tables of docs/lockfiles.md fro
 lockfile-reference-check: ## Fail if the format tables of docs/lockfiles.md are stale vs the lock-file scanner
 	$(GO) run ./cmd/gen-lockfile-reference -check -o docs/lockfiles.md
 
+.PHONY: full-mirroring-reference-gen
+full-mirroring-reference-gen: ## Regenerate the registry catalog in docs/full-mirroring.md from internal/fullmirror
+	$(GO) run ./cmd/gen-full-mirroring-reference -o docs/full-mirroring.md
+
+.PHONY: full-mirroring-reference-check
+full-mirroring-reference-check: ## Fail if the registry catalog in docs/full-mirroring.md is stale vs internal/fullmirror
+	$(GO) run ./cmd/gen-full-mirroring-reference -check -o docs/full-mirroring.md
+
 .PHONY: config-validate
 config-validate: ## Validate a config file: make config-validate CONFIG=path/to/config.yaml
 	$(GO) run $(CMD) verify-config -config $(CONFIG)

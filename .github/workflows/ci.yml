@@ -125,6 +125,14 @@ jobs:
         if: matrix.arch == 'amd64'
         run: make lockfile-reference-check
 
+      # The registry catalog of docs/full-mirroring.md is generated from
+      # internal/fullmirror: for every upstream type, how its registry can be
+      # followed ahead of client requests (tier, feeds, cursors, limits, terms,
+      # size). Fail if the committed page no longer matches the catalog.
+      - name: Check full-mirroring reference is up to date
+        if: matrix.arch == 'amd64'
+        run: make full-mirroring-reference-check
+
       # The output is kept as an artifact when a test fails: job logs need
       # admin rights to download, artifacts do not.
       - name: Test (race + coverage)

@@ -63,6 +63,7 @@ pull-through proxy focused on software supply-chain security.
 | Consume the security data model over gRPC / Connect (gRPC-Web, HTTP-JSON) | [grpc-api.md](grpc-api.md) |
 | Trace it (OpenTelemetry, OTLP, Jaeger/Tempo) | [tracing.md](tracing.md) |
 | Operate disconnected (pre-warm, export/import, sealed mode) | [air-gapped.md](air-gapped.md) |
+| Know which registries can be followed ahead of client requests: each ecosystem's change feed or index, its rate limits and terms of use, and the size of a full mirror (generated from the code) | [full-mirroring.md](full-mirroring.md) |
 | Back up & restore for disaster recovery (RPO/RTO) | [backup-restore.md](backup-restore.md) |
 | Scale out with a shared cache (HA, multi-replica) | [ha-shared-cache.md](ha-shared-cache.md) |
 | Encrypt the cache at rest (AES-256-GCM envelope, KEK rotation) | [cache-encryption.md](cache-encryption.md) |
