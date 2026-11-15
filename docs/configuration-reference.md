@@ -784,6 +784,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `adminAuth.cookieName` | string | — |
 | `adminAuth.insecureCookies` | bool | false |
 | `adminAuth.roleBindings` | map[string]string | {} |
+| `adminAuth.subjectBindings` | map[string]string | {} |
 | `adminAuth.defaultRole` | string | — |
 
 ## `tracing`

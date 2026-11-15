@@ -6,11 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
@@ -25,8 +27,10 @@ type OIDCConfig struct {
 	// ClientSecret authenticates a confidential client at the token endpoint.
 	// Empty selects a public client (PKCE only).
 	ClientSecret string
-	// RedirectURL is this proxy's externally reachable callback URL,
-	// e.g. "https://proxy.example.com/admin/auth/callback". Required.
+	// RedirectURL is this proxy's externally reachable callback URL, as
+	// registered with the provider: "https://proxy.example.com/admin/auth/callback"
+	// is served by the admin surface itself; any other path is served by the
+	// gateway (see Service.CallbackRoute). Required.
 	RedirectURL string
 	// Scopes requested at login (default "openid profile email groups").
 	Scopes []string
@@ -63,20 +67,52 @@ type OIDCConfig struct {
 // oidcProvider performs the authorization-code+PKCE login flow and validates
 // admin API bearer JWTs. ID-token and bearer signature/claim validation reuse
 // internal/auth's JWKS-backed verifier (caching, rotation, clock-skew leeway).
+//
+// The provider's endpoints are resolved on first use, not when the proxy
+// starts, and a failure is retried (after discoveryRetry). An identity
+// provider that cannot be reached at start-up must not keep the admin surface
+// from being built: the service would be left out, and with it the static
+// tokens, and a surface without its authentication is not one to fall back on.
+// Until the provider answers, SSO sign-ins fail and OIDC bearer tokens are
+// refused; static tokens keep working.
 type oidcProvider struct {
-	cfg        OIDCConfig
-	client     *http.Client
-	now        func() time.Time
-	subjectCl  string
-	groupsCl   string
-	tenantCl   string
+	cfg       OIDCConfig
+	client    *http.Client
+	now       func() time.Time
+	subjectCl string
+	groupsCl  string
+	tenantCl  string
+	scopes    []string
+	redeemer  *auth.CodeRedeemer
+	// callbackPath is the path of the redirect URL: where the browser comes
+	// back to, and so the path the login-flow cookie is scoped to.
+	callbackPath string
+
+	mu       sync.Mutex
+	resolved *oidcEndpoints
+	failedAt time.Time
+	failure  error
+}
+
+// oidcEndpoints is what is known about the provider once resolved.
+type oidcEndpoints struct {
 	authzURL   string
 	tokenURL   string
 	endSession string
-	scopes     []string
 	idAuth     *auth.OIDCAuthenticator // validates ID tokens (aud = clientID)
 	bearerAuth *auth.OIDCAuthenticator // validates API bearer JWTs (aud = Audience)
 }
+
+// discoveryRetry is how long a failed resolution is remembered before the
+// next request that needs the provider tries again; discoveryTimeout bounds
+// one attempt.
+const (
+	discoveryRetry   = 10 * time.Second
+	discoveryTimeout = 15 * time.Second
+)
+
+// errIdPUnavailable marks a failure to resolve the provider's endpoints.
+var errIdPUnavailable = errors.New("adminauth: the identity provider cannot be used at the moment")
 
 // discoveryDocument is the subset of the OIDC discovery metadata we consume.
 type discoveryDocument struct {
@@ -87,16 +123,7 @@ type discoveryDocument struct {
 	EndSessionEndpoint    string `json:"end_session_endpoint"`
 }
 
-// tokenResponse is the subset of the OAuth2 token-endpoint response we consume.
-type tokenResponse struct {
-	AccessToken      string `json:"access_token"`
-	IDToken          string `json:"id_token"`
-	TokenType        string `json:"token_type"`
-	ExpiresIn        int64  `json:"expires_in"`
-	Error            string `json:"error"`
-	ErrorDescription string `json:"error_description"`
-}
-
+// newOIDCProvider checks the configuration. It does not contact the provider.
 func newOIDCProvider(cfg OIDCConfig) (*oidcProvider, error) {
 	if strings.TrimSpace(cfg.Issuer) == "" {
 		return nil, fmt.Errorf("adminauth: oidc issuer is required")
@@ -106,6 +133,11 @@ func newOIDCProvider(cfg OIDCConfig) (*oidcProvider, error) {
 	}
 	if strings.TrimSpace(cfg.RedirectURL) == "" {
 		return nil, fmt.Errorf("adminauth: oidc redirectUrl is required")
+	}
+	cfg.RedirectURL = strings.TrimSpace(cfg.RedirectURL)
+	callbackPath, err := CallbackPathOf(cfg.RedirectURL)
+	if err != nil {
+		return nil, err
 	}
 	client := cfg.HTTPClient
 	if client == nil {
@@ -117,76 +149,133 @@ func newOIDCProvider(cfg OIDCConfig) (*oidcProvider, error) {
 	}
 
 	p := &oidcProvider{
-		cfg:        cfg,
-		client:     client,
-		now:        now,
-		subjectCl:  orElse(cfg.SubjectClaim, "sub"),
-		groupsCl:   orElse(cfg.GroupsClaim, "groups"),
-		tenantCl:   orElse(cfg.TenantClaim, "team"),
-		authzURL:   strings.TrimSpace(cfg.AuthorizationEndpoint),
-		tokenURL:   strings.TrimSpace(cfg.TokenEndpoint),
-		endSession: strings.TrimSpace(cfg.EndSessionEndpoint),
+		cfg:          cfg,
+		client:       client,
+		now:          now,
+		subjectCl:    orElse(cfg.SubjectClaim, "sub"),
+		groupsCl:     orElse(cfg.GroupsClaim, "groups"),
+		tenantCl:     orElse(cfg.TenantClaim, "team"),
+		redeemer:     &auth.CodeRedeemer{Client: client},
+		callbackPath: callbackPath,
 	}
 	p.scopes = cfg.Scopes
 	if len(p.scopes) == 0 {
 		p.scopes = []string{"openid", "profile", "email", "groups"}
 	}
+	if strings.TrimSpace(cfg.JWKS) != "" {
+		// An inline key set is parsed now: a broken one is a configuration
+		// error, not an outage.
+		if _, err := p.verifier(cfg.ClientID, ""); err != nil {
+			return nil, fmt.Errorf("adminauth: oidc id-token verifier: %w", err)
+		}
+	}
+	return p, nil
+}
 
-	jwksURL := strings.TrimSpace(cfg.JWKSURL)
-	haveKeys := jwksURL != "" || strings.TrimSpace(cfg.JWKS) != ""
+// CallbackPathOf returns the path of a redirect URL: where the identity
+// provider sends the browser back to. It must be an absolute http(s) URL with
+// a path other than "/".
+func CallbackPathOf(redirectURL string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(redirectURL))
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", fmt.Errorf("adminauth: oidc redirectUrl %q is not an absolute http(s) URL", redirectURL)
+	}
+	p := u.EscapedPath()
+	if p == "" || p == "/" {
+		return "", fmt.Errorf("adminauth: oidc redirectUrl %q names no callback path", redirectURL)
+	}
+	return p, nil
+}
+
+// verifier builds a JWKS-backed verifier for the given audience.
+func (p *oidcProvider) verifier(audience, jwksURL string) (*auth.OIDCAuthenticator, error) {
+	return auth.NewOIDCAuthenticator(auth.OIDCOptions{
+		Issuer:       p.cfg.Issuer,
+		Audience:     audience,
+		JWKSURL:      jwksURL,
+		StaticJWKS:   []byte(strings.TrimSpace(p.cfg.JWKS)),
+		HTTPClient:   p.client,
+		JWKSCacheTTL: p.cfg.JWKSCacheTTL,
+		Leeway:       p.cfg.Leeway,
+		SubjectClaim: p.subjectCl,
+		TeamClaim:    p.tenantCl, // expose the tenant/team claim as Principal.Team
+		RolesClaim:   p.groupsCl, // expose IdP groups as Principal.Roles
+		Now:          p.now,
+	})
+}
+
+// endpoints returns the provider's endpoints and verifiers, resolving them on
+// first use. A failure is remembered for discoveryRetry, so a provider that is
+// down is asked once per interval, not once per request.
+func (p *oidcProvider) endpoints(ctx context.Context) (*oidcEndpoints, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.resolved != nil {
+		return p.resolved, nil
+	}
+	if p.failure != nil && p.now().Sub(p.failedAt) < discoveryRetry {
+		return nil, p.failure
+	}
+	// The provider's answer is not the asking request's: a request that gives
+	// up does not cancel the resolution for everyone else.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
+	defer cancel()
+	ep, err := p.resolve(rctx)
+	if err != nil {
+		p.failure, p.failedAt = fmt.Errorf("%w: %v", errIdPUnavailable, err), p.now()
+		return nil, p.failure
+	}
+	p.resolved, p.failure = ep, nil
+	return ep, nil
+}
+
+// resolve discovers what the configuration does not pin, and builds the
+// verifiers.
+func (p *oidcProvider) resolve(ctx context.Context) (*oidcEndpoints, error) {
+	ep := &oidcEndpoints{
+		authzURL:   strings.TrimSpace(p.cfg.AuthorizationEndpoint),
+		tokenURL:   strings.TrimSpace(p.cfg.TokenEndpoint),
+		endSession: strings.TrimSpace(p.cfg.EndSessionEndpoint),
+	}
+	jwksURL := strings.TrimSpace(p.cfg.JWKSURL)
+	haveKeys := jwksURL != "" || strings.TrimSpace(p.cfg.JWKS) != ""
 
 	// Discover endpoints unless everything required is already pinned (offline).
-	if p.authzURL == "" || p.tokenURL == "" || !haveKeys {
-		doc, err := p.discover(context.Background())
+	if ep.authzURL == "" || ep.tokenURL == "" || !haveKeys {
+		doc, err := p.discover(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if p.authzURL == "" {
-			p.authzURL = doc.AuthorizationEndpoint
+		if ep.authzURL == "" {
+			ep.authzURL = doc.AuthorizationEndpoint
 		}
-		if p.tokenURL == "" {
-			p.tokenURL = doc.TokenEndpoint
+		if ep.tokenURL == "" {
+			ep.tokenURL = doc.TokenEndpoint
 		}
-		if p.endSession == "" {
-			p.endSession = doc.EndSessionEndpoint
+		if ep.endSession == "" {
+			ep.endSession = doc.EndSessionEndpoint
 		}
-		if jwksURL == "" && strings.TrimSpace(cfg.JWKS) == "" {
+		if !haveKeys {
 			jwksURL = doc.JWKSURI
 		}
 	}
-	if p.authzURL == "" || p.tokenURL == "" {
+	if ep.authzURL == "" || ep.tokenURL == "" {
 		return nil, fmt.Errorf("adminauth: oidc authorization/token endpoint unresolved")
 	}
-
-	// Build the JWKS-backed verifiers (ID token + API bearer). They differ only
-	// in the expected audience.
-	mkAuth := func(aud string) (*auth.OIDCAuthenticator, error) {
-		return auth.NewOIDCAuthenticator(auth.OIDCOptions{
-			Issuer:       cfg.Issuer,
-			Audience:     aud,
-			JWKSURL:      jwksURL,
-			StaticJWKS:   []byte(strings.TrimSpace(cfg.JWKS)),
-			HTTPClient:   client,
-			JWKSCacheTTL: cfg.JWKSCacheTTL,
-			Leeway:       cfg.Leeway,
-			SubjectClaim: p.subjectCl,
-			TeamClaim:    p.tenantCl, // expose the tenant/team claim as Principal.Team
-			RolesClaim:   p.groupsCl, // expose IdP groups as Principal.Roles
-			Now:          now,
-		})
+	if jwksURL == "" && strings.TrimSpace(p.cfg.JWKS) == "" {
+		return nil, fmt.Errorf("adminauth: oidc signing keys unresolved (no jwks_uri)")
 	}
-	idAuth, err := mkAuth(cfg.ClientID)
-	if err != nil {
+
+	// The ID-token and API-bearer verifiers differ only in the expected
+	// audience.
+	var err error
+	if ep.idAuth, err = p.verifier(p.cfg.ClientID, jwksURL); err != nil {
 		return nil, fmt.Errorf("adminauth: oidc id-token verifier: %w", err)
 	}
-	bearerAud := orElse(cfg.Audience, cfg.ClientID)
-	bearerAuth, err := mkAuth(bearerAud)
-	if err != nil {
+	if ep.bearerAuth, err = p.verifier(orElse(p.cfg.Audience, p.cfg.ClientID), jwksURL); err != nil {
 		return nil, fmt.Errorf("adminauth: oidc bearer verifier: %w", err)
 	}
-	p.idAuth = idAuth
-	p.bearerAuth = bearerAuth
-	return p, nil
+	return ep, nil
 }
 
 // discover fetches the OIDC discovery document.
@@ -206,7 +295,7 @@ func (p *oidcProvider) discover(ctx context.Context) (*discoveryDocument, error)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("adminauth: oidc discovery returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("adminauth: oidc discovery: %s answered %d", u, resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -217,14 +306,18 @@ func (p *oidcProvider) discover(ctx context.Context) (*discoveryDocument, error)
 		return nil, fmt.Errorf("adminauth: parsing oidc discovery: %w", err)
 	}
 	if doc.Issuer != "" && doc.Issuer != p.cfg.Issuer {
-		return nil, fmt.Errorf("adminauth: oidc discovery issuer %q does not match configured issuer %q", doc.Issuer, p.cfg.Issuer)
+		return nil, fmt.Errorf("adminauth: oidc discovery: %w", auth.IssuerMismatch(u, doc.Issuer, p.cfg.Issuer))
 	}
 	return &doc, nil
 }
 
 // authCodeURL builds the IdP authorization-endpoint URL for the given PKCE
 // challenge, state, and nonce.
-func (p *oidcProvider) authCodeURL(state, nonce, challenge string) string {
+func (p *oidcProvider) authCodeURL(ctx context.Context, state, nonce, challenge string) (string, error) {
+	ep, err := p.endpoints(ctx)
+	if err != nil {
+		return "", err
+	}
 	q := url.Values{}
 	q.Set("response_type", "code")
 	q.Set("client_id", p.cfg.ClientID)
@@ -235,58 +328,45 @@ func (p *oidcProvider) authCodeURL(state, nonce, challenge string) string {
 	q.Set("code_challenge", challenge)
 	q.Set("code_challenge_method", "S256")
 	sep := "?"
-	if strings.Contains(p.authzURL, "?") {
+	if strings.Contains(ep.authzURL, "?") {
 		sep = "&"
 	}
-	return p.authzURL + sep + q.Encode()
+	return ep.authzURL + sep + q.Encode(), nil
+}
+
+// tokenResponse is the subset of the OAuth2 token-endpoint response we consume.
+type tokenResponse struct {
+	AccessToken string
+	IDToken     string
 }
 
 // exchange swaps an authorization code (with its PKCE verifier) for tokens.
 func (p *oidcProvider) exchange(ctx context.Context, code, verifier string) (*tokenResponse, error) {
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", code)
-	form.Set("redirect_uri", p.cfg.RedirectURL)
-	form.Set("code_verifier", verifier)
-	form.Set("client_id", p.cfg.ClientID)
-	if p.cfg.ClientSecret == "" {
-		// Public client: client_id in the body is sufficient.
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.tokenURL, strings.NewReader(form.Encode()))
+	ep, err := p.endpoints(ctx)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	if p.cfg.ClientSecret != "" {
-		// Confidential client: HTTP Basic per RFC 6749 §2.3.1.
-		req.SetBasicAuth(url.QueryEscape(p.cfg.ClientID), url.QueryEscape(p.cfg.ClientSecret))
-	}
-
-	resp, err := p.client.Do(req)
+	tr, err := p.redeemer.Redeem(ctx, auth.CodeRedemption{
+		TokenEndpoint: ep.tokenURL,
+		Code:          code,
+		Verifier:      verifier,
+		RedirectURL:   p.cfg.RedirectURL,
+		ClientID:      p.cfg.ClientID,
+		ClientSecret:  p.cfg.ClientSecret,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("adminauth: token exchange: %w", err)
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("adminauth: reading token response: %w", err)
-	}
-	var tr tokenResponse
-	if err := json.Unmarshal(data, &tr); err != nil {
-		return nil, fmt.Errorf("adminauth: parsing token response: %w", err)
 	}
 	if tr.Error != "" {
 		return nil, fmt.Errorf("adminauth: token endpoint error %q: %s", tr.Error, tr.ErrorDescription)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("adminauth: token endpoint returned %d", resp.StatusCode)
+	if tr.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("adminauth: token endpoint returned %d", tr.StatusCode)
 	}
 	if strings.TrimSpace(tr.IDToken) == "" {
 		return nil, fmt.Errorf("adminauth: token response carried no id_token")
 	}
-	return &tr, nil
+	return &tokenResponse{AccessToken: tr.AccessToken, IDToken: tr.IDToken}, nil
 }
 
 // claims is the result of validating an ID token or bearer JWT: the subject, the
@@ -302,7 +382,11 @@ type claims struct {
 // validateIDToken verifies an ID token's signature and registered claims, and
 // checks the OIDC nonce binds the token to this login flow.
 func (p *oidcProvider) validateIDToken(ctx context.Context, idToken, wantNonce string) (*claims, error) {
-	prin, err := p.idAuth.Authenticate(ctx, bearerRequest(idToken))
+	ep, err := p.endpoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prin, err := ep.idAuth.Authenticate(ctx, bearerRequest(idToken))
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +407,11 @@ func (p *oidcProvider) validateIDToken(ctx context.Context, idToken, wantNonce s
 
 // validateBearer verifies an admin API bearer JWT and extracts its claims.
 func (p *oidcProvider) validateBearer(ctx context.Context, r *http.Request) (*claims, error) {
-	prin, err := p.bearerAuth.Authenticate(ctx, r)
+	ep, err := p.endpoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prin, err := ep.bearerAuth.Authenticate(ctx, r)
 	if err != nil {
 		return nil, err
 	}

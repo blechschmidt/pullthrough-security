@@ -58,6 +58,17 @@ Denied requests return `401` (unauthenticated) or `403` (authenticated but
 lacking the capability). A `401` on an SSO-enabled deployment carries an
 `X-Login-URL` header so the dashboard can steer the browser to the login flow.
 
+### Cross-site requests
+
+A request that changes something (any method but `GET`, `HEAD` and `OPTIONS`)
+and authenticates with the SSO **session cookie** must carry the header
+`X-Pullthrough-Admin`; the dashboard sends it with every request. Without it the
+answer is `403 cross-site request refused`. A browser attaches the cookie to a
+form another page posts — and `SameSite=Lax` does not stop a page on a sibling
+subdomain, or on another port of the same host, which count as the same site —
+but it does not let that page add a header of its own choosing. Requests with a
+bearer or static token are not affected: a browser never sends those by itself.
+
 ## Mapping IdP groups to roles
 
 `adminAuth.roleBindings` maps your IdP's group/claim values to canonical roles.
@@ -77,6 +88,51 @@ adminAuth:
 
 The group values come from the configured `oidc.groupsClaim` (default `groups`)
 on the ID token (UI) or the bearer JWT (API).
+
+### Binding individual users
+
+`adminAuth.subjectBindings` binds a user — the value of `oidc.subjectClaim` — to a
+role. Use it for an identity provider that releases no groups (Microsoft Entra
+ID unless a groups claim or app roles are configured), or for the first admin
+before any group exists:
+
+```yaml
+adminAuth:
+  subjectBindings:
+    alice@example.com: admin
+  oidc:
+    subjectClaim: preferred_username
+```
+
+A subject that contains `@` is compared ASCII case-insensitively, any other
+exactly. A user holds the roles of their groups and of their subject together;
+`defaultRole` applies only when neither gives them one. Bind by a claim the
+identity provider does not let users change for themselves: an e-mail-like
+`preferred_username` or `upn` is fine when the issuer is a single organization's
+(as below), an `email` claim a user can edit is not.
+
+## The callback path
+
+The identity provider sends the browser back to `oidc.redirectUrl`. With the path
+`<adminPathPrefix>/auth/callback` (e.g. `https://proxy.example.com/admin/auth/callback`)
+the admin surface serves it. Any other path — such as one a registration that
+cannot be changed already lists — is served by the gateway at its root, and the
+login-flow cookie is scoped to that path. Such a path must not lie under another
+mount of the proxy (`/v1`, `/v2`, `/admin`, `/links`, `/u`, `/healthz`, a webhook
+path, …); `pullthrough verify-config` says which one it collides with. The
+console and the [personal-links page](user-links.md) may share one callback
+path: each request goes to the sign-in whose login state it answers.
+
+## When the identity provider is down
+
+Building the admin surface does not contact the identity provider: its
+endpoints are discovered on first use, and a failed discovery is retried after
+ten seconds. While the provider cannot be reached, a sign-in answers `503`, OIDC
+bearer tokens are refused, and static tokens keep working. If `adminAuth` cannot
+be set up at all (a configuration error that validation did not catch), the admin
+surface falls back to the legacy `observability.adminToken` when one is
+configured and allowed, and is **not served** otherwise — it is never served
+without authentication.
 
 ## JWKS caching, rotation & clock skew
 
@@ -177,6 +233,56 @@ adminAuth:
     audience: api://pullthrough-admin   # if API bearer JWTs use a custom aud
     groupsClaim: groups
 ```
+
+### Microsoft Entra ID
+
+Entra ID's discovery document for a tenant addressed by its domain name,
+`https://login.microsoftonline.com/<tenant>.onmicrosoft.com/v2.0`, declares the
+**tenant-ID** form as its issuer, and its tokens carry that form. Configure the
+tenant-ID form as `issuer` and the domain form as `discoveryUrl` — a mismatch is
+refused, with an error that names both values:
+
+```bash
+curl -s https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration | jq -r .issuer
+# https://login.microsoftonline.com/00000000-1111-2222-3333-444444444444/v2.0
+```
+
+1. Register an application (single tenant). Add the redirect URI under the
+   **Mobile and desktop applications** platform — a public client, which PKCE
+   alone binds the code to; no secret to distribute or rotate. A redirect URI on
+   the **Single-page application** platform works too: Entra redeems its codes
+   only in a request with an `Origin` header and says so (`AADSTS9002327`), and
+   the proxy then repeats the redemption with its own origin, and keeps doing so.
+   A **Web** redirect URI needs `clientSecret`.
+2. Entra puts the user's sign-in name in `preferred_username`, emits `email` only
+   for some accounts, and releases no groups by default; its `sub` differs per
+   application. Bind users with `subjectBindings` (or add a groups claim / app
+   roles and use `roleBindings` with `groupsClaim: groups` or `roles`).
+3. Do not request the `groups` scope: Entra knows no such scope.
+
+```yaml
+adminAuth:
+  enabled: true
+  sessionKey: file:///etc/pullthrough/secrets/admin-session-key
+  subjectBindings:
+    alice@contoso.com: admin
+  oidc:
+    enabled: true
+    issuer: https://login.microsoftonline.com/00000000-1111-2222-3333-444444444444/v2.0
+    discoveryUrl: https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration
+    clientId: 55555555-6666-7777-8888-999999999999
+    redirectUrl: https://proxy.example.com/admin/auth/callback
+    scopes: ["openid", "profile", "email"]
+    subjectClaim: preferred_username
+    # The ID tokens Entra issues to this client are not admin-API bearer
+    # tokens: expect another audience (one no token carries, unless you expose
+    # an API with it).
+    audience: urn:pullthrough:admin-api
+```
+
+When the application registration is shared with another service, set
+`audience` as above: otherwise an ID token issued to that service would also be
+accepted as a bearer token here.
 
 > Generate a session key with e.g. `openssl rand -hex 32` and supply it via
 > `PTS_ADMIN_SESSION_KEY` (or an `enc:v1:` value). Rotating it invalidates all

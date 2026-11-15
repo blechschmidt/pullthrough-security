@@ -125,6 +125,10 @@ type observability struct {
 	adminHandler   http.Handler
 	adminPrefix    string
 	adminServer    *admin.Server // nil when the admin surface is disabled
+	// adminAuth is the admin SSO/RBAC service (Task 51); nil when adminAuth is
+	// disabled or could not be built. Its sign-in callback may be served by the
+	// gateway (signInCallbacks).
+	adminAuth      *adminauth.Service
 	portalHandler  http.Handler
 	portalUIPrefix string
 	portalAPIPath  string
@@ -229,18 +233,12 @@ func buildObservability(
 	commitScanner, _ := scanner.(*commit.Scanner)
 
 	// Build the admin SSO/RBAC service once (Task 51) so both the metrics bridge
-	// and the admin server share it. On a configuration/discovery error we log and
-	// continue without SSO rather than aborting the proxy; the admin server then
-	// falls back to the legacy admin-token check (the documented air-gapped path).
-	var adminAuthSvc *adminauth.Service
-	if cfg.AdminAuth.Enabled {
-		svc, err := buildAdminAuth(cfg, logger)
-		if err != nil {
-			logger.Warn("admin SSO/RBAC disabled (falling back to legacy admin token)", "error", err)
-		} else {
-			adminAuthSvc = svc
-		}
-	}
+	// and the admin server share it. Building it contacts no identity provider
+	// (discovery happens on first use), so an error here is one of the
+	// configuration. The proxy keeps serving packages either way; what becomes
+	// of the admin surface is decided by adminSurfaceWithoutAuth.
+	adminAuthSvc, adminClosed := buildAdminAuthOrClose(cfg, logger)
+	obs.adminAuth = adminAuthSvc
 
 	// Build the unified Security Operations (SOC) read-model (Task 60). It taps
 	// the live notification event stream for the rolling-window verdict feed and
@@ -540,7 +538,7 @@ func buildObservability(
 		logger.Info("metrics endpoint enabled", "path", obs.metricsPath)
 	}
 
-	if cfg.Observability.Admin {
+	if cfg.Observability.Admin && !adminClosed {
 		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, userLinksSvc, adminAuthSvc, vexExporter, reposSvc, logger)
 		if err != nil {
 			// Cache inspection is the admin minimum; if it cannot be wired we log and
@@ -5575,10 +5573,41 @@ func adminInfo(cfg *config.Config) admin.Info {
 	return info
 }
 
+// buildAdminAuthOrClose builds the admin SSO/RBAC service when adminAuth is
+// enabled. closed reports that the admin surface must not be served at all:
+// adminAuth is enabled but could not be built, and no legacy admin token guards
+// the surface instead — served, it would be open to anyone who reaches the
+// listener. The proxy keeps serving packages either way.
+func buildAdminAuthOrClose(cfg *config.Config, logger *slog.Logger) (svc *adminauth.Service, closed bool) {
+	if !cfg.AdminAuth.Enabled {
+		return nil, false
+	}
+	svc, err := buildAdminAuth(cfg, logger)
+	switch {
+	case err == nil:
+		return svc, false
+	case adminSurfaceWithoutAuth(cfg):
+		logger.Warn("admin SSO/RBAC disabled (falling back to legacy admin token)", "error", err)
+		return nil, false
+	default:
+		logger.Error("admin surface disabled: its authentication (adminAuth) could not be set up, and there is no legacy admin token to fall back on", "error", err)
+		return nil, true
+	}
+}
+
+// adminSurfaceWithoutAuth reports whether the admin surface may still be served
+// when adminAuth is enabled but cannot be built: only when the legacy admin
+// token (observability.adminToken) guards it, and adminAuth.allowLegacyToken
+// allows that token. Anything else would serve the surface unauthenticated.
+func adminSurfaceWithoutAuth(cfg *config.Config) bool {
+	allowed := cfg.AdminAuth.AllowLegacyToken == nil || *cfg.AdminAuth.AllowLegacyToken
+	return allowed && strings.TrimSpace(cfg.Observability.AdminToken) != ""
+}
+
 // buildAdminAuth constructs the admin SSO/RBAC service (Task 51) from config. It
-// returns (nil, nil) when adminAuth is disabled. When OIDC is enabled it may
-// perform discovery against the IdP, so an unreachable IdP yields an error the
-// caller logs (degrading to the legacy token) rather than crashing.
+// returns (nil, nil) when adminAuth is disabled. It does not contact the
+// identity provider: OIDC endpoints are discovered on first use and a failed
+// discovery is retried, so an unreachable IdP fails sign-ins, not start-up.
 func buildAdminAuth(cfg *config.Config, logger *slog.Logger) (*adminauth.Service, error) {
 	ac := cfg.AdminAuth
 	if !ac.Enabled {
@@ -5594,6 +5623,7 @@ func buildAdminAuth(cfg *config.Config, logger *slog.Logger) (*adminauth.Service
 		DefaultRole:   ac.DefaultRole,
 		Logger:        logger,
 	}
+	opts.SubjectBindings = ac.SubjectBindings
 	// When the self-service portal is enabled it is mounted on a separate path
 	// from the admin surface, so broaden the SSO session cookie to the site root
 	// so one login works for both. The cookie remains HttpOnly + signed.

@@ -1033,6 +1033,7 @@ func run() error {
 		CacheFed:           cacheFed,
 		DownloadLog:        downloadLog,
 		UserLinks:          userLinksSvc,
+		SignInCallbacks:    signInCallbacks(obs.adminAuth, userLinksSvc),
 	}, proxy.Options{
 		HTTPAddr:         cfg.Server.HTTPAddr,
 		ReadTimeout:      cfg.Server.ReadTimeout,

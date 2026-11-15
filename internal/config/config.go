@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blechschmidt/pullthrough-security/internal/adminauth"
 	"github.com/blechschmidt/pullthrough-security/internal/backends/generic"
 	"github.com/blechschmidt/pullthrough-security/internal/cachegc"
 	"github.com/blechschmidt/pullthrough-security/internal/clientip"
@@ -4046,6 +4047,13 @@ type AdminAuthConfig struct {
 	// (viewer|operator|approver|admin). A group already named like a canonical
 	// role needs no binding.
 	RoleBindings map[string]string `yaml:"roleBindings"`
+	// SubjectBindings map a signed-in user — the value of oidc.subjectClaim,
+	// e.g. "alice@example.com" with subjectClaim preferred_username — to a
+	// canonical role. For an identity provider that releases no groups
+	// (Microsoft Entra ID without a groups claim), or for the first admin. A
+	// subject that contains "@" matches ASCII case-insensitively. A user holds
+	// the roles of their groups and of their subject together.
+	SubjectBindings map[string]string `yaml:"subjectBindings"`
 	// DefaultRole is granted to an authenticated caller that matches no binding
 	// (empty denies such callers).
 	DefaultRole string `yaml:"defaultRole"`
@@ -6718,6 +6726,17 @@ func (c *Config) validateAdminAuth() error {
 			return err
 		}
 	}
+	for subject, role := range a.SubjectBindings {
+		if strings.TrimSpace(subject) == "" {
+			return fmt.Errorf("config: adminAuth.subjectBindings: a binding has an empty subject")
+		}
+		if err := checkRole(fmt.Sprintf("adminAuth.subjectBindings[%q]", subject), role); err != nil {
+			return err
+		}
+	}
+	if len(a.SubjectBindings) > 0 && !a.OIDC.Enabled {
+		return fmt.Errorf("config: adminAuth.subjectBindings bind users of the identity provider: they need adminAuth.oidc.enabled")
+	}
 	if a.DefaultRole != "" {
 		if err := checkRole("adminAuth.defaultRole", a.DefaultRole); err != nil {
 			return err
@@ -6741,6 +6760,14 @@ func (c *Config) validateAdminAuth() error {
 		}
 		if strings.TrimSpace(o.RedirectURL) == "" {
 			return fmt.Errorf("config: adminAuth.oidc.redirectUrl is required when oidc is enabled")
+		}
+		route, err := adminauth.CallbackPathOf(o.RedirectURL)
+		if err != nil {
+			return fmt.Errorf("config: adminAuth.oidc.redirectUrl: %w", err)
+		}
+		if err := c.checkCallbackRoute("adminAuth.oidc.redirectUrl", route,
+			c.Observability.AdminPrefixOrDefault()+"/auth/callback"); err != nil {
+			return err
 		}
 		if len(strings.TrimSpace(a.SessionKey)) < 16 {
 			return fmt.Errorf("config: adminAuth.sessionKey must be at least 16 bytes when oidc is enabled")

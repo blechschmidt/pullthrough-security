@@ -16,6 +16,7 @@ import (
 
 	"github.com/blechschmidt/pullthrough-security/internal/audit"
 	"github.com/blechschmidt/pullthrough-security/internal/onboard"
+	"github.com/blechschmidt/pullthrough-security/internal/signin"
 )
 
 // The self-service page: where a user signs in, creates links, sees when each
@@ -208,8 +209,51 @@ func (s *Service) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.renderMessage(w, http.StatusInternalServerError, "Sign-in failed", "The sign-in could not be started. Please try again.")
 		return
 	}
-	s.setCookie(w, flowCookie, value, flowTTL)
+	s.setCookieAt(w, flowCookie, value, flowTTL, s.callbackPath)
 	http.Redirect(w, r, target, http.StatusFound)
+}
+
+// CallbackRoute returns the path the gateway must serve the sign-in callback
+// at: the path of the configured redirect URL, when that is not the page's own
+// <uiPath>/callback, which the page serves itself. It returns "" without
+// sign-in. (signin.Callback)
+func (s *Service) CallbackRoute() string {
+	if s == nil || s.oidc == nil || s.callbackRoute == s.uiPath+"/callback" {
+		return ""
+	}
+	return s.callbackRoute
+}
+
+// CallbackState reports whether a request that came back from the identity
+// provider answers a sign-in this page started: whether it carries a valid
+// login-flow cookie whose state is the request's state parameter.
+// (signin.Callback)
+func (s *Service) CallbackState(r *http.Request) signin.State {
+	if s == nil || s.oidc == nil || s.codec == nil {
+		return signin.Absent
+	}
+	c, err := r.Cookie(s.cookieName(flowCookie))
+	if err != nil || c.Value == "" {
+		return signin.Absent
+	}
+	flow, err := s.codec.decodeFlow(c.Value)
+	if err != nil {
+		return signin.Foreign
+	}
+	if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("state")), []byte(flow.State)) != 1 {
+		return signin.Foreign
+	}
+	return signin.Matches
+}
+
+// HandleCallback completes a sign-in that comes back at CallbackRoute.
+// (signin.Callback)
+func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	if s == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.withHeaders(s.handleCallback, true).ServeHTTP(w, r)
 }
 
 func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +263,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	// The flow cookie is for one sign-in; whatever comes of this request, it is
 	// spent.
-	s.clearCookie(w, flowCookie)
+	s.clearCookieAt(w, flowCookie, s.callbackPath)
 	fail := func(status int, message string, logArgs ...any) {
 		s.counters.signInsFailed.Add(1)
 		if len(logArgs) > 0 {
@@ -309,10 +353,14 @@ func (s *Service) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) setCookie(w http.ResponseWriter, name, value string, ttl time.Duration) {
+	s.setCookieAt(w, name, value, ttl, s.pagePath)
+}
+
+func (s *Service) setCookieAt(w http.ResponseWriter, name, value string, ttl time.Duration, path string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.cookieName(name),
 		Value:    value,
-		Path:     s.pagePath,
+		Path:     path,
 		MaxAge:   int(ttl / time.Second),
 		HttpOnly: true,
 		Secure:   s.secure,
@@ -321,10 +369,14 @@ func (s *Service) setCookie(w http.ResponseWriter, name, value string, ttl time.
 }
 
 func (s *Service) clearCookie(w http.ResponseWriter, name string) {
+	s.clearCookieAt(w, name, s.pagePath)
+}
+
+func (s *Service) clearCookieAt(w http.ResponseWriter, name, path string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.cookieName(name),
 		Value:    "",
-		Path:     s.pagePath,
+		Path:     path,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   s.secure,

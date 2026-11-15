@@ -134,6 +134,56 @@ The unit runs the same check before every start (`ExecStartPre`), so an edit
 that does not validate leaves the service stopped with the reason in the
 journal instead of in a restart loop.
 
+## Single sign-on
+
+To sign in to the console with an identity provider instead of the admin
+token, and to let cache users create their own personal links, add the
+provider to `adminAuth` and `userLinks`
+([admin-sso-rbac.md](admin-sso-rbac.md), [user-links.md](user-links.md)).
+The two may share one redirect URI. Each needs a session key; put them into
+files only the service account can read (the `file://` reference refuses
+anything more open):
+
+```sh
+for k in admin-session-key links-session-key; do
+  install -o pullthrough -g pullthrough -m 0400 /dev/null /etc/pullthrough/secrets/$k
+  openssl rand -base64 48 | tr -d '\n' > /etc/pullthrough/secrets/$k
+done
+```
+
+```yaml
+adminAuth:
+  enabled: true
+  allowLegacyToken: false
+  sessionKey: file:///etc/pullthrough/secrets/admin-session-key
+  subjectBindings:
+    alice@example.com: admin          # the value of oidc.subjectClaim
+  staticTokens: [...]                 # keep the admin token: ptctl uses it
+  oidc:
+    enabled: true
+    issuer: https://login.example.com/realms/corp
+    clientId: pullthrough
+    redirectUrl: https://proxy.example.com:8889/auth/oidc
+    scopes: [openid, profile, email]
+    subjectClaim: preferred_username
+userLinks:
+  enabled: true
+  defaultRoles: [reader]
+  sessionKey: file:///etc/pullthrough/secrets/links-session-key
+  oidc:
+    enabled: true
+    issuer: https://login.example.com/realms/corp
+    clientId: pullthrough
+    redirectUrl: https://proxy.example.com:8889/auth/oidc
+    subjectClaim: preferred_username
+```
+
+Then `verify-config` and restart as above. The proxy contacts the provider only
+when someone signs in, so a provider that is down does not keep it from
+starting; the admin token keeps working throughout. For Microsoft Entra ID see
+[admin-sso-rbac.md](admin-sso-rbac.md#microsoft-entra-id): it needs the
+tenant-ID issuer with the domain as `discoveryUrl`.
+
 ## Using it
 
 Package managers follow [the client guide](clients.md) with the client token
@@ -306,3 +356,12 @@ deploy/systemd/install.sh \
 plus the limits drop-in above, as the host runs other services. Its
 certificate is renewed by a certbot in a container; the daily timer publishes
 it.
+
+Its console and links page sign in at the owner's Microsoft Entra ID tenant
+([Single sign-on](#single-sign-on)), through an application registration it
+shares with another service on the host: both sign-ins come back at the one
+redirect URI that registration lists for this origin, `/auth/oidc`, and
+`adminAuth.oidc.audience` is set so that an ID token issued to the other
+service is not an admin-API bearer token here. The owner's account is bound to
+`admin` in `subjectBindings`; anyone else in the tenant may sign in to the links
+page and gets the `reader` role, but not the console.

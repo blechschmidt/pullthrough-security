@@ -454,10 +454,14 @@ func TestOIDCDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New with discovery: %v", err)
 	}
-	if got := svc.oidc.authzURL; got != idp.issuer+"/authorize" {
+	ep, err := svc.oidc.endpoints(context.Background())
+	if err != nil {
+		t.Fatalf("resolving the provider: %v", err)
+	}
+	if got := ep.authzURL; got != idp.issuer+"/authorize" {
 		t.Fatalf("discovered authz endpoint = %q", got)
 	}
-	if got := svc.oidc.tokenURL; got != idp.issuer+"/token" {
+	if got := ep.tokenURL; got != idp.issuer+"/token" {
 		t.Fatalf("discovered token endpoint = %q", got)
 	}
 	token := idp.signToken(t, now, map[string]any{"groups": []string{"admin"}})

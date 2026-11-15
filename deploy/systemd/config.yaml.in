@@ -104,7 +104,10 @@ observability:
   adminPathPrefix: /admin
 
 # The admin console (<publicUrl>/admin/) and its API accept only the admin
-# token; the console asks for it.
+# token; the console asks for it. To sign in through an identity provider
+# instead — and to let cache users create their own personal links — add
+# adminAuth.oidc, adminAuth.subjectBindings and userLinks.oidc (docs/systemd.md,
+# "Single sign-on"); keep the admin token for ptctl.
 adminAuth:
   enabled: true
   allowLegacyToken: false

@@ -226,29 +226,7 @@ func (c *Config) validateUserLinks() error {
 		return fmt.Errorf("config: userLinks.uiPath: %w", err)
 	}
 	// Neither may shadow — or be shadowed by — another surface of the gateway.
-	reserved := map[string]string{
-		"v1":       "the package-source mounts",
-		"v2":       "the container registry alias",
-		"healthz":  "the health endpoint",
-		"readyz":   "the readiness endpoint",
-		"internal": "the cache federation protocol",
-	}
-	addReserved := func(path, what string) {
-		if seg := firstPathSegment(path); seg != "" {
-			reserved[seg] = what
-		}
-	}
-	if c.Observability.Admin {
-		addReserved(orDefaultString(c.Observability.AdminPathPrefix, "/admin"), "the admin surface (observability.adminPathPrefix)")
-	}
-	if c.Observability.Metrics {
-		addReserved(orDefaultString(c.Observability.MetricsPath, "/metrics"), "the metrics endpoint (observability.metricsPath)")
-	}
-	if c.Observability.Portal {
-		addReserved(c.Observability.PortalPrefixOrDefault(), "the self-service portal (observability.portalPathPrefix)")
-		addReserved("/api", "the self-service portal API")
-	}
-	addReserved(orDefaultString(c.Scanning.Watch.WebhookPath, "/webhooks/git"), "the commit scanner's push webhook (scanning.watch.webhookPath)")
+	reserved := c.gatewayMounts(false)
 	if what, taken := reserved[firstPathSegment(prefix)]; taken {
 		return fmt.Errorf("config: userLinks.pathPrefix %q collides with %s", prefix, what)
 	}
@@ -303,6 +281,13 @@ func (c *Config) validateUserLinks() error {
 			if ru, err := url.Parse(raw); err != nil || ru.Host == "" || (ru.Scheme != "https" && ru.Scheme != "http") {
 				return fmt.Errorf("config: userLinks.oidc.redirectUrl must be an absolute http(s) URL")
 			}
+			_, route, err := userlinks.CallbackPaths(raw, c.Server.PublicURL)
+			if err != nil {
+				return fmt.Errorf("config: userLinks.oidc.redirectUrl: %w", err)
+			}
+			if err := c.checkCallbackRoute("userLinks.oidc.redirectUrl", route, uiPath+"/callback"); err != nil {
+				return err
+			}
 		}
 		if o.JWKSCacheTTL < 0 || o.Leeway < 0 {
 			return fmt.Errorf("config: userLinks.oidc.jwksCacheTtl and leeway must not be negative")
@@ -332,6 +317,68 @@ func (c *Config) validateUserLinks() error {
 		if d == "" || strings.ContainsAny(d, "@/ ") {
 			return fmt.Errorf("config: userLinks.allowedEmailDomains[%d] %q is not a domain", i, domain)
 		}
+	}
+	return nil
+}
+
+// gatewayMounts returns the first path segments under which the gateway serves
+// something, each with what it serves there. A path of another surface must
+// not start with one of them: it would shadow that surface, or be shadowed by
+// it. withLinks adds the personal-links prefix and page, which the links
+// configuration checks against everything else itself.
+func (c *Config) gatewayMounts(withLinks bool) map[string]string {
+	reserved := map[string]string{
+		"v1":       "the package-source mounts",
+		"v2":       "the container registry alias",
+		"healthz":  "the health endpoint",
+		"readyz":   "the readiness endpoint",
+		"internal": "the cache federation protocol",
+	}
+	add := func(path, what string) {
+		if seg := firstPathSegment(path); seg != "" {
+			reserved[seg] = what
+		}
+	}
+	if c.Observability.Admin {
+		add(orDefaultString(c.Observability.AdminPathPrefix, "/admin"), "the admin surface (observability.adminPathPrefix)")
+	}
+	if c.Observability.Metrics {
+		add(orDefaultString(c.Observability.MetricsPath, "/metrics"), "the metrics endpoint (observability.metricsPath)")
+	}
+	if c.Observability.Portal {
+		add(c.Observability.PortalPrefixOrDefault(), "the self-service portal (observability.portalPathPrefix)")
+		add("/api", "the self-service portal API")
+	}
+	add(orDefaultString(c.Scanning.Watch.WebhookPath, "/webhooks/git"), "the commit scanner's push webhook (scanning.watch.webhookPath)")
+	if c.Repositories.Enabled {
+		add(c.RepositoriesWebhookPath(), "the repository registry's push webhook (repositories.webhookPath)")
+	}
+	if withLinks && c.UserLinks.Enabled {
+		if prefix, err := userlinks.NormalizePathPrefix(c.UserLinks.PathPrefix); err == nil {
+			add(prefix, "the personal cache links (userLinks.pathPrefix)")
+		}
+		if uiPath, err := userlinks.NormalizeUIPath(c.UserLinks.UIPath); err == nil {
+			add(uiPath, "the personal-links page (userLinks.uiPath)")
+		}
+	}
+	return reserved
+}
+
+// checkCallbackRoute checks the path — as the gateway sees it — that an
+// identity provider sends a sign-in back to. builtin is the callback the
+// surface serves under its own mount; any other path is served by the gateway
+// at its root (internal/signin), so it must be clear of every other mount.
+// Two sign-ins may share such a path.
+func (c *Config) checkCallbackRoute(field, route, builtin string) error {
+	if route == builtin {
+		return nil
+	}
+	seg := firstPathSegment(route)
+	if seg == "" {
+		return fmt.Errorf("config: %s names no callback path", field)
+	}
+	if what, taken := c.gatewayMounts(true)[seg]; taken {
+		return fmt.Errorf("config: %s: the callback path %q collides with %s (use %s, or a path of its own)", field, route, what, builtin)
 	}
 	return nil
 }

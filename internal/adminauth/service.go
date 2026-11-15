@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
+	"github.com/blechschmidt/pullthrough-security/internal/signin"
 )
 
 // Default cookie/session parameters.
@@ -20,6 +21,23 @@ const (
 	defaultSessionTTL = 8 * time.Hour
 	flowTTL           = 10 * time.Minute
 )
+
+// CSRFHeader must accompany every state-changing request (any method but GET,
+// HEAD and OPTIONS) that authenticates with the SSO session cookie. The console
+// sends it with every request.
+//
+// A browser attaches the session cookie to a request another site's page makes
+// — a form posted from a sibling subdomain, or from another port of the same
+// host, is "same-site" and passes SameSite=Lax — but it does not let that page
+// add a header of its choosing without asking the proxy first (a CORS
+// preflight), which the proxy never approves. Bearer and static tokens are not
+// sent by a browser on its own, so they need no such proof.
+const CSRFHeader = "X-Pullthrough-Admin"
+
+// ErrCrossSiteRequest is returned by Authenticate for a state-changing request
+// whose only credential is the session cookie and that lacks CSRFHeader. It
+// wraps auth.ErrUnauthenticated.
+var ErrCrossSiteRequest = fmt.Errorf("%w: a state-changing request authenticated by the session cookie must carry the %s header", auth.ErrUnauthenticated, CSRFHeader)
 
 // Options configures a Service.
 type Options struct {
@@ -53,6 +71,13 @@ type Options struct {
 	// RoleBindings map IdP group/role names to canonical roles. A group whose
 	// name is already a canonical role needs no binding.
 	RoleBindings map[string]string
+	// SubjectBindings map a signed-in user — the value of the OIDC subject
+	// claim (OIDCConfig.SubjectClaim) — to a canonical role, for a provider
+	// that releases no groups, or for the one person who must be an admin
+	// before any group exists. A subject that contains "@" is compared ASCII
+	// case-insensitively, any other exactly. The roles a user gets are those
+	// of their groups and of their subject together.
+	SubjectBindings map[string]string
 	// DefaultRole is granted when an authenticated caller matches no binding
 	// (empty denies such callers).
 	DefaultRole string
@@ -70,6 +95,7 @@ type Service struct {
 	oidc           *oidcProvider
 	static         *staticAuth
 	bindings       map[string]Role
+	subjects       map[string]Role
 	defaultRole    Role
 	metrics        *Metrics
 	now            func() time.Time
@@ -78,6 +104,7 @@ type Service struct {
 	flowCookieName string
 	cookiePath     string // admin prefix; used to build login/logout/return URLs
 	cookieScope    string // Path attribute of issued cookies (may be broader, e.g. "/")
+	flowPath       string // Path attribute of the login-flow cookie: the callback path
 	secure         bool
 	sessionTTL     time.Duration
 }
@@ -123,7 +150,9 @@ func New(opts Options) (*Service, error) {
 		secure:         opts.SecureCookies,
 		sessionTTL:     sessionTTL,
 		bindings:       make(map[string]Role),
+		subjects:       make(map[string]Role),
 		defaultRole:    "",
+		flowPath:       cookieScope,
 	}
 
 	// Role bindings.
@@ -133,6 +162,17 @@ func New(opts Options) (*Service, error) {
 			return nil, fmt.Errorf("adminauth: role binding %q -> %q: unknown role", group, roleName)
 		}
 		s.bindings[strings.TrimSpace(group)] = r
+	}
+	for subject, roleName := range opts.SubjectBindings {
+		key := subjectKey(subject)
+		if key == "" {
+			return nil, fmt.Errorf("adminauth: subject binding with an empty subject")
+		}
+		r, ok := ParseRole(roleName)
+		if !ok {
+			return nil, fmt.Errorf("adminauth: subject binding %q -> %q: unknown role", subject, roleName)
+		}
+		s.subjects[key] = r
 	}
 	if rn := strings.TrimSpace(opts.DefaultRole); rn != "" {
 		r, ok := ParseRole(rn)
@@ -160,6 +200,9 @@ func New(opts Options) (*Service, error) {
 			return nil, err
 		}
 		s.oidc = prov
+		// The login-flow cookie is read where the browser comes back: the
+		// path of the redirect URL, wherever that is.
+		s.flowPath = prov.callbackPath
 	}
 
 	if s.oidc == nil && s.static == nil {
@@ -188,16 +231,58 @@ func (s *Service) LoginPath() string {
 	return s.cookiePath + "/auth/login"
 }
 
+// CallbackRoute returns the path the gateway must serve the SSO callback at:
+// the path of the configured redirect URL when that is not the admin surface's
+// own <prefix>/auth/callback, which the admin surface serves itself. It
+// returns "" without OIDC. (signin.Callback)
+func (s *Service) CallbackRoute() string {
+	if !s.OIDCEnabled() || s.oidc.callbackPath == s.cookiePath+"/auth/callback" {
+		return ""
+	}
+	return s.oidc.callbackPath
+}
+
+// CallbackState reports whether a request that came back from the identity
+// provider answers a sign-in this service started: whether it carries a valid
+// login-flow cookie whose state is the request's state parameter.
+// (signin.Callback)
+func (s *Service) CallbackState(r *http.Request) signin.State {
+	if !s.OIDCEnabled() {
+		return signin.Absent
+	}
+	c, err := r.Cookie(s.flowCookieName)
+	if err != nil || c.Value == "" {
+		return signin.Absent
+	}
+	flow, err := s.codec.decodeFlow(c.Value)
+	if err != nil {
+		return signin.Foreign
+	}
+	if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("state")), []byte(flow.State)) != 1 {
+		return signin.Foreign
+	}
+	return signin.Matches
+}
+
 // Authenticate resolves the caller's identity from (in order) a session cookie,
 // an OIDC bearer JWT, or a static token. It returns auth.ErrUnauthenticated when
-// no usable credential is present or a presented credential is invalid.
+// no usable credential is present or a presented credential is invalid, and
+// ErrCrossSiteRequest when the only credential is the session cookie of a
+// state-changing request that lacks CSRFHeader.
 func (s *Service) Authenticate(ctx context.Context, r *http.Request) (*Identity, error) {
 	// 1) Session cookie (browser, post-login).
+	crossSite := false
 	if s.oidc != nil {
 		if c, err := r.Cookie(s.cookieName); err == nil && c.Value != "" {
 			if id, derr := s.codec.decodeSession(c.Value); derr == nil {
-				s.metrics.recordAuthSuccess(id.Method, id.Roles)
-				return id, nil
+				if !unsafeMethod(r.Method) || r.Header.Get(CSRFHeader) != "" {
+					s.metrics.recordAuthSuccess(id.Method, id.Roles)
+					return id, nil
+				}
+				// The browser sent the cookie, but nothing shows that the
+				// console sent the request. A token, if any, may still
+				// authenticate it.
+				crossSite = true
 			}
 			// An invalid/expired session cookie is treated as "no session"; the
 			// caller will be steered back to login.
@@ -230,8 +315,38 @@ func (s *Service) Authenticate(ctx context.Context, r *http.Request) (*Identity,
 		}
 	}
 
+	if crossSite {
+		s.metrics.recordAuthFailure("cross_site")
+		return nil, ErrCrossSiteRequest
+	}
 	s.metrics.recordAuthFailure("no_credential")
 	return nil, auth.ErrUnauthenticated
+}
+
+// unsafeMethod reports whether a request method may change state.
+func unsafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	}
+	return true
+}
+
+// subjectKey is the form a subject is bound and looked up under: an e-mail-like
+// subject in ASCII lower case (Unicode case folding would map other letters
+// onto ASCII ones — the Kelvin sign onto "k"), any other as it is.
+func subjectKey(subject string) string {
+	subject = strings.TrimSpace(subject)
+	if !strings.Contains(subject, "@") {
+		return subject
+	}
+	b := []byte(subject)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
 }
 
 // Authorize reports whether the identity holds the required capability and
@@ -245,7 +360,7 @@ func (s *Service) Authorize(id *Identity, c Capability) bool {
 // identityFromClaims maps OIDC groups to canonical roles and builds an Identity.
 // The bool is false when the caller ends up with no roles (denied).
 func (s *Service) identityFromClaims(cl *claims, method string) (*Identity, bool) {
-	roles := s.mapGroups(cl.groups)
+	roles := s.rolesFor(cl.subject, cl.groups)
 	if len(roles) == 0 {
 		return nil, false
 	}
@@ -256,7 +371,20 @@ func (s *Service) identityFromClaims(cl *claims, method string) (*Identity, bool
 // configured bindings (falling back to direct canonical-role names), applying
 // the default role when nothing matches.
 func (s *Service) mapGroups(groups []string) []Role {
-	out := make([]Role, 0, len(groups))
+	return s.rolesFor("", groups)
+}
+
+// rolesFor returns the canonical roles of a signed-in user: those their groups
+// map to (via the bindings, or by a group being named like a role) together
+// with the one their subject is bound to; the default role when there are
+// none.
+func (s *Service) rolesFor(subject string, groups []string) []Role {
+	out := make([]Role, 0, len(groups)+1)
+	if key := subjectKey(subject); key != "" {
+		if r, ok := s.subjects[key]; ok {
+			out = append(out, r)
+		}
+	}
 	for _, g := range groups {
 		g = strings.TrimSpace(g)
 		if g == "" {
@@ -310,8 +438,15 @@ func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "login initialization failed", http.StatusInternalServerError)
 		return
 	}
-	s.setCookie(w, s.flowCookieName, cookieVal, flowTTL)
-	http.Redirect(w, r, s.oidc.authCodeURL(state, nonce, challenge), http.StatusFound)
+	target, err := s.oidc.authCodeURL(r.Context(), state, nonce, challenge)
+	if err != nil {
+		s.metrics.recordLogin(false)
+		s.logger.Warn("adminauth: the identity provider cannot be used for sign-in", "error", err)
+		http.Error(w, "the identity provider cannot be reached at the moment; please try again shortly", http.StatusServiceUnavailable)
+		return
+	}
+	s.setCookieAt(w, s.flowCookieName, cookieVal, flowTTL, s.flowPath)
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // HandleCallback completes the OIDC flow: it validates state, exchanges the
@@ -322,7 +457,7 @@ func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Always clear the flow cookie; it is single-use.
-	defer s.clearCookie(w, s.flowCookieName)
+	defer s.clearCookieAt(w, s.flowCookieName, s.flowPath)
 
 	c, err := r.Cookie(s.flowCookieName)
 	if err != nil || c.Value == "" {
@@ -439,10 +574,14 @@ func (s *Service) loginError(w http.ResponseWriter, msg string, code int) {
 }
 
 func (s *Service) setCookie(w http.ResponseWriter, name, value string, ttl time.Duration) {
+	s.setCookieAt(w, name, value, ttl, s.cookieScope)
+}
+
+func (s *Service) setCookieAt(w http.ResponseWriter, name, value string, ttl time.Duration, path string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    value,
-		Path:     s.cookieScope,
+		Path:     path,
 		Expires:  s.now().Add(ttl),
 		MaxAge:   int(ttl / time.Second),
 		HttpOnly: true,
@@ -452,10 +591,14 @@ func (s *Service) setCookie(w http.ResponseWriter, name, value string, ttl time.
 }
 
 func (s *Service) clearCookie(w http.ResponseWriter, name string) {
+	s.clearCookieAt(w, name, s.cookieScope)
+}
+
+func (s *Service) clearCookieAt(w http.ResponseWriter, name, path string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    "",
-		Path:     s.cookieScope,
+		Path:     path,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   s.secure,

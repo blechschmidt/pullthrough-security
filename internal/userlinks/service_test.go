@@ -525,15 +525,15 @@ func TestSignInFlowIsBoundToTheBrowserThatStartedIt(t *testing.T) {
 		params.Get("redirect_uri") != e.url("/callback") || !strings.Contains(params.Get("scope"), "openid") {
 		t.Fatalf("authorization request = %v", params)
 	}
-	// The flow cookie is the browser's half of the sign-in: private to the page,
-	// unreadable to scripts.
+	// The flow cookie is the browser's half of the sign-in: sent only to the
+	// callback that reads it, unreadable to scripts.
 	var flow *http.Cookie
 	for _, c := range resp.Cookies() {
 		if c.Name == flowCookie {
 			flow = c
 		}
 	}
-	if flow == nil || !flow.HttpOnly || flow.SameSite != http.SameSiteLaxMode || flow.Path != "/links" || flow.MaxAge <= 0 {
+	if flow == nil || !flow.HttpOnly || flow.SameSite != http.SameSiteLaxMode || flow.Path != "/links/callback" || flow.MaxAge <= 0 {
 		t.Fatalf("flow cookie = %+v", flow)
 	}
 	if strings.Contains(flow.Value, params.Get("state")) {
@@ -1209,7 +1209,9 @@ func TestPageBehindAPublicPath(t *testing.T) {
 			flow = c
 		}
 	}
-	if flow == nil || flow.Path != "/pt/links" || !flow.Secure || !flow.HttpOnly {
+	// The sign-in cookie is read where the provider sends the browser back to,
+	// and sent nowhere else.
+	if flow == nil || flow.Path != "/pt/links/callback" || !flow.Secure || !flow.HttpOnly {
 		t.Fatalf("the sign-in cookie: %+v (all: %v)", flow, rr.Result().Cookies())
 	}
 	loc, err := url.Parse(rr.Header().Get("Location"))

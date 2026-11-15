@@ -154,6 +154,11 @@ type Service struct {
 	// ("https://example.com/pt" → "/pt/links"). Cookies are scoped to it and
 	// redirects go to it; uiPath is where the gateway mounts the page.
 	pagePath string
+	// callbackPath is the path of the sign-in redirect URL as the browser sees
+	// it: the login-flow cookie is scoped to it. callbackRoute is the same path
+	// as the gateway sees it (without the public URL's path).
+	callbackPath  string
+	callbackRoute string
 
 	registry   *Registry
 	oidc       *oidcClient
@@ -296,6 +301,9 @@ func New(cfg Config) (*Service, error) {
 		oidcCfg := *cfg.OIDC
 		if strings.TrimSpace(oidcCfg.RedirectURL) == "" {
 			oidcCfg.RedirectURL = publicURL + uiPath + "/callback"
+		}
+		if s.callbackPath, s.callbackRoute, err = CallbackPaths(oidcCfg.RedirectURL, publicURL); err != nil {
+			return nil, err
 		}
 		if oidcCfg.Now == nil {
 			oidcCfg.Now = s.now

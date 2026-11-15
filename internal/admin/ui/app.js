@@ -105,8 +105,14 @@
   // --- API client -----------------------------------------------------------
   const api = {
     token: sessionStorage.getItem("pt_admin_token") || "",
+    // headers are sent with every request to the admin API. X-Pullthrough-Admin
+    // shows that the console itself sent it: the server refuses a request that
+    // changes something and arrives with the sign-in cookie but without it,
+    // which is what a page of another origin posting with that cookie looks like.
     headers() {
-      return this.token ? { Authorization: "Bearer " + this.token } : {};
+      const h = { "X-Pullthrough-Admin": "1" };
+      if (this.token) h.Authorization = "Bearer " + this.token;
+      return h;
     },
     async request(method, path, body, stepUpToken) {
       const opts = { method, headers: this.headers() };

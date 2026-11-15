@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -123,6 +124,15 @@ func (s *Server) rbac(svc *adminauth.Service, next http.Handler) http.Handler {
 		}
 
 		id, err := svc.Authenticate(r.Context(), r)
+		if errors.Is(err, adminauth.ErrCrossSiteRequest) {
+			// The session cookie came with a state-changing request the
+			// console did not send (no CSRF header): a page of another
+			// origin posting with the operator's cookie. Signing in again
+			// would not help, so no login is offered.
+			s.writeError(w, http.StatusForbidden,
+				"cross-site request refused: a request that changes something must carry the "+adminauth.CSRFHeader+" header")
+			return
+		}
 		if err != nil {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pullthrough-admin"`)
 			if lp := svc.LoginPath(); lp != "" {

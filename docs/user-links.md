@@ -99,6 +99,37 @@ Without an identity provider (`oidc.enabled: false`) the path prefix still
 works, and links are issued by an administrator — see
 [`ptctl userlinks issue`](#on-the-command-line).
 
+### The callback, and Microsoft Entra ID
+
+`oidc.redirectUrl` may name another path than `<uiPath>/callback` — one the
+provider registration already lists, for instance. The gateway then serves that
+path at its root and the sign-in cookie is scoped to it; it must not lie under
+another mount of the proxy. The [admin console](admin-sso-rbac.md#the-callback-path)
+may use the same redirect URL: one registered redirect URI serves both sign-ins,
+and each request goes to the sign-in whose state it answers.
+
+Microsoft Entra ID needs three settings beyond the quick start, all explained
+in [admin-sso-rbac.md](admin-sso-rbac.md#microsoft-entra-id): the tenant-ID
+`issuer` with the domain form as `discoveryUrl`; `subjectClaim:
+preferred_username` (Entra releases `email` only for some accounts, and its `sub`
+differs per application); and a redirect URI on the "Mobile and desktop
+applications" platform (no `clientSecret`) or on the "Single-page application"
+platform, whose codes the proxy redeems cross-origin once Entra asks for it.
+
+```yaml
+userLinks:
+  enabled: true
+  sessionKey: file:///etc/pullthrough/secrets/links-session-key
+  defaultRoles: [reader]
+  oidc:
+    enabled: true
+    issuer: https://login.microsoftonline.com/00000000-1111-2222-3333-444444444444/v2.0
+    discoveryUrl: https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration
+    clientId: 55555555-6666-7777-8888-999999999999
+    redirectUrl: https://proxy.example.com/auth/oidc   # shared with adminAuth.oidc.redirectUrl
+    subjectClaim: preferred_username
+```
+
 ## What a personal link is
 
 A link is the proxy's public URL, the path prefix (`/u` by default) and a
@@ -629,7 +660,8 @@ userLinks:
 | `sessionKey` | — | Required with `oidc`. At least 32 bytes. A [secret reference](configuration.md), `${ENV}` or `enc:v1:` value |
 | `insecureCookies` | `false` | Drops `Secure` from the cookies — only for a test set-up on plain HTTP |
 | `syncInterval` | `15s` | At least `1s` |
-| `oidc.discoveryUrl`, `authorizationEndpoint`, `tokenEndpoint`, `jwksUrl`, `jwks` | discovered | With the endpoints and a key source all set, no discovery takes place. `jwks` pins the provider's signing keys inline |
+| `oidc.redirectUrl` | `<publicUrl><uiPath>/callback` | Another path is served at the gateway's root and may be shared with the admin console's sign-in; it must not collide with another mount |
+| `oidc.discoveryUrl`, `authorizationEndpoint`, `tokenEndpoint`, `jwksUrl`, `jwks` | discovered | With the endpoints and a key source all set, no discovery takes place. `jwks` pins the provider's signing keys inline. The discovery document must declare `issuer` exactly — for an alias such as Entra's tenant domain, set `discoveryUrl` to the alias |
 | `oidc.jwksCacheTtl`, `oidc.leeway` | `15m`, `60s` | Key caching; tolerated clock skew |
 | `defaultRoles`, `roleMap` | — | Every role must exist in `auth.roles` when `auth.enabled` — a typo would leave users without access, so it is a start-up error |
 

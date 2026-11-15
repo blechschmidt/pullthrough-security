@@ -10,8 +10,14 @@
 // accept: a token for another audience, an expired one, one signed with a
 // foreign key, one that answers a different sign-in.
 //
-// It is used by the unit tests of internal/userlinks and by the integration
-// suite that runs the real proxy binary (internal/e2e/userlinks).
+// It can also behave the way Microsoft Entra ID does where Entra departs from
+// the common case: it publishes its metadata under an alias of its issuer
+// (AliasIssuer), and it redeems the codes of a redirect URI registered as a
+// single-page application only in a cross-origin request (AllowSPARedirect).
+//
+// It is used by the unit tests of internal/userlinks and internal/adminauth,
+// by cmd/pullthrough's sign-in tests, and by the integration suite that runs
+// the real proxy binary (internal/e2e/userlinks).
 package oidctest
 
 import (
@@ -91,10 +97,15 @@ type Provider struct {
 	// redirects are the redirect URIs registered for the client. Empty accepts
 	// any, which is what a test that does not care wants.
 	redirects []string
-	user      *User
-	deny      string
-	fault     Fault
-	codes     map[string]grant
+	// spaRedirects are redirect URIs registered on Entra's "Single-page
+	// application" platform: their codes are redeemed only cross-origin.
+	spaRedirects map[string]bool
+	// origins records the Origin header of every token request, "" for none.
+	origins []string
+	user    *User
+	deny    string
+	fault   Fault
+	codes   map[string]grant
 	// requests counts the requests per endpoint.
 	requests map[string]int
 	// down makes every endpoint answer 503.
@@ -136,6 +147,7 @@ func Start(clientID, clientSecret string) (*Provider, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", p.count("discovery", p.handleDiscovery))
+	mux.HandleFunc(aliasPath+"/.well-known/openid-configuration", p.count("discovery", p.handleDiscovery))
 	mux.HandleFunc("/authorize", p.count("authorize", p.handleAuthorize))
 	mux.HandleFunc("/token", p.count("token", p.handleToken))
 	mux.HandleFunc("/jwks", p.count("jwks", p.handleJWKS))
@@ -149,6 +161,39 @@ func (p *Provider) Close() { _ = p.server.Close() }
 
 // Issuer returns the provider's issuer URL.
 func (p *Provider) Issuer() string { return p.issuer }
+
+// aliasPath is where the provider also publishes its metadata.
+const aliasPath = "/tenant.example"
+
+// AliasIssuer returns an alias of the issuer URL: its discovery document is
+// served, but declares Issuer() — as Microsoft Entra ID's document for
+// https://login.microsoftonline.com/<tenant domain>/v2.0 declares the tenant-ID
+// form, which is what its tokens carry.
+func (p *Provider) AliasIssuer() string { return p.issuer + aliasPath }
+
+// AllowSPARedirect registers a redirect URI on Microsoft Entra ID's
+// "Single-page application" platform: a code issued to it is redeemed only by
+// a request that carries an Origin header — the URI's own origin — and is
+// refused with AADSTS9002327 otherwise, without being spent. A code issued to
+// any other redirect URI is refused with AADSTS9002326 when the request does
+// carry an Origin header.
+func (p *Provider) AllowSPARedirect(uri string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.redirects = append(p.redirects, uri)
+	if p.spaRedirects == nil {
+		p.spaRedirects = map[string]bool{}
+	}
+	p.spaRedirects[uri] = true
+}
+
+// TokenOrigins returns the Origin header of every token request so far, in
+// order; "" stands for a request without one.
+func (p *Provider) TokenOrigins() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.origins...)
+}
 
 // ClientID returns the client the provider was started for.
 func (p *Provider) ClientID() string { return p.clientID }
@@ -327,8 +372,30 @@ func (p *Provider) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := r.PostForm.Get("code")
+	origin := r.Header.Get("Origin")
 	p.mu.Lock()
+	p.origins = append(p.origins, origin)
 	g, ok := p.codes[code]
+	// Entra's rule on cross-origin redemption is applied before the code is
+	// looked at further, and refuses without spending it.
+	if ok && p.spaRedirects[g.redirectURI] && origin != originOf(g.redirectURI) {
+		p.mu.Unlock()
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":             "invalid_request",
+			"error_description": "AADSTS9002327: Tokens issued for the 'Single-Page Application' client-type may only be redeemed via cross-origin requests.",
+			"error_codes":       []int{9002327},
+		})
+		return
+	}
+	if ok && !p.spaRedirects[g.redirectURI] && origin != "" {
+		p.mu.Unlock()
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":             "invalid_request",
+			"error_description": "AADSTS9002326: Cross-origin token redemption is permitted only for the 'Single-Page Application' client-type.",
+			"error_codes":       []int{9002326},
+		})
+		return
+	}
 	delete(p.codes, code) // a code is good for one exchange
 	fault := p.fault
 	p.mu.Unlock()
@@ -457,4 +524,13 @@ func randomString() string {
 		panic(fmt.Sprintf("oidctest: no randomness: %v", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// originOf returns the scheme://host[:port] of a URL.
+func originOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }

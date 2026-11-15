@@ -75,9 +75,10 @@ const maxProviderResponse = 1 << 20
 // because the identity provider was unreachable at that moment would turn an
 // outage of sign-in into an outage of the cache.
 type oidcClient struct {
-	cfg  OIDCConfig
-	http *http.Client
-	now  func() time.Time
+	cfg      OIDCConfig
+	http     *http.Client
+	now      func() time.Time
+	redeemer *auth.CodeRedeemer
 
 	mu       sync.Mutex
 	resolved *oidcEndpoints
@@ -111,6 +112,7 @@ func newOIDCClient(cfg OIDCConfig) (*oidcClient, error) {
 	if c.http == nil {
 		c.http = &http.Client{Timeout: 10 * time.Second}
 	}
+	c.redeemer = &auth.CodeRedeemer{Client: c.http}
 	if c.now == nil {
 		c.now = time.Now
 	}
@@ -224,8 +226,7 @@ func (c *oidcClient) discover(ctx context.Context) (*discoveryDocument, error) {
 	// The document must speak for the issuer that was configured. One that
 	// names another could direct sign-ins to endpoints of someone else's choice.
 	if doc.Issuer != c.cfg.Issuer {
-		return nil, fmt.Errorf("userlinks: oidc discovery: the document is for issuer %q, not the configured %q",
-			doc.Issuer, c.cfg.Issuer)
+		return nil, fmt.Errorf("userlinks: oidc discovery: %w", auth.IssuerMismatch(u, doc.Issuer, c.cfg.Issuer))
 	}
 	return &doc, nil
 }
@@ -260,47 +261,25 @@ func (c *oidcClient) exchange(ctx context.Context, code, verifier string) (strin
 	if err != nil {
 		return "", err
 	}
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", code)
-	form.Set("redirect_uri", c.cfg.RedirectURL)
-	form.Set("code_verifier", verifier)
-	form.Set("client_id", c.cfg.ClientID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ep.token, strings.NewReader(form.Encode()))
+	// A public client registered as a single-page application at Microsoft
+	// Entra ID needs its codes redeemed cross-origin; the redeemer knows.
+	tr, err := c.redeemer.Redeem(ctx, auth.CodeRedemption{
+		TokenEndpoint: ep.token,
+		Code:          code,
+		Verifier:      verifier,
+		RedirectURL:   c.cfg.RedirectURL,
+		ClientID:      c.cfg.ClientID,
+		ClientSecret:  c.cfg.ClientSecret,
+	})
 	if err != nil {
 		return "", fmt.Errorf("userlinks: token exchange: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	if c.cfg.ClientSecret != "" {
-		// A confidential client authenticates with HTTP Basic; its id and secret
-		// are form-encoded first (RFC 6749 §2.3.1).
-		req.SetBasicAuth(url.QueryEscape(c.cfg.ClientID), url.QueryEscape(c.cfg.ClientSecret))
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("userlinks: token exchange: %w", err)
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderResponse))
-	if err != nil {
-		return "", fmt.Errorf("userlinks: token exchange: %w", err)
-	}
-	var tr struct {
-		IDToken          string `json:"id_token"`
-		Error            string `json:"error"`
-		ErrorDescription string `json:"error_description"`
-	}
-	if err := json.Unmarshal(data, &tr); err != nil {
-		return "", fmt.Errorf("userlinks: token exchange: the token endpoint answered %d with a body that is not JSON", resp.StatusCode)
 	}
 	if tr.Error != "" {
 		return "", fmt.Errorf("userlinks: token exchange: the token endpoint refused: %s %s",
 			cleanText(tr.Error, 64), cleanText(tr.ErrorDescription, 256))
 	}
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("userlinks: token exchange: the token endpoint answered %d", resp.StatusCode)
+	if tr.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("userlinks: token exchange: the token endpoint answered %d", tr.StatusCode)
 	}
 	if strings.TrimSpace(tr.IDToken) == "" {
 		return "", errors.New("userlinks: token exchange: the response carries no id_token (is the openid scope granted?)")
@@ -346,6 +325,29 @@ func (c *oidcClient) verifyIDToken(ctx context.Context, idToken, nonce string) (
 		return nil, errors.New("userlinks: the id token was issued to another client (azp)")
 	}
 	return claims, nil
+}
+
+// CallbackPaths returns where a sign-in comes back to: the path of the redirect
+// URL as the browser sees it (the login-flow cookie is scoped to it), and as
+// the gateway sees it — without the path of the proxy's public URL, which a
+// reverse proxy in front of it takes off. The redirect URL must be an absolute
+// http(s) URL with a path other than "/".
+func CallbackPaths(redirectURL, publicURL string) (cookiePath, route string, err error) {
+	u, err := url.Parse(strings.TrimSpace(redirectURL))
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", "", fmt.Errorf("userlinks: oidc redirectUrl %q is not an absolute http(s) URL", redirectURL)
+	}
+	cookiePath = u.EscapedPath()
+	if cookiePath == "" || cookiePath == "/" {
+		return "", "", fmt.Errorf("userlinks: oidc redirectUrl %q names no callback path", redirectURL)
+	}
+	route = cookiePath
+	if pub, perr := url.Parse(strings.TrimSpace(publicURL)); perr == nil {
+		if base := strings.TrimRight(pub.EscapedPath(), "/"); base != "" && strings.HasPrefix(cookiePath, base+"/") {
+			route = strings.TrimPrefix(cookiePath, base)
+		}
+	}
+	return cookiePath, route, nil
 }
 
 // newPKCE returns a code verifier and its S256 challenge.

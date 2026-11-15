@@ -481,6 +481,13 @@ type Dependencies struct {
 	// path or presented as a credential — and mounts the self-service page. A
 	// nil service is the feature switched off.
 	UserLinks *userlinks.Service
+	// SignInCallbacks are the OpenID Connect sign-in callbacks served at the
+	// root of the gateway, keyed by path (signin.Routes): the path of a
+	// redirect URL registered with an identity provider, when it is not the
+	// callback the admin surface or the personal-links page serves under its
+	// own mount. The configuration keeps such a path clear of every other
+	// mount.
+	SignInCallbacks map[string]http.Handler
 }
 
 // SSHServer is an auxiliary listener (Git-over-SSH) run for the lifetime of the
@@ -675,6 +682,13 @@ func (g *Gateway) routes() http.Handler {
 		mux.Handle(links.PathPrefix()+"/", g.handlePersonalPath(backend, registry))
 		mux.Handle(links.UIPath(), links.Handler())
 		mux.Handle(links.UIPath()+"/", links.Handler())
+	}
+
+	// OpenID Connect sign-in callbacks registered at the identity provider
+	// under a path of their own — one path may serve the console's sign-in and
+	// the personal-links page's alike (internal/signin).
+	for path, h := range g.deps.SignInCallbacks {
+		mux.Handle("GET "+path, h)
 	}
 
 	// Operational telemetry: the Prometheus endpoint and the admin API/dashboard.
