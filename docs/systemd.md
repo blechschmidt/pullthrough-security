@@ -52,10 +52,11 @@ In order, it:
 5. renders `/etc/pullthrough/config.yaml` from the template (first install only);
 6. runs `pullthrough verify-config` with the **new** binary, as the service
    account, against that configuration, and stops if it fails;
-7. installs the binaries (keeping the previous one as `pullthrough.prev`) and
-   the units, and enables the service;
+7. installs the server binary (keeping the previous one as `pullthrough.prev`)
+   and the units, and enables the service;
 8. restarts the service and waits up to 90 s for `/readyz`; when it does not
-   come up, it puts the previous binary back and restarts that.
+   come up, it puts the previous binary back and restarts that. `ptctl` is
+   replaced only once the new server is ready.
 
 At the end it prints where the console, the tokens and the logs are.
 

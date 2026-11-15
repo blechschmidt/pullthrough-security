@@ -251,13 +251,14 @@ runuser -u "$ACCOUNT" -- "$work/pullthrough" verify-config -config "$ETC/config.
 for unit in pullthrough.service pullthrough-sync-certs.service pullthrough-sync-certs.timer; do
   install -m 0644 "$here/$unit" "$UNITS/$unit"
 done
+install_bin() { # tool: replace atomically
+  install -m 0755 "$work/$1" "$BIN/$1.new"
+  mv -f "$BIN/$1.new" "$BIN/$1"
+}
 if [ -x "$BIN/pullthrough" ]; then
   cp -pf "$BIN/pullthrough" "$BIN/pullthrough.prev"
 fi
-for tool in pullthrough ptctl; do
-  install -m 0755 "$work/$tool" "$BIN/$tool.new"
-  mv -f "$BIN/$tool.new" "$BIN/$tool"
-done
+install_bin pullthrough
 systemctl daemon-reload
 systemctl enable pullthrough.service
 if [ -f "$ETC/sync-certs.env" ]; then
@@ -265,6 +266,7 @@ if [ -f "$ETC/sync-certs.env" ]; then
 fi
 
 if [ "$start" -eq 0 ]; then
+  install_bin ptctl
   log "installed $new_version; not started (--no-start)"
   exit 0
 fi
@@ -307,6 +309,9 @@ if ! ready; then
   fi
   die "pullthrough did not become ready; see journalctl -u pullthrough"
 fi
+# The client goes in only with a server that came up: a rolled-back upgrade
+# leaves the pair as it was.
+install_bin ptctl
 
 url="$(config_value publicUrl)"
 log "$new_version is serving ${url:-$scheme://<this host>:$port}"
