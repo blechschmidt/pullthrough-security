@@ -122,6 +122,11 @@ trap 'rm -rf "$work"' EXIT
 chmod 0711 "$work"
 
 # --- 1. Binaries -------------------------------------------------------------
+# The unit files, the configuration template and the certificate script come
+# from the commit the binaries are built from, so an installed revision is all
+# of one commit; with --bin-dir (or a commit older than deploy/systemd), from
+# this checkout.
+files="$here"
 if [ -n "$bin_dir" ]; then
   install -m 0755 "$bin_dir/pullthrough" "$bin_dir/ptctl" "$work/"
 else
@@ -137,6 +142,10 @@ else
     CGO_ENABLED=0 go build -trimpath -ldflags "$ldflags" -o "$work/pullthrough" ./cmd/pullthrough
     CGO_ENABLED=0 go build -trimpath -ldflags "$ldflags" -o "$work/ptctl" ./cmd/ptctl
   )
+  if [ -d "$work/src/deploy/systemd" ]; then
+    cp -a "$work/src/deploy/systemd" "$work/files"
+    files="$work/files"
+  fi
   rm -rf "$work/src"
 fi
 new_version="$("$work/pullthrough" -version 2>&1 | head -1)"
@@ -209,7 +218,7 @@ openssl pkey -in "$signing_key" -pubout -out "$ETC/signing-key.pub"
 chmod 0644 "$ETC/signing-key.pub"
 
 # --- 5. TLS certificate ------------------------------------------------------
-install -m 0755 "$here/pullthrough-sync-certs" "$SBIN/pullthrough-sync-certs"
+install -m 0755 "$files/pullthrough-sync-certs" "$SBIN/pullthrough-sync-certs"
 if [ -n "$tls_source" ]; then
   printf '# Read by pullthrough-sync-certs.service (deploy/systemd/install.sh).\nPT_TLS_SOURCE=%s\n' \
     "$tls_source" >"$ETC/sync-certs.env"
@@ -232,7 +241,7 @@ if [ "$first_install" -eq 1 ]; then
     -e "s|@CACHE_MAX_BYTES@|$cache_max_bytes|g" \
     -e "s|@CLIENT_TOKEN_HASH@|$(token_hash "$ETC/tokens/client-token")|g" \
     -e "s|@ADMIN_TOKEN_HASH@|$(token_hash "$ETC/tokens/admin-token")|g" \
-    "$here/config.yaml.in" >"$work/config.yaml"
+    "$files/config.yaml.in" >"$work/config.yaml"
   if grep -n '@[A-Z_]*@' "$work/config.yaml" >&2; then
     die "a placeholder was left in the configuration"
   fi
@@ -247,9 +256,28 @@ runuser -u "$ACCOUNT" -- "$work/pullthrough" verify-config -config "$ETC/config.
   die "$new_version does not accept $ETC/config.yaml; the installed binaries and the running service are unchanged"
 }
 
+# Where to ask the new server whether it is ready: the configuration's listen
+# address, on loopback when it listens on every address. It is read here,
+# before anything is replaced, so a configuration this cannot read stops the
+# upgrade instead of rolling back a server that came up.
+config_value() { # top-level server key -> value, quotes removed
+  sed -n "s/^  $1: *\"\{0,1\}\([^\"]*\)\"\{0,1\} *\$/\1/p" "$ETC/config.yaml" | head -1
+}
+listen_addr="$(config_value httpAddr)"
+if [ "$start" -eq 1 ] && ! [[ "$listen_addr" =~ :[0-9]+$ ]]; then
+  die "cannot read server.httpAddr from $ETC/config.yaml (found \"$listen_addr\"), so the new server could not be checked; the installed binaries and the running service are unchanged"
+fi
+port="${listen_addr##*:}"
+probe_host="${listen_addr%:*}"
+case "$probe_host" in
+"" | 0.0.0.0 | "[::]") probe_host=127.0.0.1 ;;
+esac
+scheme=http
+[ -n "$(config_value tlsCertFile)" ] && scheme=https
+
 # --- 7. Units and binaries ---------------------------------------------------
 for unit in pullthrough.service pullthrough-sync-certs.service pullthrough-sync-certs.timer; do
-  install -m 0644 "$here/$unit" "$UNITS/$unit"
+  install -m 0644 "$files/$unit" "$UNITS/$unit"
 done
 install_bin() { # tool: replace atomically
   install -m 0755 "$work/$1" "$BIN/$1.new"
@@ -272,18 +300,11 @@ if [ "$start" -eq 0 ]; then
 fi
 
 # --- 8. Start, wait until ready, roll back on failure -----------------------
-config_value() { # top-level server key -> value, quotes removed
-  sed -n "s/^  $1: *\"\{0,1\}\([^\"]*\)\"\{0,1\} *\$/\1/p" "$ETC/config.yaml" | head -1
-}
-listen_addr="$(config_value httpAddr)"
-port="${listen_addr##*:}"
-scheme=http
-[ -n "$(config_value tlsCertFile)" ] && scheme=https
-
-ready() { # up to 90 s: readiness answered on the local port
+ready() { # up to 90 s: readiness answered on the listen address
   local i state
   for i in $(seq 1 90); do
-    if [ -n "$port" ] && curl -fsS -k --max-time 3 -o /dev/null "$scheme://127.0.0.1:$port/readyz" 2>/dev/null; then
+    # -g: an IPv6 address in brackets is an address, not a curl glob.
+    if curl -fsS -k -g --max-time 3 -o /dev/null "$scheme://$probe_host:$port/readyz" 2>/dev/null; then
       return 0
     fi
     state="$(systemctl show -p ActiveState --value pullthrough.service)"

@@ -32,7 +32,7 @@ deploy/systemd/install.sh \
 | Option | Meaning |
 |---|---|
 | `--public-url URL` | The address clients use: `scheme://host[:port]`. Required on the first install |
-| `--listen ADDR` | The listen address (default `:8443`) |
+| `--listen ADDR` | The listen address, `[host]:port` (default `:8443`, every address) |
 | `--tls-source DIR` | A directory with `fullchain.pem` and `privkey.pem`, e.g. a certbot `live/` directory. Without it the proxy serves plain HTTP, for a load balancer in front that terminates TLS |
 | `--data-dir DIR` | Keep `/var/lib/pullthrough` in `DIR` (a bind mount), e.g. on a data volume |
 | `--cache-max-bytes N` | How large the package cache may grow (default 100 GiB) |
@@ -44,7 +44,9 @@ It needs systemd, `openssl`, `curl`, `git` and, unless `--bin-dir` is given, Go.
 In order, it:
 
 1. builds `pullthrough` and `ptctl` from a clean export of the commit, never
-   from the working tree, with the version stamped in (`pullthrough -version`);
+   from the working tree, with the version stamped in (`pullthrough -version`),
+   and takes the units, the configuration template and the certificate script
+   from the same commit (with `--bin-dir`, from the checkout it runs from);
 2. creates the system account `pullthrough` and the directories below;
 3. generates, once, the audit-log key, the signing key and the two tokens;
 4. publishes the certificate to `/etc/pullthrough/tls` and enables the daily
@@ -54,7 +56,8 @@ In order, it:
    account, against that configuration, and stops if it fails;
 7. installs the server binary (keeping the previous one as `pullthrough.prev`)
    and the units, and enables the service;
-8. restarts the service and waits up to 90 s for `/readyz`; when it does not
+8. restarts the service and waits up to 90 s for `/readyz` on the configured
+   listen address (on loopback when that is every address); when it does not
    come up, it puts the previous binary back and restarts that. `ptctl` is
    replaced only once the new server is ready.
 
