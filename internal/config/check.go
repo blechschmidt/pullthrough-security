@@ -166,6 +166,7 @@ func (c *Config) checkConsistency(r *Report) {
 	}
 
 	c.checkLLMPackageScan(r)
+	c.checkRateLimitWait(r)
 	c.checkTrustedProxies(r)
 	c.checkUserLinks(r)
 
@@ -274,6 +275,18 @@ func isLoopbackHost(host string) bool {
 // questionable configurations (Task 173): the ones a schema check cannot see
 // and an operator would want to hear about before the first pull stalls or the
 // first invoice arrives.
+// checkRateLimitWait warns when a request may wait for its rate or
+// concurrency turn longer than the server lets it take to answer: one that
+// waits to the limit would find its response deadline already passed.
+func (c *Config) checkRateLimitWait(r *Report) {
+	if !c.RateLimit.Enabled {
+		return
+	}
+	if c.Server.WriteTimeout > 0 && c.RateLimit.MaxWait >= c.Server.WriteTimeout {
+		r.warnf("rateLimit.maxWait", "rateLimit.maxWait (%s) is not below server.writeTimeout (%s); a request that waits that long for its turn would have its response cut off", c.RateLimit.MaxWait, c.Server.WriteTimeout)
+	}
+}
+
 func (c *Config) checkLLMPackageScan(r *Report) {
 	if !c.LLMPackageScan.Enabled {
 		return

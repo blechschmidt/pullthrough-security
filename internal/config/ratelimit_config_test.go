@@ -59,3 +59,29 @@ func TestRateLimitWaitDefaults(t *testing.T) {
 		}
 	}
 }
+
+// TestRateLimitWaitBelowWriteTimeout: a wait as long as the response deadline
+// is flagged by the preflight.
+func TestRateLimitWaitBelowWriteTimeout(t *testing.T) {
+	const head = "upstreams:\n  npm: {type: npm, url: \"https://registry.npmjs.org\"}\nrateLimit:\n  enabled: true\n  default: {maxConcurrent: 32}\n"
+	warned := func(doc string) bool {
+		for _, is := range CheckBytes([]byte(doc)).Issues {
+			if is.Path == "rateLimit.maxWait" {
+				return true
+			}
+		}
+		return false
+	}
+	if warned(head) {
+		t.Error("the defaults (1m wait, 5m write timeout) must not warn")
+	}
+	if !warned("server:\n  writeTimeout: 30s\n" + head) {
+		t.Error("a 1m wait under a 30s write timeout must warn")
+	}
+	if warned("server:\n  writeTimeout: 30s\n" + head + "  maxWait: 10s\n") {
+		t.Error("a 10s wait under a 30s write timeout must not warn")
+	}
+	if warned("server:\n  writeTimeout: 30s\nrateLimit:\n  enabled: false\n") {
+		t.Error("a disabled limiter must not warn")
+	}
+}

@@ -159,14 +159,38 @@ func TestAssess_CargoBuildFalse(t *testing.T) {
 	}
 
 	// A build script declared at a path the shallow scan does not read is still
-	// reported by its declaration.
-	report, err := svc.Assess(Artifact{Ecosystem: "cargo", Name: "demo", Version: "1.0.0"},
-		opener(cargoCrate(map[string]string{"Cargo.toml": "[package]\nname = \"demo\"\nbuild = \"tools/gen.rs\"\n"})))
-	if err != nil {
-		t.Fatalf("Assess: %v", err)
+	// reported by its declaration — also one whose file is named false or true,
+	// which as strings are paths, not booleans.
+	for _, decl := range []string{`"tools/gen.rs"`, `"false"`, `'true'`} {
+		report, err := svc.Assess(Artifact{Ecosystem: "cargo", Name: "demo", Version: "1.0.0"},
+			opener(cargoCrate(map[string]string{"Cargo.toml": "[package]\nname = \"demo\"\nbuild = " + decl + "\n"})))
+		if err != nil {
+			t.Fatalf("Assess: %v", err)
+		}
+		path := strings.Trim(decl, `"'`)
+		if len(report.Hooks) != 1 || report.Hooks[0].Script != "build = "+path || hookLanguage(report.Hooks[0]) != "" {
+			t.Fatalf("declared build script %s: %+v", decl, report.Hooks)
+		}
 	}
-	if len(report.Hooks) != 1 || report.Hooks[0].Script != "build = tools/gen.rs" || hookLanguage(report.Hooks[0]) != "" {
-		t.Fatalf("declared build script: %+v", report.Hooks)
+}
+
+func TestCargoBuildSetting(t *testing.T) {
+	cases := []struct {
+		toml, value string
+		isBool      bool
+	}{
+		{"[package]\nbuild = false\n", "false", true},
+		{"[package]\nbuild=true # default\n", "true", true},
+		{"[package]\nbuild = \"false\"\n", "false", false},
+		{"[package]\nbuild = 'build/main.rs'\n", "build/main.rs", false},
+		{"[package]\nname = \"x\"\n", "", false},
+		{"[lib]\nbuild = false\n", "", false},
+	}
+	for _, tc := range cases {
+		v, isBool := cargoBuildSetting([]byte(tc.toml))
+		if v != tc.value || isBool != tc.isBool {
+			t.Errorf("cargoBuildSetting(%q) = %q, %v; want %q, %v", tc.toml, v, isBool, tc.value, tc.isBool)
+		}
 	}
 }
 
@@ -218,5 +242,30 @@ func TestCompileRuleLanguagePatterns(t *testing.T) {
 				t.Errorf("rule %s: pattern for unknown language %q", spec.ID, lang)
 			}
 		}
+	}
+}
+
+// TestAssess_CargoLexerBypasses: valid Rust (each compiles with rustc) that a
+// lexer disagreeing with rustc would read as one long comment, hiding the
+// shell started on the line after. The gate must still see it.
+func TestAssess_CargoLexerBypasses(t *testing.T) {
+	const shell = "    let _ = std::process::Command::new(\"sh\").status();\n"
+	for name, src := range map[string]string{
+		"shebang":         "#!/*\nfn main() {\n" + shell + "}\n",
+		"byte order mark": "\uFEFF#!/*\nfn main() {\n" + shell + "}\n",
+		"next line":       "fn main() {\n    let _a =\u0085r\"\\\"; let _s = \"/*\";\n" + shell + "    let _t = \"*/\";\n}\n",
+		"direction mark":  "fn main() {\n    let _a =\u200Er\"\\\"; let _s = \"/*\";\n" + shell + "    let _t = \"*/\";\n}\n",
+		"padded escape":   "fn main() {\n    let _c = ['\\u{0______________________22}','\"'];\n    let _s = \"/*\";\n" + shell + "    let _t = \"*/\";\n}\n",
+		"raw lifetime":    "fn f<'r#a>(x: &'r#a str) -> &'r#a str { x }\nfn main() { let _ = f(\"/*\");\n" + shell + "}\n",
+		"inner attribute": "#! /* c */ [allow(unused)]\nfn main() {\n" + shell + "}\n",
+		// Nightly compiles a frontmatter block with feature(frontmatter).
+		"frontmatter": "---\n/*\n---\n#![feature(frontmatter)]\nfn main() {\n" + shell + "}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			report, dec := assessBuildRS(t, DefaultConfig(), src)
+			if !hasRule(report.Findings, RuleShellSpawn) || dec.Action != ActionBlock {
+				t.Fatalf("the shell is hidden: %+v %+v", report.Findings, dec)
+			}
+		})
 	}
 }

@@ -697,7 +697,7 @@ an exhausted byte quota receives `429 Too Many Requests`, always with a
 |-------|---------|-------------|
 | `enabled` | `false` | Master switch; when false the middleware is not installed. |
 | `shared` | `false` | Coordinate byte quotas across replicas via the shared object store (requires `cache.backend: s3`). RPS/burst and concurrency are always per replica. |
-| `maxWait` | `1m` | How long a request over its rate or concurrency limit waits for its turn before it is answered `429`. A client that stops waiting first (cargo after 30 s without data, pip after 15 s) leaves the queue at once and, unlike a `429`, usually retries its own timeout. `0s` answers `429` at once. |
+| `maxWait` | `1m` | How long a request over its rate or concurrency limit waits for its turn before it is answered `429`. A client that stops waiting first (cargo after 30 s without data, pip after 15 s) leaves the queue at once and, unlike a `429`, usually retries its own timeout. Keep it below `server.writeTimeout` (the preflight warns). `0s` answers `429` at once. |
 | `maxQueue` | `1024` | Requests of one tenant that may wait at a time (for a concurrency slot or a rate token; also per global concurrency limit); one more is answered `429` at once. `0` means the default. |
 | `global.*` | — | Process-wide ceiling applied to every request. |
 | `default.*` | — | Policy for tenants without an explicit override. |

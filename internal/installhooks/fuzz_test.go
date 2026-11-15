@@ -84,6 +84,11 @@ func FuzzStripRustComments(f *testing.F) {
 	f.Add("let q = '\"'; let r = r#\"// \"#; let s = b\"\\\"//\"; 'a: loop {} // c")
 	f.Add("m!(\"a\"r\"\\\"//\"); m!('r\"\\\"//\"); let c = '\\u{10FFFF}'; /* unterminated")
 	f.Add("'\\")
+	f.Add("#!/*\nfn main() {} // c")
+	f.Add("\uFEFF#! /* c */ [allow(x)]\n")
+	f.Add("---cargo\n/* x\n---\nf(); /* c */")
+	f.Add("let a =\u0085r\"\\\"; let s = \"/*\"; // c")
+	f.Add("['\\u{0______22}','\"']; r#/* x; br##' // c")
 	f.Fuzz(func(t *testing.T, src string) {
 		got := stripRustComments(src)
 		if len(got) != len(src) {

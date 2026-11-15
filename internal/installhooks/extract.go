@@ -545,14 +545,14 @@ func extractCargo(r io.Reader) ([]Hook, bool, error) {
 			cargoToml = f
 		}
 	}
-	declared := ""
+	declared, isBool := "", false
 	if cargoToml != nil {
-		declared = ParseCargoBuildField(cargoToml.data)
+		declared, isBool = cargoBuildSetting(cargoToml.data)
 	}
 	// `build = false` turns the build script off: Cargo then neither compiles
 	// nor runs a build.rs, and `cargo publish` writes it into the manifest of
-	// every crate without one.
-	if declared == "false" {
+	// every crate without one. (`build = "false"` is a script file named false.)
+	if isBool && declared == "false" {
 		return nil, truncated, nil
 	}
 	var hooks []Hook
@@ -561,7 +561,7 @@ func extractCargo(r io.Reader) ([]Hook, bool, error) {
 			Ecosystem: "cargo", Kind: "build.rs", Label: "cargo:build.rs",
 			File: buildRS.name, Script: boundScript(string(buildRS.data)),
 		})
-	} else if declared != "" && declared != "true" {
+	} else if declared != "" && !isBool {
 		// A custom build script is declared but lived outside our shallow scan; flag
 		// its declaration so the native-build signal is not lost.
 		hooks = append(hooks, Hook{
@@ -593,6 +593,36 @@ func ParseCargoBuildField(data []byte) string {
 		}
 	}
 	return ""
+}
+
+// cargoBuildSetting returns the [package] build value of a Cargo.toml and
+// whether it is a TOML boolean (build = false, build = true) rather than the
+// path of a build script (build = "false" names a file called false).
+func cargoBuildSetting(data []byte) (value string, isBool bool) {
+	section := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "#") || l == "" {
+			continue
+		}
+		if strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]") {
+			section = strings.ToLower(strings.Trim(l, "[]"))
+			continue
+		}
+		if section != "package" {
+			continue
+		}
+		k, v, ok := tomlKeyValue(l)
+		if !ok || k != "build" {
+			continue
+		}
+		raw := strings.TrimSpace(l[strings.IndexByte(l, '=')+1:])
+		if h := strings.IndexByte(raw, '#'); h >= 0 && !strings.HasPrefix(raw, "\"") && !strings.HasPrefix(raw, "'") {
+			raw = strings.TrimSpace(raw[:h])
+		}
+		return v, raw == "true" || raw == "false"
+	}
+	return "", false
 }
 
 // --- rubygems ----------------------------------------------------------------

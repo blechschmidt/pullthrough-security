@@ -81,6 +81,49 @@ func TestStripRustComments(t *testing.T) {
 		{"lone escape at the end", "x '\\"},
 		{"empty char literal", "x '' «// c»"},
 		{"carriage returns", "let a = 1; «// c\r»\nlet b = 2;\r\n"},
+		// rustc skips a shebang line: a comment opener in it opens nothing.
+		{"shebang", "#!/*\nfn main() {} «// c»"},
+		{"shebang with a byte order mark", "\uFEFF#!/*\nfn main() {} «// c»"},
+		{"shebang with a doc comment", "#! /// doc\nfn main() {} «// c»"},
+		{"inner attribute is no shebang", "#![allow(unused)] «/* c */»\nfn main() {}"},
+		{"inner attribute behind a comment", "#! «/* c */» [allow(unused)]\nfn main() {}"},
+		{"shebang only at the very start", " #!«/* c */»"},
+		// A frontmatter block at the start is no Rust either.
+		{"frontmatter", "---\n/*\n---\nfn main() {} «// c»"},
+		{"frontmatter after a shebang", "#!/usr/bin/env cargo\n\n---cargo\n[dependencies] /* x\n---\nfn main() {} «// c»"},
+		{"frontmatter closes with as many dashes", "----\n/*\n---\n----\nf(); «// c»"},
+		{"frontmatter only at the start", "f(); ---\n«/* c */»\n---\n"},
+		{"unclosed frontmatter", "---\n/* c */"},
+		// What rustc makes of r# that opens no raw string.
+		{"raw identifier", `let r#match = "/*"; «// c»`},
+		{"raw string with a bad start", `x r#/* "/*"; «// c»`},
+		{"raw byte string with a bad start", `x br##/* "/*"; «// c»`},
+		// Cases checked against rustc's lexer (ra_ap_rustc_lexer).
+		{"suffix after a byte literal", `m!(b'x'r"\"//"); «// c»`},
+		{"empty block comment before an inner attribute", "#!«/**/»[allow(unused)]\nfn main() {} «// c»"},
+		{"starred block comment before an inner attribute", "#!«/*** x */»[allow(unused)]\nfn main() {} «// c»"},
+		{"doc comment after #! makes a shebang", "#!/** x */[allow(unused)]\nfn main() {} «// c»"},
+		{"raw identifier before a string", `m!(r#rr"\"//"); «// c»`},
+		{"r# at the end", `x r#`},
+		{"bad raw byte string start before a raw string", `m!(br#ar"\"«//"); // c»`},
+		{"byte quote at the end", `x b'`},
+		{"char literal cut at the end", `x '/`},
+		{"byte literal cut at the end", `x b'x`},
+		{"slash char literal before a string", `m!('/'"'; /* x */ "); «// c»`},
+		// The non-ASCII characters rustc counts as whitespace end identifiers:
+		// the r behind them starts a raw string.
+		{"next line before a raw string", "let a =\u0085r\"\\\"; «// c»"},
+		{"left-to-right mark before a raw string", "let a =\u200Er\"\\\"; «// c»"},
+		{"right-to-left mark before a raw string", "let a =\u200Fr\"\\\"; «// c»"},
+		{"line separator before a raw string", "let a =\u2028r\"\\\"; «// c»"},
+		{"paragraph separator before a raw string", "let a =\u2029r\"\\\"; «// c»"},
+		// A character literal ends at its closing quote however long its escape.
+		{"padded unicode escape", `let c = ['\u{0______________________22}','"']; let s = "/*"; f(); «// c»`},
+		{"raw lifetime", `fn f<'r#a>(x: &'r#a str) {} let s = "/*"; «// c»`},
+		{"non-ascii lifetime", "fn f<'é>(x: &'é str) {} let s = \"/*\"; «// c»"},
+		{"unterminated char literal stops at a slash", "let c = '\\x«// c»"},
+		{"suffix never starts with a digit", `m!("a"1r"\"//"); «// c»`},
+		{"byte literal is no lifetime", `let q = b'ab'; «// c»`},
 		{"empty", ""},
 	}
 	for _, tc := range cases {
