@@ -90,13 +90,31 @@ func (s *Service) applyNoteLocked(n Note) {
 			return
 		}
 	} else if a.Digest != "" && it.Digest != "" && a.Digest != it.Digest && !it.busy {
-		// Other bytes under the same key: what was known is about the old ones.
+		// Other bytes under the same key: what was known is about the old
+		// ones — their verdict, and who pulled them.
 		it.Digest, it.Size, it.Evicted = a.Digest, a.Size, false
 		it.Gates, it.Gate = "", ""
+		it.Tenants = nil
+		if n.Source == SourceClient || n.Source == SourceMirror {
+			it.Tenant = a.Tenant
+		}
 		if n.Reading == nil {
 			s.enqueueLocked(it, PriorityBackfill, now, time.Time{})
 			return
 		}
+	}
+	if n.Attribution {
+		// Only who pulled it: the replica that served the pull had nothing
+		// else for the leader.
+		if it.addTenant(a.Tenant) {
+			s.putLocked(it)
+		}
+		return
+	}
+	if (n.Source == SourceClient || n.Source == SourceMirror) && it.addTenant(a.Tenant) {
+		// Another tenant pulled it: journalled whatever else the note
+		// changes (a second write of the item is harmless).
+		defer s.putLocked(it)
 	}
 	if it.busy {
 		return // its scan is running; that result is recorded
@@ -118,7 +136,11 @@ func (s *Service) applyNoteLocked(n Note) {
 	s.countNoteLocked(it, n.Source)
 	if sameReading(it, *n.Reading) {
 		// A pull of an artifact whose reading is on record already: nothing
-		// changes, nothing is written.
+		// changes, nothing is written — unless the reading names the
+		// coordinate an older record lacks.
+		if it.learnCoordinate(*n.Reading) {
+			s.putLocked(it)
+		}
 		s.dirty = true
 		return
 	}
@@ -160,7 +182,8 @@ func sameReading(it *Item, r Reading) bool {
 }
 
 // forwardNotes passes on, from a replica that does not lead, the notes the
-// leader must act on (through the inbox) and drops the others.
+// leader must act on (through the inbox), and once per artifact and tenant
+// who pulled it (for the figures per tenant); it drops the rest.
 func (s *Service) forwardNotes() {
 	for i := 0; i < maxNotesPerStep; i++ {
 		select {
@@ -170,10 +193,37 @@ func (s *Service) forwardNotes() {
 					s.log.Debug("fullscan: writing to the inbox", "error", err)
 				}
 			}
+			if (n.Source == SourceClient || n.Source == SourceMirror) && n.Artifact.Tenant != "" && s.firstAttribution(n.Artifact) {
+				a := n
+				a.Attribution, a.Reading = true, nil
+				if err := s.writeInbox(a); err != nil {
+					s.log.Debug("fullscan: writing to the inbox", "error", err)
+				}
+			}
 		default:
 			return
 		}
 	}
+}
+
+// maxAttributed bounds the attributions a replica remembers having
+// forwarded; when full it forgets them (the leader ignores a repeated one).
+const maxAttributed = 100_000
+
+// firstAttribution reports whether this replica has not yet forwarded that
+// the artifact's tenant pulled it, and remembers that it now has.
+func (s *Service) firstAttribution(a Artifact) bool {
+	key := a.Key + "\x00" + a.Tenant
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.attributed[key]; ok {
+		return false
+	}
+	if s.attributed == nil || len(s.attributed) >= maxAttributed {
+		s.attributed = map[string]struct{}{}
+	}
+	s.attributed[key] = struct{}{}
+	return true
 }
 
 // Inbox bounds.
@@ -191,6 +241,8 @@ type inboxEntry struct {
 	Source   Source   `json:"source"`
 	Artifact Artifact `json:"artifact"`
 	Code     string   `json:"code,omitempty"`
+	// Attribution marks an entry that says only who pulled the artifact.
+	Attribution bool `json:"attribution,omitempty"`
 }
 
 var inboxCount struct {
@@ -200,7 +252,8 @@ var inboxCount struct {
 }
 
 // writeInbox writes a note for the leader. The file is named after the cache
-// key, so a second note about the same artifact replaces the first.
+// key, so a second note about the same artifact replaces the first; an
+// attribution after the key and the tenant, so each tenant's survives.
 func (s *Service) writeInbox(n Note) error {
 	dir := s.store.inboxDir()
 	inboxCount.Lock()
@@ -219,7 +272,7 @@ func (s *Service) writeInbox(n Note) error {
 		s.dropped.Add(1)
 		return errors.New("fullscan: the inbox is full")
 	}
-	e := inboxEntry{Source: n.Source, Artifact: n.Artifact}
+	e := inboxEntry{Source: n.Source, Artifact: n.Artifact, Attribution: n.Attribution}
 	if n.Reading != nil {
 		e.Code = n.Reading.Code
 	}
@@ -227,7 +280,11 @@ func (s *Service) writeInbox(n Note) error {
 	if err != nil {
 		return err
 	}
-	sum := sha256.Sum256([]byte(n.Artifact.Key))
+	name := n.Artifact.Key
+	if n.Attribution {
+		name += "\x00" + n.Artifact.Tenant
+	}
+	sum := sha256.Sum256([]byte(name))
 	return writeFileAtomic(filepath.Join(dir, hex.EncodeToString(sum[:20])+".json"), data)
 }
 
@@ -280,8 +337,8 @@ func (s *Service) ingestInbox() {
 		if !ok || !s.inScope(e.Artifact.Upstream) || !validArtifact(e.Artifact) {
 			continue
 		}
-		note := Note{Source: e.Source, Artifact: e.Artifact}
-		if e.Source != SourceSeen {
+		note := Note{Source: e.Source, Artifact: e.Artifact, Attribution: e.Attribution}
+		if e.Source != SourceSeen && !e.Attribution {
 			note.Reading = &Reading{Kind: ReadingUnscanned, Code: e.Code, Retryable: true}
 		}
 		s.mu.Lock()

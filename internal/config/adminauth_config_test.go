@@ -118,3 +118,27 @@ adminAuth:
 		t.Fatalf("valid static-only adminAuth should load, got %v", err)
 	}
 }
+
+// The self-service portal's role (Task 71) is accepted wherever a role is
+// named: docs/self-service-portal.md configures it with a role binding and a
+// tenant-bound static token, and a configuration that follows it must load.
+func TestAdminAuthAcceptsTheTenantViewerRole(t *testing.T) {
+	path := writeConfig(t, `
+adminAuth:
+  enabled: true
+  roleBindings:
+    pullthrough-developers: tenant-viewer
+  staticTokens:
+    - name: acme-portal
+      tenant: acme
+      roles: ["tenant-viewer"]
+      token: a-sufficiently-long-portal-token
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("a tenant-viewer binding and token should load, got %v", err)
+	}
+	if got := cfg.AdminAuth.StaticTokens[0].Roles; len(got) != 1 || got[0] != "tenant-viewer" {
+		t.Fatalf("roles %v", got)
+	}
+}

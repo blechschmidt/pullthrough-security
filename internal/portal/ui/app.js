@@ -54,7 +54,7 @@
 
   const pill = (decision) => el("span.pill." + decision, { text: decision });
   const statusPill = (st) => el("span.pill." + st, { text: st });
-  const stat = (n, l, s) => el("div.stat", null, el("div.n", { text: String(n) }), el("div.l", { text: l }), s ? el("div.s", { text: s }) : null);
+  const stat = (n, l, s, tone) => el("div.stat" + (tone ? "." + tone : ""), null, el("div.n", { text: String(n) }), el("div.l", { text: l }), s ? el("div.s", { text: s }) : null);
   const artifactLabel = (v) => v.coordinate || (v.name ? (v.name + (v.version ? "@" + v.version : "")) : "—");
 
   // --- views ----------------------------------------------------------------
@@ -70,7 +70,28 @@
     cards.appendChild(stat((data.quarantine && data.quarantine.open) || 0, "Awaiting approval", "break-glass requests"));
     const f = data.findings || {};
     cards.appendChild(stat(f.findings || 0, "Open findings", (f.coordinates || 0) + " artifacts"));
+    if (data.mirroring) cards.appendChild(mirroringStat(data.mirroring));
   };
+
+  // mirroringStat is the full mirror and full scan's tile (Task 193): the full
+  // scan's figures of the artifacts your own tenant pulled — the server sends
+  // no other tenant's — and how many registries the proxy mirrors whole.
+  function mirroringStat(m) {
+    const n = (v) => Number(v || 0).toLocaleString();
+    if (m.scan) {
+      const s = m.scan;
+      const scannable = Math.max(0, (s.cached || 0) - (s.notApplicable || 0));
+      const share = scannable ? (Math.floor(((s.scanned || 0) / scannable) * 1000) / 10) + "%" : "—";
+      const sub = [n(s.scanned) + " of " + n(scannable) + " scanned", n(s.malicious) + " malicious"];
+      if (s.quarantined) sub.push(n(s.quarantined) + " quarantined");
+      if (s.pending) sub.push(n(s.pending) + " waiting" + (s.paused ? " (scanning paused)" : (s.budgetExhausted ? " (budget spent for now)" : "")));
+      if (m.mirror) sub.push(n(m.mirror.upstreams) + " " + (m.mirror.upstreams === 1 ? "registry" : "registries") + " mirrored whole");
+      return stat(share, "Full scan of your pulls", sub.join(" · "), s.malicious ? "bad" : null);
+    }
+    const mm = m.mirror;
+    return stat(n(mm.upstreams), "Registries mirrored whole",
+      "new releases are fetched through every gate before anyone asks" + (mm.paused ? " · mirroring paused" : ""));
+  }
 
   views.verdicts = async function () {
     const data = await getJSON("/verdicts");

@@ -6755,10 +6755,12 @@ func (c *Config) validateAdminAuth() error {
 		return nil
 	}
 
-	canonical := map[string]bool{"viewer": true, "operator": true, "approver": true, "admin": true}
+	// tenant-viewer is the self-service portal's role (Task 71): it grants no
+	// admin-API capability, and the portal scopes it to the caller's tenant.
+	canonical := map[string]bool{"viewer": true, "operator": true, "approver": true, "admin": true, "tenant-viewer": true}
 	checkRole := func(field, role string) error {
 		if !canonical[strings.ToLower(strings.TrimSpace(role))] {
-			return fmt.Errorf("config: %s: unknown role %q (want viewer|operator|approver|admin)", field, role)
+			return fmt.Errorf("config: %s: unknown role %q (want viewer|operator|approver|admin|tenant-viewer)", field, role)
 		}
 		return nil
 	}

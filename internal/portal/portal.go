@@ -27,11 +27,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/adminauth"
 	"github.com/blechschmidt/pullthrough-security/internal/approvals"
 	"github.com/blechschmidt/pullthrough-security/internal/attestbundle"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
+	"github.com/blechschmidt/pullthrough-security/internal/fullmirror"
+	"github.com/blechschmidt/pullthrough-security/internal/fullscan"
 	"github.com/blechschmidt/pullthrough-security/internal/metering"
 	"github.com/blechschmidt/pullthrough-security/internal/onboard"
 	"github.com/blechschmidt/pullthrough-security/internal/riskscore"
@@ -74,6 +78,21 @@ type MeteringSource interface {
 	Report(req metering.ReportRequest) metering.UsageReport
 }
 
+// FullMirrorSource exposes the full mirror's status (Task 189). The fullmirror
+// Engine satisfies it. The mirror is instance-wide: the portal tells a tenant
+// how many registries are mirrored whole, nothing an operator configured or
+// did.
+type FullMirrorSource interface {
+	Status() fullmirror.Status
+}
+
+// FullScanSource exposes the full scan's status (Task 192). The fullscan
+// Service satisfies it. The portal shows a tenant the figures of the artifacts
+// its own tenant pulled (fullscan.Status.Tenants), never another tenant's.
+type FullScanSource interface {
+	Status() fullscan.Status
+}
+
 // Options configures a Server.
 type Options struct {
 	Logger *slog.Logger
@@ -99,6 +118,9 @@ type Options struct {
 	Approvals ApprovalsSource
 	Attest    AttestSource
 	Metering  MeteringSource
+	// FullMirror and FullScan feed the overview's mirroring tile.
+	FullMirror FullMirrorSource
+	FullScan   FullScanSource
 }
 
 // Server serves the tenant self-service portal: its read-only JSON API and a
@@ -109,7 +131,18 @@ type Server struct {
 	uiPrefix  string
 	apiPrefix string
 	mux       *http.ServeMux
+
+	// The statuses the overview's mirroring tile reads, re-read at most every
+	// mirroringTTL however many developers ask: a full scan's status walks
+	// its inventory under the scan loop's lock.
+	mirroringMu sync.Mutex
+	mirroringAt time.Time
+	mirrorSt    *fullmirror.Status
+	scanSt      *fullscan.Status
 }
+
+// mirroringTTL is how long the portal reuses the statuses it read.
+const mirroringTTL = 5 * time.Second
 
 // New constructs a Server. It requires an adminauth Service (the source of the
 // tenant scope); without it the portal cannot guarantee tenant isolation.

@@ -4,7 +4,7 @@
   --surface-2: #f0f2f5;
   --border: #e3e6ea;
   --text: #1a1f29;
-  --muted: #69707d;
+  --muted: #5f6673;
   --accent: #2563eb;
   --accent-weak: #e8eefc;
   --ok: #16a34a;
@@ -15,8 +15,8 @@
      wherever a status colour is rendered as text on a light/tinted surface,
      and the "solid" variants are mid-dark fills that keep >=4.5:1 against the
      white text placed on them, in both light and dark themes. */
-  --ok-ink: #15803d;
-  --warn-ink: #b45309;
+  --ok-ink: #166534;
+  --warn-ink: #92400e;
   --crit-ink: #b91c1c;
   --accent-solid: #2563eb;
   --ok-solid: #15803d;
@@ -37,12 +37,13 @@
     --accent: #5b8cff;
     --accent-weak: #1b2640;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 16px rgba(0, 0, 0, .25);
-    /* On dark surfaces the vivid status colours already clear 4.5:1 as text,
-       so "ink" text variants track them; the "solid" white-text fills stay
-       the mid-dark values defined in :root. */
-    --ok-ink: var(--ok);
-    --warn-ink: var(--warn);
-    --crit-ink: var(--crit);
+    /* On dark surfaces the vivid status colours fall short of 4.5:1 as text
+       (red on the surface, every one of them on its own tint: a pill), so
+       the "ink" text variants are lighter shades; the "solid" white-text
+       fills stay the mid-dark values defined in :root. */
+    --ok-ink: #22c55e;
+    --warn-ink: #f59e0b;
+    --crit-ink: #f87171;
   }
 }
 
@@ -377,3 +378,63 @@ a.chip.linkish:hover { background: var(--accent-solid); color: #fff; }
 #userlinks-table .truncate { max-width: 125px; }
 #userlinks-table .user .truncate { max-width: 190px; }
 #userlinks-table .name .truncate { max-width: 150px; }
+
+/* --- Full mirroring and full scan (Task 193) ------------------------------- */
+/* A toggle button's state is its aria-pressed. Pressed reads as switched on:
+   a tinted fill and a doubled border, not colour alone. */
+.btn-toggle[aria-pressed="true"] { background: var(--accent-weak); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.mirroring-controls { margin-left: auto; }
+.mirroring-notice { border-left: 3px solid var(--warn); }
+.mirroring-notice p { margin: .2rem 0; }
+.mirroring-notice .notice-bad { color: var(--crit-ink); font-weight: 650; }
+.mirroring-notice .notice-warn { color: var(--warn-ink); font-weight: 600; }
+/* Fourteen columns. The tab takes a wider page than the others where the
+   window has room; cells are tightened, the headers are in sentence case (the
+   upper case of the other tables is a third wider), and the two groups of
+   columns are headed by a row of their own. On a narrow window the table
+   scrolls sideways under its first column, which stays in place. */
+main:has(> #view-mirroring:not([hidden])) { max-width: 1280px; }
+#mirroring-table { font-size: .86rem; }
+#mirroring-table th, #mirroring-table td { padding: .45rem .4rem; }
+#mirroring-table thead th { text-transform: none; letter-spacing: 0; font-size: .8rem; vertical-align: bottom; }
+#mirroring-table thead th.group { text-align: center; border-left: 1px solid var(--border); text-transform: uppercase; letter-spacing: .03em; font-size: .74rem; }
+#mirroring-table tbody th, #mirroring-table tfoot th { text-align: left; vertical-align: middle; font-weight: 600; border-bottom: 1px solid var(--border); }
+#mirroring-table tbody tr:last-child th { border-bottom: 0; }
+#mirroring-table tfoot th, #mirroring-table tfoot td { border-top: 2px solid var(--border); background: var(--surface-2); font-weight: 650; }
+#mirroring-table tbody th, #mirroring-table thead tr:first-child th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+#mirroring-table tfoot th { position: sticky; left: 0; z-index: 1; }
+#mirroring-table thead tr:first-child th:first-child { z-index: 2; }
+#mirroring-table .mirroring-lag { display: block; white-space: nowrap; }
+/* The upstream whose detail panel is open carries aria-current: an accent bar,
+   not a tinted background (muted text on --accent-weak is under 4.5:1). */
+#mirroring-table tbody tr[aria-current="true"] th { box-shadow: inset 3px 0 0 var(--accent); }
+#mirroring-table .mirroring-state { display: block; white-space: nowrap; }
+#mirroring-table .mirroring-state + .mirroring-state { margin-top: .25rem; }
+#mirroring-table .cell-note.truncate { display: block; max-width: 7rem; }
+#mirroring-table .mirroring-meter { max-width: 4.5rem; }
+#mirroring-table .pill { font-size: .74rem; padding: .18rem .5rem; }
+/* A share as a bar (decorative: the figures beside it say the same). */
+.mirroring-meter { display: block; width: 100%; max-width: 7rem; height: 5px; margin-top: .25rem; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.mirroring-meter > i { display: block; height: 100%; background: var(--accent); }
+.mirroring-meter.full > i { background: var(--ok); }
+.stat .mirroring-meter { max-width: none; margin: .35rem 0 .1rem; }
+.stat .sub a { color: var(--accent); }
+.mirroring-detail { margin-top: 1rem; }
+/* Scrolled to, the panel and its heading clear the sticky top bar and tabs. */
+.mirroring-detail, #mirroring-detail-title { scroll-margin-top: 7rem; }
+.mirroring-detail-head { display: flex; align-items: center; justify-content: space-between; gap: .8rem; flex-wrap: wrap; }
+.mirroring-detail-head h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.mirroring-actions { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin: .75rem 0 .2rem; }
+.mirroring-rescan { display: inline-flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.mirroring-rescan label { font-size: .82rem; color: var(--muted); font-weight: 600; }
+.mirroring-rescan .input { padding: .25rem .4rem; font-size: .82rem; }
+.mirroring-detail-grid { display: grid; gap: .2rem 1.6rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.mirroring-facts h4, .mirroring-list h4 { margin: 1rem 0 .45rem; font-size: .9rem; }
+.mirroring-facts .kv { grid-template-columns: minmax(8.5rem, auto) 1fr; gap: .3rem .8rem; font-size: .86rem; margin-bottom: 0; }
+.mirroring-facts .kv .cell-note { white-space: normal; }
+.mirroring-list .table-wrap { box-shadow: none; }
+.mirroring-list table { font-size: .85rem; }
+.mirroring-list thead th, .mirroring-list tbody td { padding: .4rem .55rem; }
+.mirroring-list .truncate { max-width: 16rem; display: inline-block; vertical-align: bottom; }
+.mirroring-list .button-group { flex-wrap: wrap; }
+.wrap { overflow-wrap: anywhere; }

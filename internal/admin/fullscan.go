@@ -39,21 +39,30 @@ type fullScanRescanResponse struct {
 
 // tenantBound reports an identity bound to one tenant.
 func tenantBound(r *http.Request) bool {
-	id, ok := adminauth.IdentityFromContext(r.Context())
-	return ok && id != nil && id.Tenant != ""
+	return boundTenant(r) != ""
+}
+
+// boundTenant returns the tenant the caller's identity is bound to, or "".
+func boundTenant(r *http.Request) string {
+	if id, ok := adminauth.IdentityFromContext(r.Context()); ok && id != nil {
+		return id.Tenant
+	}
+	return ""
 }
 
 // handleFullScanStatus reports the full scan: overall and per upstream
-// (?upstream=<name> for one). A tenant-bound identity sees the figures, not
-// the artifacts other tenants' caches hold (the oldest unscanned one's path).
+// (?upstream=<name> for one). A tenant-bound identity sees the figures, its
+// own tenant's among them, and the malicious verdicts on artifacts its tenant
+// pulled — not the artifacts other tenants' caches hold (the oldest unscanned
+// one's path, the verdicts on their pulls) or their figures.
 func (s *Server) handleFullScanStatus(w http.ResponseWriter, r *http.Request) {
 	if s.opts.FullScan == nil {
 		s.writeJSON(w, http.StatusOK, fullscan.Status{Subject: fullscan.Subject, Upstreams: []fullscan.UpstreamStatus{}})
 		return
 	}
 	st := s.opts.FullScan.Status()
-	if tenantBound(r) {
-		st = st.Redacted()
+	if tenant := boundTenant(r); tenant != "" {
+		st = st.RedactedFor(tenant)
 	}
 	if name := strings.TrimSpace(r.URL.Query().Get("upstream")); name != "" {
 		for _, u := range st.Upstreams {

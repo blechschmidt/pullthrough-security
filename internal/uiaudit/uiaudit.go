@@ -52,7 +52,7 @@ var (
 	// Matches opening/closing tags, tolerating quoted attribute values that
 	// themselves contain angle brackets.
 	tokenRe    = regexp.MustCompile(`(?is)<(/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^<>"']|"[^"]*"|'[^']*')*?)\s*(/?)>`)
-	attrRe     = regexp.MustCompile(`([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*"([^"]*)"|\s*=\s*'([^']*)')?`)
+	attrRe     = regexp.MustCompile(`([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*"([^"]*)"|\s*=\s*'([^']*)'|\s*=\s*([^\s"'=<>\x60]+))?`)
 	tagStripRe = regexp.MustCompile(`(?is)<[^>]*>`)
 )
 
@@ -63,6 +63,9 @@ func parseAttrs(s string) map[string]string {
 		val := mm[2]
 		if val == "" {
 			val = mm[3]
+		}
+		if val == "" {
+			val = mm[4] // unquoted
 		}
 		if _, dup := m[key]; !dup {
 			m[key] = val
@@ -316,6 +319,8 @@ func auditHTML(file, src string) []Finding {
 		}
 	}
 
+	out = append(out, auditReferences(file, els, allIDs)...)
+
 	if hasHTML && !hasMain {
 		add("has-main-landmark", "document has no <main> landmark", SeverityError)
 	}
@@ -342,6 +347,86 @@ func auditHTML(file, src string) []Finding {
 		}
 	}
 
+	return out
+}
+
+// idrefAttrs are the attributes that name other elements by ID. A reference
+// to an ID the document does not have names nothing: the control loses its
+// label or description, a disclosure button controls nothing (axe-core's
+// aria-valid-attr-value and label rules).
+var idrefAttrs = []string{"aria-labelledby", "aria-describedby", "aria-controls", "aria-owns", "aria-activedescendant", "aria-details", "aria-errormessage"}
+
+// ariaValues are the values the enumerated ARIA states and properties take.
+var ariaValues = map[string][]string{
+	"aria-pressed":  {"true", "false", "mixed"},
+	"aria-checked":  {"true", "false", "mixed"},
+	"aria-expanded": {"true", "false"},
+	"aria-selected": {"true", "false"},
+	"aria-hidden":   {"true", "false"},
+	"aria-modal":    {"true", "false"},
+	"aria-atomic":   {"true", "false"},
+	"aria-busy":     {"true", "false"},
+	"aria-disabled": {"true", "false"},
+	"aria-required": {"true", "false"},
+	"aria-readonly": {"true", "false"},
+	"aria-live":     {"off", "polite", "assertive"},
+	"aria-current":  {"page", "step", "location", "date", "time", "true", "false"},
+}
+
+// liveRolePoliteness is the politeness each live-region role implies.
+var liveRolePoliteness = map[string]string{"status": "polite", "log": "polite", "alert": "assertive"}
+
+// auditReferences checks what static markup states about other elements and
+// about itself: ID references resolve, enumerated ARIA values are valid, every
+// table header says what it heads, a region landmark has a name, and a live
+// region's politeness agrees with its role.
+func auditReferences(file string, els []element, ids map[string]bool) []Finding {
+	var out []Finding
+	add := func(rule, detail string, sev Severity) {
+		out = append(out, Finding{File: file, Rule: rule, Detail: detail, Severity: sev})
+	}
+	for _, e := range els {
+		id := e.attrs["id"]
+		for _, attr := range idrefAttrs {
+			for _, ref := range strings.Fields(e.attrs[attr]) {
+				if !ids[ref] {
+					add("aria-idref", "<"+e.name+" id="+id+"> "+attr+" names #"+ref+", which the document does not have", SeverityError)
+				}
+			}
+		}
+		if e.name == "label" {
+			if ref := strings.TrimSpace(e.attrs["for"]); ref != "" && !ids[ref] {
+				add("aria-idref", "<label for="+ref+"> labels no element: the document has no #"+ref, SeverityError)
+			}
+		}
+		for attr, allowed := range ariaValues {
+			v, ok := e.attrs[attr]
+			if !ok {
+				continue
+			}
+			// ARIA tokens are ASCII case-insensitive.
+			valid := false
+			for _, a := range allowed {
+				if strings.EqualFold(strings.TrimSpace(v), a) {
+					valid = true
+				}
+			}
+			if !valid {
+				add("aria-valid-value", "<"+e.name+" id="+id+"> "+attr+"=\""+v+"\" is not one of "+strings.Join(allowed, "|"), SeverityError)
+			}
+		}
+		if e.name == "th" && strings.TrimSpace(e.attrs["scope"]) == "" {
+			add("th-has-scope", "<th id="+id+"> does not say what it heads (scope=col|row|colgroup|rowgroup)", SeverityError)
+		}
+		if e.attrs["role"] == "region" && !attrPresent(e.attrs, "aria-label", "aria-labelledby") {
+			add("region-has-name", "role=region <"+e.name+" id="+id+"> has no accessible name (aria-label/aria-labelledby)", SeverityError)
+		}
+		if want, ok := liveRolePoliteness[e.attrs["role"]]; ok {
+			if live, set := e.attrs["aria-live"]; set && live != want {
+				add("live-region-politeness", "role="+e.attrs["role"]+" <"+e.name+" id="+id+"> sets aria-live="+live+"; the role implies "+want, SeverityWarn)
+			}
+		}
+	}
 	return out
 }
 

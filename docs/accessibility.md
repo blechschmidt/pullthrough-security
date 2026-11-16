@@ -69,6 +69,33 @@ Real-time surfaces announce politely without flooding the screen reader:
   far too chatty) — the rolling counts summarise them instead.
 - Health/identity pills, provenance results and inline results that update
   asynchronously use `aria-live="polite"`.
+- The **Mirroring** tab's status line is a visually hidden `role="status"
+  aria-live="polite" aria-atomic="true"` region: a refresh the operator asked
+  for is announced as a one-sentence summary; an automatic refresh announces
+  only what changed state (a pause, a spent budget, a new malicious verdict),
+  never the numbers that move on every read.
+
+## Views that refresh themselves (2.2.2, 2.4.3, 1.3.1)
+
+The Mirroring tab re-reads its status every 15 seconds while it is open:
+
+- **Auto-refresh** is a toggle button: its state is `aria-pressed`, its label
+  stays the same, and switching it off stops the updates (2.2.2 Pause, Stop,
+  Hide). Leaving the tab, or hiding the browser tab, stops them too.
+- A refresh re-renders the table and the open detail panel, and puts the focus
+  back on the control that had it (controls carry `data-focus` keys); a
+  refresh never rebuilds a panel under an open drop-down list.
+- Each upstream's name is a `<button aria-expanded aria-controls>` that opens
+  its detail panel in place: a `role="region"` named by its heading, which
+  takes the focus (`tabindex="-1"`). `Escape` closes the panel and returns the
+  focus to the name. The row whose panel is open carries `aria-current="true"`,
+  marked by an accent bar on its first cell.
+- The table's two groups of columns (full mirror, full scan) are headed by
+  `scope="colgroup"` cells over `<colgroup>`s, each row by a `scope="row"`
+  cell; the table has a (visually hidden) caption. On a narrow window it
+  scrolls sideways under its first column, which stays in place.
+- A share drawn as a bar (scanned artifacts, a spent budget) is decorative
+  (`aria-hidden`): the figures beside it say the same in words.
 
 ## Visible focus (2.4.7)
 
@@ -84,9 +111,10 @@ status colours (`--ok`/`--warn`/`--crit`, `--accent`) are used only for
 decorative fills, bars and borders. Two derived token families keep text and
 white-on-colour fills at ≥ 4.5:1 in **both** themes:
 
-- `--*-ink` — status colour rendered **as text** on a light/tinted surface.
-  Darkened in the light theme (where the vivid hue fails), tracks the vivid hue
-  in the dark theme (where it passes).
+- `--*-ink` — status colour rendered **as text** on a surface or on its own
+  tint (a pill or badge). Darkened in the light theme and lightened in the dark
+  theme: the vivid hues fail as text in both (red on the dark surface, every
+  one of them on its tint).
 - `--*-solid` / `--accent-solid` — mid-dark fills that carry **white text**
   (primary buttons, skip link, incident banner, SOC outcome bar, error toast),
   fixed across themes.
@@ -97,16 +125,20 @@ equal or better):
 | Pairing | Token | Ratio | Pass |
 |---------|-------|-------|------|
 | Body text on background | `--text` on `--bg` | ~13:1 | ✓ |
-| Muted text on surface | `--muted` on `--surface` | ~5.0:1 | ✓ |
-| "ok" text on tint | `--ok-ink` #15803d | ~5.0:1 | ✓ |
-| "warn" text on tint | `--warn-ink` #b45309 | ~4.8:1 | ✓ |
-| "crit" text on tint | `--crit-ink` #b91c1c | ~6.5:1 | ✓ |
+| Muted text on surface | `--muted` #5f6673 on `--surface` | ~5.8:1 | ✓ |
+| Muted text on `--surface-2` (a plain pill, a table's total row) | `--muted` | ~5.2:1 | ✓ |
+| "ok" text on its tint | `--ok-ink` #166534 | ~6.0:1 | ✓ |
+| "warn" text on its tint | `--warn-ink` #92400e | ~6.0:1 | ✓ |
+| "crit" text on its tint | `--crit-ink` #b91c1c | ~5.0:1 | ✓ |
+| Dark: "ok" / "warn" / "crit" text on its tint | `--*-ink` #22c55e / #f59e0b / #f87171 | ~6.1 / 6.5 / 5.6:1 | ✓ |
 | White on primary fill | on `--accent-solid` #2563eb | ~5.2:1 | ✓ |
 | White on SOC "ok" segment | on `--ok-solid` #15803d | ~5.0:1 | ✓ |
 
 The vivid `--ok` (#16a34a, ~3.3:1), `--warn` (#d97706, ~3.2:1) and dark-theme
-`--accent` (#5b8cff, ~3.2:1 with white) **fail** as text/white-on-fill, which is
-why they are confined to decorative use and the ink/solid tokens exist.
+`--accent` (#5b8cff, ~3.2:1 with white) **fail** as text/white-on-fill, and in
+the dark theme `--crit` (#dc2626) reaches only ~3.6:1 on the surface and every
+vivid hue falls below 4.5:1 on its own tint — which is why they are confined to
+decorative use and the ink/solid tokens exist.
 
 ## Motion (2.3.3)
 
@@ -132,9 +164,23 @@ go test ./internal/uiaudit/
 Rules enforced at **error** severity (fail the build): `html-has-lang`,
 `has-main-landmark`, `landmark-labeled`, `tablist-present`, `tab-aria-selected`,
 `control-has-name`, `button-has-name`, `dialog-name`, `image-alt`, `skip-link`,
-`focus-visible`, `reduced-motion`. Advisory **warn** rules: `tab-aria-controls`
-(wired at runtime), `dialog-modal`, `canvas-has-alt`, `link-has-name`,
-`anchor-target`.
+`focus-visible`, `reduced-motion`, `aria-idref` (every ID that
+`aria-labelledby`, `aria-describedby`, `aria-controls`, `aria-owns`,
+`aria-activedescendant`, `aria-details`, `aria-errormessage` or a label's `for`
+names exists), `aria-valid-value` (enumerated ARIA states such as
+`aria-pressed`, `aria-expanded` and `aria-live` hold a permitted value),
+`th-has-scope` (every header cell says what it heads) and `region-has-name`.
+Advisory **warn** rules: `tab-aria-controls` (wired at runtime), `dialog-modal`,
+`canvas-has-alt`, `link-has-name`, `anchor-target`, `live-region-politeness`
+(an `aria-live` that contradicts its role's politeness).
+
+View-specific tests hold what a generic rule cannot see:
+`TestMirroringViewAccessibility` (`internal/admin`) checks the Mirroring tab's
+live region, toggle, caption, column-group headers and named detail region;
+`internal/admin/ui_test.go` checks that the tab renders registry-controlled
+text through text nodes only, sends every control through the API client that
+runs the passkey step-up, and offers each control only to the role the admin
+API requires for it.
 
 ### Optional: deep axe-core audit of a running instance
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 
 	"github.com/blechschmidt/pullthrough-security/internal/audit"
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
@@ -150,6 +151,11 @@ type Reading struct {
 	// a gate pass: Gate names it), or empty (not established).
 	Gates string
 	Gate  string
+	// Ecosystem, Name and Version are the coordinate the gate filed the
+	// reading under (the security dossier's key), when it names one.
+	Ecosystem string
+	Name      string
+	Version   string
 }
 
 // What the admission gates said of an artifact (Reading.Gates, Item.Gates).
@@ -236,6 +242,17 @@ type Item struct {
 	// Gate the gate that refused them.
 	Gates string `json:"g,omitempty"`
 	Gate  string `json:"gt,omitempty"`
+	// Ecosystem, Name and Version are the coordinate the gate filed the last
+	// reading under: what the security dossier is asked about.
+	Ecosystem string `json:"e,omitempty"`
+	Name      string `json:"nm,omitempty"`
+	Version   string `json:"vr,omitempty"`
+	// Tenants are the other tenants known to have pulled the bytes (Tenant
+	// being the one whose pull filled the cache entry), at most
+	// maxItemTenants of them. A tenant-scoped reader is shown the figures and
+	// verdicts of the artifacts its tenant pulled, as the gate shows a tenant
+	// only the verdicts on bytes it pulled.
+	Tenants []string `json:"ts,omitempty"`
 
 	// heap bookkeeping (not persisted)
 	hq     int // which heap: -1 none, 0..numPriorities-1 ready, delayedHeap
@@ -250,6 +267,107 @@ func (it *Item) artifact() Artifact {
 		Upstream: it.Upstream, Path: it.Path, Accept: it.Accept, Tenant: it.Tenant,
 		Key: it.Key, Digest: it.Digest, Size: it.Size, Cached: it.Cached,
 	}
+}
+
+// maxItemTenants bounds the tenants an item records as having pulled it: the
+// gate's own bound on the tenants a verdict is shown to
+// (llmpkgscan.maxViewersPerKey). A tenant beyond it is not recorded, and its
+// scoped views leave the artifact out (they fail closed).
+const maxItemTenants = 64
+
+// addTenant records that a tenant pulled the artifact, and reports whether
+// that is news. The slice is replaced, never appended to in place: a copy of
+// the item taken for a snapshot may still be reading the old one.
+func (it *Item) addTenant(tenant string) bool {
+	if tenant == "" || tenant == it.Tenant || len(tenant) > 256 {
+		return false
+	}
+	for _, t := range it.Tenants {
+		if t == tenant {
+			return false
+		}
+	}
+	if len(it.Tenants) >= maxItemTenants {
+		return false
+	}
+	it.Tenants = append(it.Tenants[:len(it.Tenants):len(it.Tenants)], tenant)
+	return true
+}
+
+// setFillTenant records that tenant's pull filled the cache entry now (the
+// sweep reads it from the fill metadata): the tenant the scan runs as. The
+// tenant it replaces stays among those who pulled the bytes.
+func (it *Item) setFillTenant(tenant string) {
+	if tenant == it.Tenant {
+		return
+	}
+	old := it.Tenant
+	kept := make([]string, 0, len(it.Tenants)+1)
+	for _, t := range it.Tenants {
+		if t != tenant {
+			kept = append(kept, t)
+		}
+	}
+	it.Tenant, it.Tenants = tenant, kept
+	it.addTenant(old)
+	if len(it.Tenants) == 0 {
+		it.Tenants = nil
+	}
+}
+
+// pullersOf calls fn for every tenant known to have pulled the bytes, once
+// each.
+func (it *Item) pullersOf(fn func(string)) {
+	if it.Tenant != "" {
+		fn(it.Tenant)
+	}
+	for _, t := range it.Tenants {
+		if t != "" && t != it.Tenant {
+			fn(t)
+		}
+	}
+}
+
+// pulledBy reports whether a tenant is known to have pulled the artifact.
+func (it *Item) pulledBy(tenant string) bool {
+	if tenant == "" {
+		return false
+	}
+	if it.Tenant == tenant {
+		return true
+	}
+	for _, t := range it.Tenants {
+		if t == tenant {
+			return true
+		}
+	}
+	return false
+}
+
+// learnCoordinate records the coordinate a reading names, and reports whether
+// that changed the item.
+func (it *Item) learnCoordinate(r Reading) bool {
+	if r.Name == "" {
+		return false
+	}
+	eco, name, version := clip(r.Ecosystem, 64), clip(r.Name, 512), clip(r.Version, 256)
+	if eco == it.Ecosystem && name == it.Name && version == it.Version {
+		return false
+	}
+	it.Ecosystem, it.Name, it.Version = eco, name, version
+	return true
+}
+
+// clip bounds a string a reading brings, so that one item line stays far
+// below the store's line limit. It cuts on a rune boundary.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // unscanned reports an item without a current verdict that the queue still

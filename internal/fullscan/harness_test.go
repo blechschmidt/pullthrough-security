@@ -145,7 +145,8 @@ func (g *gateScanner) Scan(ctx context.Context, a Artifact, opts ScanOptions) (R
 		return Reading{Kind: ReadingNotApplicable, Code: "not-package-content"}, nil
 	}
 	d := g.svc.Decide(rep)
-	r := Reading{Digest: o.meta[cache.MetaDigest], Size: int64(len(o.data)), Cost: rep.SpentUSD, Action: d.Action}
+	r := Reading{Digest: o.meta[cache.MetaDigest], Size: int64(len(o.data)), Cost: rep.SpentUSD, Action: d.Action,
+		Ecosystem: rep.Artifact.Ecosystem, Name: rep.Artifact.Name, Version: rep.Artifact.Version}
 	if v := rep.Verdict; v != nil {
 		r.Kind, r.Disposition, r.Fresh = ReadingVerdict, string(rep.Disposition), !rep.Cached
 		r.Signature, r.VerdictKey = llmpkgscan.SignatureOf(v).String(), v.Key
@@ -237,6 +238,7 @@ func testOptions(dir string, ups ...string) Options {
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		RetryBase: time.Millisecond, BusyWait: 5 * time.Millisecond, ControlRefresh: time.Millisecond,
 		PersistInterval: time.Millisecond, StandbyInterval: 10 * time.Millisecond, InboxInterval: time.Millisecond,
+		TenantInterval:  time.Millisecond,
 		PublishInterval: time.Millisecond,
 	}
 }

@@ -121,13 +121,21 @@ the API prefix to `/api/portal`.
 | Endpoint                                   | Description                                                            |
 |--------------------------------------------|------------------------------------------------------------------------|
 | `/api/portal/userinfo`                     | Caller's portal eligibility (no guard; always 200).                    |
-| `/api/portal/summary`                      | At-a-glance posture: verdict tallies, open quarantine, findings count. |
+| `/api/portal/summary`                      | At-a-glance posture: verdict tallies, open quarantine, findings count; `mirroring` when the full mirror or full scan runs. |
 | `/api/portal/verdicts`                     | Recent pull verdicts with score, band, decision, and top risk drivers. |
 | `/api/portal/coordinate?coordinate=<c>`    | Why a coordinate was flagged + remediation + break-glass + downloads.  |
 | `/api/portal/quarantine`                   | The tenant's quarantined items / break-glass requests, with guidance.  |
 | `/api/portal/onboarding`                   | Per-package-manager config snippets (reusing the `ptctl` generators).  |
 | `/api/portal/findings/sarif[?package=<c>]` | SARIF 2.1.0 export — one artifact, or the tenant's whole set.           |
 | `/api/portal/attestation?package=<c>`      | The DSSE attestation envelope for one of the tenant's artifacts.       |
+
+The summary's `mirroring` block feeds the overview's **Full scan of your pulls** tile
+([full-mirroring.md](full-mirroring.md)): the full scan's figures of the artifacts the
+caller's own tenant pulled — cached, scanned, not applicable, waiting, malicious,
+suspicious, quarantined — whether the scan is paused or its budget spent, and how many
+registries the proxy mirrors whole (`upstreams`, `enumerated`, `paused`). An artifact several
+tenants pulled counts for each of them; nothing else of another tenant's is in it, and
+nothing that names an artifact.
 
 Unauthenticated requests to guarded endpoints get `401` (with an `X-Login-URL`
 header when OIDC login is available); a caller without the `tenant-viewer`

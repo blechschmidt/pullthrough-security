@@ -234,6 +234,9 @@ func fullScanReading(sl *proxy.SystemLLMScan, res proxy.SystemEnforceResult) ful
 		return r
 	}
 	rep := sl.Report
+	// The coordinate the gate files the reading under: what the security
+	// dossier is asked about.
+	r.Ecosystem, r.Name, r.Version = rep.Artifact.Ecosystem, rep.Artifact.Name, rep.Artifact.Version
 	r.Cost = rep.SpentUSD
 	r.Refused, r.Action, r.Evicted, r.KeptPinned = res.Refused, res.Action, res.Evicted, res.KeptPinned
 	if r.Action == "" {

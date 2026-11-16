@@ -572,7 +572,7 @@ func buildObservability(
 	if cfg.Observability.Portal {
 		if adminAuthSvc == nil {
 			logger.Warn("self-service portal disabled: it requires adminAuth (oidc and/or static tokens) to identify the caller's tenant")
-		} else if psrv, err := buildPortalServer(cfg, registry, adminAuthSvc, riskEngine, findingsStore, approvalsSvc, attestor, meter, logger); err != nil {
+		} else if psrv, err := buildPortalServer(cfg, registry, adminAuthSvc, riskEngine, findingsStore, approvalsSvc, attestor, meter, fullMirror, fullScan, logger); err != nil {
 			logger.Warn("self-service portal disabled", "error", err)
 		} else {
 			obs.portalHandler = psrv.Handler()
@@ -674,6 +674,8 @@ func buildPortalServer(
 	approvalsSvc *approvals.Service,
 	attestor *attestbundle.Service,
 	meter *metering.Meter,
+	fullMirror *fullmirror.Engine,
+	fullScan *fullscan.Service,
 	logger *slog.Logger,
 ) (*portal.Server, error) {
 	opts := portal.Options{
@@ -704,6 +706,14 @@ func buildPortalServer(
 	}
 	if meter.Enabled() {
 		opts.Metering = meter
+	}
+	// The overview's mirroring tile: the full scan's figures of the tenant's
+	// own pulls, and how many registries are mirrored whole.
+	if fullMirror.Enabled() {
+		opts.FullMirror = fullMirror
+	}
+	if fullScan.Enabled() {
+		opts.FullScan = fullScan
 	}
 	return portal.New(opts)
 }

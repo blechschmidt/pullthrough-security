@@ -11,6 +11,8 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/adminauth"
 	"github.com/blechschmidt/pullthrough-security/internal/approvals"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
+	"github.com/blechschmidt/pullthrough-security/internal/fullmirror"
+	"github.com/blechschmidt/pullthrough-security/internal/fullscan"
 	"github.com/blechschmidt/pullthrough-security/internal/metering"
 	"github.com/blechschmidt/pullthrough-security/internal/onboard"
 	"github.com/blechschmidt/pullthrough-security/internal/riskscore"
@@ -70,7 +72,100 @@ type summaryResponse struct {
 	Verdicts   verdictTallies  `json:"verdicts"`
 	Quarantine quarantineTally `json:"quarantine"`
 	Findings   findingsTally   `json:"findings"`
-	Sources    map[string]bool `json:"sources"`
+	// Mirroring is the full mirror and the full scan as they concern the
+	// tenant; absent when neither runs.
+	Mirroring *mirroringTally `json:"mirroring,omitempty"`
+	Sources   map[string]bool `json:"sources"`
+}
+
+// mirroringTally is the overview's mirroring tile (Tasks 189-193).
+type mirroringTally struct {
+	// Mirror counts the registries the proxy mirrors whole (instance-wide).
+	Mirror *mirrorTally `json:"mirror,omitempty"`
+	// Scan is the full scan of the artifacts the tenant pulled.
+	Scan *scanTally `json:"scan,omitempty"`
+}
+
+type mirrorTally struct {
+	// Upstreams counts the mirrored registries; Enumerated those the mirror
+	// has listed whole at least once (it follows their changes since).
+	Upstreams  int `json:"upstreams"`
+	Enumerated int `json:"enumerated"`
+	// Paused reports that operators paused the whole mirror.
+	Paused bool `json:"paused"`
+}
+
+type scanTally struct {
+	// The tenant's pulled artifacts the cache holds, those with a current
+	// verdict, those the gate examines nothing in (metadata, indexes), and
+	// those still waiting for a verdict.
+	Cached        int `json:"cached"`
+	Scanned       int `json:"scanned"`
+	NotApplicable int `json:"notApplicable"`
+	Pending       int `json:"pending"`
+	// Verdicts on them: malicious and suspicious ones (Quarantined counts
+	// those the ladder removed from the cache).
+	Malicious   int `json:"malicious"`
+	Suspicious  int `json:"suspicious"`
+	Quarantined int `json:"quarantined"`
+	// Paused reports that operators paused the full scan; BudgetExhausted
+	// that its cost budget is spent for now (artifacts wait for a verdict).
+	Paused          bool `json:"paused"`
+	BudgetExhausted bool `json:"budgetExhausted"`
+}
+
+// mirroringStatuses returns the full mirror's and the full scan's statuses,
+// read at most every mirroringTTL (concurrent requests wait for one read).
+func (s *Server) mirroringStatuses() (*fullmirror.Status, *fullscan.Status) {
+	s.mirroringMu.Lock()
+	defer s.mirroringMu.Unlock()
+	if now := time.Now(); s.mirroringAt.IsZero() || now.Sub(s.mirroringAt) >= mirroringTTL {
+		s.mirrorSt, s.scanSt = nil, nil
+		if s.opts.FullMirror != nil {
+			st := s.opts.FullMirror.Status()
+			s.mirrorSt = &st
+		}
+		if s.opts.FullScan != nil {
+			st := s.opts.FullScan.Status()
+			s.scanSt = &st
+		}
+		s.mirroringAt = now
+	}
+	return s.mirrorSt, s.scanSt
+}
+
+// mirroringFor renders the mirroring tile for a tenant, or nil when neither
+// the full mirror nor the full scan runs.
+func (s *Server) mirroringFor(tenant string) *mirroringTally {
+	var out mirroringTally
+	mirror, scan := s.mirroringStatuses()
+	if mirror != nil {
+		if st := *mirror; st.Enabled {
+			m := &mirrorTally{Upstreams: len(st.Upstreams), Paused: st.Paused}
+			for _, u := range st.Upstreams {
+				if !u.BootstrapFinished.IsZero() || u.Phase == "follow" {
+					m.Enumerated++
+				}
+			}
+			out.Mirror = m
+		}
+	}
+	if scan != nil {
+		if st := *scan; st.Enabled {
+			// Only the tenant's own figures: an artifact counts for every
+			// tenant known to have pulled it.
+			f := st.Tenants[tenant]
+			out.Scan = &scanTally{
+				Cached: f.Cached, Scanned: f.Scanned, NotApplicable: f.NotApplicable, Pending: f.Pending,
+				Malicious: f.Malicious, Suspicious: f.Suspicious, Quarantined: f.Quarantined,
+				Paused: st.Paused, BudgetExhausted: st.Budget.Exhausted,
+			}
+		}
+	}
+	if out.Mirror == nil && out.Scan == nil {
+		return nil
+	}
+	return &out
 }
 
 type verdictTallies struct {
@@ -136,6 +231,9 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 			resp.Findings.Findings += len(d.Findings)
 		}
 	}
+
+	resp.Mirroring = s.mirroringFor(tenant)
+	resp.Sources["mirroring"] = resp.Mirroring != nil
 
 	s.writeJSON(w, http.StatusOK, resp)
 }

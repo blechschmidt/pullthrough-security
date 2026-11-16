@@ -40,6 +40,7 @@
     <button class="tab" role="tab" aria-selected="false" data-view="dossier">Dossier</button>
     <button class="tab" role="tab" aria-selected="false" data-view="metering">Usage</button>
     <button class="tab" role="tab" aria-selected="false" data-view="cache">Cache</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="mirroring">Mirroring</button>
     <button class="tab" role="tab" aria-selected="false" data-view="scans">Scans</button>
     <button class="tab" role="tab" aria-selected="false" data-view="provenance">Provenance</button>
     <button class="tab" role="tab" aria-selected="false" data-view="compliance">Compliance</button>
@@ -500,6 +501,64 @@
           </thead>
           <tbody id="cache-body"></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- Full mirroring and full scan (Tasks 189-193): per upstream, how far the
+         full mirror is behind its registry's feed and what it fetched, and how
+         much of what the cache holds has a current verdict of the LLM
+         package-content scan. Names, paths, cursors and error messages come
+         from registries: the script renders them as text only. -->
+    <section id="view-mirroring" class="view" hidden aria-label="Full mirroring and full scan">
+      <div class="toolbar">
+        <button id="mirroring-refresh" class="btn btn-sm" type="button">Refresh</button>
+        <button id="mirroring-auto" class="btn btn-sm btn-toggle" type="button" aria-pressed="true" title="Re-read the status every 15 seconds while this tab is open">Auto-refresh</button>
+        <span id="mirroring-updated" class="muted"></span>
+        <span id="mirroring-controls" class="button-group mirroring-controls" role="group" aria-label="Controls of the whole mirror and scan" hidden></span>
+      </div>
+      <!-- Announces a refresh the operator asked for, and on an automatic
+           refresh what changed state (not every moving number). -->
+      <p id="mirroring-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="mirroring-notice" class="panel mirroring-notice" hidden></div>
+      <div id="mirroring-cards" class="stat-grid"></div>
+      <div class="table-wrap">
+        <table id="mirroring-table">
+          <caption class="visually-hidden">Full mirror and full scan per upstream. Choose an upstream's name for its details, recent errors and malicious verdicts.</caption>
+          <colgroup span="2"></colgroup>
+          <colgroup span="7"></colgroup>
+          <colgroup span="5"></colgroup>
+          <thead>
+            <tr>
+              <th scope="col" rowspan="2">Upstream</th>
+              <th scope="col" rowspan="2">State</th>
+              <th scope="colgroup" colspan="7" class="group">Full mirror</th>
+              <th scope="colgroup" colspan="5" class="group">Full scan</th>
+            </tr>
+            <tr>
+              <th scope="col" title="How the mirror learns of new uploads (docs/full-mirroring.md)">Feed tier</th>
+              <th scope="col">Lag · cursor</th>
+              <th scope="col">Last poll</th>
+              <th scope="col" class="num">Queued</th>
+              <th scope="col" class="num">Fetched</th>
+              <th scope="col" class="num">Failed</th>
+              <th scope="col" class="num">Refused</th>
+              <th scope="col">Scanned</th>
+              <th scope="col" class="num">Malicious</th>
+              <th scope="col" class="num">Suspicious</th>
+              <th scope="col" class="num">Backlog</th>
+              <th scope="col" class="num">LLM spend</th>
+            </tr>
+          </thead>
+          <tbody id="mirroring-body"></tbody>
+          <tfoot id="mirroring-foot"></tfoot>
+        </table>
+      </div>
+      <div id="mirroring-detail" class="panel mirroring-detail" role="region" aria-labelledby="mirroring-detail-title" hidden>
+        <div class="mirroring-detail-head">
+          <h3 id="mirroring-detail-title" tabindex="-1">Upstream</h3>
+          <button id="mirroring-detail-close" class="btn btn-sm" type="button" aria-controls="mirroring-detail">Close details</button>
+        </div>
+        <div id="mirroring-detail-body"></div>
       </div>
     </section>
 

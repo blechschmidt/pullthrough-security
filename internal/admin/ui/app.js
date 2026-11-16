@@ -137,6 +137,10 @@
         if (t) {
           this.token = t.trim();
           sessionStorage.setItem("pt_admin_token", this.token);
+          // Who is signed in has changed: the controls the views offer, and
+          // the identity chip, follow.
+          adminIdentity.pending = null;
+          refreshWhoami();
           return this.request(method, path, body); // retry once with the new token
         }
         throw new Error("authentication required");
@@ -179,6 +183,8 @@
         if (t) {
           this.token = t.trim();
           sessionStorage.setItem("pt_admin_token", this.token);
+          adminIdentity.pending = null;
+          refreshWhoami();
           return this.raw(path);
         }
         throw new Error("authentication required");
@@ -295,6 +301,8 @@
     if (currentView === "secops" && name !== "secops") secopsDisconnectStream();
     // The download log's auto-refresh only runs while its tab is open.
     if (currentView === "downloads" && name !== "downloads") downloadsStopAuto();
+    // So does the Mirroring tab's.
+    if (currentView === "mirroring" && name !== "mirroring") mirroringStopAuto();
     currentView = name;
     syncHash();
     $$(".tab").forEach((t) => {
@@ -353,6 +361,8 @@
     if (currentView === "downloads") filter = downloadsParams().toString();
     else if (currentView === "userlinks") filter = userlinksParams().toString();
     else if (currentView === "repos") filter = reposHashParams().toString();
+    else if (currentView === "mirroring") filter = mirroringHashParams().toString();
+    else if (currentView === "dossier") filter = dossierParams().toString();
     if (filter) hash += "?" + filter;
     return hash;
   }
@@ -372,6 +382,8 @@
     if (target.name === "downloads") setDownloadsFilter(downloadsFilterFromParams(target.params), false);
     if (target.name === "userlinks") setUserlinksFilter(userlinksFilterFromParams(target.params), false);
     if (target.name === "repos") setReposFromParams(target.params);
+    if (target.name === "mirroring") setMirroringFromParams(target.params);
+    if (target.name === "dossier") setDossierFromParams(target.params);
     setView(target.name);
     return true;
   }
@@ -574,16 +586,36 @@
   }
 
   // --- Per-coordinate security dossier / 360 view (Task 87) -----------------
+  // The address bar names the coordinate ("#dossier?ecosystem=npm&coordinate=
+  // left-pad@1.3.0"), so other views link to a dossier (the Mirroring tab's
+  // malicious verdicts do) and an assembled one can be bookmarked.
   let dossierWired = false;
+  let dossierPendingRun = false;
   views.dossier = async function () {
-    if (dossierWired) return;
-    dossierWired = true;
-    $("#dossier-run").addEventListener("click", () => runDossier().catch((e) => toast(e.message, true)));
-    $("#dossier-export").addEventListener("click", () => exportDossier().catch((e) => toast(e.message, true)));
-    ["#dossier-ecosystem", "#dossier-coordinate", "#dossier-tenant"].forEach((id) => {
-      $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runDossier().catch((err) => toast(err.message, true)); } });
-    });
+    if (!dossierWired) {
+      dossierWired = true;
+      $("#dossier-run").addEventListener("click", () => runDossier().catch((e) => toast(e.message, true)));
+      $("#dossier-export").addEventListener("click", () => exportDossier().catch((e) => toast(e.message, true)));
+      ["#dossier-ecosystem", "#dossier-coordinate", "#dossier-tenant"].forEach((id) => {
+        $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runDossier().catch((err) => toast(err.message, true)); } });
+      });
+    }
+    if (dossierPendingRun) {
+      dossierPendingRun = false;
+      await runDossier();
+    }
   };
+
+  // setDossierFromParams fills the dossier's fields from a link; the dossier
+  // is assembled once its tab is open.
+  function setDossierFromParams(params) {
+    const coord = (params.get("coordinate") || "").trim();
+    if (!coord) return;
+    $("#dossier-ecosystem").value = (params.get("ecosystem") || "").trim();
+    $("#dossier-coordinate").value = coord;
+    $("#dossier-tenant").value = (params.get("tenant") || "").trim();
+    dossierPendingRun = true;
+  }
 
   function dossierParams() {
     const p = new URLSearchParams();
@@ -607,6 +639,7 @@
     renderDossier(card, d);
     const on = (d.sources || []).filter((s) => s.status !== "disabled").length;
     meta.textContent = `${on} sources consulted${d.partial ? " · PARTIAL" : ""}`;
+    if (currentView === "dossier") syncHash();
   }
 
   async function exportDossier() {
@@ -780,7 +813,7 @@
         dossierKV("Unscanned", rs.unscanned),
       ]);
       card.appendChild(el("ul", null, (rs.scans || []).map((sc) => el("li", null,
-        verdictPill(sc.verdict), " ",
+        scanVerdictPill(sc.verdict), " ",
         el("a.mono", { href: "#repos?" + new URLSearchParams({ name: sc.repo, rev: sc.commit }).toString(),
           text: `${sc.repo} · ${sc.kind}${sc.ref ? " " + sc.ref : ""} @ ${shortSha(sc.commit)}${sc.current ? " (head)" : ""} · ${(sc.files || []).join(", ")}` }),
         el("span.muted", { text: ` · ${sc.model || "—"} · ${fmtTime(sc.scannedAt)}${sc.unscannedCode ? " · " + sc.unscannedCode : ""}${sc.released ? " · released " + sc.released : ""}` })))));
@@ -2276,7 +2309,9 @@
   // package content: they only ever go into text nodes.
   const reposState = { wired: false, repo: "", report: null };
 
-  function verdictPill(v) {
+  // scanVerdictPill renders a dependency verdict (malicious, suspicious,
+  // benign, unscanned). The commit scanner's verdictPill takes a boolean.
+  function scanVerdictPill(v) {
     const cls = v === "malicious" ? "bad" : (v === "suspicious" ? "warn" : (v === "benign" ? "ok" : "muted"));
     return el("span.pill." + cls, { text: v || "—" });
   }
@@ -2436,7 +2471,7 @@
       const why = d.unscanned ? `${d.unscanned.code}: ${d.unscanned.reason}` : (d.reason || "");
       const evidence = (det.evidence || []).length || (det.reasons || []).length;
       deps.appendChild(el("tr", null,
-        el("td", null, verdictPill(d.verdict), d.released ? el("span.muted", { text: " released (" + d.released + ")" }) : null),
+        el("td", null, scanVerdictPill(d.verdict), d.released ? el("span.muted", { text: " released (" + d.released + ")" }) : null),
         el("td", null, el("span.mono", { title: why, text: `${d.type}/${d.name}@${d.version}` }), why ? el("div.muted", { text: why }) : null),
         el("td", null, el("span.mono.muted", { text: (d.files || []).join(", ") })),
         el("td", null, el("span.muted", { text: det.model ? `${det.model}${det.confidence ? " (" + det.confidence.toFixed(2) + ")" : ""}` : "—" })),
@@ -2581,7 +2616,7 @@
   };
 
   // --- WASM extension gates ------------------------------------------------
-  function fmtBytes(n) {
+  function fmtWasmBytes(n) {
     n = Number(n) || 0;
     if (n >= 1 << 20) return (n / (1 << 20)).toFixed(0) + "MiB";
     if (n >= 1 << 10) return (n / (1 << 10)).toFixed(0) + "KiB";
@@ -2628,7 +2663,7 @@
       const status = m.loaded
         ? el("span.pill.ok", { text: "loaded" })
         : el("span.pill.bad", { text: "not loaded", title: m.loadError || "" });
-      const limits = `${m.timeoutMs}ms · ${fmtBytes(m.memoryBytes)}` + (m.fuel ? ` · fuel ${m.fuel}` : "");
+      const limits = `${m.timeoutMs}ms · ${fmtWasmBytes(m.memoryBytes)}` + (m.fuel ? ` · fuel ${m.fuel}` : "");
       const row = el("tr", null,
         el("td", null, el("span.mono", { text: m.name })),
         el("td", null, status),
@@ -3559,6 +3594,934 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  // --- Full mirroring and full scan (Tasks 189-193) --------------------------
+  // The Mirroring tab: for every upstream the full mirror follows or the full
+  // scan covers, how far the mirror is behind its registry's feed and what it
+  // fetched, and how much of what the cache holds has a current verdict of the
+  // LLM package-content scan; a detail panel per upstream with its recent
+  // errors and malicious verdicts; and the operators' controls. Upstream,
+  // package and file names, paths, cursors and error messages come from
+  // registries and the repositories behind them: they only ever go into text
+  // nodes. (The status carries no model output.)
+
+  // adminIdentity is who the console is signed in as (auth/userinfo). Its
+  // capabilities decide which controls are offered; the server decides what
+  // is allowed, so a control offered to someone it refuses costs a toast and
+  // nothing else. Without an identity service (no adminAuth) nothing is known
+  // and every control is offered.
+  const adminIdentity = { known: false, caps: [], tenant: "", info: null, pending: null };
+
+  function loadAdminIdentity(force) {
+    if (adminIdentity.pending && !force) return adminIdentity.pending;
+    adminIdentity.pending = (async () => {
+      let info = null;
+      try {
+        const res = await fetch("auth/userinfo", { cache: "no-store", headers: api.headers() });
+        if (res.ok) info = await res.json();
+      } catch (_) { /* no identity service */ }
+      adminIdentity.info = info;
+      adminIdentity.known = !!(info && info.authenticated);
+      adminIdentity.caps = adminIdentity.known ? (info.capabilities || []) : [];
+      adminIdentity.tenant = adminIdentity.known ? (info.tenant || "") : "";
+      return adminIdentity;
+    })();
+    return adminIdentity.pending;
+  }
+
+  // adminCan reports whether the signed-in identity holds a capability (read,
+  // operate, approve, administer).
+  function adminCan(cap) {
+    return !adminIdentity.known || adminIdentity.caps.includes(cap);
+  }
+
+  // The full mirror and the full scan are instance-wide: steering them takes
+  // an identity bound to no tenant. Pausing and resuming are operational; a
+  // resync or a re-scan is the administrator's (it costs upstream requests or
+  // model calls by the thousand).
+  function mirroringMayOperate() { return adminCan("operate") && !adminIdentity.tenant; }
+  function mirroringMayAdminister() { return adminCan("administer") && !adminIdentity.tenant; }
+
+  const MIRRORING_AUTO_MS = 15000;
+  const mirroringState = {
+    wired: false, auto: true, timer: null, seq: 0, upstream: "", rescanFilter: "flagged",
+    focusDetail: false, mirror: null, scan: null, last: null, fingerprint: "", failure: "",
+    // When each status was last read.
+    read: { mirror: null, scan: null },
+  };
+
+  // The tiers of docs/full-mirroring.md: how the mirror learns of new uploads.
+  const MIRROR_TIERS = {
+    a: ["feed", "incremental change feed"],
+    b: ["index", "complete index to poll and diff"],
+    c: ["listing", "paginated listings only"],
+    d: ["none", "no practical enumeration"],
+  };
+
+  // The follower's states (fullmirror.State*) by how much they need a look.
+  const MIRROR_STATE_CLASS = {
+    following: "ok", bootstrapping: "ok", "off-peak": "", standby: "", starting: "", stopped: "",
+    paused: "warn", "backing-off": "warn", "budget-exhausted": "warn", lockdown: "bad", error: "bad",
+  };
+
+  // The re-scan filters (fullscan.RescanRequest.Filter), the default first:
+  // the value, the option's label, and the artifacts it selects in words.
+  const MIRRORING_RESCAN_FILTERS = [
+    ["flagged", "malicious and suspicious", "the malicious and suspicious artifacts"],
+    ["malicious", "malicious", "the malicious artifacts"],
+    ["suspicious", "suspicious", "the suspicious artifacts"],
+    ["unscannable", "unscannable", "the artifacts the gate could not examine"],
+    ["refused", "refused by the model", "the artifacts the model refused to judge"],
+    ["error", "given up on (errors)", "the artifacts given up on after their attempts"],
+    ["not-applicable", "not applicable", "the artifacts that hold nothing the gate examines"],
+    ["benign", "benign", "the benign artifacts"],
+    ["all", "everything", "every artifact"],
+  ];
+
+  // mirroringPct is a share as a percentage, rounded down: a backlog of one is
+  // never shown as 100%.
+  function mirroringPct(r) {
+    const v = Math.max(0, Math.min(1, r || 0));
+    return (Math.floor(v * 1000) / 10).toFixed(1) + "%";
+  }
+
+  function mirroringNum(n) { return Number(n || 0).toLocaleString(); }
+
+  function mirroringUSD(x) {
+    const v = Number(x || 0);
+    return v > 0 && v < 0.01 ? "< $0.01" : "$" + v.toFixed(2);
+  }
+
+  function mirroringPill(word, cls, title) {
+    return el("span.pill" + (cls ? "." + cls : ""), { text: word, title: title || null });
+  }
+
+  // A moment, with the exact time in its title.
+  function mirroringWhen(s, future) {
+    const span = el("span.nowrap", { text: future ? fmtUntil(s) : fmtAge(s) });
+    const d = s ? new Date(s) : null;
+    if (d && !isNaN(d.getTime()) && d.getFullYear() > 1) span.title = d.toLocaleString();
+    return span;
+  }
+
+  // mirroringDuration is a lag in time, in its largest whole unit.
+  function mirroringDuration(secs) {
+    const s = Math.max(0, Math.round(Number(secs) || 0));
+    if (s < 60) return s + " s";
+    if (s < 3600) return Math.floor(s / 60) + " min";
+    if (s < 172800) return Math.floor(s / 3600) + " h";
+    return Math.floor(s / 86400) + " days";
+  }
+
+  // mirroringLag says how far the mirror is behind its feed's head, in
+  // changes and in time, as far as the feed says: parts are the lines the
+  // table shows, text the whole in one line.
+  function mirroringLag(u) {
+    if (!u) return { text: "—", parts: ["—"], cls: "" };
+    if (u.phase === "bootstrap" || !u.phase) return { text: "enumerating", parts: ["enumerating"], cls: "" };
+    if (u.lag === 0 || (u.lag == null && u.lagSeconds != null && u.lagSeconds < 1)) return { text: "current", parts: ["current"], cls: "ok" };
+    const parts = [];
+    if (u.lag != null) parts.push(`${mirroringNum(u.lag)} ${u.lag === 1 ? "change" : "changes"}`);
+    if (u.lagSeconds != null) parts.push(mirroringDuration(u.lagSeconds));
+    if (!parts.length) return { text: "not stated by the feed", parts: ["not stated"], cls: "" };
+    return { text: parts.join(" · ") + " behind", parts, cls: "warn" };
+  }
+
+  function mirroringMirrorState(u) {
+    if (!u) return { text: "not mirrored", cls: "" };
+    const s = u.state || "starting";
+    return { text: s + (u.dryRun ? " · dry run" : ""), cls: MIRROR_STATE_CLASS[s] != null ? MIRROR_STATE_CLASS[s] : "" };
+  }
+
+  // The full scan's state for an upstream, in words that say it is the scan's.
+  // live is the coarser state the live region reports changes of: whether
+  // the backlog is empty right now is not news.
+  function mirroringScanState(scan, u) {
+    if (!u) return { text: "no scan", cls: "", live: "" };
+    if (scan.lockdown) return { text: "scan held", cls: "bad", live: "held by the lockdown" };
+    if (scan.paused || u.paused) return { text: "scan paused", cls: "warn", live: "paused" };
+    if (scan.budget && scan.budget.exhausted && u.pending) return { text: "budget spent", cls: "warn", live: "waiting for its budget" };
+    if (u.pending) return { text: "scanning", cls: "ok", live: "running" };
+    if (u.errors) {
+      return { text: "scan errors", cls: "warn", live: "running", title: `${mirroringNum(u.errors)} given up on after their attempts; the next sweep queues them again` };
+    }
+    return { text: "up to date", cls: "ok", live: "running" };
+  }
+
+  // Artifacts the gate examines: the tracked ones less those holding nothing
+  // it examines (metadata documents, indexes).
+  function mirroringScannable(f) {
+    return Math.max(0, (f.cached || 0) - (f.notApplicable || 0));
+  }
+
+  // mirroringRows joins the two statuses by upstream: an upstream may be
+  // mirrored without a full scan, or scanned without being mirrored.
+  function mirroringRows(mirror, scan) {
+    const rows = new Map();
+    for (const u of (mirror && mirror.upstreams) || []) rows.set(u.upstream, { name: u.upstream, mirror: u, scan: null });
+    for (const u of (scan && scan.upstreams) || []) {
+      const r = rows.get(u.upstream) || { name: u.upstream, mirror: null, scan: null };
+      r.scan = u;
+      rows.set(u.upstream, r);
+    }
+    return Array.from(rows.values()).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  // The deep link ("#mirroring?upstream=npm") names the upstream whose detail
+  // panel is open.
+  function mirroringHashParams() {
+    const p = new URLSearchParams();
+    if (mirroringState.upstream) p.set("upstream", mirroringState.upstream);
+    return p;
+  }
+
+  function setMirroringFromParams(params) {
+    mirroringState.upstream = (params.get("upstream") || "").trim();
+    mirroringState.focusDetail = !!mirroringState.upstream;
+  }
+
+  // mirroringAnnounce says something in the view's polite live region.
+  function mirroringAnnounce(text) {
+    const live = $("#mirroring-status");
+    if (live.textContent === text) live.textContent = "";
+    live.textContent = text;
+  }
+
+  // mirroringDigest is what the live region reports changes of on an
+  // automatic refresh: states and alarms, not every moving number.
+  function mirroringDigest(mirror, scan) {
+    const d = { global: [], ups: {} };
+    if (mirror && mirror.enabled) d.global.push(mirror.paused ? "The full mirror is paused." : "The full mirror runs.");
+    if (scan && scan.enabled) {
+      d.global.push(scan.paused ? "The full scan is paused." : "The full scan runs.");
+      d.global.push(scan.budget && scan.budget.exhausted ? "The full scan's budget is spent." : "The full scan's budget has room.");
+    }
+    if ((mirror && mirror.lockdown) || (scan && scan.lockdown)) d.global.push("An emergency lockdown holds the mirror and the scan.");
+    for (const r of mirroringRows(mirror, scan)) {
+      const errs = (r.mirror && r.mirror.recentErrors) || [];
+      d.ups[r.name] = {
+        mirror: r.mirror ? mirroringMirrorState(r.mirror).text : "",
+        scan: r.scan ? mirroringScanState(scan, r.scan).live : "",
+        malicious: r.scan ? (r.scan.malicious || 0) : 0,
+        // The newest error (the list is oldest first).
+        errors: errs.length ? errs[errs.length - 1].time + "/" + errs.length : "",
+      };
+    }
+    return d;
+  }
+
+  // mirroringChanges lists, in words, what changed between two digests.
+  function mirroringChanges(prev, cur) {
+    const out = [];
+    cur.global.forEach((g) => { if (!prev.global.includes(g)) out.push(g); });
+    for (const [name, u] of Object.entries(cur.ups)) {
+      const p = prev.ups[name];
+      if (!p) { out.push(`${name} appeared.`); continue; }
+      if (u.mirror !== p.mirror && u.mirror) out.push(`${name}: the mirror is ${u.mirror}.`);
+      if (u.scan !== p.scan && u.scan) out.push(`${name}: the scan is ${u.scan}.`);
+      if (u.malicious > p.malicious) {
+        const n = u.malicious - p.malicious;
+        out.push(`${name}: ${n} new malicious ${n === 1 ? "verdict" : "verdicts"}.`);
+      }
+      if (u.errors && u.errors !== p.errors) out.push(`${name}: a new mirror error.`);
+    }
+    return out;
+  }
+
+  // mirroringFocusKey and mirroringRefocus keep the keyboard focus on "the
+  // same" control across a re-render: controls carry data-focus keys.
+  function mirroringFocusKey() {
+    const a = document.activeElement;
+    return a && a.dataset && a.dataset.focus ? a.dataset.focus : "";
+  }
+
+  function mirroringRefocus(key) {
+    if (!key) return;
+    const n = $$("#view-mirroring [data-focus]").find((e) => e.dataset.focus === key);
+    if (n) n.focus({ preventScroll: true });
+  }
+
+  async function mirroringLoad(opts) {
+    opts = opts || {};
+    const seq = ++mirroringState.seq;
+    const updated = $("#mirroring-updated");
+    if (!opts.auto) updated.textContent = "loading…";
+    const failed = [];
+    const read = (path, what) => api.get(path).catch((e) => { failed.push(what + ": " + e.message); return undefined; });
+    const [mirror, scan] = await Promise.all([
+      read("fullmirror/status", "the full mirror's status"),
+      read("fullscan/status", "the full scan's status"),
+    ]);
+    // Who is signed in is read after the statuses: a read that had to ask
+    // for a token has changed it.
+    await loadAdminIdentity();
+    if (seq !== mirroringState.seq) return; // a newer read superseded this one
+    // A status that could not be read keeps the last one read: a failed read
+    // is no news about the mirror or the scan — it neither empties the table
+    // nor closes the panel nor raises an alarm when the read works again.
+    const now = new Date();
+    if (mirror !== undefined) { mirroringState.mirror = mirror; mirroringState.read.mirror = now; }
+    if (scan !== undefined) { mirroringState.scan = scan; mirroringState.read.scan = now; }
+    // An automatic refresh that brings nothing new changes nothing on the
+    // page: assistive technology has nothing re-announced under it.
+    const fingerprint = JSON.stringify([mirroringState.mirror, mirroringState.scan, adminIdentity.caps, adminIdentity.tenant]);
+    if (!(opts.auto && fingerprint === mirroringState.fingerprint)) {
+      const focus = mirroringFocusKey();
+      mirroringRender(opts);
+      mirroringRefocus(focus);
+    }
+    mirroringState.fingerprint = fingerprint;
+    const stale = [["mirror", "the full mirror's"], ["scan", "the full scan's"]]
+      .filter(([k]) => mirroringState[k] && mirroringState.read[k] && mirroringState.read[k] < now)
+      .map(([k, w]) => `${w} figures are from ${mirroringState.read[k].toLocaleTimeString()}`);
+    updated.textContent = "Updated " + now.toLocaleTimeString() +
+      (failed.length ? " · could not read " + failed.join("; ") + (stale.length ? " — " + stale.join(", ") : "") : "");
+
+    // The live region: a summary when the operator asked, the changes of
+    // state (and of the reads failing) when the refresh was automatic.
+    const failure = failed.map((f) => f.split(":")[0]).join(" and ");
+    const digest = mirroringDigest(mirroringState.mirror, mirroringState.scan);
+    if (opts.auto && mirroringState.last) {
+      const changes = mirroringChanges(mirroringState.last, digest);
+      if (failure && failure !== mirroringState.failure) changes.unshift(`Could not read ${failure}.`);
+      if (!failure && mirroringState.failure) changes.unshift("The status can be read again.");
+      if (changes.length) mirroringAnnounce(changes.slice(0, 4).join(" ") + (changes.length > 4 ? ` And ${changes.length - 4} more changes.` : ""));
+    } else if (!opts.quiet) {
+      mirroringAnnounce(mirroringSummary(mirroringState.mirror, mirroringState.scan) + (failure ? ` Could not read ${failure}.` : ""));
+    }
+    mirroringState.failure = failure;
+    mirroringState.last = digest;
+  }
+
+  // mirroringSummary is the status in one or two sentences.
+  function mirroringSummary(mirror, scan) {
+    const parts = [];
+    if (mirror && mirror.enabled) {
+      const ups = mirror.upstreams || [];
+      const current = ups.filter((u) => mirroringLag(u).cls === "ok").length;
+      const behind = ups.filter((u) => mirroringLag(u).cls === "warn").length;
+      parts.push(`Full mirror: ${ups.length} ${ups.length === 1 ? "upstream" : "upstreams"}, ${current} current, ${behind} behind${mirror.paused ? ", paused" : ""}.`);
+    }
+    if (scan && scan.enabled) {
+      const t = scan.totals || {};
+      parts.push(`Full scan: ${mirroringNum(t.scanned)} of ${mirroringNum(mirroringScannable(t))} scanned, ${mirroringNum(t.malicious)} malicious, ${mirroringNum(t.pending)} waiting${scan.paused ? ", paused" : ""}.`);
+    }
+    return parts.length ? "Mirroring status refreshed. " + parts.join(" ") : "Neither full mirroring nor the full scan is configured.";
+  }
+
+  function mirroringRender(opts) {
+    const { mirror, scan } = mirroringState;
+    const rows = mirroringRows(mirror, scan);
+    // An automatic refresh does not rebuild a part of the page that holds
+    // the keyboard focus (it would be replaced, and announced, under the
+    // operator): that part catches up once the focus has left it.
+    const holdsFocus = (sel) => opts.auto && $(sel).contains(document.activeElement);
+    if (!holdsFocus("#mirroring-controls")) mirroringRenderControls(mirror, scan);
+    mirroringRenderNotices(mirror, scan, rows);
+    mirroringRenderCards(mirror, scan);
+    if (!holdsFocus("#mirroring-table")) mirroringRenderTable(mirror, scan, rows);
+    const open = rows.find((r) => r.name === mirroringState.upstream);
+    const panel = $("#mirroring-detail");
+    if (mirroringState.upstream && !open && (mirror || scan)) {
+      // The upstream is gone from both statuses (a configuration change).
+      mirroringState.upstream = "";
+      panel.hidden = true;
+    } else if (open && !holdsFocus("#mirroring-detail")) {
+      mirroringRenderDetail(open);
+    }
+    if (currentView === "mirroring") syncHash();
+  }
+
+  // The toolbar's controls of the whole mirror and the whole scan.
+  function mirroringRenderControls(mirror, scan) {
+    const box = clear($("#mirroring-controls"));
+    if (!mirroringMayOperate()) { box.hidden = true; return; }
+    const btn = (label, key, fn) => el("button.btn.btn-sm", { type: "button", text: label, "data-focus": key, onclick: fn });
+    if (mirror && mirror.enabled) {
+      box.appendChild(mirror.paused
+        ? btn("Resume the mirror", "global:mirror", () => mirroringResume("fullmirror", ""))
+        : btn("Pause the mirror", "global:mirror", () => mirroringPause("fullmirror", "")));
+    }
+    if (scan && scan.enabled) {
+      box.appendChild(scan.paused
+        ? btn("Resume the scan", "global:scan", () => mirroringResume("fullscan", ""))
+        : btn("Pause the scan", "global:scan", () => mirroringPause("fullscan", "")));
+    }
+    box.hidden = !box.firstChild;
+  }
+
+  function mirroringPausedBy(s) {
+    const who = [s.pausedBy ? "by " + s.pausedBy : "", s.pausedAt ? fmtTime(s.pausedAt) : ""].filter(Boolean).join(", ");
+    return (who ? " (" + who + ")" : "") + (s.pauseReason ? ": " + s.pauseReason : "") + ".";
+  }
+
+  function mirroringRenderNotices(mirror, scan, rows) {
+    const box = clear($("#mirroring-notice"));
+    const lines = [];
+    const mOn = mirror && mirror.enabled, sOn = scan && scan.enabled;
+    const lock = (mirror && mirror.lockdown) || (scan && scan.lockdown);
+    if (lock) lines.push(["bad", `An emergency lockdown (${lock}) holds the full mirror and the full scan: nothing is fetched or scanned until it is cleared.`]);
+    if (mOn && mirror.paused) lines.push(["warn", "The full mirror is paused" + mirroringPausedBy(mirror)]);
+    if (sOn && scan.paused) lines.push(["warn", "The full scan is paused" + mirroringPausedBy(scan)]);
+    if (sOn && scan.budget && scan.budget.exhausted) {
+      const w = [scan.budget.daily, scan.budget.monthly].find((x) => x && x.exhausted);
+      lines.push(["warn", "The full scan's " + (w && w.window === "month" ? "monthly" : "daily") + " budget is spent: artifacts wait for a verdict until it resets" +
+        (w && w.resetsAt ? " (" + fmtUntil(w.resetsAt) + ")" : "") + ". Clients' pulls are judged from the gate's own budget all the same."]);
+    }
+    if ((mOn && !mirror.leader) || (sOn && !scan.leader)) {
+      lines.push(["", "This replica does not lead: it shows the figures the leading replica last published" +
+        (sOn && scan.asOf ? " (as of " + fmtTime(scan.asOf) + ")" : "") + ". Pausing, resuming, resyncing and re-scanning apply on every replica."]);
+    }
+    if (sOn && scan.sweep && scan.sweep.lastError) lines.push(["warn", "The last backfill sweep of the cache failed: " + scan.sweep.lastError]);
+    if (sOn && scan.sweep && !scan.sweep.inventory) lines.push(["", "The cache cannot be listed: the full scan covers what the mirror fetches and what clients pull, not what was cached before."]);
+    if (!mOn && !sOn && mirror && scan) {
+      lines.push(["", "Neither full mirroring (upstreams.<name>.fullMirror) nor the full scan (fullScan.enabled, or fullMirror.fullScan) is configured."]);
+    }
+    if (adminIdentity.tenant) {
+      lines.push(["", `Signed in for the tenant ${adminIdentity.tenant}: the figures are the instance's, the malicious verdicts listed are those on artifacts your tenant pulled, and error details are not shown.`]);
+    }
+    for (const [cls, text] of lines) box.appendChild(el("p" + (cls ? ".notice-" + cls : ""), { text }));
+    box.hidden = !lines.length;
+  }
+
+  function mirroringRenderCards(mirror, scan) {
+    const cards = clear($("#mirroring-cards"));
+    const stat = (label, value, sub, cls, meter) => el("div.stat" + (cls ? "." + cls : ""), null,
+      el("div.label", { text: label }),
+      el("div.value", { text: String(value) }),
+      meter != null ? mirroringMeter(meter) : null,
+      sub ? el("div.sub", { text: sub }) : null);
+    if (mirror && mirror.enabled) {
+      const ups = mirror.upstreams || [];
+      const lags = ups.map((u) => mirroringLag(u));
+      const current = lags.filter((l) => l.cls === "ok").length;
+      const behind = lags.filter((l) => l.cls === "warn").length;
+      const enumerating = lags.filter((l) => l.text === "enumerating").length;
+      const unstated = lags.length - current - behind - enumerating;
+      const attention = ups.filter((u) => ["warn", "bad"].includes(MIRROR_STATE_CLASS[u.state])).length;
+      const t = mirror.totals || {};
+      cards.appendChild(stat("Mirrored upstreams", ups.length,
+        [`${current} current`, behind ? `${behind} behind` : "", enumerating ? `${enumerating} enumerating` : "",
+          unstated ? `${unstated} without a stated lag` : "", attention ? `${attention} need attention` : ""].filter(Boolean).join(" · "),
+        ups.some((u) => MIRROR_STATE_CLASS[u.state] === "bad") ? "bad" : (attention || mirror.paused ? "warn" : "ok")));
+      cards.appendChild(stat("Mirrored files", mirroringNum(t.fetched),
+        `${fmtBytes(t.fetchedBytes || 0)} · ${mirroringNum(t.queued)} queued · ${mirroringNum(t.failed)} failed · ${mirroringNum(t.refused)} refused`,
+        t.failed ? "warn" : null));
+    }
+    if (scan && scan.enabled) {
+      const t = scan.totals || {};
+      const scannable = mirroringScannable(t);
+      cards.appendChild(stat("Scanned", scannable ? mirroringPct((t.scanned || 0) / scannable) : "—",
+        `${mirroringNum(t.scanned)} of ${mirroringNum(scannable)} with a current verdict` + (t.notApplicable ? ` · ${mirroringNum(t.notApplicable)} not applicable` : ""),
+        null, scannable ? (t.scanned || 0) / scannable : null));
+      cards.appendChild(stat("Malicious", mirroringNum(t.malicious),
+        `${mirroringNum(t.suspicious)} suspicious · ${mirroringNum(t.quarantined)} quarantined`, t.malicious ? "bad" : (t.suspicious ? "warn" : "ok")));
+      const q = scan.queue || {};
+      cards.appendChild(stat("Scan backlog", mirroringNum(t.pending),
+        `${mirroringNum(q.client)} client · ${mirroringNum(q.mirror)} mirror · ${mirroringNum(q.backfill)} backfill · ${mirroringNum(q.inFlight)} running`,
+        t.errors ? "warn" : null));
+      // The full scan's own spend against its budget: today's in the card's
+      // figure and bar, the month's beside it.
+      const b = scan.budget || {};
+      const day = b.daily || {}, month = b.monthly || {};
+      const share = (w) => (w.ceilingUsd ? (w.spentUsd || 0) / w.ceilingUsd : null);
+      const spentOf = (w, when) => mirroringUSD(w.spentUsd) + " " + when + (w.ceilingUsd ? " of " + mirroringUSD(w.ceilingUsd) : " (no ceiling)");
+      const worst = Math.max(share(day) || 0, share(month) || 0);
+      cards.appendChild(stat("LLM spend today", mirroringUSD(day.spentUsd),
+        (day.ceilingUsd ? "of " + mirroringUSD(day.ceilingUsd) : "no daily ceiling") + " · " + spentOf(month, "this month") +
+          (b.exhausted ? " · spent" : ""),
+        b.exhausted ? "bad" : (worst >= 0.8 ? "warn" : null), share(day)));
+      if (adminIdentity.tenant && scan.tenants && scan.tenants[adminIdentity.tenant]) {
+        const f = scan.tenants[adminIdentity.tenant];
+        cards.appendChild(stat("Your tenant's pulls", `${mirroringNum(f.scanned)} / ${mirroringNum(mirroringScannable(f))}`,
+          `scanned · ${mirroringNum(f.malicious)} malicious · ${mirroringNum(f.pending)} waiting`, f.malicious ? "bad" : null));
+      }
+    }
+  }
+
+  // mirroringMeter is a share as a bar. The figures beside it say the same in
+  // words, so the bar is hidden from assistive technology.
+  function mirroringMeter(share) {
+    const pct = Math.max(0, Math.min(100, Math.round((share || 0) * 100)));
+    const bar = el("span.mirroring-meter", { "aria-hidden": "true" }, el("i"));
+    bar.firstChild.style.width = pct + "%";
+    if (share >= 1) bar.classList.add("full");
+    return bar;
+  }
+
+  function mirroringRenderTable(mirror, scan, rows) {
+    const body = clear($("#mirroring-body"));
+    const foot = clear($("#mirroring-foot"));
+    if (!rows.length) {
+      body.appendChild(el("tr", null, el("td", { colspan: 14 }, el("div.empty", {
+        text: (mirror && scan) ? "No upstream is mirrored or scanned in full. See docs/full-mirroring.md to enable either." : "The status could not be read.",
+      }))));
+      return;
+    }
+    for (const r of rows) body.appendChild(mirroringRow(r, scan));
+    // Totals.
+    const mt = (mirror && mirror.totals) || {};
+    const st = (scan && scan.totals) || {};
+    const mOn = mirror && mirror.enabled, sOn = scan && scan.enabled;
+    const dash = () => el("td.num", { text: "—" });
+    foot.appendChild(el("tr", null,
+      el("th", { scope: "row" }, "Total", el("span.visually-hidden", { text: " of every upstream" })),
+      el("td"), el("td"), el("td"), el("td"),
+      mOn ? el("td.num", { text: mirroringNum(mt.queued) }) : dash(),
+      mOn ? el("td.num", { text: mirroringNum(mt.fetched) }) : dash(),
+      mOn ? el("td.num", { text: mirroringNum(mt.failed) }) : dash(),
+      mOn ? el("td.num", { text: mirroringNum(mt.refused) }) : dash(),
+      sOn ? mirroringScannedCell(st) : el("td", { text: "—" }),
+      sOn ? el("td.num", { text: mirroringNum(st.malicious) }) : dash(),
+      sOn ? el("td.num", { text: mirroringNum(st.suspicious) }) : dash(),
+      sOn ? el("td.num", { text: mirroringNum(st.pending) }) : dash(),
+      sOn ? el("td.num", null, el("span", { text: mirroringUSD((scan.budget || {}).totalSpentUsd) }),
+        el("span.cell-note", { text: "since the start" })) : dash()));
+  }
+
+  function mirroringScannedCell(f) {
+    const scannable = mirroringScannable(f);
+    return el("td", null,
+      el("span.nowrap", { text: `${mirroringNum(f.scanned)} / ${mirroringNum(scannable)}` }),
+      scannable ? mirroringMeter((f.scanned || 0) / scannable) : null,
+      f.notApplicable ? el("span.cell-note", { text: `${mirroringNum(f.notApplicable)} not applicable` }) : null);
+  }
+
+  function mirroringRow(r, scan) {
+    const m = r.mirror, s = r.scan;
+    const open = r.name === mirroringState.upstream;
+    const name = el("button.cell-link", {
+      type: "button", text: r.name, "data-focus": "row:" + r.name,
+      "aria-expanded": open ? "true" : "false", "aria-controls": "mirroring-detail",
+      title: "Details of " + r.name,
+      // A disclosure: activating the open panel's name closes it.
+      onclick: () => (open && !$("#mirroring-detail").hidden ? mirroringClose() : mirroringOpen(r.name, true)),
+    });
+    const tier = m && m.tier ? MIRROR_TIERS[m.tier] : null;
+    const ms = mirroringMirrorState(m), ss = mirroringScanState(scan, s);
+    const lag = mirroringLag(m);
+    const num = (v, cls) => el("td.num", null, el("span" + (cls ? "." + cls : ""), { text: mirroringNum(v) }));
+    return el("tr", open ? { "aria-current": "true" } : null,
+      el("th", { scope: "row" }, name, m && m.type && m.type !== r.name ? el("span.cell-note", { text: m.type }) : null),
+      el("td", null,
+        el("span.mirroring-state", null, el("span.visually-hidden", { text: "Mirror: " }), mirroringPill(ms.text, ms.cls, m && m.detail ? m.detail : null)),
+        el("span.mirroring-state", null, el("span.visually-hidden", { text: "Scan: " }), mirroringPill(ss.text, ss.cls, ss.title))),
+      el("td", null, tier ? el("span.nowrap", { text: m.tier + " · " + tier[0], title: tier[1] }) : el("span.muted", { text: m ? (m.tier || "—") : "—" })),
+      el("td", null,
+        lag.parts.map((t) => el("span.mirroring-lag" + (lag.cls === "warn" ? ".warn" : ""), { text: t })),
+        lag.cls === "warn" ? el("span.visually-hidden", { text: " behind" }) : null,
+        m && m.cursor ? el("span.cell-note.mono.truncate", { title: "Cursor: " + m.cursor, text: m.cursor }) : null),
+      el("td", null, m && m.lastPoll ? mirroringWhen(m.lastPoll) : el("span.muted", { text: m ? "never" : "—" }),
+        m && m.nextPoll ? el("span.cell-note", { text: "next " + fmtUntil(m.nextPoll) }) : null),
+      m ? num(m.queued) : el("td.num.muted", { text: "—" }),
+      m ? num(m.counters && m.counters.fetched) : el("td.num.muted", { text: "—" }),
+      m ? num(m.counters && m.counters.failed, m.counters && m.counters.failed ? "warn" : "") : el("td.num.muted", { text: "—" }),
+      m ? num(m.counters && m.counters.refused) : el("td.num.muted", { text: "—" }),
+      s ? mirroringScannedCell(s) : el("td.muted", { text: "—" }),
+      s ? num(s.malicious, s.malicious ? "bad" : "") : el("td.num.muted", { text: "—" }),
+      s ? num(s.suspicious, s.suspicious ? "warn" : "") : el("td.num.muted", { text: "—" }),
+      s ? el("td.num", null, el("span", { text: mirroringNum(s.pending) }),
+        s.oldestUnscanned ? el("span.cell-note.nowrap", { text: "oldest " + mirroringDuration(s.oldestUnscanned.ageSeconds), title: "The artifact that has waited longest for a verdict has been cached this long" }) : null) : el("td.num.muted", { text: "—" }),
+      s ? el("td.num", { text: mirroringUSD(s.spentUsd) }) : el("td.num.muted", { text: "—" }));
+  }
+
+  // mirroringOpen opens an upstream's detail panel; focus moves to its heading
+  // when the operator opened it.
+  function mirroringOpen(name, focus) {
+    mirroringState.upstream = name;
+    const r = mirroringRows(mirroringState.mirror, mirroringState.scan).find((x) => x.name === name);
+    if (!r) return;
+    mirroringRenderTable(mirroringState.mirror, mirroringState.scan, mirroringRows(mirroringState.mirror, mirroringState.scan));
+    mirroringRenderDetail(r);
+    syncHash();
+    if (focus) {
+      const h = $("#mirroring-detail-title");
+      h.focus();
+      $("#mirroring-detail").scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function mirroringClose() {
+    const name = mirroringState.upstream;
+    mirroringState.upstream = "";
+    $("#mirroring-detail").hidden = true;
+    mirroringRenderTable(mirroringState.mirror, mirroringState.scan, mirroringRows(mirroringState.mirror, mirroringState.scan));
+    syncHash();
+    mirroringRefocus("row:" + name);
+  }
+
+  function mirroringRenderDetail(r) {
+    const panel = $("#mirroring-detail");
+    const m = r.mirror, s = r.scan;
+    const { mirror, scan } = mirroringState;
+    $("#mirroring-detail-title").textContent = r.name + (m && m.type && m.type !== r.name ? " (" + m.type + ")" : "");
+    const body = clear($("#mirroring-detail-body"));
+
+    const actions = mirroringDetailActions(r);
+    if (actions) body.appendChild(actions);
+
+    const grid = el("div.mirroring-detail-grid");
+    grid.appendChild(mirroringMirrorFacts(m, mirror));
+    grid.appendChild(mirroringScanFacts(s, scan));
+    body.appendChild(grid);
+
+    body.appendChild(mirroringMaliciousTable(r));
+    body.appendChild(mirroringErrorsTable(m));
+    panel.hidden = false;
+  }
+
+  function mirroringDetailActions(r) {
+    const m = r.mirror, s = r.scan;
+    const operate = mirroringMayOperate(), administer = mirroringMayAdminister();
+    if (!operate && !administer) return null;
+    const box = el("div.mirroring-actions", { role: "group", "aria-label": "Controls of " + r.name });
+    const btn = (label, key, fn, cls) => el("button.btn.btn-sm" + (cls ? "." + cls : ""), { type: "button", text: label, "data-focus": key, onclick: fn });
+    if (m && operate) {
+      box.appendChild(m.paused
+        ? btn("Resume mirroring", "act:mirror-toggle", () => mirroringResume("fullmirror", r.name))
+        : btn("Pause mirroring", "act:mirror-toggle", () => mirroringPause("fullmirror", r.name)));
+    }
+    if (m && administer) {
+      box.appendChild(btn("Resync…", "act:resync", () => mirroringResync(r.name), "btn-danger"));
+      if (m.resyncPending) box.appendChild(el("span.muted", { text: "(a resync is requested)" }));
+    }
+    if (s && operate) {
+      box.appendChild(s.paused
+        ? btn("Resume scanning", "act:scan-toggle", () => mirroringResume("fullscan", r.name))
+        : btn("Pause scanning", "act:scan-toggle", () => mirroringPause("fullscan", r.name)));
+    }
+    if (s && administer) {
+      const sel = el("select#mirroring-rescan-filter.input", { "data-focus": "act:rescan-filter" });
+      for (const [v, label] of MIRRORING_RESCAN_FILTERS) {
+        sel.appendChild(el("option", { value: v, text: label, selected: v === mirroringState.rescanFilter ? true : null }));
+      }
+      sel.addEventListener("change", () => { mirroringState.rescanFilter = sel.value; });
+      box.appendChild(el("span.mirroring-rescan", null,
+        el("label", { for: "mirroring-rescan-filter", text: "Re-scan" }), sel,
+        btn("Re-scan…", "act:rescan", () => mirroringRescan(r.name, sel.value, ""), "btn-danger")));
+    }
+    return box.firstChild ? box : null;
+  }
+
+  function mirroringMirrorFacts(u, mirror) {
+    const box = el("div.mirroring-facts", null, el("h4", { text: "Full mirror" }));
+    if (!u) {
+      box.appendChild(el("p.muted", { text: mirror && mirror.enabled
+        ? "This upstream is not mirrored (upstreams.<name>.fullMirror.enabled)."
+        : "Full mirroring is not configured on this proxy." }));
+      return box;
+    }
+    const c = u.counters || {};
+    const ms = mirroringMirrorState(u);
+    const lag = mirroringLag(u);
+    const tier = MIRROR_TIERS[u.tier];
+    const p = u.policy || {};
+    const skipped = Object.entries(c.skipped || {}).map(([k, v]) => `${mirroringNum(v)} ${k}`).join(" · ");
+    const refusedBy = Object.entries(c.refusedBy || {}).map(([k, v]) => `${k} ${mirroringNum(v)}`).join(" · ");
+    const b = u.budget || {};
+    box.appendChild(kv([
+      ["State", el("span", null, mirroringPill(ms.text, ms.cls), u.detail ? el("span.cell-note", { text: u.detail }) : null)],
+      ["Feed", tier ? `tier ${u.tier}: ${tier[1]}` : (u.tier || "")],
+      ["Phase", u.phase === "follow"
+        ? "following its changes" + (u.bootstrapFinished ? " (enumerated " + fmtTime(u.bootstrapFinished) + ")" : "")
+        : "enumerating the registry" + (u.bootstrapStarted ? " (since " + fmtTime(u.bootstrapStarted) + ")" : "")],
+      ["Lag", lag.text],
+      ["Feed head", u.feedHead ? el("span.mono.wrap", { text: u.feedHead }) : ""],
+      ["Cursor", u.cursor ? el("span.mono.wrap", { text: u.cursor }) : ""],
+      ["Last poll", u.lastPoll ? mirroringWhen(u.lastPoll) : "never"],
+      ["Last change", u.lastChange ? mirroringWhen(u.lastChange) : ""],
+      ["Last batch done", u.lastCommit ? mirroringWhen(u.lastCommit) : ""],
+      ["Next poll", u.nextPoll ? mirroringWhen(u.nextPoll, true) : ""],
+      ["Backing off until", u.backoffUntil ? mirroringWhen(u.backoffUntil, true) : ""],
+      ["Batch", u.batch ? `#${u.batch} · ${mirroringNum(u.queued)} queued · ${mirroringNum(u.inFlight)} in flight` : ""],
+      ["Deferred", u.deferred ? `${mirroringNum(u.deferred)} files` + (u.nextDeferred ? ", next asked again " + fmtUntil(u.nextDeferred) : "") : ""],
+      ["Byte budget", el("span", null, el("span", { text: `${fmtBytes(b.used || 0)} of ${fmtBytes(b.limit || 0)}` + (b.exhausted ? " — spent" : "") }),
+        b.limit ? mirroringMeter((b.used || 0) / b.limit) : null)],
+      ["Packages", `${mirroringNum(c.packages)} changes worked through` + [c.excluded ? `${mirroringNum(c.excluded)} excluded` : "", c.deleted ? `${mirroringNum(c.deleted)} deleted` : "",
+        c.packageErrors ? `${mirroringNum(c.packageErrors)} could not be listed` : ""].filter(Boolean).map((x) => " · " + x).join("")],
+      ["Files fetched", `${mirroringNum(c.fetched)} (${fmtBytes(c.fetchedBytes || 0)})`],
+      ["Refused by a gate", c.refused ? `${mirroringNum(c.refused)}` + (refusedBy ? ` (${refusedBy})` : "") : "0"],
+      ["Failed", mirroringNum(c.failed)],
+      ["Skipped", skipped],
+      ["Feed polls", `${mirroringNum(c.polls)}` + (c.pollErrors ? ` · ${mirroringNum(c.pollErrors)} failed` : "") + (c.retries ? ` · ${mirroringNum(c.retries)} requests retried` : "")],
+      ["Versions", p.versions || ""],
+      ["Include", (p.include || []).length ? el("span.mono.wrap", { text: p.include.join("  ") }) : ""],
+      ["Exclude", (p.exclude || []).length ? el("span.mono.wrap", { text: p.exclude.join("  ") }) : ""],
+      ["Pace", p.concurrency ? `${p.concurrency} at a time · ${p.requestsPerSecond} requests/s · polls every ${p.pollInterval}` + (p.window && p.window !== "always" ? ` · window ${p.window}` : "") : ""],
+      ["Largest file", p.maxArtifactBytes ? fmtBytes(p.maxArtifactBytes) : ""],
+      ["Paused", u.paused ? "yes" + mirroringPausedBy(u) : ""],
+      ["Resync", u.resyncPending ? "requested: the registry is enumerated again at the next poll" : ""],
+    ]));
+    return box;
+  }
+
+  function mirroringScanFacts(u, scan) {
+    const box = el("div.mirroring-facts", null, el("h4", { text: "Full scan" }));
+    if (!u) {
+      box.appendChild(el("p.muted", { text: scan && scan.enabled
+        ? "The full scan does not cover this upstream (fullScan.enabled, or fullMirror.fullScan)."
+        : "The full scan is not configured on this proxy." }));
+      return box;
+    }
+    const c = u.counters || {};
+    const ss = mirroringScanState(scan, u);
+    const scannable = mirroringScannable(u);
+    const verdicts = Object.entries(c.verdicts || {}).map(([k, v]) => `${k} ${mirroringNum(v)}`).join(" · ");
+    const unscanned = Object.entries(c.unscanned || {}).map(([k, v]) => `${k} ${mirroringNum(v)}`).join(" · ");
+    const gateRefusals = Object.entries(c.gateRefusals || {}).map(([k, v]) => `${k} ${mirroringNum(v)}`).join(" · ");
+    const rescans = Object.entries(c.rescans || {}).map(([k, v]) => `${mirroringNum(v)} (${k})`).join(" · ");
+    const o = u.oldestUnscanned;
+    box.appendChild(kv([
+      ["State", mirroringPill(ss.text, ss.cls)],
+      ["Scanned", el("span", null, el("span", { text: `${mirroringNum(u.scanned)} of ${mirroringNum(scannable)} artifacts the gate examines` }),
+        scannable ? mirroringMeter((u.scanned || 0) / scannable) : null)],
+      ["Verdicts", `${mirroringNum(u.benign)} benign · ${mirroringNum(u.suspicious)} suspicious · ${mirroringNum(u.malicious)} malicious`],
+      ["Quarantined", u.quarantined ? `${mirroringNum(u.quarantined)} removed from the cache` : ""],
+      ["Refused to clients", u.refusedByAction ? `${mirroringNum(u.refusedByAction)} kept but refused by the configured action` : ""],
+      ["Without a verdict", [u.refused ? `${mirroringNum(u.refused)} refused by the model` : "", u.unscannable ? `${mirroringNum(u.unscannable)} unscannable` : "",
+        u.errors ? `${mirroringNum(u.errors)} given up on` : ""].filter(Boolean).join(" · ")],
+      ["Not applicable", u.notApplicable ? `${mirroringNum(u.notApplicable)} (metadata, indexes, image blobs)` : ""],
+      ["Backlog", `${mirroringNum(u.pending)} waiting`],
+      ["Oldest unscanned", o ? el("span", null, el("span", { text: mirroringDuration(o.ageSeconds) + " in the cache without a verdict" + (o.state === "error" ? " (given up on)" : "") }),
+        o.path ? el("span.cell-note.mono.wrap", { text: o.path }) : null) : ""],
+      ["Other gates", (u.gatesPassed || u.gateRefused) ? `${mirroringNum(u.gatesPassed)} passed every gate · ${mirroringNum(u.gateRefused)} refused by one` + (gateRefusals ? ` (${gateRefusals})` : "") : ""],
+      ["Model calls", `${mirroringNum(c.scans)} · ${mirroringNum(c.cachedVerdicts)} answered from the verdict cache`],
+      ["Readings", verdicts],
+      ["Unscanned readings", unscanned],
+      ["Noted", `${mirroringNum(c.clientPulls)} client pulls · ${mirroringNum(c.mirrored)} mirror fetches`],
+      ["Re-scans", rescans],
+      ["Retries", c.retries || c.errors ? `${mirroringNum(c.retries)} retried · ${mirroringNum(c.errors)} failed attempts` : ""],
+      ["Untracked", u.untracked ? `${mirroringNum(u.untracked)} cached objects without fill metadata` : ""],
+      ["LLM spend", mirroringUSD(u.spentUsd)],
+      ["Paused", u.paused ? "yes" + mirroringPausedBy(u) : ""],
+    ]));
+    return box;
+  }
+
+  // The coordinate a verdict is filed under, as the dossier is asked about it.
+  function mirroringCoordinate(f) {
+    return f.name ? f.name + (f.version ? "@" + f.version : "") : "";
+  }
+
+  function mirroringMaliciousTable(r) {
+    const s = r.scan;
+    const box = el("div.mirroring-list", null, el("h4", { text: "Recent malicious verdicts" }));
+    const list = (s && s.recentMalicious) || [];
+    if (!s) { box.appendChild(el("p.muted", { text: "Not covered by the full scan." })); return box; }
+    if (!list.length) {
+      box.appendChild(el("p.muted", { text: adminIdentity.tenant
+        ? "None on artifacts your tenant pulled."
+        : "None: the gate holds no malicious verdict on this upstream's tracked artifacts." }));
+      return box;
+    }
+    const showTenants = !adminIdentity.tenant;
+    const administer = mirroringMayAdminister();
+    const table = el("table.mirroring-verdicts", null,
+      el("caption.visually-hidden", { text: `The ${list.length} most recent malicious verdicts on ${r.name}, newest first` }),
+      el("thead", null, el("tr", null,
+        el("th", { scope: "col", text: "Judged" }),
+        el("th", { scope: "col", text: "Package" }),
+        el("th", { scope: "col", text: "File" }),
+        el("th", { scope: "col", text: "Action" }),
+        showTenants ? el("th", { scope: "col", text: "Pulled by" }) : null,
+        el("th", { scope: "col" }, el("span.visually-hidden", { text: "Links and controls" })))));
+    const tbody = el("tbody");
+    for (const f of list) {
+      const coord = mirroringCoordinate(f);
+      const links = el("span.button-group");
+      if (coord) {
+        const p = new URLSearchParams();
+        if (f.ecosystem) p.set("ecosystem", f.ecosystem);
+        p.set("coordinate", coord);
+        links.appendChild(el("a.btn.btn-sm", { href: "#dossier?" + p.toString(), "data-focus": "dossier:" + f.path, text: "Dossier",
+          "aria-label": "Open the security dossier of " + coord }));
+      }
+      if (administer) {
+        links.appendChild(el("button.btn.btn-sm", { type: "button", text: "Re-scan…", "data-focus": "rescan:" + f.path,
+          "aria-label": "Re-scan " + (coord || f.path), onclick: () => mirroringRescan(r.name, "", f.path) }));
+      }
+      const action = f.quarantined ? mirroringPill("quarantined", "bad") : (f.action ? mirroringPill(f.action, "bad") : mirroringPill("served", "warn", "The configured action lets clients have it"));
+      tbody.appendChild(el("tr", null,
+        el("td", null, mirroringWhen(f.scanned)),
+        el("td", null, el("span.mono.wrap", { text: coord || "—" }), f.ecosystem ? el("span.cell-note", { text: f.ecosystem }) : null),
+        el("td", null, el("span.mono.truncate", { title: f.path + (f.digest ? "\n" + f.digest : ""), text: f.path })),
+        el("td", null, action),
+        showTenants ? el("td", null, el("span", { text: (f.tenants || []).join(", ") || "—" })) : null,
+        el("td", null, links)));
+    }
+    table.appendChild(tbody);
+    box.appendChild(el("div.table-wrap", null, table));
+    return box;
+  }
+
+  function mirroringErrorsTable(m) {
+    const box = el("div.mirroring-list", null, el("h4", { text: "Recent mirror errors" }));
+    if (!m) { box.appendChild(el("p.muted", { text: "Not mirrored." })); return box; }
+    const list = m.recentErrors || [];
+    if (!list.length) {
+      box.appendChild(el("p.muted", { text: adminIdentity.tenant ? "Error details are not shown to a tenant-bound identity." : "None recorded." }));
+      return box;
+    }
+    const table = el("table.mirroring-errors", null,
+      el("caption.visually-hidden", { text: `The ${list.length} most recent errors of the full mirror of ${m.upstream}` }),
+      el("thead", null, el("tr", null,
+        el("th", { scope: "col", text: "When" }),
+        el("th", { scope: "col", text: "Package" }),
+        el("th", { scope: "col", text: "File" }),
+        el("th", { scope: "col", text: "Error" }))));
+    const tbody = el("tbody");
+    for (const e of list.slice().reverse()) {
+      tbody.appendChild(el("tr", null,
+        el("td", null, mirroringWhen(e.time)),
+        el("td", null, el("span.mono.wrap", { text: e.package || "—" })),
+        el("td", null, e.path ? el("span.mono.truncate", { title: e.path, text: e.path }) : el("span.muted", { text: "—" })),
+        el("td", null, el("span.wrap", { text: e.message || "" }))));
+    }
+    table.appendChild(tbody);
+    box.appendChild(el("div.table-wrap", null, table));
+    return box;
+  }
+
+  // --- controls ---------------------------------------------------------------
+  // Every control goes through api.request, which runs the passkey step-up
+  // when the server asks for one, and is recorded in the audit log there.
+
+  function mirroringWhat(kind, upstream) {
+    return (kind === "fullmirror" ? "the full mirror" : "the full scan") + (upstream ? " of " + upstream : "");
+  }
+
+  async function mirroringControl(path, body, done) {
+    try {
+      await api.post(path, body);
+    } catch (e) {
+      toast(e.message, true);
+      mirroringAnnounce("Failed: " + e.message);
+      return false;
+    }
+    toast(done);
+    await mirroringLoad({ quiet: true });
+    mirroringAnnounce(done + ".");
+    return true;
+  }
+
+  function mirroringPause(kind, upstream) {
+    const what = mirroringWhat(kind, upstream);
+    const reason = window.prompt(`Pause ${what}? Give a reason, recorded in the audit log (optional). Cancel pauses nothing.`, "");
+    if (reason === null) return;
+    mirroringControl(kind + "/pause", { upstream, reason: reason.trim().slice(0, 500) }, "Paused " + what);
+  }
+
+  function mirroringResume(kind, upstream) {
+    mirroringControl(kind + "/resume", { upstream }, "Resumed " + mirroringWhat(kind, upstream));
+  }
+
+  function mirroringResync(upstream) {
+    if (!window.confirm(`Resync ${upstream}? The full mirror enumerates the whole registry again from the start: a burst of requests to the upstream, and every file not yet cached is fetched within the byte budget.`)) return;
+    mirroringControl("fullmirror/resync", { upstream }, "Resync of " + upstream + " requested");
+  }
+
+  function mirroringRescan(upstream, filter, path) {
+    const what = path ? path : (MIRRORING_RESCAN_FILTERS.find(([v]) => v === filter) || [filter, filter, `the artifacts (${filter})`])[2];
+    if (!window.confirm(`Re-scan ${what} of ${upstream}? ${path ? "It is" : "Each is"} put before the model again, paid from the full scan's budget.`)) return;
+    const body = path ? { upstream, path } : { upstream, filter };
+    mirroringControl("fullscan/rescan", body, "Re-scan of " + upstream + " requested");
+  }
+
+  // --- auto-refresh -------------------------------------------------------------
+
+  function mirroringStopAuto() {
+    if (mirroringState.timer) clearInterval(mirroringState.timer);
+    mirroringState.timer = null;
+  }
+
+  function mirroringStartAuto() {
+    mirroringStopAuto();
+    if (!mirroringState.auto) return;
+    mirroringState.timer = setInterval(() => {
+      // Only while the tab is what the operator is looking at.
+      if (currentView !== "mirroring" || document.hidden) return;
+      mirroringLoad({ auto: true }).catch(() => {});
+    }, MIRRORING_AUTO_MS);
+  }
+
+  function mirroringToggleAuto() {
+    mirroringState.auto = !mirroringState.auto;
+    $("#mirroring-auto").setAttribute("aria-pressed", mirroringState.auto ? "true" : "false");
+    if (mirroringState.auto) mirroringStartAuto(); else mirroringStopAuto();
+    mirroringAnnounce(mirroringState.auto ? "Automatic refresh on: every 15 seconds." : "Automatic refresh off.");
+  }
+
+  views.mirroring = async function () {
+    if (!mirroringState.wired) {
+      mirroringState.wired = true;
+      $("#mirroring-refresh").addEventListener("click", () => mirroringLoad().catch((e) => toast(e.message, true)));
+      $("#mirroring-auto").addEventListener("click", mirroringToggleAuto);
+      $("#mirroring-detail-close").addEventListener("click", mirroringClose);
+      $("#mirroring-detail").addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); mirroringClose(); }
+      });
+    }
+    await mirroringLoad();
+    if (mirroringState.focusDetail) {
+      // Opened from a link that names an upstream: its panel has the focus.
+      mirroringState.focusDetail = false;
+      if (currentView === "mirroring" && !$("#mirroring-detail").hidden) $("#mirroring-detail-title").focus();
+    }
+    mirroringStartAuto();
+  };
+
+  // mirroringTile is the summary tile the SOC dashboard shows (Task 193), or
+  // null when neither the full mirror nor the full scan runs. A tenant-bound
+  // identity is shown the full scan's figures of its own tenant's pulls.
+  function mirroringTile(mirror, scan, tenant) {
+    const mOn = mirror && mirror.enabled, sOn = scan && scan.enabled;
+    if (!mOn && !sOn) return null;
+    const parts = [];
+    let value = "—", cls = "ok", label = "Full mirror & scan";
+    if (sOn) {
+      const f = tenant ? ((scan.tenants || {})[tenant] || {}) : (scan.totals || {});
+      const scannable = mirroringScannable(f);
+      value = scannable ? mirroringPct((f.scanned || 0) / scannable) : "—";
+      parts.push(`${mirroringNum(f.scanned)} of ${mirroringNum(scannable)} scanned`, `${mirroringNum(f.malicious)} malicious`, `${mirroringNum(f.pending)} waiting`);
+      if (tenant) label = "Full scan · your tenant";
+      if (f.malicious) cls = "bad";
+      else if (scan.paused || (scan.budget && scan.budget.exhausted) || scan.lockdown) cls = "warn";
+    }
+    if (mOn) {
+      const ups = mirror.upstreams || [];
+      const behind = ups.filter((u) => mirroringLag(u).cls === "warn").length;
+      parts.push(`${ups.length} mirrored` + (behind ? ` (${behind} behind)` : ""));
+      if (!sOn) value = String(ups.length);
+      if (cls === "ok" && (mirror.paused || ups.some((u) => ["warn", "bad"].includes(MIRROR_STATE_CLASS[u.state])))) cls = "warn";
+    }
+    return el("div#secops-mirroring.stat." + cls, null,
+      el("div.label", { text: label }),
+      el("div.value", { text: value }),
+      el("div.sub", null, el("span", { text: parts.join(" · ") + " · " }),
+        el("a", { href: "#mirroring", text: "Mirroring" })));
+  }
+
+  // secopsMirroringTile adds the tile to the SOC cards (after the others, which
+  // renderSecopsAggregates has just rebuilt): the last one at once, so that
+  // the periodic re-render does not flicker, then the one the statuses read
+  // now give. A newer render supersedes an older one's reads.
+  const secopsMirroring = { gen: 0, last: null };
+  async function secopsMirroringTile() {
+    const gen = ++secopsMirroring.gen;
+    const cards = $("#secops-cards");
+    if (secopsMirroring.last && !secopsMirroring.last.isConnected) cards.appendChild(secopsMirroring.last);
+    const [mirror, scan] = await Promise.all([
+      api.get("fullmirror/status").catch(() => null),
+      api.get("fullscan/status").catch(() => null),
+    ]);
+    await loadAdminIdentity();
+    if (gen !== secopsMirroring.gen) return;
+    const tile = mirroringTile(mirror, scan, adminIdentity.tenant);
+    const old = $("#secops-mirroring");
+    if (old) old.remove();
+    secopsMirroring.last = tile;
+    if (tile) cards.appendChild(tile);
+  }
+
   // --- Security Operations (SOC) -------------------------------------------
   // Maps an owning-gate key (from the read-model) to the dashboard tab that owns
   // its detail view, for feed drill-down. Gates without a dedicated tab are left
@@ -3665,6 +4628,9 @@
     meta.textContent = total === 0
       ? `No notable verdicts in the last ${mins} min.` + (disabled.length ? ` Disabled: ${disabled.join(", ")}.` : "")
       : `${total} verdict(s) in ${mins} min` + (disabled.length ? ` · disabled: ${disabled.join(", ")}` : "");
+
+    // The full mirror and full scan's tile (Task 193), when either runs.
+    secopsMirroringTile();
   }
 
   function bandValue(bands, key) {
@@ -4078,9 +5044,9 @@
     const signout = $("#signout");
     if (!chip) return;
     try {
-      const res = await fetch("auth/userinfo", { cache: "no-store", headers: api.headers() });
-      if (!res.ok) return;
-      const info = await res.json();
+      // The same lookup decides which controls the views offer.
+      const info = (await loadAdminIdentity(true)).info;
+      if (!info) return;
       if (info.authenticated) {
         const roles = (info.roles || []).join(", ") || "no roles";
         chip.textContent = info.subject + " · " + roles;

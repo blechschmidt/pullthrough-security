@@ -147,16 +147,18 @@ func (s *Service) sweep(ctx context.Context, inv Inventory) {
 		}
 		if ft := e.Metadata[cache.MetaFillTenant]; it.Tenant != ft {
 			// The tenant whose request filled the entry is who the scan runs
-			// as (with cache namespacing: whose namespace holds it).
-			it.Tenant = ft
+			// as (with cache namespacing: whose namespace holds it). The one
+			// it replaces stays among those who pulled the bytes.
+			it.setFillTenant(ft)
 			s.putLocked(it)
 		}
 		switch {
 		case digest != "" && it.Digest != "" && digest != it.Digest:
 			// Other bytes under the key: judge them, and put them through
-			// the gates.
+			// the gates. Who pulled the old bytes did not pull these.
 			it.Digest, it.Size, it.Evicted = digest, e.Size, false
 			it.Gates, it.Gate = "", ""
+			it.Tenants = nil
 			again = append(again, it)
 		case it.Evicted:
 			// Evicted by the ladder, cached again since (a client's pull was

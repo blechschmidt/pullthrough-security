@@ -56,7 +56,11 @@ every 15 seconds so they stay current without a manual refresh.
    `live` once the event stream connects.
 2. Scan the KPI cards. A non-zero **Blocks** count, a growing **Approval backlog**,
    or any **Active anomalies** are the signals to act on; cards turn red/amber
-   when they cross those thresholds.
+   when they cross those thresholds. When the [full mirror or the full
+   scan](full-mirroring.md) runs, a **Full mirror & scan** card shows the share of
+   the cached artifacts with a current verdict, the malicious verdicts, the
+   backlog and the mirrored upstreams, and links to the **Mirroring** tab (for
+   an identity bound to a tenant: that tenant's own figures).
 3. Watch the **live verdict feed** for what is happening now. Click a gate chip in
    a row (or a gate bar) to jump straight to that subsystem's tab —
    e.g. a `malfeed` block, an `anomaly` soft-block, or an `approvals` request — to

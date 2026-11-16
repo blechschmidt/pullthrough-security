@@ -222,7 +222,9 @@ gate, failed, skipped by reason, deferred; retries), the budget spent, and the r
 | `POST /admin/api/fullmirror/resync` `{"upstream": "npm"}` | administer | yes |
 
 The full mirror is instance-wide: a tenant-bound identity may read its status but not steer
-it. Pauses are persisted (they hold across restarts and on every replica); a resync forgets
+it, and reads it without what is not its business — the state directory, the mirror's own
+tenant, operators' names and pause reasons, cursors and feed heads, name patterns, and the
+words of the follower's detail and of the recent errors. Pauses are persisted (they hold across restarts and on every replica); a resync forgets
 the upstream's cursor and enumerates the registry again — the cache spares the refetch, the
 counters and the budget spent are kept. With `webauthn.enforce` the three controls need a
 fresh [passkey step-up](webauthn-stepup.md).
@@ -681,7 +683,26 @@ ptctl fullscan rescan [--upstream npm] [--filter flagged] [--path /left-pad/-/le
 - whether every gate admitted them (`gatesPassed`) or another gate refused them in a gate pass
   (`gateRefused`);
 - the **oldest unscanned** artifact (its path, how long it has been cached), the untracked
-  objects, and what its scans **spent**.
+  objects, and what its scans **spent**;
+- the **recent malicious verdicts** (`recentMalicious`, the ten newest): each artifact's path,
+  the coordinate the gate filed the verdict under — ecosystem, name and version, what the
+  [security dossier](admin-ui-walkthrough.md#dossier--the-per-coordinate-360-view) is asked
+  about — its digest, when it was judged, what the action ladder did (`quarantined` when it
+  removed the object from the cache) and the tenants known to have pulled it.
+
+Overall it adds the figures **per tenant** (`tenants`): those of the artifacts each tenant
+pulled, an artifact several tenants pulled counting for each of them. The full scan records, for
+each tracked artifact, the tenant whose pull put it in the cache and the other tenants whose
+pulls (or the mirror's fetches) it noted later — up to 64 of them, the gate's own bound on the
+tenants a verdict is shown to; a tenant beyond it is left out of its scoped views, as the gate
+leaves it out. A replica that does not lead passes on, once per artifact and tenant, who pulled
+an artifact it served. When other bytes appear under an artifact's key, who pulled the old ones
+is forgotten. The figures per tenant are recounted at most every 15 seconds.
+
+A tenant-bound identity reads the instance's figures and its own tenant's, and the malicious
+verdicts on artifacts its tenant pulled — not other tenants' figures, the verdicts on their pulls,
+who else pulled an artifact, the oldest unscanned artifact's path, operators' names and reasons, or
+error texts.
 
 Overall it shows the state (`scanning`, `idle`, `waiting`, `paused`, `budget-exhausted`,
 `lockdown`, `standby`, `starting`, `error`), the queue per class, the spend per window against its
@@ -723,6 +744,22 @@ scan's readings are `policy_decision` records (`llmpkgscan:<code>`, `source: ful
   that cannot be read is set aside and the sweep starts over (audit `state-reset`).
 - **Backup.** The directory is part of the `full-mirror` backup source (volatile: each file is
   copied once). A restored proxy resumes the queue where the backup left it.
+
+## In the console
+
+The admin console's **Mirroring** tab reads both statuses: per upstream the feed tier, the
+mirror's and the scan's state, the lag behind the feed's head and the cursor, the last poll, the
+files queued, fetched, failed and refused, the artifacts scanned against those the gate
+examines, the malicious and suspicious verdicts, the backlog and the LLM spend — and the
+full scan's spend of the day and of the month against its budget. An upstream's detail panel
+lists its recent errors and malicious verdicts, each verdict linked to the dossier of its
+coordinate. The pause, resume, resync and re-scan controls are offered only to the identities
+the admin API lets use them (above), and run the passkey step-up where it is enforced. The
+Security Ops dashboard has a summary tile, and the [self-service portal](self-service-portal.md)
+shows a developer the full scan of their own tenant's pulls. A walkthrough with screenshots is in
+[admin-ui-walkthrough.md](admin-ui-walkthrough.md#mirroring--the-full-mirror-and-the-full-scan).
+
+![Mirroring tab](images/admin-ui/mirroring.png)
 
 ## Private and self-hosted upstreams
 

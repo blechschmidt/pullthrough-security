@@ -320,3 +320,29 @@ func patternStrings(res []*regexp.Regexp) []string {
 	}
 	return out
 }
+
+// Redacted returns the status a tenant-bound identity is shown: the state of
+// every mirrored upstream and its figures, without the state directory, the
+// mirror's own tenant, the operators' names and reasons, the cursors, and
+// what the follower and the recent errors say in words (package names, paths
+// and upstream answers) — none of it the tenant's business. The full mirror
+// is instance-wide: there is nothing of the tenant's own to keep.
+func (st Status) Redacted() Status {
+	out := st
+	out.StateDir, out.Tenant = "", ""
+	out.PausedBy, out.PauseReason = "", ""
+	out.Upstreams = make([]UpstreamStatus, len(st.Upstreams))
+	for i, u := range st.Upstreams {
+		out.Upstreams[i] = u.Redacted()
+	}
+	return out
+}
+
+// Redacted is Status.Redacted for one upstream.
+func (u UpstreamStatus) Redacted() UpstreamStatus {
+	u.Detail, u.Cursor, u.FeedHead = "", "", ""
+	u.PausedBy, u.PauseReason = "", ""
+	u.Policy.Include, u.Policy.Exclude = nil, nil
+	u.RecentErrors = []ErrorRecord{}
+	return u
+}

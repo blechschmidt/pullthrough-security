@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/blechschmidt/pullthrough-security/internal/adminauth"
 	"github.com/blechschmidt/pullthrough-security/internal/fullmirror"
 )
 
@@ -34,21 +33,31 @@ type fullMirrorRequest struct {
 
 // handleFullMirrorStatus reports the full mirror: overall and per upstream
 // (?upstream=<name> for one). With nothing mirrored it reports enabled false.
+// A tenant-bound identity sees the state and the figures, not the operators'
+// names, the cursors or the error texts (fullmirror.Status.Redacted).
 func (s *Server) handleFullMirrorStatus(w http.ResponseWriter, r *http.Request) {
 	if s.opts.FullMirror == nil {
 		s.writeJSON(w, http.StatusOK, fullmirror.Status{Upstreams: []fullmirror.UpstreamStatus{}})
 		return
 	}
+	bound := tenantBound(r)
 	if name := strings.TrimSpace(r.URL.Query().Get("upstream")); name != "" {
 		us, err := s.opts.FullMirror.UpstreamStatus(name)
 		if err != nil {
 			s.writeFullMirrorError(w, err)
 			return
 		}
+		if bound {
+			us = us.Redacted()
+		}
 		s.writeJSON(w, http.StatusOK, us)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, s.opts.FullMirror.Status())
+	st := s.opts.FullMirror.Status()
+	if bound {
+		st = st.Redacted()
+	}
+	s.writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleFullMirrorPause(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +91,7 @@ func (s *Server) fullMirrorAction(w http.ResponseWriter, r *http.Request, done s
 		s.writeError(w, http.StatusNotFound, "full mirroring is not enabled (upstreams.<name>.fullMirror)")
 		return
 	}
-	if id, ok := adminauth.IdentityFromContext(r.Context()); ok && id != nil && id.Tenant != "" {
+	if tenantBound(r) {
 		s.writeError(w, http.StatusForbidden, "the full mirror is instance-wide: a tenant-bound identity cannot pause, resume or resync it")
 		return
 	}

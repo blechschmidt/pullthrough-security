@@ -1,6 +1,7 @@
 package fullscan
 
 import (
+	"sort"
 	"time"
 )
 
@@ -44,6 +45,10 @@ type Status struct {
 	// sweep could attribute to no upstream.
 	Totals    Figures `json:"totals"`
 	Untracked int     `json:"untracked"`
+	// Tenants are the figures of the artifacts each tenant pulled (an
+	// artifact several tenants pulled counts for each of them). A
+	// tenant-scoped reader is shown its own only (RedactedFor).
+	Tenants map[string]Figures `json:"tenants,omitempty"`
 	// Dropped counts the notes dropped because the loop could not keep up
 	// (their artifacts are found by the next sweep); Overflow the artifacts
 	// not tracked because the inventory is full.
@@ -118,6 +123,75 @@ type UpstreamStatus struct {
 	// SpentUSD is what the full scan's model calls for this upstream cost.
 	SpentUSD float64  `json:"spentUsd"`
 	Counters Counters `json:"counters"`
+	// RecentMalicious are the upstream's most recent malicious verdicts,
+	// newest first (at most MaxRecentMalicious).
+	RecentMalicious []Flagged `json:"recentMalicious,omitempty"`
+}
+
+// MaxRecentMalicious bounds UpstreamStatus.RecentMalicious.
+const MaxRecentMalicious = 10
+
+// Flagged is an artifact the gate holds a malicious verdict on.
+type Flagged struct {
+	// Path is the request path under the upstream's mount; Ecosystem, Name
+	// and Version the coordinate the gate filed the verdict under (the
+	// security dossier's key: empty for a verdict recorded before the full
+	// scan noted coordinates); Digest the bytes judged.
+	Path      string `json:"path"`
+	Ecosystem string `json:"ecosystem,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Version   string `json:"version,omitempty"`
+	Digest    string `json:"digest,omitempty"`
+	// Scanned is when the verdict was recorded.
+	Scanned time.Time `json:"scanned"`
+	// Action is what the configured action did to clients' pulls (empty: it
+	// lets them through); Quarantined reports that the ladder removed the
+	// object from the cache.
+	Action      string `json:"action,omitempty"`
+	Quarantined bool   `json:"quarantined,omitempty"`
+	// Tenants are the tenants known to have pulled it (the first one is the
+	// tenant the scan ran as). A tenant-scoped reader is not told.
+	Tenants []string `json:"tenants,omitempty"`
+}
+
+// flaggedOf renders an item with a malicious verdict.
+func flaggedOf(it *Item) Flagged {
+	f := Flagged{
+		Path: it.Path, Ecosystem: it.Ecosystem, Name: it.Name, Version: it.Version, Digest: it.Digest,
+		Scanned: it.Scanned, Action: it.Action, Quarantined: it.Evicted,
+	}
+	it.pullersOf(func(t string) { f.Tenants = append(f.Tenants, t) })
+	return f
+}
+
+// pulledBy reports whether a tenant is known to have pulled the artifact.
+func (f Flagged) pulledBy(tenant string) bool {
+	for _, t := range f.Tenants {
+		if t == tenant {
+			return true
+		}
+	}
+	return false
+}
+
+// keepRecent inserts f into a list kept newest first and at most max long.
+func keepRecent(list []Flagged, f Flagged, max int) []Flagged {
+	i := sort.Search(len(list), func(i int) bool {
+		if !list[i].Scanned.Equal(f.Scanned) {
+			return list[i].Scanned.Before(f.Scanned)
+		}
+		return list[i].Path > f.Path
+	})
+	if i >= max {
+		return list
+	}
+	list = append(list, Flagged{})
+	copy(list[i+1:], list[i:])
+	list[i] = f
+	if len(list) > max {
+		list = list[:max]
+	}
+	return list
 }
 
 // QueueStatus is the scan queue.
@@ -289,56 +363,40 @@ func (s *Service) statusLocked(now time.Time) Status {
 		byName[u.Upstream] = i
 	}
 	oldest := make(map[string]*Item, len(out.Upstreams))
+	// The figures per tenant cost a count per tenant that pulled each
+	// artifact: they are recounted every TenantInterval, not on every read.
+	var tenants map[string]*Figures
+	recount := s.tenantFigures == nil || now.Sub(s.tenantFiguresAt) >= s.opts.TenantInterval
+	tenantFigures := func(t string) *Figures {
+		f := tenants[t]
+		if f == nil {
+			f = &Figures{}
+			tenants[t] = f
+		}
+		return f
+	}
+	if recount {
+		tenants = map[string]*Figures{}
+	}
 	for _, it := range s.items {
 		i, ok := byName[it.Upstream]
 		if !ok {
 			continue
 		}
-		f := &out.Upstreams[i].Figures
-		if it.Evicted {
-			f.Quarantined++
-		} else {
-			f.Cached++
-		}
-		switch it.State {
-		case StateScanned:
-			if !it.Evicted {
-				f.Scanned++
+		u := &out.Upstreams[i]
+		countItem(&u.Figures, it)
+		if recount {
+			if it.Tenant != "" {
+				countItem(tenantFigures(it.Tenant), it)
 			}
-			switch it.Verdict {
-			case "malicious":
-				f.Malicious++
-			case "suspicious":
-				f.Suspicious++
-			case "benign":
-				if !it.Evicted {
-					f.Benign++
+			for _, t := range it.Tenants {
+				if t != "" && t != it.Tenant {
+					countItem(tenantFigures(t), it)
 				}
 			}
-			if it.Action != "" && !it.Evicted {
-				f.RefusedByAction++
-			}
-		case StatePending:
-			f.Pending++
-		case StateError:
-			f.Errors++
-		case StateUnscannable:
-			if it.Code == CodeProviderRefusal {
-				f.Refused++
-			} else {
-				f.Unscannable++
-			}
-			if it.Action != "" && !it.Evicted {
-				f.RefusedByAction++
-			}
-		case StateNotApplicable:
-			f.NotApplicable++
 		}
-		switch {
-		case it.Gates == GatesPassed && !it.Evicted:
-			f.GatesPassed++
-		case it.Gates == GatesRefused:
-			f.GateRefused++
+		if it.State == StateScanned && it.Verdict == "malicious" {
+			u.RecentMalicious = keepRecent(u.RecentMalicious, flaggedOf(it), MaxRecentMalicious)
 		}
 		if it.unscanned() && !it.Evicted {
 			if o := oldest[it.Upstream]; o == nil || olderFirst(it, o) {
@@ -366,12 +424,71 @@ func (s *Service) statusLocked(now time.Time) Status {
 		}
 		addFigures(&out.Totals, u.Figures)
 	}
+	if recount {
+		s.tenantFigures = make(map[string]Figures, len(tenants))
+		for t, f := range tenants {
+			s.tenantFigures[t] = *f
+		}
+		s.tenantFiguresAt = now
+	}
+	if len(s.tenantFigures) > 0 {
+		out.Tenants = s.tenantFigures
+	}
 	if s.q != nil {
 		_, delayed, parked := s.q.sizes()
 		out.Queue.Delayed, out.Queue.Parked = delayed, parked
 	}
 	out.Queue.InFlight = s.running
 	return out
+}
+
+// countItem counts a tracked artifact into figures by its last reading.
+func countItem(f *Figures, it *Item) {
+	if it.Evicted {
+		f.Quarantined++
+	} else {
+		f.Cached++
+	}
+	switch it.State {
+	case StateScanned:
+		if !it.Evicted {
+			f.Scanned++
+		}
+		switch it.Verdict {
+		case "malicious":
+			f.Malicious++
+		case "suspicious":
+			f.Suspicious++
+		case "benign":
+			if !it.Evicted {
+				f.Benign++
+			}
+		}
+		if it.Action != "" && !it.Evicted {
+			f.RefusedByAction++
+		}
+	case StatePending:
+		f.Pending++
+	case StateError:
+		f.Errors++
+	case StateUnscannable:
+		if it.Code == CodeProviderRefusal {
+			f.Refused++
+		} else {
+			f.Unscannable++
+		}
+		if it.Action != "" && !it.Evicted {
+			f.RefusedByAction++
+		}
+	case StateNotApplicable:
+		f.NotApplicable++
+	}
+	switch {
+	case it.Gates == GatesPassed && !it.Evicted:
+		f.GatesPassed++
+	case it.Gates == GatesRefused:
+		f.GateRefused++
+	}
 }
 
 func addFigures(t *Figures, f Figures) {
@@ -407,16 +524,27 @@ func (s *Service) UpstreamStatus(upstream string) (UpstreamStatus, error) {
 	return UpstreamStatus{}, ErrUnknownUpstream
 }
 
-// Redacted returns the status a tenant-bound identity is shown: the figures,
-// without what names a single artifact (the path and cache key of the oldest
-// unscanned one), the state directory, the full mirror's tenant, the
-// operators' names and reasons, and error texts — none of it the tenant's
-// business, and some of it about other tenants' caches.
-func (st Status) Redacted() Status {
+// Redacted returns the status a reader bound to no tenant of its own is shown
+// when it may not see what names a single artifact: RedactedFor("").
+func (st Status) Redacted() Status { return st.RedactedFor("") }
+
+// RedactedFor returns the status a tenant-bound identity is shown: the
+// figures, without what names a single artifact the tenant did not pull (the
+// path and cache key of the oldest unscanned one, the malicious verdicts on
+// other tenants' pulls), the other tenants' figures, the state directory, the
+// full mirror's tenant, the operators' names and reasons, and error texts —
+// none of it the tenant's business, and some of it about other tenants'
+// caches. The malicious verdicts on artifacts the tenant pulled stay: the gate
+// shows a tenant those verdicts too.
+func (st Status) RedactedFor(tenant string) Status {
 	out := st
 	out.StateDir, out.Tenant, out.Detail = "", "", ""
 	out.PausedBy, out.PauseReason = "", ""
 	out.Sweep.LastError = ""
+	out.Tenants = nil
+	if f, ok := st.Tenants[tenant]; ok && tenant != "" {
+		out.Tenants = map[string]Figures{tenant: f}
+	}
 	out.Upstreams = make([]UpstreamStatus, len(st.Upstreams))
 	for i, u := range st.Upstreams {
 		if u.OldestUnscanned != nil {
@@ -425,6 +553,14 @@ func (st Status) Redacted() Status {
 			u.OldestUnscanned = &o
 		}
 		u.PausedBy, u.PauseReason = "", ""
+		var own []Flagged
+		for _, f := range u.RecentMalicious {
+			if tenant != "" && f.pulledBy(tenant) {
+				f.Tenants = nil
+				own = append(own, f)
+			}
+		}
+		u.RecentMalicious = own
 		out.Upstreams[i] = u
 	}
 	return out

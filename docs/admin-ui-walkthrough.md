@@ -235,6 +235,91 @@ under [RBAC](admin-sso-rbac.md)).
 
 ---
 
+## Mirroring — the full mirror and the full scan
+
+![Mirroring tab](images/admin-ui/mirroring.png)
+
+The **Mirroring** tab shows the [full mirror and the full scan](full-mirroring.md):
+for every upstream the proxy mirrors whole or scans in full, how far the mirror
+is behind its registry, what it fetched, and how much of what the cache holds has
+a current verdict of the [LLM package-content scan](llm-package-scan.md). The
+images come from a test proxy that follows four stub registries through scripted
+change feeds — npm and cargo (tier a, a change feed), Maven (tier b, an index)
+and pub.dev (tier c, listings) — scans a PyPI upstream it does not mirror, and
+judges packages with the package-scan suite's mock model; clients of two tenants
+pulled a few packages, some of them malicious.
+
+- **Cards** — mirrored upstreams (how many are current, how many need
+  attention), the files mirrored, the share of the scannable artifacts with a
+  current verdict, the malicious verdicts (with the suspicious and quarantined
+  ones), the scan backlog by queue class, and the LLM spend of today and of the
+  month against the full scan's budget.
+- **The table** — one row per upstream. **State** has two parts: the mirror's
+  (`following`, `bootstrapping`, `paused`, `backing-off`, … or *not mirrored*)
+  and the scan's (`scanning`, `up to date`, `scan errors`, `scan paused`,
+  `budget spent`, `scan held` or *no scan*). Under **Full mirror**: the feed tier, the lag behind the feed's
+  head in changes and in time (with the cursor beneath), the last poll and the
+  next one, and the files queued, fetched, failed and refused by a gate. Under
+  **Full scan**: scanned versus scannable artifacts, the malicious and
+  suspicious verdicts, the backlog (with the oldest unscanned artifact's age)
+  and what the upstream's scans cost. The **Total** row sums them; its spend is
+  everything the full scan spent since its state was created.
+- **Notices** above the table say what holds the work: an emergency lockdown,
+  an operator's pause (who paused, when and why), a spent budget, a replica
+  that does not lead (it shows the leader's last published figures), a backfill
+  sweep that failed.
+
+Choose an upstream's name for its **detail panel** (the address bar names it,
+`#mirroring?upstream=npm`, so a panel can be linked):
+
+![Detail panel of the npm upstream](images/admin-ui/mirroring-detail.png)
+
+Everything the status reports about the upstream's mirror (phase, cursor and
+feed head, polls, the batch, the deferred queue, the byte budget, packages and
+files by outcome, the version policy and pace) and its scan (verdicts, the
+backlog, the gate pass, model calls, re-scans, spend); the **recent malicious
+verdicts**, each with a **Dossier** link that opens the
+[security dossier](#dossier--the-per-coordinate-360-view) of the coordinate the
+gate filed the verdict under (`#dossier?ecosystem=npm&coordinate=…`, a link
+like any other); and the mirror's **recent errors**. Package names, paths,
+cursors and error messages come from registries: the console shows them as text
+only, never as markup.
+
+The **controls** go through the admin API's passkey step-up
+([webauthn-stepup.md](webauthn-stepup.md)) where it is enforced, and are shown
+only to the identities the API lets use them: **Pause**/**Resume** (the whole
+mirror or scan in the toolbar, one upstream in its panel) to `operate`;
+**Resync…** and **Re-scan…** (by verdict — malicious and suspicious by default —
+or one artifact from the verdicts list) to `administer`. A pause asks for a
+reason, recorded in the audit log; a resync or a re-scan asks for confirmation,
+as each costs upstream requests or model calls. A viewer sees the figures and
+no controls. An identity bound to a tenant sees no controls either (the full
+mirror and the full scan are instance-wide), no cursors, operator names or
+error texts, and only the malicious verdicts on artifacts its own tenant
+pulled, with a card of its tenant's figures.
+
+The tab re-reads the status every 15 seconds while it is open (**Auto-refresh**,
+a toggle button; turn it off and the figures stay put). A screen reader hears a
+summary when you refresh, and on an automatic refresh only what changed state —
+a paused mirror, a spent budget, a new malicious verdict — not every moving
+number. The keyboard reaches every name and control; **Escape** closes the panel
+and returns the focus to its row.
+
+![Mirroring tab in dark mode](images/admin-ui/mirroring-dark.png)
+
+The **Security Ops** tab has a tile with the same summary — the share scanned,
+the malicious verdicts, the backlog, the mirrored upstreams — which links here;
+for an identity bound to a tenant it shows that tenant's own figures:
+
+![Full mirror and scan tile on the SOC dashboard](images/admin-ui/mirroring-secops-tile.png)
+
+…and the [self-service portal](self-service-portal.md) shows a developer the
+full scan of their own tenant's pulls:
+
+![Full scan tile in the tenant portal](images/admin-ui/mirroring-portal.png)
+
+---
+
 ## Scans — Git commit scanning
 
 ![Scans tab](images/admin-ui/scans.png)

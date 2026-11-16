@@ -99,6 +99,10 @@ type Options struct {
 	// publishes for the replicas that do not lead (10s): counting them walks
 	// the inventory.
 	PublishInterval time.Duration
+	// TenantInterval is how often the leader recounts the figures per tenant
+	// (15s): counting them walks the inventory once per tenant that pulled
+	// each artifact, so a status read between two counts reuses the last.
+	TenantInterval time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -129,6 +133,7 @@ func (o Options) withDefaults() Options {
 	def(&o.InboxInterval, 2*time.Second)
 	def(&o.EvictedRetention, 30*24*time.Hour)
 	def(&o.PublishInterval, 10*time.Second)
+	def(&o.TenantInterval, 15*time.Second)
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
@@ -145,6 +150,10 @@ type Note struct {
 	// Reading is the gate's reading (nil for SourceSeen: only that the file
 	// is cached).
 	Reading *Reading
+	// Attribution marks a note that says only who pulled the artifact: a
+	// replica that does not lead forwards one per artifact and tenant, for
+	// the per-tenant figures, when the pull needs nothing else of the leader.
+	Attribution bool
 }
 
 // maxNotes bounds the notes waiting to be applied; one beyond it is dropped
@@ -216,6 +225,12 @@ type Service struct {
 	// published is the status last written for the other replicas.
 	published   *Status
 	publishedAt time.Time
+	// tenantFigures are the figures per tenant as last counted.
+	tenantFigures   map[string]Figures
+	tenantFiguresAt time.Time
+	// attributed are the artifacts and tenants a replica that does not lead
+	// has forwarded attribution notes for (bounded; cleared when full).
+	attributed map[string]struct{}
 
 	// term numbers the leaderships of this replica; termCtx ends with one
 	// (standby cancels it), and the scans started under it.
@@ -718,6 +733,7 @@ type verdictChange struct {
 func (s *Service) applyReadingLocked(it *Item, r Reading, now time.Time, src Source) {
 	c := s.countersLocked(it.Upstream)
 	own := src < 0
+	it.learnCoordinate(r)
 	if r.Digest != "" {
 		it.Digest = r.Digest
 	}
@@ -1027,6 +1043,7 @@ func (s *Service) ensureLoaded(ctx context.Context) error {
 	s.dirty, s.lastSave, s.statusCache = false, now, nil
 	s.nextSweep = now
 	s.running = 0
+	loadedItems := len(items) // read under the lock: notes change the map once it is loaded
 	s.mu.Unlock()
 	if skipped > 0 {
 		s.log.Warn("full scan: damaged inventory lines were skipped; the sweep restores their artifacts", "lines", skipped)
@@ -1036,7 +1053,7 @@ func (s *Service) ensureLoaded(ctx context.Context) error {
 		s.audit(ctx, "state-reset", "", "", map[string]any{"reason": reset})
 	}
 	s.recheckSignature(ctx)
-	s.log.Info("full scan: leading", "items", len(items), "generation", gen)
+	s.log.Info("full scan: leading", "items", loadedItems, "generation", gen)
 	return nil
 }
 
