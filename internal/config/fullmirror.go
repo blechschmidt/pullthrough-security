@@ -84,6 +84,13 @@ type UpstreamFullMirrorConfig struct {
 	// feeds' "branch"); an unknown key is refused. docs/full-mirroring.md
 	// lists them per type.
 	Feed map[string]string `yaml:"feed"`
+	// FullScan keeps every artifact of this upstream in the cache under a
+	// current verdict of the LLM package-content scan gate (Task 192): the
+	// mirror's fetches are judged as they arrive, what was cached before by a
+	// backfill sweep. It needs llmPackageScan.enabled and fullScan.budget, and
+	// works without enabled too: the cache of an upstream that is not mirrored
+	// is scanned all the same.
+	FullScan bool `yaml:"fullScan"`
 }
 
 // FullMirrorWindowConfig is a daily window: "HH:MM" bounds in an IANA time

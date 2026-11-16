@@ -967,6 +967,26 @@ func LLMPackageBudgetEvent(scope, tenant string, failOpen bool) Event {
 	}.withField("scope", scope).withField("tenant", tenant).withField("mode", mode)
 }
 
+// FullScanBudgetEvent describes the full scan's cost ceiling for a window
+// ("day" or "month", UTC) being spent (Task 192): its queue is paused until
+// the window rolls over or the ceiling is raised. Client pulls are not
+// affected — they are judged by the gate as always.
+func FullScanBudgetEvent(window string, spentUSD, ceilingUSD float64) Event {
+	what := map[string]string{"day": "daily", "month": "monthly"}[window]
+	if what == "" {
+		what = window
+	}
+	return Event{
+		Type:     EventCostBudget,
+		Severity: SeverityMedium,
+		Title:    "Full scan budget exhausted",
+		Summary: "the full scan's " + what + " cost ceiling ($" + strconv.FormatFloat(ceilingUSD, 'f', 2, 64) +
+			") is spent; cached artifacts still without a verdict wait until the " + window + " rolls over or fullScan.budget is raised",
+	}.withField("scope", "full-scan").withField("window", window).
+		withField("spentUsd", strconv.FormatFloat(spentUSD, 'f', 2, 64)).
+		withField("ceilingUsd", strconv.FormatFloat(ceilingUSD, 'f', 2, 64))
+}
+
 // ContentScanEvent describes a package-payload static content-analysis finding
 // (Task 138). action is the gate action ("annotate", "downgrade", or "block");
 // category is the worst finding's category (e.g. "embedded-binary"); the counts

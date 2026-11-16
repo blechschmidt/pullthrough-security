@@ -38,6 +38,20 @@ const (
 	// structured Record.Digest field; callers do not set it — the Store overwrites
 	// any supplied value with the digest it computed on write.
 	MetaDigest = "digest"
+
+	// MetaFillUpstream, MetaFillPath, MetaFillAccept and MetaFillTenant record
+	// the request that filled an entry: the upstream (the key under
+	// `upstreams`), the request path relative to the upstream's mount, the
+	// Accept header it was resolved with, and the tenant of the principal that
+	// asked. The gateway sets them on every cache fill (Task 192); the full scan
+	// reads them to put a cached object back before the LLM package scan by the
+	// same path and as the same tenant. They are plain metadata (Record.Extra):
+	// nothing consults them when serving. An entry written before they existed
+	// has none.
+	MetaFillUpstream = "fill-upstream"
+	MetaFillPath     = "fill-path"
+	MetaFillAccept   = "fill-accept"
+	MetaFillTenant   = "fill-tenant"
 )
 
 // Record is the durable metadata index entry for a single cached blob. It is

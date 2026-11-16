@@ -54,7 +54,7 @@ const (
 // prefix) that require a fresh step-up assertion when enforcement is enabled.
 // They correspond to break-glass approvals (Task 50), emergency lockdown
 // (Task 74), policy-preset apply (Task 88), key-rotation triggers (Task 148),
-// and the full mirror's controls (Task 189).
+// and the controls of the full mirror (Task 189) and the full scan (Task 192).
 var defaultProtectedActions = []string{
 	"/api/approvals/approve",
 	"/api/approvals/deny",
@@ -65,6 +65,9 @@ var defaultProtectedActions = []string{
 	"/api/fullmirror/pause",
 	"/api/fullmirror/resume",
 	"/api/fullmirror/resync",
+	"/api/fullscan/pause",
+	"/api/fullscan/resume",
+	"/api/fullscan/rescan",
 }
 
 // Typed errors so the admin layer can map ceremonies to HTTP status codes.

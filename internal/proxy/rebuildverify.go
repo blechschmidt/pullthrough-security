@@ -35,6 +35,11 @@ import (
 // or any non-mismatch verdict) and false when an enforced mismatch was refused
 // and a response has been written.
 func (g *Gateway) gateRebuildVerify(w http.ResponseWriter, r *http.Request, name, ecosystem string, resolved *backends.Resolved, entry *cache.Entry) bool {
+	if systemCacheOnly(r.Context()) {
+		// A gate pass over a cached object (Task 192) queues no rebuild: the
+		// rebuild was queued when the artifact was pulled.
+		return true
+	}
 	if g.deps.RebuildVerify == nil || !g.deps.RebuildVerify.Enabled() {
 		return true
 	}

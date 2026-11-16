@@ -15,6 +15,7 @@ Protected operations (Task 161):
 | Apply a compliance policy preset (Task 88) | `POST /admin/api/presets/apply` |
 | Trigger a credential / signing-key rotation (Task 148) | `POST /admin/api/keys/rotate` |
 | Pause, resume or resync the full mirror (Task 189) | `POST /admin/api/fullmirror/pause`, `.../resume`, `.../resync` |
+| Pause, resume or re-scan the full scan (Task 192) | `POST /admin/api/fullscan/pause`, `.../resume`, `.../rescan` |
 
 ## How it works
 

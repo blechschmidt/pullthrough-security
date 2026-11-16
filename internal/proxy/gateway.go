@@ -453,6 +453,12 @@ type Dependencies struct {
 	// 134). Synthetic pre-warm fetches are excluded. Observation never blocks or
 	// fails a pull. When nil, no pull telemetry is collected.
 	PullObserver PullObserver
+	// LLMScanObserver, when set, hears of the LLM package-scan gate's reading
+	// of every cached artifact a client pulls (Task 192): the full scan keeps
+	// its inventory current with it and queues an artifact the gate could not
+	// judge ahead of its backfill. It must not block. System fetches are not
+	// reported.
+	LLMScanObserver LLMScanObserver
 	// CacheFed, when set and enabled, is the cross-proxy peer cache-federation
 	// layer (Task 143). On a local cache miss — after the lockdown freeze check
 	// but before the upstream fetch — the cacheable pull path consults healthy
@@ -870,8 +876,11 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 		g.metrics().AddBytesServed(name, mw.bytes)
 		// Account the request to its tenant for per-tenant usage/chargeback (Task 84).
 		// Bytes-served (split by cache outcome) and storage footprint are metered at
-		// the serve points below, where the cache status is known.
-		g.meterRequest(r, name)
+		// the serve points below, where the cache status is known. A gate pass over
+		// a cached object (Task 192) is nobody's request.
+		if !systemCacheOnly(r.Context()) {
+			g.meterRequest(r, name)
+		}
 		// Add the request to the download log (Task 176) now that its outcome,
 		// status and byte count are final. A no-op for anything that is not a
 		// package download.
@@ -900,6 +909,12 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 	// they negotiate over POST with a streaming body. Such backends implement
 	// HTTPHandler and own the raw request, including method handling.
 	if h, ok := backend.(backends.HTTPHandler); ok {
+		if systemCacheOnly(r.Context()) {
+			// A gate pass (Task 192) judges cached package objects; a protocol
+			// exchange is never one, and must not reach the upstream.
+			http.Error(w, "not a cached object", http.StatusNotFound)
+			return
+		}
 		// Such a backend never goes through Resolve, so the download log asks it
 		// what the request is: a fetch of content, or protocol chatter.
 		if d, ok := backend.(backends.DownloadDescriber); ok && g.deps.DownloadLog.Enabled() {
@@ -1016,7 +1031,10 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 	// captured traffic through a candidate policy/risk configuration. Like the
 	// findings capture above, it runs deferred so it sees the signals every gate
 	// recorded up to the exit point. No-op when the recorder is absent/disabled.
-	defer g.captureSimReplay(r)
+	if !systemCacheOnly(r.Context()) {
+		// (A gate pass over a cached object, Task 192, is not traffic to replay.)
+		defer g.captureSimReplay(r)
+	}
 
 	// Inspect the package name for typosquatting / dependency-confusion risk
 	// (Task 19) before anything else: it needs no content and no version, so a
@@ -1115,6 +1133,12 @@ func (g *Gateway) handleBackend(w http.ResponseWriter, r *http.Request) {
 		g.serveCacheable(w, r, name, backend, resolved)
 		return
 	}
+	if systemCacheOnly(r.Context()) {
+		// A gate pass (Task 192) never fetches: a resource the proxy does not
+		// cache has no cached copy to judge.
+		http.Error(w, "the resource is not cacheable: there is no cached object", http.StatusNotFound)
+		return
+	}
 	g.serveDirect(w, r, name, backend, resolved)
 }
 
@@ -1165,7 +1189,7 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		// are additionally re-verified against the expected digest by the federation
 		// layer itself. A peer miss or any peer error falls through to the upstream.
 		if content, meta, ok := g.fetchFromPeer(lctx, resolved); ok {
-			return limit(content), meta, nil
+			return limit(content), withFillProvenance(meta, r, name), nil
 		}
 		_, fetchSpan := g.deps.Tracer.Start(cacheCtx, "upstream.fetch",
 			tracing.WithSpanKind(tracing.SpanKindClient),
@@ -1210,7 +1234,7 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		}); on {
 			content = verifier
 		}
-		return limit(content), metadataForFetch(resolved, result), nil
+		return limit(content), withFillProvenance(metadataForFetch(resolved, result), r, name), nil
 	}
 
 	// Coalesce concurrent misses for this artifact onto a single upstream fetch
@@ -1227,14 +1251,35 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 	if g.deps.Pins != nil && g.deps.Pins.IsPinned(resolved.CacheKey) {
 		g.coalescer().Purge(coalKey)
 	}
-	entry, info, err := g.coalescer().Do(ctx, coalKey,
-		func(fctx context.Context) (*cache.Entry, error) {
-			return g.deps.Cache.GetOrLoad(fctx, resolved.CacheKey, loader)
-		},
-		func(fctx context.Context) (*cache.Entry, error) {
-			return g.deps.Cache.Get(fctx, resolved.CacheKey)
-		},
+	var (
+		entry *cache.Entry
+		info  coalesce.Info
+		err   error
 	)
+	if systemCacheOnly(ctx) {
+		// A gate pass (Task 192) puts what the cache holds before the gates
+		// and fetches nothing: no loader, no coalescing with a client's fill,
+		// and a miss is remembered nowhere.
+		entry, err = g.deps.Cache.Get(ctx, resolved.CacheKey)
+		if err != nil {
+			cacheSpan.End()
+			if errors.Is(err, cache.ErrNotFound) {
+				http.Error(w, "the object is not in the cache", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "reading the cached object: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		entry, info, err = g.coalescer().Do(ctx, coalKey,
+			func(fctx context.Context) (*cache.Entry, error) {
+				return g.deps.Cache.GetOrLoad(fctx, resolved.CacheKey, loader)
+			},
+			func(fctx context.Context) (*cache.Entry, error) {
+				return g.deps.Cache.Get(fctx, resolved.CacheKey)
+			},
+		)
+	}
 	if err != nil {
 		fetchErr := firstNonNil(loadErr, err)
 		// A freeze lockdown refused the upstream fetch on this cache miss: render the
@@ -1452,6 +1497,14 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 	if !g.gateTrace(r, "extension", func(rr *http.Request) bool {
 		return g.gateExtension(w, rr, name, g.ecosystemFor(name))
 	}) {
+		return
+	}
+
+	if systemCacheOnly(r.Context()) {
+		// A gate pass (Task 192): every gate admitted the cached object.
+		// Nothing is served, metered, attested or reported as demand.
+		noteAdmitted(r.Context(), resolved.CacheKey, entry.Stat)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
@@ -1827,6 +1880,40 @@ func metadataForFetch(resolved *backends.Resolved, result *backends.FetchResult)
 		for _, name := range verificationResponseHeaders {
 			backends.SetResponseHeader(meta, name, result.Header.Get(name))
 		}
+	}
+	return meta
+}
+
+// maxFillProvenance bounds a recorded request path or Accept header.
+const maxFillProvenance = 2048
+
+// withFillProvenance records, in a cache fill's metadata, the request that
+// filled the entry: the upstream, the request path relative to its mount, the
+// Accept header and the tenant of the principal (cache.MetaFill*). The full
+// scan (Task 192) reads them to put the object back before the LLM package
+// scan by the same path and as the same tenant. A request with a query is not
+// recorded: a system scan resolves a bare path, so it could not be replayed.
+func withFillProvenance(meta map[string]string, r *http.Request, upstream string) map[string]string {
+	if r == nil || r.URL == nil || r.URL.RawQuery != "" {
+		return meta
+	}
+	// The escaped spelling: whoever replays the path (a system scan, a gate
+	// pass) decodes it as the serve pipeline does, so a literal "%" in a name
+	// survives the round trip.
+	name, rest, ok := splitBackendPath(r.URL.EscapedPath())
+	if !ok || name != upstream || len(rest) > maxFillProvenance || strings.ContainsAny(rest, "\r\n\x00") {
+		return meta
+	}
+	if meta == nil {
+		meta = map[string]string{}
+	}
+	meta[cache.MetaFillUpstream] = upstream
+	meta[cache.MetaFillPath] = rest
+	if accept := r.Header.Get("Accept"); accept != "" && len(accept) <= maxFillProvenance && !strings.ContainsAny(accept, "\r\n\x00") {
+		meta[cache.MetaFillAccept] = accept
+	}
+	if p, ok := auth.FromContext(r.Context()); ok && p != nil && p.Team != "" {
+		meta[cache.MetaFillTenant] = p.Team
 	}
 	return meta
 }

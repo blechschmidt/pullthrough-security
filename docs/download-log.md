@@ -47,6 +47,7 @@ weight file, an OS package, a Git fetch.
 | A Git ref listing (`ls-remote`, the first half of a clone) | no — only the fetch (see [Git](#git)) |
 | The proxy's own [pre-warm](prewarm.md) fetches | no — not a client |
 | The [full mirror](full-mirroring.md#running-the-full-mirror)'s fetches (Task 189) | yes — `via=system`, subject `system:full-mirror`, User-Agent `pullthrough-full-mirror` |
+| The [full scan](full-mirroring.md#full-scan)'s scans and gate passes over cached artifacts (Task 192) | no — nothing is fetched or served; the gates' own decisions are in the audit log |
 | A sibling proxy reading this cache through [cache federation](cache-federation.md) | no — the sibling logs the download it serves to its client |
 
 Two rules in that table deserve a sentence each:

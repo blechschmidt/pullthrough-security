@@ -223,7 +223,10 @@ Tune the `PullthroughBackupTooOld` threshold to your `backup.interval` and RPO
   built, into a private spool in the system's temporary directory, and the archive
   carries exactly that copy. Each file is consistent in itself; the files of the
   store are not one instant's together (the engine checks a restored batch against
-  its state and re-polls when they disagree).
+  its state and re-polls when they disagree). The full scan's state (Task 192)
+  lives in its `fullscan/` subdirectory and is captured with it: a journal line the
+  copy cut short is ignored when the state is read back, and an inventory that
+  cannot be read is rebuilt from the cache by the backfill sweep.
 * **Consistency.** A snapshot is taken from live stores; the cache and metadata
   are captured close together but not in a single atomic transaction. Because the
   cache is content-addressed and the audit log is append-only, a snapshot is

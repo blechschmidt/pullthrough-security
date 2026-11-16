@@ -134,7 +134,7 @@ func TestFullMirrorEndToEnd(t *testing.T) {
 		if err != nil || e == nil {
 			t.Fatalf("buildFullMirror: %v %v", e, err)
 		}
-		wireFullMirror(context.Background(), e, &cfg, gw, nil, nil, nil)
+		wireFullMirror(context.Background(), e, &cfg, gw, nil, nil, nil, nil)
 		return e
 	}
 	e := start()

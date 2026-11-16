@@ -112,7 +112,9 @@ func ImportVerdict(ctx context.Context, store VerdictStore, digest string, recor
 	if got, _ := NormalizeDigest(v.Digest); !ok || got != want {
 		return nil, fmt.Errorf("llmpkgscan: verdict record is about %s, not about the artifact %s it was carried for", v.Digest, digest)
 	}
-	if existing, err := store.Get(ctx, v.Key); err == nil && existing != nil {
+	// A record of another verdict schema version is replaced: the gate no
+	// longer serves it as an answer.
+	if existing, err := store.Get(ctx, v.Key); err == nil && existing != nil && existing.schema() == VerdictSchemaVersion {
 		return existing, ErrVerdictPresent
 	} else if err != nil && !errors.Is(err, ErrNotFound) {
 		return nil, fmt.Errorf("llmpkgscan: reading the verdict store: %w", err)

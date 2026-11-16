@@ -79,6 +79,19 @@ type SystemFetchRequest struct {
 	// forensics). Nothing changes for clients: their own pulls of the object
 	// are judged, and refused, as always.
 	DeferLLMRefusal bool
+	// DeferredTo names, in the audit record of a deferred refusal, the caller
+	// that applies the ladder ("repository-scan" when empty; the full mirror's
+	// full scan says "full-scan", Task 192).
+	DeferredTo string
+	// CacheOnly makes the fetch a gate pass (Task 192): the object the cache
+	// holds is put through every admission gate, and nothing is fetched or
+	// served. A miss answers 404 without asking the upstream (and is
+	// remembered nowhere); a pass answers 204 with Admitted set; a refusal is
+	// the gate's, with its own action (an eviction under block or
+	// quarantine), audit record, alert and findings, as for a pull. The pass
+	// is not a download: it is not in the download log, and nothing is
+	// metered, attested or reported to the pre-warmer as demand.
+	CacheOnly bool
 }
 
 // SystemGateVerdict is one admission gate's judgement of a system fetch.
@@ -133,18 +146,33 @@ type systemReport struct {
 	// signals is the request's admission-signal accumulator, which the
 	// verdicts are read from once the pipeline is done.
 	signals *admissionSignals
-	// deferLLM is SystemFetchRequest.DeferLLMRefusal; llm the gate's reading;
-	// deferredSignal the admission section of a deferred refusal, which only
-	// the request's findings document receives.
+	// deferLLM is SystemFetchRequest.DeferLLMRefusal and deferredTo its
+	// DeferredTo; llm the gate's reading; deferredSignal the admission section
+	// of a deferred refusal, which only the request's findings document
+	// receives.
 	deferLLM       bool
+	deferredTo     string
 	llm            *SystemLLMScan
 	deferredSignal *policyengine.LLMPackageInput
 	// maxBytes is SystemFetchRequest.MaxBytes; tooLarge records that the
 	// object was refused for it.
 	maxBytes int64
 	tooLarge bool
-	// noReview is SystemFetchRequest.NoReview.
-	noReview bool
+	// noReview is SystemFetchRequest.NoReview; cacheOnly CacheOnly.
+	noReview  bool
+	cacheOnly bool
+}
+
+// systemCacheOnly reports a system fetch that is a gate pass over a cached
+// object (SystemFetchRequest.CacheOnly).
+func systemCacheOnly(ctx context.Context) bool {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return false
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	return rep.cacheOnly
 }
 
 // systemNoReview reports a system fetch whose refusals open no break-glass
@@ -256,6 +284,17 @@ func deferredLLMSignal(ctx context.Context) *policyengine.LLMPackageInput {
 	return rep.deferredSignal
 }
 
+// deferredTo names the caller a system fetch defers LLM refusals to.
+func deferredTo(ctx context.Context) string {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return ""
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	return rep.deferredTo
+}
+
 // noteLLMScan records the LLM package-scan gate's reading of a system fetch's
 // object.
 func noteLLMScan(ctx context.Context, sl *SystemLLMScan) {
@@ -352,7 +391,7 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 		ua = "pullthrough-release-pinner"
 	}
 	httpReq.Header.Set("User-Agent", ua)
-	rep := &systemReport{hold: req.Hold, deferLLM: req.DeferLLMRefusal, maxBytes: req.MaxBytes, noReview: req.NoReview}
+	rep := &systemReport{hold: req.Hold, deferLLM: req.DeferLLMRefusal, deferredTo: req.DeferredTo, maxBytes: req.MaxBytes, noReview: req.NoReview, cacheOnly: req.CacheOnly}
 	// No client address: the download log records "system", via "system".
 	rec := &pullRecord{start: time.Now(), source: clientip.Info{Client: downloadlog.ViaSystem}}
 	sctx := context.WithValue(httpReq.Context(), systemReportKey{}, rep)
@@ -415,6 +454,9 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 	sig := rep.signals
 	res.LLMScan = rep.llm
 	rep.mu.Unlock()
+	if sl := res.LLMScan; sl != nil && res.Admitted {
+		sl.CacheKey, sl.Digest, sl.Size = res.CacheKey, res.Digest, res.Size
+	}
 	res.Verdicts = systemVerdicts(sig, gates)
 	if w.writeErr != nil {
 		return res, fmt.Errorf("proxy: reading the response body: %w", w.writeErr)
@@ -461,10 +503,11 @@ type SystemLookupResult struct {
 	// (an index document, a Git exchange).
 	Cacheable bool
 	// Cached reports that the cache holds the object; CacheKey is its key and
-	// Size its size then.
+	// Size its size then, Digest its recorded digest.
 	Cached   bool
 	CacheKey string
 	Size     int64
+	Digest   string
 }
 
 // SystemLookup resolves a system fetch the way the serve pipeline would and
@@ -526,7 +569,7 @@ func (g *Gateway) SystemLookup(ctx context.Context, req SystemFetchRequest) (Sys
 	st, err := g.deps.Cache.Stat(ctx, key)
 	switch {
 	case err == nil:
-		res.Cached, res.Size = true, st.Size
+		res.Cached, res.Size, res.Digest = true, st.Size, st.Metadata[cache.MetaDigest]
 		return res, nil
 	case errors.Is(err, cache.ErrNotFound):
 		return res, nil

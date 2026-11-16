@@ -34,6 +34,18 @@ type Request struct {
 	// manifest (Artifact.Digest is its digest) and Image opens the config and
 	// layer blobs it references.
 	Image *ImageSource
+	// Refresh scans the artifact even when a verdict is stored for it, or a
+	// failure is remembered: an operator's re-scan (Task 192). The new verdict
+	// replaces the stored one. A refreshing request never joins a scan that may
+	// answer from the verdict cache.
+	Refresh bool
+	// OwnBudget marks a scan its caller pays from a budget of its own — the
+	// full scan's (Task 192): the gate's per-tenant and global ceilings
+	// (Config.Budget) neither refuse it nor are charged with it, so that a
+	// backlog the full scan works through never leaves the clients' pulls
+	// without a budget. The concurrency limits and the per-tenant share
+	// apply as to any scan.
+	OwnBudget bool
 }
 
 // Unscanned explains why an artifact has no verdict.
@@ -73,6 +85,11 @@ type Report struct {
 	Risk int `json:"risk"`
 	// Findings are the report's findings in catalog form.
 	Findings []Finding `json:"findings,omitempty"`
+	// SpentUSD is what the scan behind this report cost the provider account:
+	// the verdict's cost, or what a scan that ended without one spent before it
+	// failed. Zero for a report from the verdict cache. A request that joined
+	// another's scan reports that scan's cost too.
+	SpentUSD float64 `json:"-"`
 }
 
 // Scanned reports whether the report carries a verdict.
@@ -412,6 +429,17 @@ func (s *Service) Oversize() Oversize {
 // UsesTools reports whether scans may use the tool loop right now.
 func (s *Service) UsesTools() bool { return s != nil && s.toolsUsable() }
 
+// Load reports the gate's scan slots: how many scans run, how many wait for a
+// slot, and how many slots there are (llmPackageScan.maxConcurrent). The full
+// scan (Task 192) starts a scan of its own only while no client's scan waits,
+// so the scans a client pull starts always come first. Safe on a nil receiver.
+func (s *Service) Load() (running, waiting int64, slots int) {
+	if s == nil {
+		return 0, 0, 0
+	}
+	return s.running.Load(), s.waiting.Load(), cap(s.sem)
+}
+
 // Assess returns the gate's report for an artifact, scanning it if it has no
 // stored verdict. It returns (nil, nil) when the gate does not apply: the
 // artifact's ecosystem is out of scope, its upstream is excluded, or the
@@ -458,9 +486,15 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 	req.Artifact = art
 	variant := s.variantFor(req)
 	key := CacheKeyVariant(hexDigest, s.cfg.Model, PromptVersion, variant)
+	// A refreshing request scans under a flight of its own: joining a flight
+	// that may answer from the verdict cache would hand it the old verdict.
+	flightKey := key
+	if req.Refresh {
+		flightKey = key + "\x00refresh"
+	}
 
 	// 1. The verdict cache: identical bytes are scanned once.
-	if v := s.lookup(ctx, key); v != nil {
+	if v := s.lookupUnlessRefresh(ctx, key, req.Refresh); v != nil {
 		s.cacheHits.Add(1)
 		// The tenant has now been given a report on these bytes: it may read the
 		// verdict from the admin surface and the dossier too.
@@ -484,7 +518,7 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
 				}
-				return s.unscanned(art, CodeUnavailable, "reading the cached artifact: "+err.Error()), nil
+				return s.unscannedOrStale(ctx, key, art, CodeUnavailable, "reading the cached artifact: "+err.Error()), nil
 			}
 			s.rememberProbe(hexDigest, probed)
 		}
@@ -492,22 +526,24 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 			return s.notApplicable(), nil
 		}
 	}
-	// 3. A remembered failure: do not pay again for a scan that just failed.
-	if ne, hit := s.negative(key); hit {
+	// 3. A remembered failure: do not pay again for a scan that just failed —
+	// unless an operator asked for the scan again. That the bytes hold nothing
+	// to examine is a property of the bytes, and holds for a re-scan too.
+	if ne, hit := s.negative(key); hit && (!req.Refresh || ne.code == codeNotArchive) {
 		if ne.code == codeNotArchive {
 			return s.notApplicable(), nil
 		}
 		s.negHits.Add(1)
-		return s.unscanned(art, ne.code, ne.detail), nil
+		return s.unscannedOrStale(ctx, key, art, ne.code, ne.detail), nil
 	}
 	// 4. Cheap refusals before any work is queued.
 	if req.Image == nil && !partialVariant(variant) && art.Size > s.cfg.Limits.MaxArtifactBytes {
 		detail := fmt.Sprintf("the artifact is %d bytes, over the %d-byte scan limit", art.Size, s.cfg.Limits.MaxArtifactBytes)
 		s.remember(key, CodeOversized, detail)
-		return s.unscanned(art, CodeOversized, detail), nil
+		return s.unscannedOrStale(ctx, key, art, CodeOversized, detail), nil
 	}
 	if !s.breakerAllows() {
-		return s.unscanned(art, CodeProviderUnavailable, "the provider circuit breaker is open"), nil
+		return s.unscannedOrStale(ctx, key, art, CodeProviderUnavailable, "the provider circuit breaker is open"), nil
 	}
 	// A bounded queue. Scans beyond the slots wait for one, and a request waits
 	// with its scan; past a point, waiting only guarantees a timeout — and an
@@ -515,7 +551,7 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 	// many distinct artifacts. Beyond the bound the answer is immediate. (A
 	// request for a digest already being scanned joins that scan and adds
 	// nothing to the queue.)
-	if !s.isInflight(key) {
+	if !s.isInflight(flightKey) {
 		detail := ""
 		switch {
 		case int(s.waiting.Load()) >= s.queueLimit():
@@ -530,29 +566,29 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 			s.mu.Lock()
 			s.byCode[CodeBusy]++
 			s.mu.Unlock()
-			return s.unscanned(art, CodeBusy, detail), nil
+			return s.unscannedOrStale(ctx, key, art, CodeBusy, detail), nil
 		}
 	}
-	if allowed, scope := s.budget.allow(req.Tenant); !allowed {
+	if allowed, scope := s.budget.allow(req.Tenant); !allowed && !req.OwnBudget {
 		s.mu.Lock()
 		s.byScope[scope]++
 		s.mu.Unlock()
 		if s.cfg.OnBudgetExhausted != nil && s.firstExhaustion(scope, req.Tenant) {
 			s.cfg.OnBudgetExhausted(scope, req.Tenant)
 		}
-		return s.unscanned(art, CodeBudgetExhausted, "the "+scope+" cost ceiling was reached"), nil
+		return s.unscannedOrStale(ctx, key, art, CodeBudgetExhausted, "the "+scope+" cost ceiling was reached"), nil
 	}
 
 	// 5. Scan, sharing one scan among concurrent requests for the same digest.
-	if s.isInflight(key) {
+	if s.isInflight(flightKey) {
 		s.joined.Add(1)
 	}
-	ch := s.flight.DoChan(key, func() (any, error) {
+	ch := s.flight.DoChan(flightKey, func() (any, error) {
 		if !s.begin() {
 			return &scanResult{code: CodeUnavailable, detail: "the gate is shutting down"}, nil
 		}
 		defer s.wg.Done()
-		return s.scan(key, hexDigest, variant, art, req), nil
+		return s.scan(key, flightKey, hexDigest, variant, art, req), nil
 	})
 	select {
 	case res := <-ch:
@@ -562,22 +598,46 @@ func (s *Service) assess(ctx context.Context, req Request) (*Report, error) {
 		}
 		s.cacheMisses.Add(1)
 		if out == nil {
-			return s.unscanned(art, CodeInternalError, "the scan produced no result"), nil
+			return s.unscannedOrStale(ctx, key, art, CodeInternalError, "the scan produced no result"), nil
 		}
 		if out.verdict != nil {
 			s.noteCoordinate(art, key, req.Tenant)
 			rep := s.report(art, out.verdict)
 			rep.Shared = res.Shared
 			rep.Cached = out.cached
+			if !out.cached {
+				rep.SpentUSD = out.cost
+			}
 			return rep, nil
 		}
-		return s.unscanned(art, out.code, out.detail), nil
+		rep := s.unscannedOrStale(ctx, key, art, out.code, out.detail)
+		rep.SpentUSD = out.cost
+		return rep, nil
 	case <-ctx.Done():
 		// The caller is gone. The scan carries on: its verdict is stored for the
 		// next request, which is very likely this client's own retry.
 		s.cacheMisses.Add(1)
 		return nil, ctx.Err()
 	}
+}
+
+// unscannedOrStale is the report for an artifact the gate has no current
+// verdict on — unless a verdict written under another verdict schema version
+// (VerdictSchemaVersion) is stored under the key and refuses the artifact under
+// the configured action. Such a verdict is no longer served as the answer (the
+// bytes are scanned again), but while no new one exists it is honoured: bytes
+// the gate refused do not become servable for the gate's want of a scan (a
+// provider outage, a spent budget, an air-gapped instance) after a schema
+// change.
+func (s *Service) unscannedOrStale(ctx context.Context, key string, art Artifact, code, detail string) *Report {
+	if v, err := s.store.Get(ctx, key); err == nil && v != nil && v.Key == key && v.schema() != VerdictSchemaVersion {
+		if disp, _ := s.classify(v); s.cfg.Action.refusesDisposition(disp) {
+			rep := s.report(art, v)
+			rep.Cached = true
+			return rep
+		}
+	}
+	return s.unscanned(art, code, detail)
 }
 
 // probe reads the start of an artifact and reports what it is (see
@@ -633,12 +693,23 @@ type scanResult struct {
 	cached  bool
 	code    string
 	detail  string
+	// cost is what the scan spent on the provider, verdict or not.
+	cost float64
+}
+
+// lookupUnlessRefresh is lookup, except for a refreshing request, which is
+// answered by a new scan however current the stored verdict is.
+func (s *Service) lookupUnlessRefresh(ctx context.Context, key string, refresh bool) *Verdict {
+	if refresh {
+		return nil
+	}
+	return s.lookup(ctx, key)
 }
 
 // scan runs one scan to completion on its own context. It never returns nil and
 // never panics: a panic anywhere beneath it (the unpacker, the provider SDK)
 // becomes an "internal-error" result instead of taking the proxy down.
-func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request) (res *scanResult) {
+func (s *Service) scan(key, flightKey, hexDigest, variant string, art Artifact, req Request) (res *scanResult) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.log.Error("llmpkgscan: scan panicked", "artifact", art.Coordinate(), "panic", fmt.Sprint(r))
@@ -648,14 +719,15 @@ func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request
 
 	ctx, cancel := context.WithTimeout(s.baseCtx, s.cfg.Timeout)
 	defer cancel()
-	s.setInflight(key, true)
-	defer s.setInflight(key, false)
+	s.setInflight(flightKey, true)
+	defer s.setInflight(flightKey, false)
 	s.addOutstanding(req.Tenant, 1)
 	defer s.addOutstanding(req.Tenant, -1)
 
 	// A previous flight may have stored the verdict between this request's cache
-	// lookup and its turn to scan.
-	if v := s.lookup(ctx, key); v != nil {
+	// lookup and its turn to scan. (Not for a re-scan: it is the stored verdict
+	// it was asked to replace.)
+	if v := s.lookupUnlessRefresh(ctx, key, req.Refresh); v != nil {
 		return &scanResult{verdict: v, cached: true}
 	}
 
@@ -740,11 +812,16 @@ func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request
 
 	injection := detectInjection(ctx, tree)
 	run, err := s.runModel(ctx, tree, art)
-	// Whatever the run consumed is charged, verdict or not.
-	s.budget.record(req.Tenant, run.usage, run.costUSD)
+	// Whatever the run consumed is charged, verdict or not — to the gate's
+	// budget, unless the caller pays from its own (Request.OwnBudget).
+	if !req.OwnBudget {
+		s.budget.record(req.Tenant, run.usage, run.costUSD)
+	}
 	s.observeRun(run)
 	if err != nil {
-		return s.failed(key, art, classifyProviderError(ctx, err))
+		out := s.failed(key, art, classifyProviderError(ctx, err))
+		out.cost = run.costUSD
+		return out
 	}
 	s.breakerRecord(true)
 
@@ -763,6 +840,7 @@ func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request
 		Provider:            s.provider.Name(),
 		Model:               s.cfg.Model,
 		PromptVersion:       PromptVersion,
+		SchemaVersion:       VerdictSchemaVersion,
 		Mode:                run.mode,
 		Turns:               run.turns,
 		ToolCalls:           run.toolCalls,
@@ -836,7 +914,7 @@ func (s *Service) scan(key, hexDigest, variant string, art Artifact, req Request
 	if s.cfg.OnVerdict != nil {
 		s.cfg.OnVerdict(v.clone())
 	}
-	return &scanResult{verdict: v}
+	return &scanResult{verdict: v, cost: v.CostUSD}
 }
 
 // randomAccess returns random access to an artifact stream when the stream
@@ -955,6 +1033,12 @@ func (s *Service) lookup(ctx context.Context, key string) *Verdict {
 		return nil
 	}
 	if v == nil || v.Key != key {
+		return nil
+	}
+	if v.schema() != VerdictSchemaVersion {
+		// Written under another verdict schema: it may not mean what it would
+		// mean now. The artifact is scanned again and the new verdict replaces
+		// it under the same key.
 		return nil
 	}
 	if s.cfg.CacheTTL > 0 && s.now().Sub(v.ScannedAt) > s.cfg.CacheTTL {

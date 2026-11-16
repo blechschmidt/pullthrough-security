@@ -82,7 +82,11 @@ func requiredCapability(method, relPath string) adminauth.Capability {
 		// Resyncing an upstream's full mirror (Task 189) has the proxy
 		// enumerate the whole registry again: a burst of upstream requests
 		// and byte budget. (Pausing and resuming it are operational.)
-		"/api/fullmirror/resync":
+		"/api/fullmirror/resync",
+		// Re-scanning the full scan's artifacts (Task 192) calls the model
+		// again for each of them — up to the whole cache, paid from the full
+		// scan's budget. (Pausing and resuming it are operational.)
+		"/api/fullscan/rescan":
 		return adminauth.CapAdminister
 
 	// Managing one's own passkeys and running the step-up ceremonies (Task 161)

@@ -58,6 +58,7 @@ const (
 	EventRepoScan      EventType = "repository_scan"   // a tracked repository's dependencies scanned by the LLM package-content scan, a dependency flagged (Task 181)
 	EventRepoUpdate    EventType = "repository_update" // a maintenance branch pushed with vetted dependency updates, or a push refused (Task 182)
 	EventFullMirror    EventType = "full_mirror"       // the full mirror paused, resumed or resynced by an operator; a registry enumeration started or finished, a cursor lost, a byte budget spent (Task 189)
+	EventFullScan      EventType = "full_scan"         // the full scan paused, resumed or asked to re-scan by an operator; artifacts re-queued for a new scan signature; a cost budget spent or raised (Task 192)
 )
 
 // Decision is the outcome recorded for authz/policy/quota events.

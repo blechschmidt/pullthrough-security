@@ -125,8 +125,11 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 	// registry again. The leader rewrites these files every few seconds, so
 	// the backup copies each one once (volatile) instead of failing on the
 	// change. Included whenever an upstream has a fullMirror block, enabled
-	// or not: a mirror paused by switching it off keeps its cursor.
-	if dir := cfg.FullMirrorStateDir(); dir != "" && (hasFullMirrorBlock(cfg) || strings.TrimSpace(cfg.FullMirror.StateDir) != "") {
+	// or not: a mirror paused by switching it off keeps its cursor. The full
+	// scan's state (Task 192) lives in its fullscan/ subdirectory: the
+	// inventory's snapshot, its journal (a line torn by the copy is ignored
+	// when it is read back), the counters and the spend.
+	if dir := cfg.FullMirrorStateDir(); dir != "" && (hasFullMirrorBlock(cfg) || strings.TrimSpace(cfg.FullMirror.StateDir) != "" || cfg.FullScanRequested()) {
 		// The engine writes each file aside (".tmp-*") and renames it into
 		// place; one caught mid-write is not part of the store.
 		srcs = append(srcs, metaSrc{name: "full-mirror", path: dir, volatile: true, ignore: []string{".tmp-*"}})

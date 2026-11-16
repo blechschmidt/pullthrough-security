@@ -34,7 +34,10 @@ import (
 // to compare) and false when the artifact was blocked/quarantined and a response
 // has been written.
 func (g *Gateway) gateSbomDiff(w http.ResponseWriter, r *http.Request, name, ecosystem string, resolved *backends.Resolved, entry *cache.Entry) bool {
-	if !g.deps.SbomDiff.Enabled() {
+	if !g.deps.SbomDiff.Enabled() || systemCacheOnly(r.Context()) {
+		// A gate pass over a cached object (Task 192) is no new sighting: the
+		// drift between versions is judged as they are pulled, and an old
+		// version re-checked must not become the newest in the history.
 		return true
 	}
 	art, ok := vulnArtifactFor(ecosystem, resolved, entry)

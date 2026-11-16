@@ -74,6 +74,24 @@ func (g *Gateway) gateLLMPkgScan(w http.ResponseWriter, r *http.Request, name, e
 		// forensics, and serving them stays refused all the same.
 		pinned: resolved.Cacheable && g.deps.Pins != nil && g.deps.Pins.IsPinned(resolved.CacheKey),
 	}
+	if obs := g.deps.LLMScanObserver; obs != nil && resolved.Cacheable && !isSystemRequest(r) {
+		// The full scan (Task 192) hears of every reading of a cached artifact a
+		// client pulls.
+		sub.observe = func(sl *SystemLLMScan, evicted bool) {
+			// The escaped spelling, which a system scan decodes as the serve
+			// pipeline does.
+			_, rest, _ := splitBackendPath(r.URL.EscapedPath())
+			tenant := ""
+			if p, ok := auth.FromContext(r.Context()); ok && p != nil {
+				tenant = p.Team
+			}
+			obs.ObserveLLMScan(r.Context(), LLMScanObservation{
+				Backend: name, Path: rest, Accept: r.Header.Get("Accept"), Tenant: tenant,
+				CacheKey: resolved.CacheKey, Digest: digest, Size: entry.Stat.Size,
+				Scan: sl, Evicted: evicted,
+			})
+		}
+	}
 	switch resolved.Artifact.Kind {
 	case backends.KindOCIManifest:
 		return g.gateLLMImage(w, r, sub, resolved)
@@ -105,6 +123,9 @@ type llmScanSubject struct {
 	// pinned reports that a release pins the cached artifact: a refusal does
 	// not evict it (the cache would refuse to anyway), its bytes are kept.
 	pinned bool
+	// observe, when set, is told the reading of a cached artifact a client
+	// pulled (Dependencies.LLMScanObserver).
+	observe func(sl *SystemLLMScan, evicted bool)
 }
 
 // llmScanCacheOpener returns the scan's way to read a cached artifact. The scan
@@ -164,8 +185,12 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 	}
 	if report == nil {
 		// Nothing to examine: a metadata document, an index, an image index.
-		noteLLMScan(r.Context(), &SystemLLMScan{NotApplicable: LLMNotPackage,
-			NotApplicableReason: "the object is not package content the scan examines (a metadata document, an index)"})
+		na := &SystemLLMScan{NotApplicable: LLMNotPackage,
+			NotApplicableReason: "the object is not package content the scan examines (a metadata document, an index)"}
+		noteLLMScan(r.Context(), na)
+		if sub.observe != nil {
+			sub.observe(na, false)
+		}
 		return true
 	}
 	if report.Scanned() && !report.Cached && !report.Shared {
@@ -178,8 +203,11 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 	// after this one (policy, risk) either — they would only refuse the same
 	// verdict the caller has taken on to act on.
 	deferring := isSystemRequest(r) && deferringLLM(r.Context())
+	// A gate pass over a cached object (Task 192) re-reads the verdict the full
+	// scan has just enforced: no client decision, nothing to count again.
+	gatePass := systemCacheOnly(r.Context())
 	var decision llmpkgscan.Decision
-	if deferring {
+	if deferring || gatePass {
 		decision = svc.Decide(report)
 	} else {
 		decision = svc.Gate(report)
@@ -244,6 +272,10 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 			evicted = true
 		}
 		g.auditLLMPkgScan(r, name, ecosystem, report, decision, sub.pinned)
+		if sub.observe != nil {
+			sub.observe(&SystemLLMScan{Applicable: true, Report: report, Decision: decision, Pinned: sub.pinned,
+				ReviewCoordinate: reviewCoordinate}, evicted)
+		}
 		g.deps.Logger.Warn("LLM package-scan gate refused artifact",
 			"backend", name, "ecosystem", ecosystem, "artifact", coordinate, "digest", report.Artifact.Digest,
 			"disposition", string(report.Disposition), "code", decision.Code, "action", decision.Action,
@@ -256,9 +288,11 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 	}
 
 	// Served. Say how on the response, and leave a record of anything short of a
-	// clean verdict.
+	// clean verdict — except in a gate pass, whose reading the full scan has
+	// just recorded and alerted on (Gateway.EnforceLLMScan).
 	label := "clean"
 	switch {
+	case gatePass:
 	case report.Unscanned != nil:
 		label = "degraded"
 		if report.Unscanned.Content {
@@ -281,6 +315,10 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 		}
 	}
 	setLLMPkgScanHeaders(w.Header(), report, label)
+	if sub.observe != nil {
+		sub.observe(&SystemLLMScan{Applicable: true, Report: report, Decision: decision, Pinned: sub.pinned,
+			ReviewCoordinate: reviewCoordinate}, false)
+	}
 	return true
 }
 
@@ -679,7 +717,7 @@ func (g *Gateway) auditLLMPkgScanDeferred(r *http.Request, backend, ecosystem st
 		"version":     art.Version,
 		"digest":      art.Digest,
 		"disposition": string(report.Disposition),
-		"deferred":    "repository-scan",
+		"deferred":    firstNonEmptyString(deferredTo(r.Context()), "repository-scan"),
 	}
 	if v := report.Verdict; v != nil {
 		detail["verdict"] = v.Verdict

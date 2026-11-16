@@ -91,6 +91,7 @@ func commands() []command {
 		{"gitops", "show GitOps sync status, force a sync, or roll back to last-known-good (Task 93)", runGitops},
 		{"prewarm", "show predictive cache pre-warming status or trigger a cycle (Task 134)", runPrewarm},
 		{"fullmirror", "show the full mirror's status, or pause, resume or resync it (Task 189)", runFullMirror},
+		{"fullscan", "show the full scan's status, or pause, resume or re-scan it (Task 192)", runFullScan},
 		{"sbom-export", "show outbound SBOM/findings federation status or trigger an export sweep (Task 153)", runSBOMExport},
 		{"query", "run a federated query over the proxy's security data model", runQuery},
 		{"mcp", "query the read-only MCP security endpoint or bridge stdio↔HTTP for AI agents (Task 79)", runMCP},

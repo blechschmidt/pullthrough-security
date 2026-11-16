@@ -19,8 +19,10 @@ on 2026-11-15, and describes the engine that follows them:
   in place: see [Running the full mirror](#running-the-full-mirror));
 - adapters for the tier-(a) feeds (Task 190) and for the indexes and listings of tiers (b)
   and (c) (Task 191), in place: see [Feed adapters](#feed-adapters);
-- scanning everything mirrored (Task 192), a view in the admin console (Task 193) and an
-  end-to-end test suite (Task 194).
+- the full scan (Task 192), in place: every mirrored and cached artifact of the upstreams it
+  covers kept under a current verdict of the LLM package scan and through every admission gate,
+  within a cost budget (see [Full scan](#full-scan));
+- a view in the admin console (Task 193) and an end-to-end test suite (Task 194).
 
 The **implementation status** column says, per type, what its feed adapter follows; the
 configuration refuses full mirroring of a type nothing can follow: Docker Hub, Swift package
@@ -475,6 +477,252 @@ supplies an `indexSource` — how to read the index, conditionally, into records
 differences; one for a newest-first listing supplies a `listingSource` and embeds `listingFeed`
 (`listfeed.go`); one for a Git-built index uses `gitIndex` (`gitfeed_tree.go`). Large documents
 are read with `kit.getStream` and `openContent` (`decompress.go`), as streams, never whole.
+
+## Full scan
+
+A full mirror runs every file it fetches through the admission gates, the
+[LLM package scan](llm-package-scan.md) included. That leaves three holes. The gate's scan
+slots, its queue and its budget are shared with the clients' pulls, so a mirror catching up on
+a registry gets `scanner-busy` or `budget-exhausted` back, and under `failMode: open` the file
+is cached without a verdict. The cache also holds what clients pulled before the gate was
+switched on, or while it could not judge (provider down, budget spent). And a verdict is only
+current for the model and prompt that produced it. The full scan (Task 192, `internal/fullscan`)
+closes all three. Every artifact in the cache of an upstream in its scope gets a current verdict
+of the LLM gate, and has passed every admission gate. A malicious one is refused (and
+quarantined) before any client asks for it.
+
+### Scope and configuration
+
+```yaml
+llmPackageScan:
+  enabled: true                # the full scan reuses the gate: provider, model, action, limits
+  action: quarantine
+fullScan:
+  enabled: false               # true: every cached artifact of every upstream the gate covers
+  concurrency: 2               # the full scan's own scans at a time
+  budget:
+    dailyUsd: 50               # US dollars per UTC day; 0 = no daily ceiling
+    monthlyUsd: 500            # per UTC month; at least one ceiling is required
+  sweepInterval: 6h            # the backfill sweep (default 6h, at least 1m)
+  maxArtifacts: 1000000        # bound on the tracked inventory
+upstreams:
+  npm:
+    type: npm
+    url: https://registry.npmjs.org
+    fullMirror:
+      enabled: true
+      fullScan: true           # this upstream's cache is fully scanned
+      byteBudget: 107374182400
+```
+
+| Setting | Meaning |
+|---|---|
+| `upstreams.<name>.fullMirror.fullScan` | Keep this upstream's cached artifacts under a current verdict. It works without `enabled`: the cache of an upstream that is not mirrored is scanned all the same. Refused when `llmPackageScan.excludeUpstreams` names the upstream or the gate does not cover its ecosystem. |
+| `fullScan.enabled` | The global switch: every cached artifact of every upstream the gate covers (`llmPackageScan.include` / `exclude` / `excludeUpstreams`). |
+| `fullScan.concurrency` | The full scan's scans at a time (default 2, at most 32). It is held below `llmPackageScan.maxConcurrent`, which must be at least 2, so that at least one of the gate's scan slots is always left to clients' pulls. |
+| `fullScan.budget.dailyUsd`, `monthlyUsd` | What the full scan's model calls may cost per UTC day and per UTC month. At least one is required. The full scan's own scans are paid from this budget, not from `llmPackageScan.budget` (see [Budget](#budget-pauses-and-re-scans)). |
+| `fullScan.sweepInterval` | Time between two backfill sweeps of the cache (default 6h). A sweep also runs when a replica comes to lead. |
+| `fullScan.maxArtifacts` | The most artifacts the full scan tracks (default 1,000,000). Beyond it an artifact is still judged by the gate when a client pulls it. |
+
+The full scan needs `llmPackageScan.enabled` (with `maxConcurrent` at least 2), a budget, and a
+state directory: it keeps its state in `fullscan/` under the full mirror's (`fullMirror.stateDir`,
+by default `<cache.dir>/fullmirror`). With `auth.enabled` it reads the cache with
+`fullMirror.roles`, like the mirror.
+
+### Where the artifacts come from
+
+- **The full mirror's fetches.** For an upstream in scope the mirror fetches with
+  `DeferLLMRefusal` (the mechanism the repository scans use): the gate judges the file at fetch
+  time, as for any client, but does not refuse it itself. The full scan applies the action ladder
+  to the reading (below) and records it. A refused verdict is counted by the mirror as refused by
+  `llmpkgscan`, as it would be without the deferral. The ladder applies even when a later gate
+  refuses the file as well (the policy engine, the risk score: they never see the withheld
+  reading); the mirror then counts that gate's refusal. A file the gate could not judge is cached
+  and queued; under `failMode: closed` a client's pull of it is refused until the scan is done.
+  These fetch-time scans are the gate's own, as without the full scan: they are charged to
+  `fullMirror.tenant` under `llmPackageScan.budget`, so give that tenant a ceiling of its own.
+- **Clients' pulls.** The gateway hands the full scan the gate's reading of every cached artifact
+  a client pulls. A verdict is recorded; an artifact the gate could not judge on the pull is
+  queued ahead of everything else.
+- **The backfill sweep.** The sweep lists the cache and adds every object in scope. Since Task 192
+  every cache fill records the request that filled it (`fill-upstream`, `fill-path`, `fill-accept`,
+  `fill-tenant` in the entry's metadata). The sweep puts an object back before the gate by that
+  path and as that tenant. An object cached before this release has no such record and cannot be
+  put back by path. It is counted as *untracked* (by the upstream its cache key names, when it
+  names one). It is still judged when a client pulls it, and the full mirror reports the ones it
+  finds in the cache while it enumerates the registry.
+
+### The queue
+
+Every artifact without a current verdict waits in a persistent priority queue:
+
+1. **client**: an artifact a client pulled that the gate could not judge on the pull, or one an
+   operator asked to re-scan by path;
+2. **mirror**: an artifact the full mirror fetched without a verdict;
+3. **backfill**: what the sweep found, oldest cached first, and every artifact whose verdict a
+   new scan signature made stale.
+
+A worker puts the artifact before the gate with `Gateway.SystemScan`, as the tenant whose cache
+namespace holds it. The verdict cache, the gate's budget, its breaker and its limits apply as for
+any scan, and bytes that already have a verdict cost no model call. The scans a client pull starts
+come first: the full scan starts a scan of its own only while no scan waits for one of the gate's
+slots, and runs at most `fullScan.concurrency` at a time, at least one slot fewer than the gate
+has. An attempt that fails is retried with
+backoff (30s, doubling, at most an hour); after five failed attempts the artifact is counted as an
+error until the next sweep queues it again. A spent gate budget (`llmPackageScan.budget`) holds the
+queue for 15 minutes. A busy scanner or an open breaker costs no attempt.
+
+**A gate pass.** Once the gate admits the bytes of an artifact the backfill found, the full scan
+puts the cached object through every admission gate: a `SystemFetch` with `CacheOnly`, which
+fetches and serves nothing. A miss answers 404 without asking the upstream, and nothing is
+remembered of it. A gate whose verdict the object predates judges it now: one switched on since,
+or a malware feed that lists it now. Its own action applies, with its audit record, alert and
+findings, as on a pull. The pass is not a download. It is not in the download log, nothing is
+metered, attested or reported as demand, and a refusal opens no break-glass review. Three gates
+are not part of a gate pass: the sbom-diff and publisher-continuity gates judge a version against
+the history of what was pulled, and the rebuild verifier queues a rebuild per pull. A re-check of a
+cached artifact is no new observation, and an old version re-checked must not become the newest
+in their history. A file the full mirror fetched passed every gate at fetch time and gets no gate
+pass. An operator's re-scan runs one again.
+
+**Rules the gate keeps hold here too.**
+
+- An artifact without a verdict is never counted as benign. It stays pending, or is counted as
+  refused (the model declined to judge it) or unscannable (too large, a format the gate cannot
+  unpack, an answer it could not read).
+- A verdict is visible to a tenant only on bytes that tenant pulled. The scan runs as the tenant
+  whose request filled the cache entry, so the backfill shows no verdict to a tenant that did not
+  pull those bytes.
+- No model text leaves the operator surfaces. The status, the metrics, the findings documents and
+  the alerts carry dispositions and codes, never the model's reasons.
+
+### The action ladder, before any client asks
+
+A reading is enforced as the gate enforces it on a pull (`Gateway.EnforceLLMScan`):
+
+| Gate reading | `annotate` | `block` | `quarantine` |
+|---|---|---|---|
+| malicious | kept, flagged | **evicted**, refused | **evicted**, refused |
+| suspicious | kept, flagged | kept, flagged | **evicted**, held for review |
+| benign | kept | kept | kept |
+| unscanned | the fail mode, as on a pull: refused under `closed`, nothing evicted | | |
+
+Bytes a release pins are kept, for forensics, and refused all the same. An operator's break-glass
+grant releases exactly the bytes it names. Each flagged reading raises the usual events:
+
+- an audit record `llmpkgscan:<code>` with `source: full-scan` and whether the object was evicted;
+- a `llm_package_scan` alert (critical for malicious), once per verdict;
+- a findings document through the findings layer (de-duplication, the suppression trail, the
+  findings store, SARIF, the dossier) and the SIEM. In the findings store the reading replaces
+  only this gate's findings in the document the last pull of the same bytes recorded, so the
+  other gates' findings (vulnerabilities, install hooks, licences) stay. The ladder evicts only
+  the bytes it judged: an object refilled with other bytes in the meantime is judged on its own.
+
+A mirrored file's findings document is the fetch's own. The gate's deferred reading is audited as
+`llmpkgscan:deferred:<code>` with `deferred: full-scan`. The quarantined artifact stays in the
+inventory as the record of the verdict, for 30 days. A client's later pull is refused from the
+verdict cache, at no model cost.
+
+### Budget, pauses and re-scans
+
+- **Budget.** The full scan's own model calls (backfill, retries, re-scans) are paid from
+  `fullScan.budget`: what each scan cost, including one that failed after the model answered.
+  They are exempt from `llmPackageScan.budget`'s per-tenant and global ceilings, which neither
+  refuse them nor are charged with them. A backlog the full scan works through therefore never
+  leaves the clients' pulls without the gate's budget, and the two bills are bounded separately.
+  Once the day's or the month's ceiling is spent the queue pauses until the window rolls over
+  (UTC) or the ceiling is raised. The exhaustion is announced once per window (audit
+  `budget-exhausted`, a `cost_budget` alert with `scope: full-scan`). The check happens before a
+  scan starts, so the scans in flight can take the spend past the ceiling by at most
+  `concurrency` scans. Clients' pulls are not affected: the gate judges them as always, under
+  its own budget.
+- **Re-scan on a new signature.** A verdict is current under the gate's *scan signature*: the
+  model, the prompt version and the verdict schema version (`llmpkgscan.VerdictSchemaVersion`).
+  When a replica comes to lead under another signature, every artifact judged under the old one
+  goes back into the queue (backfill class, audit `rescan-version`, counter
+  `rescans{reason="version"}`). A new model or prompt changes the verdict cache's key; a new
+  schema version makes the gate treat an older record as missing. Either way the bytes are
+  scanned again.
+- **Operators' controls**, persisted and honoured by whichever replica leads:
+
+| Endpoint | Capability | Step-up |
+|---|---|---|
+| `GET /admin/api/fullscan/status` (`?upstream=<name>` for one) | read | — |
+| `POST /admin/api/fullscan/pause` `{"upstream": "npm", "reason": "…"}` (no upstream: the whole full scan) | operate | yes |
+| `POST /admin/api/fullscan/resume` `{"upstream": "npm"}` (no upstream: the global pause and every upstream's) | operate | yes |
+| `POST /admin/api/fullscan/rescan` `{"upstream": "npm", "filter": "flagged", "path": "…"}` | administer | yes |
+
+A re-scan calls the model again although the bytes have a verdict: of one upstream or every one,
+for the artifacts whose last reading matches the filter (`all`, `malicious`, `suspicious`,
+`benign`, `flagged`, `unscannable`, `refused`, `not-applicable`, `error`), or for the one
+artifact under `path`, which goes to the front of the queue. The new verdict replaces the stored
+one (for every tenant), and the artifact gets a gate pass again. A reading the verdict cache
+gives a client meanwhile does not stand in for the requested model call. A re-scan that changes
+an artifact's reading is audited (`verdict-changed`, from and to), so a malicious verdict that
+turns benign on a second reading does not go unnoticed. The full scan is instance-wide: a
+tenant-bound identity may read its status (the figures, without the paths of single artifacts,
+the operators' names or error texts) but not steer it.
+
+```
+ptctl fullscan status [--upstream npm] [--json]
+ptctl fullscan pause  [--upstream npm] [--reason "monthly bill review"]
+ptctl fullscan resume [--upstream npm]
+ptctl fullscan rescan [--upstream npm] [--filter flagged] [--path /left-pad/-/left-pad-1.3.0.tgz]
+```
+
+### Status, metrics and audit
+
+`GET /admin/api/fullscan/status` reports, per upstream:
+
+- the tracked artifacts in the cache, and those **scanned** (benign, suspicious, malicious);
+- those **pending**; those **refused** by the model or **unscannable**; the **errors**; the
+  **quarantined** ones (evicted by the ladder); those **not applicable** (a metadata document, a
+  blob its image's verdict covers);
+- whether every gate admitted them (`gatesPassed`) or another gate refused them in a gate pass
+  (`gateRefused`);
+- the **oldest unscanned** artifact (its path, how long it has been cached), the untracked
+  objects, and what its scans **spent**.
+
+Overall it shows the state (`scanning`, `idle`, `waiting`, `paused`, `budget-exhausted`,
+`lockdown`, `standby`, `starting`, `error`), the queue per class, the spend per window against its
+ceiling, the scan signature and the last sweep. A replica that does not lead shows the figures the
+leader last published.
+
+**Metrics** (`pullthrough_fullscan_*`): `upstreams`, `leader`, `paused{upstream}`, `state{state}`,
+`artifacts{upstream,status}`, `oldest_unscanned_seconds{upstream}`, `queue{priority}`,
+`in_flight`, `scans_total{upstream,result}` (model, cached), `verdicts_total{upstream,verdict}`,
+`unscanned_total{upstream,code}`, `enforced_total{upstream,outcome}` (refused, evicted),
+`rescans_total{upstream,reason}`, `errors_total{upstream}`, `spend_usd{window}`,
+`budget_usd{window}`, `budget_exhausted`, `upstream_spend_usd_total{upstream}`,
+`untracked{upstream}`, `last_sweep_timestamp_seconds`, `dropped_total`. The counters are the
+persisted tallies: they carry over restarts.
+
+**Audit events** (`full_scan`): `paused`, `resumed`, `rescan-requested` (with the operator),
+`rescan`, `rescan-version`, `verdict-changed`, `budget-exhausted`, `state-reset`. The gate's decisions on the full
+scan's readings are `policy_decision` records (`llmpkgscan:<code>`, `source: full-scan`).
+
+### How it runs
+
+- **On the full mirror's leader.** The full scan holds no lease of its own: it works on the
+  replica holding the `full-mirror` lease, so the mirror's readings reach the replica that keeps
+  the inventory. A replica that does not lead passes on what a client pulled unjudged through an
+  inbox in the state directory, and nothing else. The leader learns the rest from the sweep, or
+  from the verdict cache at no cost. While an [emergency lockdown](lockdown.md) is engaged no scan
+  starts.
+- **State.** `fullscan/state.json` (counters, the spend, the figures it last published, the
+  names of the live inventory files), the inventory as a snapshot (`items-<gen>-<id>.snap`) plus a
+  journal of the changes since (`.log`, synced every second), `control.json` (pauses and
+  re-scan requests) and `inbox/`. A replica that comes to lead writes a new snapshot and journal
+  and moves the generation on. A former leader that writes again finds it moved and stands by
+  until its lease has said otherwise (at most 5 minutes), so two replicas that both think they
+  lead do not take the state from each other in turn; its scans in flight are cancelled. A long
+  journal is compacted into a new snapshot; until that snapshot is on disk the state names the
+  previous pair, so a failed write loses nothing. A torn last journal line (a crash in the middle
+  of an append) is ignored. A `control.json` that cannot be read holds the full scan (it may hold
+  an operator's pause) until it can. The inventory can always be rebuilt from the cache: a state
+  that cannot be read is set aside and the sweep starts over (audit `state-reset`).
+- **Backup.** The directory is part of the `full-mirror` backup source (volatile: each file is
+  copied once). A restored proxy resumes the queue where the backup left it.
 
 ## Private and self-hosted upstreams
 

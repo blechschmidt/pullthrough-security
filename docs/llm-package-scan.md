@@ -746,7 +746,7 @@ hostile package could otherwise hand over the attacker's ready-made object.
 | `digest`, `key` | the bytes the verdict is about, and its storage key |
 | `verdict`, `confidence`, `reasons`, `evidence[]` | the model's answer, sanitized; each evidence item carries `verified` — whether the proxy found the excerpt at that place in the unpacked file |
 | `injection[]`, `anomalies[]`, `structuralRisk` | what the proxy's own deterministic checks found: text addressed to the scanner (rule, path, line, strong or weak) and archive structure with no innocent explanation |
-| `provider`, `model`, `promptVersion`, `mode`, `turns`, `toolCalls` | how the verdict was produced |
+| `provider`, `model`, `promptVersion`, `schemaVersion`, `mode`, `turns`, `toolCalls` | how the verdict was produced; `schemaVersion` is the verdict schema version (`VerdictSchemaVersion`, absent in records from before Task 192, which read as 1) |
 | `format`, `kind`, `scope`, `files`, `unpackedBytes`, `truncated`, `coverage[]` | what the model could see: the format recognized, how it was read (`archive`, `file`, `oci-image`), `metadata-only` for an artifact above the size limit, and — in plain sentences — what was cut |
 | `blobs[]`, `config`, `unexamined[]`, `implicated[]`, `rootfs` | for an image: its blobs, the layers the image scan did not cover (each examined on its own when pulled), the blobs a refusing verdict holds against, and whether a layer was read as a root filesystem |
 | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `costUsd` | what the scan cost |
@@ -822,7 +822,14 @@ the response also carries `Retry-After`.
   scanned once, whatever coordinate, tenant or request they arrive under. A
   different model or a new prompt version (which also covers the tool contract,
   the output schema and the injection ruleset) re-scans rather than serving an
-  answer the new rules did not produce.
+  answer the new rules did not produce. A stored verdict of another verdict
+  schema version (`VerdictSchemaVersion`: the stored record's fields and how they
+  are read back) is not served either: the bytes are scanned again and the new
+  verdict replaces it under the same key. While no new verdict can be had (the provider
+  down, the budget spent), a stale-schema verdict that refuses the artifact still refuses it:
+  bytes the gate refused do not become servable for want of a scan. A bundle's current
+  verdict replaces a stale-schema record on import. The [full scan](full-mirroring.md#full-scan)
+  re-queues the cached artifacts whose verdicts any of the three made stale.
 - **Bound to the bytes served.** The key is the digest the cache recorded for the
   entry being served. The scanner hashes the stream it actually unpacks and
   refuses to file a verdict if the two differ (`digest-mismatch`).
@@ -939,6 +946,7 @@ To stop scanning something entirely, use `exclude` (an ecosystem) or
 | **Admin API** | `GET /admin/api/llmpkgscan` (configuration without secrets, tallies, budget) and `GET /admin/api/llmpkgscan/verdicts?limit=&name=&ecosystem=&version=` |
 | **Usage metering** | one `llmpkgscan` scan per fresh verdict, attributed to the tenant |
 | **Repository dependency scans** ([repositories.md](repositories.md#dependency-scans)) | every dependency a tracked repository's lock files pin is put before the gate (each release, the default branch's head, any revision on request); the per-repository report, SARIF at the lock-file lines (`llmpkgscan/malicious-dependency`, `suspicious-dependency`, `unscanned-dependency`), a release marked *contains malicious dependency* |
+| **Full scan** ([full-mirroring.md](full-mirroring.md#full-scan)) | every cached artifact of the upstreams it covers is kept under a current verdict, the full mirror's fetches judged as they arrive and the rest backfilled; a refused one is evicted before any client asks for it, with the audit record (`source: full-scan`), the alert and the findings a pull's refusal raises |
 
 ### Tracked repositories
 
@@ -953,6 +961,42 @@ dependency this gate refuses (when release scans are on). It pins the bytes,
 which are then kept for forensics, and the release scan marks the release
 *contains malicious dependency*. A client's pull of those bytes is judged, and
 refused, as always. A refusal of bytes a release pins never evicts them.
+
+### The full scan
+
+The full scan ([full-mirroring.md](full-mirroring.md#full-scan), Task 192) keeps every cached
+artifact of the upstreams it covers under a current verdict of this gate, so that a malicious
+upload is refused before anyone pulls it. Like the repository scans it adds no scanner of its own:
+its scans go through `Gateway.SystemScan`, with this gate's verdict cache, budget, breaker and
+limits. Its own concurrency stays below `maxConcurrent`, and it starts a scan only while no
+client's scan waits for a slot. Its spend is capped by a budget of its own (`fullScan.budget`, per
+UTC day and month), on top of this gate's.
+
+What the full scan relies on here:
+
+- **The full mirror's fetches defer the refusal.** For an upstream in scope the mirror fetches
+  with `DeferLLMRefusal`: this gate judges the file and records its reading (audit
+  `llmpkgscan:deferred:<code>`, `deferred: full-scan`), and the full scan applies the ladder.
+- **The ladder outside a request.** `Gateway.EnforceLLMScan` does for a reading of a cached object
+  what this gate does for a pull. Under `block` or `quarantine` a refused object is evicted unless
+  a release pins it. The refusal is audited (`llmpkgscan:<code>`, `source: full-scan`) and alerted
+  once per verdict, and the findings go through the findings layer and the SIEM. A clean reading
+  records nothing.
+- **A re-scan by request.** `SystemScanRequest.Refresh` (`Request.Refresh` here) scans the bytes
+  again although they have a verdict, and ignores a remembered failure; the new verdict replaces
+  the stored one. Only an operator's `ptctl fullscan rescan` asks for it.
+- **The scan signature.** A verdict is current under the model, `PromptVersion` and
+  `VerdictSchemaVersion` it was produced with (`Signature()`, `SignatureOf(verdict)`). The full
+  scan queues again every artifact judged under another signature.
+- **What a scan cost, and who pays.** A report carries what its scan spent, also for a scan
+  that failed after the model answered, so the full scan can charge its budget. The full scan's
+  scans are paid from that budget (`SystemScanRequest.OwnBudget`): this gate's per-tenant and
+  global ceilings neither refuse them nor are charged with them, so a backlog never leaves the
+  clients' pulls without this gate's budget. The full mirror's fetch-time scans are this gate's
+  own, charged to `fullMirror.tenant`.
+- **The clients' readings.** The gateway reports this gate's reading of every cached artifact a
+  client pulls (`Dependencies.LLMScanObserver`). An artifact this gate could not judge on the pull
+  is queued first.
 
 ### Policy-as-code
 

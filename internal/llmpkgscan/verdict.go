@@ -75,6 +75,10 @@ type Verdict struct {
 	Provider      string `json:"provider"`
 	Model         string `json:"model"`
 	PromptVersion int    `json:"promptVersion"`
+	// SchemaVersion is the verdict schema version the record was written
+	// under (VerdictSchemaVersion; absent — zero — in records written before
+	// the field existed, which read as version 1).
+	SchemaVersion int `json:"schemaVersion,omitempty"`
 	// Mode is "tools" or "bundle".
 	Mode      string `json:"mode"`
 	Turns     int    `json:"turns"`
@@ -137,6 +141,15 @@ type Verdict struct {
 
 	ScannedAt  time.Time `json:"scannedAt"`
 	DurationMS int64     `json:"durationMs"`
+}
+
+// schema returns the verdict schema version the record was written under: a
+// record from before the field existed is version 1.
+func (v *Verdict) schema() int {
+	if v.SchemaVersion <= 0 {
+		return 1
+	}
+	return v.SchemaVersion
 }
 
 // clone returns a deep copy, so a caller cannot mutate a stored verdict.

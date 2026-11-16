@@ -28,6 +28,11 @@ import (
 // (subject to break-glass). It returns true when the request may proceed and false
 // when it has been blocked and a response has already been written.
 func (g *Gateway) gateContinuity(w http.ResponseWriter, r *http.Request, name, ecosystem string, resolved *backends.Resolved) bool {
+	if systemCacheOnly(r.Context()) {
+		// A gate pass over a cached object (Task 192) is no new sighting of
+		// the publisher: trust on first use is decided as versions are pulled.
+		return true
+	}
 	if g.deps.Continuity == nil || !g.deps.Continuity.Enabled() {
 		return true
 	}

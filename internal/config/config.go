@@ -349,6 +349,14 @@ type Config struct {
 	// docs/full-mirroring.md.
 	FullMirror FullMirrorConfig `yaml:"fullMirror"`
 
+	// FullScan configures the full scan (Task 192): every artifact in the
+	// cache of an upstream whose fullMirror block sets fullScan — or, with
+	// fullScan.enabled, of every upstream the LLM package scan covers — is
+	// kept under a current verdict of the LLM package-content scan gate,
+	// within a cost budget, so that a malicious upload is refused before any
+	// client asks for it. See docs/full-mirroring.md#full-scan.
+	FullScan FullScanConfig `yaml:"fullScan"`
+
 	// Secrets configures the master key used to decrypt secret values stored
 	// encrypted at rest.
 	Secrets SecretsConfig `yaml:"secrets"`
@@ -5975,6 +5983,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateFullMirror(); err != nil {
+		return err
+	}
+	if err := c.validateFullScan(); err != nil {
 		return err
 	}
 	if err := c.validateTrustedProxies(); err != nil {

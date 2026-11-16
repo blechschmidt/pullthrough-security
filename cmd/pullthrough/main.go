@@ -936,8 +936,16 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("full mirroring: %w", err)
 	}
+	// The full scan (Task 192): keeps every cached artifact of the upstreams
+	// it covers under a current LLM package-scan verdict. Built here so the
+	// admin API, the metrics and the gateway's observer can reach it; attached
+	// to the gateway and started once that exists.
+	fullScan, err := buildFullScan(cfg, llmPkgScanSvc, auditLog, notifier, logger)
+	if err != nil {
+		return fmt.Errorf("full scan: %w", err)
+	}
 
-	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, userLinksSvc, reposSvc, fullMirror, logger)
+	obs := buildObservability(cfg, configSvc, registry, cacheImpl, scanner, secretDetector, provService, provResolver, vulnService, nameGuard, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, mlGuardSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, sigVerify, licenseService, pacEngine, rescanner, notifier, siemFwd, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, poolMgr, egressGuard, pinGuard, connMetrics, cacheGC, backupScheduler, findingsStore, findingsMetrics, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, logPipeline, coordSvc, clientMTLS, secretsResolver, rekorDeps.metrics, cacheFed, keyRotationSvc, webAuthnSvc, downloadLog, userLinksSvc, reposSvc, fullMirror, fullScan, logger)
 
 	// Only the coordination leader emits expiry notifications (the scan still runs
 	// on every replica so each node's gauge is populated); then start the loop.
@@ -1039,6 +1047,7 @@ func run() error {
 		RepoWebhookHandler: repoWebhookHandler(reposSvc, cfg, logger),
 		Pins:               pinChecker(reposSvc),
 		PullObserver:       newPrewarmPullObserver(prewarmSvc),
+		LLMScanObserver:    newFullScanObserver(fullScan),
 		CacheFed:           cacheFed,
 		DownloadLog:        downloadLog,
 		UserLinks:          userLinksSvc,
@@ -1114,8 +1123,18 @@ func run() error {
 	// Full mirroring (Task 189): fetch through the gateway's gated serve
 	// pipeline as the system principal, on the HA leader only, never during
 	// an emergency lockdown, admitted by the rate limiter like any client.
+	// The full scan (Task 192) runs on the full mirror's lease, so the
+	// mirror's readings reach the replica that keeps the inventory.
+	if fullScan != nil {
+		wireFullScan(ctx, fullScan, cfg, gateway, llmPkgScanSvc, fullScanInventory(cacheImpl), coordSvc.Guard("full-mirror"), lockdownSvc)
+		defer func() {
+			if cerr := fullScan.Close(); cerr != nil {
+				logger.Error("closing the full scan", "error", cerr)
+			}
+		}()
+	}
 	if fullMirror != nil {
-		wireFullMirror(ctx, fullMirror, cfg, gateway, coordSvc.Guard("full-mirror"), lockdownSvc, rateLimiter)
+		wireFullMirror(ctx, fullMirror, cfg, gateway, coordSvc.Guard("full-mirror"), lockdownSvc, rateLimiter, fullScan)
 		defer func() {
 			if cerr := fullMirror.Close(); cerr != nil {
 				logger.Error("closing the full mirror", "error", cerr)

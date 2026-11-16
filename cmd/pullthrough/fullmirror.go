@@ -12,6 +12,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/coord"
 	"github.com/blechschmidt/pullthrough-security/internal/egress"
 	"github.com/blechschmidt/pullthrough-security/internal/fullmirror"
+	"github.com/blechschmidt/pullthrough-security/internal/fullscan"
 	"github.com/blechschmidt/pullthrough-security/internal/lockdown"
 	"github.com/blechschmidt/pullthrough-security/internal/proxy"
 	"github.com/blechschmidt/pullthrough-security/internal/ratelimit"
@@ -114,12 +115,14 @@ func upstreamAuthorizer(c config.Credentials) func(*http.Request) {
 
 // wireFullMirror attaches the engine to the gateway's gated serve pipeline,
 // gates it on HA leadership and the emergency lockdown, has the proxy's rate
-// limiter admit its fetches, and starts it.
-func wireFullMirror(ctx context.Context, e *fullmirror.Engine, cfg *config.Config, gw *proxy.Gateway, guard *coord.Guard, lock *lockdown.Service, limiter *ratelimit.Limiter) {
+// limiter admit its fetches, and starts it. For an upstream the full scan
+// (Task 192) covers, the gate's refusals of the mirror's fetches are deferred
+// to the full scan, which applies the ladder and keeps the reading.
+func wireFullMirror(ctx context.Context, e *fullmirror.Engine, cfg *config.Config, gw *proxy.Gateway, guard *coord.Guard, lock *lockdown.Service, limiter *ratelimit.Limiter, fs *fullscan.Service) {
 	if e == nil {
 		return
 	}
-	e.Attach(gatewayMirrorFetcher{gw: gw, tenant: cfg.FullMirror.Tenant, roles: cfg.FullMirror.Roles})
+	e.Attach(gatewayMirrorFetcher{gw: gw, tenant: cfg.FullMirror.Tenant, roles: cfg.FullMirror.Roles, scan: mirrorFullScan{fs: fs, gw: gw}})
 	e.SetLeaderGate(guard.IsLeader, guard.FencingToken)
 	if lock != nil {
 		e.SetKillSwitch(func() (bool, string) {
@@ -141,25 +144,39 @@ type gatewayMirrorFetcher struct {
 	gw     *proxy.Gateway
 	tenant string
 	roles  []string
+	// scan is the full scan (Task 192); its zero value scans nothing.
+	scan mirrorFullScan
 }
 
 func (f gatewayMirrorFetcher) request(req fullmirror.FetchRequest) proxy.SystemFetchRequest {
 	// NoReview: nobody asked for what the mirror fetches, so a refusal opens
 	// no break-glass review (an existing grant still applies).
-	return proxy.SystemFetchRequest{
+	r := proxy.SystemFetchRequest{
 		Backend: req.Upstream, Path: req.Path, Accept: req.Accept, MaxBytes: req.MaxBytes,
 		Tenant: f.tenant, Subject: fullmirror.Subject, Roles: f.roles, UserAgent: fullMirrorUserAgent,
 		NoReview: true,
 	}
+	if f.scan.inScope(req.Upstream) {
+		// The full scan applies the ladder to what the gate reads, and keeps
+		// the reading (Task 192).
+		r.DeferLLMRefusal, r.DeferredTo = true, fullScanSource
+	}
+	return r
 }
 
 func (f gatewayMirrorFetcher) Lookup(ctx context.Context, req fullmirror.FetchRequest) (fullmirror.LookupResult, error) {
 	res, err := f.gw.SystemLookup(ctx, f.request(req))
+	if err == nil {
+		f.scan.seen(req, f.tenant, res)
+	}
 	return fullmirror.LookupResult{Cacheable: res.Cacheable, Cached: res.Cached, Size: res.Size}, err
 }
 
 func (f gatewayMirrorFetcher) Fetch(ctx context.Context, req fullmirror.FetchRequest, body io.Writer) (fullmirror.FetchResult, error) {
 	res, err := f.gw.SystemFetch(ctx, f.request(req), body)
+	// Also after an error: the gate's deferred reading is the full scan's to
+	// act on, whatever became of the fetch.
+	res = f.scan.fetched(ctx, req, f.tenant, res)
 	return fullmirror.FetchResult{
 		Status: res.Status, Cache: res.Cache, Admitted: res.Admitted, Size: res.Size,
 		Gate: res.Gate, Code: res.Code, Reason: res.Reason, Action: res.Action, RetryAfter: res.RetryAfter,

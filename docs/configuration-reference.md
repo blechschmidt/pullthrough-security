@@ -212,6 +212,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `upstreams.<string>.fullMirror.offPeak.timezone` | string | — |
 | `upstreams.<string>.fullMirror.dryRun` | bool | — |
 | `upstreams.<string>.fullMirror.feed` | map[string]string | {} |
+| `upstreams.<string>.fullMirror.fullScan` | bool | — |
 
 ## `git`
 
@@ -1368,6 +1369,17 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `fullMirror.stateDir` | string | — |
 | `fullMirror.tenant` | string | — |
 | `fullMirror.roles` | []string | [] |
+
+## `fullScan`
+
+| Setting | Type | Default |
+|---------|------|---------|
+| `fullScan.enabled` | bool | false |
+| `fullScan.concurrency` | int | 0 |
+| `fullScan.budget.dailyUsd` | float | 0 |
+| `fullScan.budget.monthlyUsd` | float | 0 |
+| `fullScan.sweepInterval` | duration | 0s |
+| `fullScan.maxArtifacts` | int | 0 |
 
 ## `secrets`
 

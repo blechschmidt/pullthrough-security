@@ -207,7 +207,7 @@ var catalog = []Gate{
 		Name: "llmpkgscan", Package: "internal/llmpkgscan", Trigger: TriggerEveryServePath,
 		Actions: []string{"annotate", "block", "quarantine", "fail-open | fail-closed (when unscanned)"}, ConfigPath: "llmPackageScan",
 		MetricPrefix: "pullthrough_llmpkgscan_", FindingsGate: findings.GateLLMPkgScan,
-		Summary: "Sandboxed LLM review of the unpacked artifact (read-only tools, no execution) for every upstream type and on every serve path — cached and non-cacheable responses, OCI images judged at the manifest with their blobs following the verdict, Git LFS objects; verdict cached per sha256 digest + model + prompt version. Per-backend coverage: docs/llm-package-scan-coverage.md.",
+		Summary: "Sandboxed LLM review of the unpacked artifact (read-only tools, no execution) for every upstream type and on every serve path — cached and non-cacheable responses, OCI images judged at the manifest with their blobs following the verdict, Git LFS objects; verdict cached per sha256 digest + model + prompt version (a stored verdict of another verdict schema version is scanned again). Per-backend coverage: docs/llm-package-scan-coverage.md. The full scan (docs/full-mirroring.md#full-scan) keeps every cached artifact of the upstreams it covers under a current verdict — the full mirror's fetches judged as they arrive, the rest backfilled through SystemScan, each followed by a cache-only pass through every gate — and applies this ladder before any client asks.",
 	},
 	{
 		Name: "reposcore", Package: "internal/reposcore", Trigger: TriggerServe,
@@ -318,6 +318,19 @@ objects (see [llm-package-scan-coverage.md](llm-package-scan-coverage.md)); and
 **commit pipeline** gates run in the separate Git commit-scanning subsystem.
 Each gate folds its verdict into the shared admission signal set, which the
 policy engine and risk-scoring engine then evaluate.
+
+The pull-admission and serveCacheable gates also judge what nobody has asked
+for yet. The full mirror fetches each new upload through them, as the system
+principal ` + "`system:full-mirror`" + `. The full scan
+([full-mirroring.md](full-mirroring.md#full-scan)) puts every cached artifact of
+the upstreams it covers before ` + "`llmpkgscan`" + `, and then through every gate in a
+cache-only *gate pass*. The gate pass fetches and serves nothing and is not a
+download, so a gate switched on after an artifact was cached judges it too. Each
+gate's own action applies, with its audit record, alert and findings, as on a
+pull. Only the break-glass review is not opened: nobody asked for the artifact.
+The gates that judge a version against the history of what was pulled
+(` + "`sbomdiff`" + `, ` + "`continuity`" + `) and the rebuild verifier's queue are not part of
+a gate pass: a re-check is no new observation.
 
 Actions are the gate's own admission vocabulary; the exact config field (usually
 ` + "`action`" + ` or ` + "`mode`" + `) is under the listed config path — see the

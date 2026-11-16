@@ -180,7 +180,8 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 		return
 	}
 	rec := pullRecordFrom(r.Context())
-	if rec == nil || !rec.described || isPrewarmRequest(r) {
+	if rec == nil || !rec.described || isPrewarmRequest(r) || systemCacheOnly(r.Context()) {
+		// A gate pass over a cached object (Task 192) downloads nothing.
 		return
 	}
 

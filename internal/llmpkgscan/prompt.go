@@ -27,6 +27,53 @@ import (
 // the package; with the marker the same package is judged malicious.
 const PromptVersion = 3
 
+// VerdictSchemaVersion is the version of the stored verdict record: its fields
+// and the meaning the gate gives them when it reads one back (Task 192). A
+// verdict written under another schema is not served — the verdict cache treats
+// it as missing, so the artifact is scanned again and the new verdict replaces
+// it under the same key — and the full scan re-queues every artifact whose
+// verdict it holds. Bump it when a change to Verdict or to how a stored verdict
+// is read would make an old record mean something it did not mean when it was
+// written. Version 1 is every verdict written before the field existed (Tasks
+// 173-191): a record without the field reads as version 1.
+const VerdictSchemaVersion = 1
+
+// ScanSignature is what a verdict depends on besides the bytes it judges: the
+// model that produced it, the prompt version (the prompt, the tool contract,
+// the model's output schema, the injection ruleset) and the verdict schema
+// version. A verdict is current when its signature is the gate's.
+type ScanSignature struct {
+	Model         string `json:"model"`
+	PromptVersion int    `json:"promptVersion"`
+	SchemaVersion int    `json:"schemaVersion"`
+}
+
+// String renders the signature compactly ("<model>|p3|s1").
+func (s ScanSignature) String() string {
+	if s.Model == "" && s.PromptVersion == 0 && s.SchemaVersion == 0 {
+		return ""
+	}
+	return s.Model + "|p" + strconv.Itoa(s.PromptVersion) + "|s" + strconv.Itoa(s.SchemaVersion)
+}
+
+// SignatureOf returns the signature a stored verdict was produced under.
+func SignatureOf(v *Verdict) ScanSignature {
+	if v == nil {
+		return ScanSignature{}
+	}
+	return ScanSignature{Model: v.Model, PromptVersion: v.PromptVersion, SchemaVersion: v.schema()}
+}
+
+// Signature returns the signature verdicts are produced under now: the
+// configured model, PromptVersion and VerdictSchemaVersion. Safe on a nil
+// receiver (it returns the zero signature).
+func (s *Service) Signature() ScanSignature {
+	if s == nil {
+		return ScanSignature{}
+	}
+	return ScanSignature{Model: s.cfg.Model, PromptVersion: PromptVersion, SchemaVersion: VerdictSchemaVersion}
+}
+
 // promptCanary is planted in the system prompt with an instruction never to
 // output it. If it turns up in an answer, the model was talked into disclosing
 // its instructions, and nothing else in that answer can be trusted.

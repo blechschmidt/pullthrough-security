@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/blechschmidt/pullthrough-security/internal/approvals"
@@ -63,10 +64,23 @@ type SystemLLMScan struct {
 	// releasing the object, when there is one.
 	ReviewCoordinate string
 	BreakGlass       string
+	// CacheKey, Digest and Size describe the cached object a system scan
+	// judged (SystemScan sets them; a system fetch reports them in its result).
+	CacheKey string
+	Digest   string
+	Size     int64
 }
 
 // ErrLLMScanDisabled is returned by SystemScan when the gate is off.
 var ErrLLMScanDisabled = errors.New("proxy: the LLM package-content scan gate is not enabled")
+
+// ErrSystemScanGone is what SystemScan returns (wrapped) for an object the
+// cache no longer holds; ErrSystemScanChanged for one whose bytes are not the
+// ones the caller named (SystemScanRequest.Digest).
+var (
+	ErrSystemScanGone    = errors.New("proxy: the object is not in the cache")
+	ErrSystemScanChanged = errors.New("proxy: the cached object changed")
+)
 
 // llmScopeReason says why the gate does not scan an ecosystem's artifacts
 // fetched through an upstream.
@@ -112,6 +126,14 @@ type SystemScanRequest struct {
 	// must still have.
 	CacheKey string
 	Digest   string
+	// Refresh scans the object again even when its bytes have a verdict (or a
+	// remembered failure): an operator's re-scan (Task 192). The new verdict
+	// replaces the stored one.
+	Refresh bool
+	// OwnBudget pays the scan from the caller's own budget (the full scan's,
+	// Task 192): the gate's per-tenant and global ceilings neither refuse it
+	// nor are charged with it (llmpkgscan.Request.OwnBudget).
+	OwnBudget bool
 }
 
 // SystemScan puts one cached object before the LLM package-content scan gate
@@ -129,7 +151,17 @@ func (g *Gateway) SystemScan(ctx context.Context, req SystemScanRequest) (*Syste
 	if req.Backend == "" || !strings.HasPrefix(req.Path, "/") || strings.ContainsAny(req.Path, "?#\r\n") {
 		return nil, errors.New("proxy: a system scan needs a backend and an absolute path without query")
 	}
-	if backends.HasDotSegment(req.Path) {
+	// The path as the serve pipeline resolves it: decoded, like the request
+	// path of a pull, a system fetch and a system lookup ("%2B" is "+").
+	u, err := url.Parse("/v1/" + req.Backend + req.Path)
+	if err != nil {
+		return nil, fmt.Errorf("proxy: a system scan path: %w", err)
+	}
+	name, path, ok := splitBackendPath(u.Path)
+	if !ok || name != req.Backend {
+		return nil, fmt.Errorf("proxy: %q is not a path of upstream %q", req.Path, req.Backend)
+	}
+	if backends.HasDotSegment(path) {
 		return nil, errors.New(`proxy: a system scan path has no "." or ".." segments`)
 	}
 	backend, ok := g.deps.Backends.Get(req.Backend)
@@ -166,7 +198,7 @@ func (g *Gateway) SystemScan(ctx context.Context, req SystemScanRequest) (*Syste
 		}
 	}
 
-	resolved, err := backend.Resolve(ctx, &backends.Request{Method: http.MethodGet, Path: req.Path, Header: httpReq.Header})
+	resolved, err := backend.Resolve(ctx, &backends.Request{Method: http.MethodGet, Path: path, Query: url.Values{}, Header: httpReq.Header})
 	if err != nil {
 		return nil, fmt.Errorf("proxy: resolving %s: %w", req.Path, err)
 	}
@@ -182,13 +214,17 @@ func (g *Gateway) SystemScan(ctx context.Context, req SystemScanRequest) (*Syste
 	stat, err := g.deps.Cache.Stat(ctx, resolved.CacheKey)
 	if err != nil {
 		if errors.Is(err, cache.ErrNotFound) {
-			return nil, errors.New("proxy: the object is not in the cache")
+			return nil, ErrSystemScanGone
 		}
 		return nil, fmt.Errorf("proxy: reading the cached object: %w", err)
 	}
 	digest := stat.Metadata[cache.MetaDigest]
 	if req.Digest != "" && digest != "" && !strings.EqualFold(digest, req.Digest) {
-		return nil, fmt.Errorf("proxy: the cached object is %s now, not %s", digest, req.Digest)
+		return nil, fmt.Errorf("%w: the cached object is %s now, not %s", ErrSystemScanChanged, digest, req.Digest)
+	}
+	object := func(sl *SystemLLMScan) *SystemLLMScan {
+		sl.CacheKey, sl.Digest, sl.Size = resolved.CacheKey, digest, stat.Size
+		return sl
 	}
 
 	sub := llmScanSubject{
@@ -219,8 +255,8 @@ func (g *Gateway) SystemScan(ctx context.Context, req SystemScanRequest) (*Syste
 				reviewCoordinate = rc
 			}
 		case st.Covered:
-			return &SystemLLMScan{NotApplicable: LLMCoveredByImage, Pinned: sub.pinned,
-				NotApplicableReason: "the blob was read in full by the scan of an image that has it; the image's verdict covers it"}, nil
+			return object(&SystemLLMScan{NotApplicable: LLMCoveredByImage, Pinned: sub.pinned,
+				NotApplicableReason: "the blob was read in full by the scan of an image that has it; the image's verdict covers it"}), nil
 		default:
 			sub.art.Class = llmpkgscan.ClassUnknown
 			sub.art.RootFS = true
@@ -231,20 +267,20 @@ func (g *Gateway) SystemScan(ctx context.Context, req SystemScanRequest) (*Syste
 	if sub.stored != nil {
 		report = svc.ReportFor(sub.art, sub.stored)
 	} else {
-		report, err = svc.Assess(ctx, llmpkgscan.Request{Artifact: sub.art, Tenant: req.Tenant, Open: sub.open, Image: sub.image})
+		report, err = svc.Assess(ctx, llmpkgscan.Request{Artifact: sub.art, Tenant: req.Tenant, Open: sub.open, Image: sub.image, Refresh: req.Refresh, OwnBudget: req.OwnBudget})
 		if err != nil {
 			return nil, err
 		}
 	}
 	if report == nil {
-		return &SystemLLMScan{NotApplicable: LLMNotPackage, Pinned: sub.pinned,
-			NotApplicableReason: "the object is not package content the scan examines (a metadata document, an index)"}, nil
+		return object(&SystemLLMScan{NotApplicable: LLMNotPackage, Pinned: sub.pinned,
+			NotApplicableReason: "the object is not package content the scan examines (a metadata document, an index)"}), nil
 	}
 	if report.Scanned() && !report.Cached && !report.Shared {
 		g.meterScan(httpReq, "llmpkgscan")
 	}
 	decision := svc.Decide(report)
-	sl := &SystemLLMScan{Applicable: true, Report: report, Decision: decision, Pinned: sub.pinned, ReviewCoordinate: reviewCoordinate}
+	sl := object(&SystemLLMScan{Applicable: true, Report: report, Decision: decision, Pinned: sub.pinned, ReviewCoordinate: reviewCoordinate})
 	if !decision.Served() && llmPkgScanReviewable(report) {
 		sl.BreakGlass = g.activeBreakGlass(httpReq, approvalGateLLMPkgScan, ecosystem, reviewCoordinate, llmPkgScanApprovalReason(report))
 	}

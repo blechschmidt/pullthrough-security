@@ -650,6 +650,9 @@ type Options struct {
 	// mirrored.
 	FullMirror FullMirrorController
 
+	// FullScan is the full scan (Task 192); nil when none is configured.
+	FullScan FullScanController
+
 	// Profiling, when Enabled, exposes the net/http/pprof and runtime/trace
 	// execution-trace endpoints under <prefix>/api/debug/pprof/, guarded by the
 	// same authentication and RBAC as the rest of the admin API (the operate
@@ -828,6 +831,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST "+s.prefix+"/api/fullmirror/pause", s.handleFullMirrorPause)
 	mux.HandleFunc("POST "+s.prefix+"/api/fullmirror/resume", s.handleFullMirrorResume)
 	mux.HandleFunc("POST "+s.prefix+"/api/fullmirror/resync", s.handleFullMirrorResync)
+	mux.HandleFunc("GET "+s.prefix+"/api/fullscan/status", s.handleFullScanStatus)
+	mux.HandleFunc("POST "+s.prefix+"/api/fullscan/pause", s.handleFullScanPause)
+	mux.HandleFunc("POST "+s.prefix+"/api/fullscan/resume", s.handleFullScanResume)
+	mux.HandleFunc("POST "+s.prefix+"/api/fullscan/rescan", s.handleFullScanRescan)
 	mux.HandleFunc("GET "+s.prefix+"/api/sbomexport", s.handleSBOMExport)
 	mux.HandleFunc("POST "+s.prefix+"/api/sbomexport/run", s.handleSBOMExportRun)
 	mux.HandleFunc("GET "+s.prefix+"/api/installhooks", s.handleInstallHooks)
@@ -1020,8 +1027,12 @@ func (s *Server) handleCacheList(w http.ResponseWriter, r *http.Request) {
 	}
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	items := make([]cacheEntryDTO, 0, len(entries))
+	scoped := tenantBound(r)
 	for _, e := range entries {
 		dto := cacheEntryToDTO(e)
+		if scoped {
+			dto.Metadata = withoutFillTenant(dto.Metadata)
+		}
 		if q != "" && !strings.Contains(strings.ToLower(dto.Key), q) &&
 			!strings.Contains(strings.ToLower(dto.Origin), q) {
 			continue
@@ -1053,7 +1064,27 @@ func (s *Server) handleCacheEntry(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.writeJSON(w, http.StatusOK, cacheEntryToDTO(*stat))
+	dto := cacheEntryToDTO(*stat)
+	if tenantBound(r) {
+		dto.Metadata = withoutFillTenant(dto.Metadata)
+	}
+	s.writeJSON(w, http.StatusOK, dto)
+}
+
+// withoutFillTenant drops the tenant whose request filled a cache entry (Task
+// 192) from its metadata: a tenant-bound identity is not told which tenant
+// pulled what.
+func withoutFillTenant(meta map[string]string) map[string]string {
+	if _, ok := meta[cache.MetaFillTenant]; !ok {
+		return meta
+	}
+	out := make(map[string]string, len(meta))
+	for k, v := range meta {
+		if k != cache.MetaFillTenant {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func (s *Server) handleCacheDelete(w http.ResponseWriter, r *http.Request) {
