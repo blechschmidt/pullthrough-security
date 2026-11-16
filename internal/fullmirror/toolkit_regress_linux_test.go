@@ -22,11 +22,17 @@ func TestIndexFeedIOErrorIsNotACursorFault(t *testing.T) {
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &lim); err != nil {
 		t.Skip(err)
 	}
-	ents, err := os.ReadDir("/proc/self/fd")
+	// A soft limit at the lowest free descriptor number — the one open
+	// returns — leaves no descriptor to open. (The count of open descriptors
+	// would not do: the limit bounds numbers, and a process can have gaps
+	// below it, as CI runners' test processes do.)
+	devnull, err := os.Open(os.DevNull)
 	if err != nil {
 		t.Skip(err)
 	}
-	low := syscall.Rlimit{Cur: uint64(len(ents) - 1), Max: lim.Max}
+	lowest := devnull.Fd()
+	devnull.Close()
+	low := syscall.Rlimit{Cur: uint64(lowest), Max: lim.Max}
 	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &low); err != nil {
 		t.Skip(err)
 	}
