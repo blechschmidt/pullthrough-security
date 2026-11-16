@@ -1,0 +1,77 @@
+[
+  {
+    "items": [
+      {
+        "name": "7zip"
+      },
+      {
+        "name": "micromamba"
+      },
+      {
+        "name": "requests"
+      }
+    ],
+    "next": {
+      "format": "conda/1",
+      "snap": "0140443ef121414906d872d29a177f25b15df0a80ef0cf7a6d2fe8dcda17aa53",
+      "state": {
+        "url": "http://channel.example/conda-forge",
+        "index": "repodata",
+        "subdirs": {
+          "linux-64": {},
+          "noarch": {
+            "file": "repodata.json.zst",
+            "etag": "\"cc735e87c358de7dedc9394b12e864d0\"",
+            "lastModified": "Mon, 16 Nov 2026 04:48:24 GMT"
+          },
+          "win-arm64": {
+            "file": "repodata.json",
+            "etag": "\"abd58de45adac9f6411dc4d0480e24eb\""
+          }
+        }
+      },
+      "listing": true,
+      "after": "requests",
+      "listed": 3,
+      "headTime": "2026-11-16T04:48:24Z"
+    },
+    "more": true,
+    "lag": 2,
+    "lagKnown": true,
+    "headTime": "2026-11-16T04:48:24Z"
+  },
+  {
+    "items": [
+      {
+        "name": "six"
+      },
+      {
+        "name": "tzdata"
+      }
+    ],
+    "next": {
+      "format": "conda/1",
+      "snap": "0140443ef121414906d872d29a177f25b15df0a80ef0cf7a6d2fe8dcda17aa53",
+      "state": {
+        "url": "http://channel.example/conda-forge",
+        "index": "repodata",
+        "subdirs": {
+          "linux-64": {},
+          "noarch": {
+            "file": "repodata.json.zst",
+            "etag": "\"cc735e87c358de7dedc9394b12e864d0\"",
+            "lastModified": "Mon, 16 Nov 2026 04:48:24 GMT"
+          },
+          "win-arm64": {
+            "file": "repodata.json",
+            "etag": "\"abd58de45adac9f6411dc4d0480e24eb\""
+          }
+        }
+      },
+      "headTime": "2026-11-16T04:48:24Z"
+    },
+    "more": false,
+    "lagKnown": true,
+    "headTime": "2026-11-16T04:48:24Z"
+  }
+]

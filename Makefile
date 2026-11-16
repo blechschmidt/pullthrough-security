@@ -271,6 +271,11 @@ resilience-matrix: ## Regenerate docs/resilience-matrix.md from the chaos catalo
 # CI runs a long, scheduled job with a larger value (see docs/testing.md).
 FUZZTIME ?= 20s
 
+# FUZZMINIMIZETIME bounds how long the fuzzer minimizes each new interesting input
+# (go test -fuzzminimizetime; Go's default is 60s). Targets seeded with documents of a few
+# KB otherwise spend a short FUZZTIME minimizing and run almost nothing else.
+FUZZMINIMIZETIME ?= 5s
+
 # Every fuzz target, as "<package>:<FuzzFunc>". `go test -fuzz` runs one target
 # per package, so each is invoked individually.
 FUZZ_TARGETS := \
@@ -440,6 +445,15 @@ FUZZ_TARGETS := \
 	internal/lockfiles:FuzzCargoManifests \
 	internal/lockfiles:FuzzPythonRequirements \
 	internal/lockfiles:FuzzOverrides \
+	internal/backends/yum:FuzzStreamPrimary \
+	internal/backends/yum:FuzzOpenPrimary \
+	internal/fullmirror:FuzzAnsibleIndex \
+	internal/fullmirror:FuzzAnsibleOffset \
+	internal/fullmirror:FuzzAnsibleSearch \
+	internal/fullmirror:FuzzAnsibleVersions \
+	internal/fullmirror:FuzzAptPackages \
+	internal/fullmirror:FuzzAptRelease \
+	internal/fullmirror:FuzzAptVersionOrder \
 	internal/fullmirror:FuzzBazelCoordinate \
 	internal/fullmirror:FuzzBazelMetadata \
 	internal/fullmirror:FuzzBazelSource \
@@ -453,10 +467,21 @@ FUZZ_TARGETS := \
 	internal/fullmirror:FuzzConanRevision \
 	internal/fullmirror:FuzzConanSearch \
 	internal/fullmirror:FuzzConanVersionCompare \
+	internal/fullmirror:FuzzCondaRepodata \
+	internal/fullmirror:FuzzCondaVersionOrder \
 	internal/fullmirror:FuzzCPANChecksums \
 	internal/fullmirror:FuzzCPANPackages \
 	internal/fullmirror:FuzzCPANPaths \
 	internal/fullmirror:FuzzCPANRecent \
+	internal/fullmirror:FuzzCRANPackages \
+	internal/fullmirror:FuzzCRANVersionOrder \
+	internal/fullmirror:FuzzDartDocument \
+	internal/fullmirror:FuzzDartFeed \
+	internal/fullmirror:FuzzDartGap \
+	internal/fullmirror:FuzzDartListing \
+	internal/fullmirror:FuzzDartNames \
+	internal/fullmirror:FuzzDartToken \
+	internal/fullmirror:FuzzDartXMLText \
 	internal/fullmirror:FuzzGitCapabilities \
 	internal/fullmirror:FuzzGitDelta \
 	internal/fullmirror:FuzzGitFetchResponse \
@@ -471,13 +496,32 @@ FUZZ_TARGETS := \
 	internal/fullmirror:FuzzHackageIndex \
 	internal/fullmirror:FuzzHackagePackages \
 	internal/fullmirror:FuzzHackagePreferred \
+	internal/fullmirror:FuzzHelmIndex \
+	internal/fullmirror:FuzzHelmVersionOrder \
+	internal/fullmirror:FuzzHexNames \
+	internal/fullmirror:FuzzHexPublicKey \
+	internal/fullmirror:FuzzHexResource \
+	internal/fullmirror:FuzzHexVersions \
 	internal/fullmirror:FuzzHomebrewCoordinate \
 	internal/fullmirror:FuzzHomebrewFormula \
+	internal/fullmirror:FuzzHomebrewIndex \
 	internal/fullmirror:FuzzHomebrewPlatforms \
+	internal/fullmirror:FuzzHuggingFaceLink \
+	internal/fullmirror:FuzzHuggingFaceListing \
+	internal/fullmirror:FuzzHuggingFaceRateLimit \
+	internal/fullmirror:FuzzHuggingFaceRevision \
+	internal/fullmirror:FuzzHuggingFaceToken \
+	internal/fullmirror:FuzzJSRFileCache \
+	internal/fullmirror:FuzzJSRList \
+	internal/fullmirror:FuzzJSRManifest \
+	internal/fullmirror:FuzzJSRMeta \
 	internal/fullmirror:FuzzJuliaRegistries \
 	internal/fullmirror:FuzzJuliaRegistryTarball \
 	internal/fullmirror:FuzzJuliaRegistryTOML \
 	internal/fullmirror:FuzzJuliaVersionsTOML \
+	internal/fullmirror:FuzzMavenIndex \
+	internal/fullmirror:FuzzMavenProperties \
+	internal/fullmirror:FuzzMavenRecords \
 	internal/fullmirror:FuzzNPMAllDocs \
 	internal/fullmirror:FuzzNPMChanges \
 	internal/fullmirror:FuzzNPMPackument \
@@ -485,14 +529,28 @@ FUZZ_TARGETS := \
 	internal/fullmirror:FuzzNuGetCatalogPage \
 	internal/fullmirror:FuzzNuGetServiceIndex \
 	internal/fullmirror:FuzzNuGetVersionList \
+	internal/fullmirror:FuzzOpenVSXDocument \
+	internal/fullmirror:FuzzOpenVSXName \
+	internal/fullmirror:FuzzOpenVSXPlatforms \
+	internal/fullmirror:FuzzOpenVSXSearch \
+	internal/fullmirror:FuzzOpenVSXSitemap \
+	internal/fullmirror:FuzzOpenVSXVersions \
 	internal/fullmirror:FuzzPipCursor \
 	internal/fullmirror:FuzzPipProjectList \
 	internal/fullmirror:FuzzPipSimplePageReleases \
 	internal/fullmirror:FuzzPipStoreLine \
 	internal/fullmirror:FuzzPipXMLRPC \
+	internal/fullmirror:FuzzPuppetListing \
+	internal/fullmirror:FuzzPuppetModule \
+	internal/fullmirror:FuzzPuppetOffset \
 	internal/fullmirror:FuzzRubyGemsInfo \
 	internal/fullmirror:FuzzRubyGemsRangeHeaders \
-	internal/fullmirror:FuzzRubyGemsVersions
+	internal/fullmirror:FuzzRubyGemsVersions \
+	internal/fullmirror:FuzzSnapshotRead \
+	internal/fullmirror:FuzzSnapshotRecords \
+	internal/fullmirror:FuzzYumPrimary \
+	internal/fullmirror:FuzzYumRepomd \
+	internal/fullmirror:FuzzYumVersionOrder
 
 # The targets can be split into FUZZ_SHARDS slices, FUZZ_SHARD (0-based)
 # selecting one: target i belongs to shard i mod FUZZ_SHARDS. The nightly CI
@@ -507,7 +565,7 @@ fuzz: ## Fuzz every parser target for FUZZTIME each (e.g. make fuzz FUZZTIME=2m;
 		if [ $$((i % $(FUZZ_SHARDS))) -eq $(FUZZ_SHARD) ]; then \
 			pkg=$${t%%:*}; fn=$${t##*:}; \
 			echo "==> fuzzing $$fn ($$pkg) for $(FUZZTIME)"; \
-			$(GO) test -tags fuzz -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) ./$$pkg/; \
+			$(GO) test -tags fuzz -run='^$$' -fuzz="^$$fn$$" -fuzztime=$(FUZZTIME) -fuzzminimizetime=$(FUZZMINIMIZETIME) ./$$pkg/; \
 		fi; \
 		i=$$((i + 1)); \
 	done

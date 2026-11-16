@@ -1,0 +1,21 @@
+[
+  {
+    "items": [
+      "ale.aos8",
+      "epfl_si.secrets",
+      "fjacquet.ppdm",
+      "lingfish.crowdsec",
+      "mureev.confirmed",
+      "primetheus.gitlab_settings",
+      "sr2c.podman"
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      "a10.acos_axapi",
+      "abaez.hashicluster"
+    ],
+    "more": false
+  }
+]

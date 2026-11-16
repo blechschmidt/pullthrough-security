@@ -1,0 +1,21 @@
+[
+  {
+    "version": "0.0.1",
+    "published": "2026-09-08T13:12:00.014704Z",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/api/archives/retracted_pkg-0.0.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.0.2",
+    "published": "2026-11-16T06:08:54.230218Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/retracted_pkg-0.0.2.tar.gz"
+      }
+    ]
+  }
+]

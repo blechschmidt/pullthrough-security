@@ -142,7 +142,7 @@ func TestClaimsThatChangeWhatAMirrorMayDo(t *testing.T) {
 		{"docker", "terms", "mirror or replicate content for an unauthorized commercial service"},
 		{"composer", "feed", "kept for up to 24h"},
 		{"rubygems", "feed", "recalculated at the start of each month"},
-		{"yum", "notes", "serves RPMs unverified"},
+		{"yum", "notes", "decodes gzip, xz and zstd primaries"},
 	} {
 		e, ok := fullmirror.Lookup(c.typ)
 		if !ok {

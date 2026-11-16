@@ -1,0 +1,62 @@
+Package: 0ad-data
+Version: 0.27.0-1
+Installed-Size: 3433612
+Maintainer: Debian Games Team <pkg-games-devel@lists.alioth.debian.org>
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
+Suggests: 0ad
+Description: Real-time strategy game of ancient warfare (data files)
+Multi-Arch: foreign
+Homepage: https://play0ad.com/
+Description-md5: 26581e685027d5ae84824362a4ba59ee
+Tag: role::app-data
+Section: games
+Priority: optional
+Filename: pool/main/0/0ad-data/0ad-data_0.27.0-1_all.deb
+Size: 1389812248
+MD5sum: 8bc5ae2a785f8a88e4c6a1ecc1e0e245
+SHA256: 7a25d66175bdc75cbd6a90e98b71dcb0d76f7763c589bd71880503f1c6185e4c
+
+Package: 0ad-data-common
+Source: 0ad-data
+Version: 0.27.0-1
+Installed-Size: 2429
+Maintainer: Debian Games Team <pkg-games-devel@lists.alioth.debian.org>
+Architecture: all
+Replaces: 0ad-data (<< 0.0.12-1~)
+Depends: fonts-dejavu-core | ttf-dejavu-core, fonts-freefont-ttf | ttf-freefont, fonts-texgyre | tex-gyre
+Pre-Depends: dpkg (>= 1.15.6~)
+Suggests: 0ad
+Breaks: 0ad-data (<< 0.0.12-1~)
+Description: Real-time strategy game of ancient warfare (common data files)
+Multi-Arch: foreign
+Homepage: https://play0ad.com/
+Description-md5: 8d014b839c4c4e9b6f82c7512d7e3496
+Tag: game::strategy, role::app-data, role::program, use::gameplaying
+Section: games
+Priority: optional
+Filename: pool/main/0/0ad-data/0ad-data-common_0.27.0-1_all.deb
+Size: 779452
+MD5sum: ba44c5d8f88845662e2be65011d44b0b
+SHA256: 90f8919a2c976214c7fdc289c8ea9063e521e0bb46af3968e7ee9f2b5fb3fd26
+
+Package: tzdata
+Version: 2026c-0+deb13u1
+Installed-Size: 1358
+Maintainer: GNU Libc Maintainers <debian-glibc@lists.debian.org>
+Architecture: all
+Replaces: tzdata-legacy (= 2023c-8), tzdata-legacy (= 2023c-9)
+Provides: tzdata-trixie
+Depends: debconf (>= 0.5) | debconf-2.0
+Breaks: tzdata-legacy (= 2023c-8), tzdata-legacy (= 2023c-9)
+Description: time zone and daylight-saving time data
+Multi-Arch: foreign
+Homepage: https://www.iana.org/time-zones
+Description-md5: a77a3cc9a67658dd7cfdc6547391b8f8
+Tag: role::app-data, use::timekeeping
+Section: localization
+Priority: required
+Filename: pool/main/t/tzdata/tzdata_2026c-0+deb13u1_all.deb
+Size: 264156
+MD5sum: 57b7a59698976d6c0e7e769a049eb3fe
+SHA256: 813b9bbbe14ccda2b24617b8bade0ade4d745957e75921766c153d249886bd4c

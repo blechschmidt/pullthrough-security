@@ -1,0 +1,263 @@
+[
+  {
+    "version": "1.0.0",
+    "published": "2026-06-14T21:38:02.436629Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.0.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.0.1",
+    "published": "2026-06-14T21:53:00.36161Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.0.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.0.2",
+    "published": "2026-06-14T21:54:49.951266Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.0.2.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "published": "2026-06-21T18:39:17.254088Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.2.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.2.1",
+    "published": "2026-06-21T19:20:09.663471Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.2.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.2.2",
+    "published": "2026-06-21T19:47:13.024507Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.2.2.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.2.3",
+    "published": "2026-06-30T20:17:55.271907Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.2.3.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.2.6",
+    "published": "2026-07-02T21:06:46.973101Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.2.6.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.3.0",
+    "published": "2026-11-15T00:16:02.237775Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.3.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.3.1",
+    "published": "2026-11-15T00:15:59.108511Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.3.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.3.3",
+    "published": "2026-09-12T22:52:53.462886Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.3.3.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.4.0",
+    "published": "2026-10-04T20:59:40.546436Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.4.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.4.1",
+    "published": "2026-10-04T22:16:15.283967Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.4.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.4.2",
+    "published": "2026-10-04T22:22:37.164656Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.4.2.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.4.3",
+    "published": "2026-10-04T22:39:00.303585Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.4.3.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.5.0",
+    "published": "2026-11-06T19:15:40.878965Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.5.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.6.0",
+    "published": "2026-11-06T19:46:48.230732Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.6.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.7.0",
+    "published": "2026-11-07T02:19:10.746796Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.7.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.8.0",
+    "published": "2026-11-07T23:11:11.0152Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.8.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.8.1",
+    "published": "2026-11-07T23:45:06.190971Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.8.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.8.2",
+    "published": "2026-11-09T00:58:09.800776Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.8.2.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.8.3",
+    "published": "2026-11-12T04:40:22.822737Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.8.3.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.9.0",
+    "published": "2026-11-13T04:18:18.017201Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.9.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.10.0",
+    "published": "2026-11-14T20:09:05.329584Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.10.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.10.1",
+    "published": "2026-11-14T23:39:54.509494Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.10.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.11.0",
+    "published": "2026-11-15T05:27:28.908469Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.11.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.11.1",
+    "published": "2026-11-15T17:13:40.952408Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.11.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.12.0",
+    "published": "2026-11-16T01:35:56.713109Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.12.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "1.12.1",
+    "published": "2026-11-16T03:54:13.486395Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/danmwallace-hermes-1.12.1.tar.gz"
+      }
+    ]
+  }
+]

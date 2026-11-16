@@ -1,0 +1,56 @@
+[
+  {
+    "version": "0.0.1-1",
+    "published": "2012-12-23T14:40:53.03262Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/quart-0.0.1-1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.0.1",
+    "published": "2012-12-23T13:58:58.50791Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/quart-0.0.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.0.1+hotfix.m3",
+    "published": "2013-01-23T13:52:29.27791Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/quart-0.0.1+hotfix.m3.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.0.1+hotfix1",
+    "published": "2012-12-23T14:49:58.66205Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/quart-0.0.1+hotfix1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.0.1+hotfix2",
+    "published": "2013-01-23T13:53:23.37878Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/quart-0.0.1+hotfix2.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.0.2",
+    "published": "2013-03-20T22:44:22.01Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/quart-0.0.2.tar.gz"
+      }
+    ]
+  }
+]

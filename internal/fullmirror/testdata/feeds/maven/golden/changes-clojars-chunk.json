@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "name": "org.soulspace.clj:clj.swing"
+    },
+    {
+      "name": "org.soulspace.clj:cmp.batik"
+    },
+    {
+      "name": "org.soulspace.clj:cmp.fop"
+    },
+    {
+      "name": "org.soulspace.clj:cmp.poi"
+    }
+  ],
+  "next": {
+    "format": "maven/1",
+    "snap": "41769e133147f0a584e05ac55de96293dc6957a8e9f7328c502729fa47bcc17f",
+    "state": {
+      "v": 1,
+      "props": {},
+      "chain": "1714868764455",
+      "last": 1
+    },
+    "head": "1714868764455/1",
+    "headTime": "2026-11-15T12:08:52.15Z"
+  },
+  "more": false,
+  "head": "1714868764455/1",
+  "lagKnown": true,
+  "headTime": "2026-11-15T12:08:52.15Z"
+}

@@ -1,0 +1,103 @@
+[
+  {
+    "items": [
+      {
+        "name": "org.akvo.flow:akvo-flow"
+      },
+      {
+        "name": "org.clojars.tcrawley:clojure-maven-plugin"
+      },
+      {
+        "name": "org.danielsz:system"
+      }
+    ],
+    "next": {
+      "format": "maven/1",
+      "snap": "77ede9bdc8bc334d0836e913d81ec1ef42b07eb96472d49f902cd634217812b6",
+      "state": {
+        "v": 1,
+        "props": {
+          "etag": "\"ca8b205816946c982dfd0ac1538ae8e0\""
+        },
+        "chain": "1794802161106",
+        "last": 0,
+        "partial": true
+      },
+      "listing": true,
+      "after": "org.danielsz:system",
+      "listed": 3,
+      "head": "1794802161106/0",
+      "headTime": "2026-11-16T04:09:18.722Z"
+    },
+    "more": true,
+    "head": "1794802161106/0",
+    "lag": 5,
+    "lagKnown": true,
+    "headTime": "2026-11-16T04:09:18.722Z"
+  },
+  {
+    "items": [
+      {
+        "name": "org.ring-clojure:ring-websocket-protocols"
+      },
+      {
+        "name": "puppetlabs.org.jruby:jruby-parent"
+      },
+      {
+        "name": "readyforzero:borg"
+      }
+    ],
+    "next": {
+      "format": "maven/1",
+      "snap": "77ede9bdc8bc334d0836e913d81ec1ef42b07eb96472d49f902cd634217812b6",
+      "state": {
+        "v": 1,
+        "props": {
+          "etag": "\"ca8b205816946c982dfd0ac1538ae8e0\""
+        },
+        "chain": "1794802161106",
+        "last": 0,
+        "partial": true
+      },
+      "listing": true,
+      "after": "readyforzero:borg",
+      "listed": 6,
+      "head": "1794802161106/0",
+      "headTime": "2026-11-16T04:09:18.722Z"
+    },
+    "more": true,
+    "head": "1794802161106/0",
+    "lag": 2,
+    "lagKnown": true,
+    "headTime": "2026-11-16T04:09:18.722Z"
+  },
+  {
+    "items": [
+      {
+        "name": "thheller:shadow-cljs"
+      },
+      {
+        "name": "umlaut:umlaut"
+      }
+    ],
+    "next": {
+      "format": "maven/1",
+      "snap": "77ede9bdc8bc334d0836e913d81ec1ef42b07eb96472d49f902cd634217812b6",
+      "state": {
+        "v": 1,
+        "props": {
+          "etag": "\"ca8b205816946c982dfd0ac1538ae8e0\""
+        },
+        "chain": "1794802161106",
+        "last": 0,
+        "partial": true
+      },
+      "head": "1794802161106/0",
+      "headTime": "2026-11-16T04:09:18.722Z"
+    },
+    "more": false,
+    "head": "1794802161106/0",
+    "lagKnown": true,
+    "headTime": "2026-11-16T04:09:18.722Z"
+  }
+]

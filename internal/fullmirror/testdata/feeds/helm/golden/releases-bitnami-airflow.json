@@ -1,0 +1,18 @@
+[
+  {
+    "version": "21.9.0",
+    "artifacts": [
+      {
+        "path": "/-/airflow/21.9.0/airflow-21.9.0.tgz"
+      }
+    ]
+  },
+  {
+    "version": "25.0.2",
+    "artifacts": [
+      {
+        "path": "/-/airflow/25.0.2/airflow-25.0.2.tgz"
+      }
+    ]
+  }
+]

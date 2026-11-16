@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "name": "es6kr.claude-sessions"
+    },
+    {
+      "name": "golang.Go"
+    },
+    {
+      "name": "redhat.vscode-yaml"
+    },
+    {
+      "name": "rust-lang.rust-analyzer"
+    },
+    {
+      "name": "ugi-dev.ad-astra"
+    },
+    {
+      "name": "zovo.zovo-flame-graph"
+    }
+  ],
+  "next": {
+    "format": "openvsx/1",
+    "snap": "8b571339074ef2dd8191d854d243ba43d742c3dad72328482f7302a8cab2cf45",
+    "state": {
+      "mark": 1794814106067524
+    },
+    "headTime": "2026-11-16T07:28:26.067524Z"
+  },
+  "more": false,
+  "lagKnown": true,
+  "headTime": "2026-11-16T07:28:26.067524Z"
+}

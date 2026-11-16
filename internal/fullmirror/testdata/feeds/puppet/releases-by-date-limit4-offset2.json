@@ -1,0 +1,129 @@
+{
+  "pagination": {
+    "limit": 4,
+    "offset": 2,
+    "first": "/v3/releases?sort_by=release_date&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "previous": "/v3/releases?sort_by=release_date&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "current": "/v3/releases?sort_by=release_date&limit=4&offset=2&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "next": "/v3/releases?sort_by=release_date&limit=4&offset=6&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "total": 54828
+  },
+  "results": [
+    {
+      "uri": "/v3/releases/treydock-slurm-7.1.1",
+      "slug": "treydock-slurm-7.1.1",
+      "module": {
+        "uri": "/v3/modules/treydock-slurm",
+        "slug": "treydock-slurm",
+        "name": "slurm",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/treydock",
+          "slug": "treydock",
+          "username": "treydock",
+          "gravatar_id": "f4e90c29a1d297f9525226a845477f0d"
+        }
+      },
+      "version": "7.1.1",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/treydock-slurm-7.1.1.tar.gz",
+      "file_size": 40678,
+      "file_md5": "b4d1b970d2c6e342432a709f8ca975f2",
+      "file_sha256": "fcb60fac81f2564bd6acef70b44f6cbfbd8a88333432b6628f096d8ed47d8867",
+      "downloads": 12,
+      "created_at": "2026-11-15 06:48:09 -0800",
+      "updated_at": "2026-11-15 06:48:09 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/treydock-root-8.0.0",
+      "slug": "treydock-root-8.0.0",
+      "module": {
+        "uri": "/v3/modules/treydock-root",
+        "slug": "treydock-root",
+        "name": "root",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/treydock",
+          "slug": "treydock",
+          "username": "treydock",
+          "gravatar_id": "f4e90c29a1d297f9525226a845477f0d"
+        }
+      },
+      "version": "8.0.0",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/treydock-root-8.0.0.tar.gz",
+      "file_size": 8162,
+      "file_md5": "5e96c3691e877d392c562eb10c1de7aa",
+      "file_sha256": "40e48d9d4b905f600c74cfbb45fa2ff1889a676fa42a62b7ce2b628b81fdc951",
+      "downloads": 17,
+      "created_at": "2026-11-15 06:20:55 -0800",
+      "updated_at": "2026-11-15 06:20:55 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/treydock-yum_cron-10.0.0",
+      "slug": "treydock-yum_cron-10.0.0",
+      "module": {
+        "uri": "/v3/modules/treydock-yum_cron",
+        "slug": "treydock-yum_cron",
+        "name": "yum_cron",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/treydock",
+          "slug": "treydock",
+          "username": "treydock",
+          "gravatar_id": "f4e90c29a1d297f9525226a845477f0d"
+        }
+      },
+      "version": "10.0.0",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/treydock-yum_cron-10.0.0.tar.gz",
+      "file_size": 10300,
+      "file_md5": "bb6a5b13b66c70437abaf38d2f429c37",
+      "file_sha256": "6a9d6a052659596c45fe918fb05c4f0f18a3691702ba7b272a5e563713fad252",
+      "downloads": 29,
+      "created_at": "2026-11-14 13:35:02 -0800",
+      "updated_at": "2026-11-14 13:35:02 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/waveclaw-subscription_manager-5.8.0",
+      "slug": "waveclaw-subscription_manager-5.8.0",
+      "module": {
+        "uri": "/v3/modules/waveclaw-subscription_manager",
+        "slug": "waveclaw-subscription_manager",
+        "name": "subscription_manager",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/waveclaw",
+          "slug": "waveclaw",
+          "username": "waveclaw",
+          "gravatar_id": "799c295c75b80cfd16f06692b0936aa7"
+        }
+      },
+      "version": "5.8.0",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/waveclaw-subscription_manager-5.8.0.tar.gz",
+      "file_size": 35043,
+      "file_md5": "3e1f4add14853e2a3dab1b23d8fd647d",
+      "file_sha256": "0838f8ed4006886fc3e52005baa12004c4b6a48fe9a4c06997a5b6f748c60151",
+      "downloads": 19,
+      "created_at": "2026-11-14 11:34:17 -0800",
+      "updated_at": "2026-11-14 11:34:17 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    }
+  ]
+}

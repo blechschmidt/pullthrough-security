@@ -1,0 +1,35 @@
+{
+  "items": [
+    {
+      "name": "a2ui",
+      "version": "0.3.1"
+    },
+    {
+      "name": "aatree",
+      "deleted": true
+    },
+    {
+      "name": "jason",
+      "version": "1.5.0"
+    },
+    {
+      "name": "zzz_new"
+    }
+  ],
+  "next": {
+    "format": "hex/1",
+    "snap": "95c1effc53a47a8cfce673dea63c24a88343204a747113374c38c3d1274cc3e6",
+    "state": {
+      "names": {
+        "etag": "\"names-3\""
+      },
+      "versions": {
+        "etag": "\"versions-3\""
+      }
+    },
+    "headTime": "2026-11-16T10:00:01Z"
+  },
+  "more": false,
+  "lagKnown": true,
+  "headTime": "2026-11-16T10:00:01Z"
+}

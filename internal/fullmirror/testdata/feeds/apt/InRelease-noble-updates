@@ -1,0 +1,44 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: Ubuntu
+Label: Ubuntu
+Suite: noble-updates
+Version: 24.04
+Codename: noble
+Date: Sun, 15 Nov 2026 21:25:23 UTC
+Architectures: amd64 arm64 armhf i386 ppc64el riscv64 s390x
+Components: main restricted universe multiverse
+Description: Ubuntu Noble Updates
+MD5Sum:
+ d3e75f6fcb0cd1179854d3df6a665bc3          7846364 main/binary-amd64/Packages
+ a847e255cb6e2a18684045a9d95d8067          1791932 main/binary-amd64/Packages.gz
+ e31ed4f22a0b26e5646e47726161486f          1449768 main/binary-amd64/Packages.xz
+ ac590bf313b3c8ac53b8408fe6cca90f              103 main/binary-amd64/Release
+SHA1:
+ ee57d4d1a018b8432b411cbc3be9911da6a163b6          7846364 main/binary-amd64/Packages
+ 9a629258cd7b169ce98e4bfe574529b090052b8b          1791932 main/binary-amd64/Packages.gz
+ cccb72726a5dd89e7b98cad9dafd05cd0bc6432f          1449768 main/binary-amd64/Packages.xz
+ 224720aea2686fb1b05fbaeccaece6bcc56346f6              103 main/binary-amd64/Release
+SHA256:
+ 813fdadd9b9d8e0e8ff68fa6a7322afe0de115cc19838f89bd94678ff6390b73          7846364 main/binary-amd64/Packages
+ e1e0f535c34472b256112515578148225e5020c08cd771087a8eb11fdddc69d3          1791932 main/binary-amd64/Packages.gz
+ dacadafcd277ddc605dd1763129bc4a3fb3ca44540fb3c2aa84031780d2f4c7b          1449768 main/binary-amd64/Packages.xz
+ 4e192b8b4108311c4b5ac2ef8b53aa9f5cb92b6b31dd211b6871455f15a7264b              103 main/binary-amd64/Release
+Acquire-By-Hash: yes
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEE9uyzdiR07anSG3Aihxkg0ZkbyTwFAmr6I4AACgkQhxkg0Zkb
+yTzo3RAA4jHNFetPpCrU5onjFCABXyQWFlVbLnSxb4yNpga52Qwpmj+Rjetlwzxv
+Xl+VB0SUOTB3gOh++sp+GPXKb6v3/9J8qsbaIT4p6zZ8e2MDcg0KNKmEubQiDjMo
+BQTk8caAKzzc1qc5gHQ83vZXyp4Xt4annrKj96tvN3BgEl44uUNkZLv23zv5FPiW
++GfELw/vvxtJfAWkTwc0cH7WIgaV9z33687BY9gyN7TJ6qQnCYF1YhFYAAZ822Ik
+jqdsLU+mUPUC5dXAK7nSjQBw0TMiejwD4j5I8OMFp9FmUt3WYtWdsOr4t4yDMwC+
+kmt6b4C1dlZA2I90acfncdoNWE5EeEzIr5EH7g7UOGi7voXKUzzjSd3XyFe980Cw
+FvXFqoqcFATIDndk9PDcdkJ/cBG6zkmgVqwllY53ayogcl+H46oIgs9t2tiJoID3
+7oOBdnk5b7pJLNKBBFpeK/HaEz8CB3SezajOLYMaRkD+EZY5SL/j4wLJDN3+QGpa
+B0IoP+icruDBrEwpeSVVJtO1MnUzX5c1h0c6kJJIi66TVelH+IsWQZ/jOhU4VmQC
+wuqvtomnaY1oS8aklIU0oXDdnWmhbaT4Pd5l7ukf0R9YTthVP/WjA1ckGBM4rs4a
+HCa8gjkyXA7a7t4kFEuSmcjkZCjBAJNn2SLSe4angsIbVq1G9MM=
+=eGVn
+-----END PGP SIGNATURE-----

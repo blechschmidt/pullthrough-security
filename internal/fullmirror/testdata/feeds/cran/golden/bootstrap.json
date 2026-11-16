@@ -1,0 +1,60 @@
+[
+  {
+    "items": [
+      {
+        "name": "Matrix"
+      },
+      {
+        "name": "a11yShiny"
+      },
+      {
+        "name": "abind"
+      },
+      {
+        "name": "boot"
+      }
+    ],
+    "next": {
+      "format": "cran/1",
+      "snap": "8405fba4f91f3044f7b88a65edc37a20242ef4f76c57385cc1386663242d2514",
+      "state": {
+        "url": "http://cran.example",
+        "file": "src/contrib/PACKAGES.gz",
+        "etag": "\"1e37d8-6605cb1d0e036\"",
+        "lastModified": "Mon, 16 Nov 2026 03:51:36 GMT"
+      },
+      "listing": true,
+      "after": "boot",
+      "listed": 4,
+      "headTime": "2026-11-16T03:51:36Z"
+    },
+    "more": true,
+    "lag": 2,
+    "lagKnown": true,
+    "headTime": "2026-11-16T03:51:36Z"
+  },
+  {
+    "items": [
+      {
+        "name": "data.table"
+      },
+      {
+        "name": "jsonlite"
+      }
+    ],
+    "next": {
+      "format": "cran/1",
+      "snap": "8405fba4f91f3044f7b88a65edc37a20242ef4f76c57385cc1386663242d2514",
+      "state": {
+        "url": "http://cran.example",
+        "file": "src/contrib/PACKAGES.gz",
+        "etag": "\"1e37d8-6605cb1d0e036\"",
+        "lastModified": "Mon, 16 Nov 2026 03:51:36 GMT"
+      },
+      "headTime": "2026-11-16T03:51:36Z"
+    },
+    "more": false,
+    "lagKnown": true,
+    "headTime": "2026-11-16T03:51:36Z"
+  }
+]

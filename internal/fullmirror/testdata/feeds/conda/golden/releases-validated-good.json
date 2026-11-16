@@ -1,0 +1,22 @@
+[
+  {
+    "version": "1.0",
+    "published": "2020-09-13T12:26:40Z",
+    "artifacts": [
+      {
+        "path": "/noarch/good-1.0-py_0.tar.bz2",
+        "size": 2048
+      }
+    ]
+  },
+  {
+    "version": "1.2",
+    "published": "2023-11-14T22:13:20Z",
+    "artifacts": [
+      {
+        "path": "/noarch/good-1.2-py_0.conda",
+        "size": 4096
+      }
+    ]
+  }
+]

@@ -1,0 +1,24 @@
+[
+  {
+    "items": [
+      "030-git"
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      "030-git",
+      "030-packer",
+      "030-sftp",
+      "0cloud-anonymizer",
+      "104corp-corp104_aws_agent"
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      "zyronix-ipsets"
+    ],
+    "more": false
+  }
+]

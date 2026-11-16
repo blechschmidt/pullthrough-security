@@ -1,0 +1,16 @@
+[
+  {
+    "version": "1:30.2-29.fc44",
+    "published": "2026-08-28T14:11:26Z",
+    "artifacts": [
+      {
+        "path": "/Packages/e/emacs-devel-30.2-29.fc44.i686.rpm",
+        "size": 13670
+      },
+      {
+        "path": "/Packages/e/emacs-devel-30.2-29.fc44.x86_64.rpm",
+        "size": 13710
+      }
+    ]
+  }
+]

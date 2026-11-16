@@ -1,0 +1,129 @@
+{
+  "pagination": {
+    "limit": 4,
+    "offset": 6,
+    "first": "/v3/releases?sort_by=module&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "previous": "/v3/releases?sort_by=module&limit=4&offset=2&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "current": "/v3/releases?sort_by=module&limit=4&offset=6&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "next": "/v3/releases?sort_by=module&limit=4&offset=10&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "total": 54828
+  },
+  "results": [
+    {
+      "uri": "/v3/releases/030-git-0.1.0",
+      "slug": "030-git-0.1.0",
+      "module": {
+        "uri": "/v3/modules/030-git",
+        "slug": "030-git",
+        "name": "git",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.1.0",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 35,
+      "file_uri": "/v3/files/030-git-0.1.0.tar.gz",
+      "file_size": 2021,
+      "file_md5": "80475c61701b13c21672ae19079911fd",
+      "file_sha256": "3f0d224b4253597946e87875f6e9e19df6c795521fb3bd4a760af4e8d68faf7e",
+      "downloads": 195,
+      "created_at": "2016-05-16 07:10:52 -0700",
+      "updated_at": "2019-07-03 16:10:50 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-packer-0.1.3",
+      "slug": "030-packer-0.1.3",
+      "module": {
+        "uri": "/v3/modules/030-packer",
+        "slug": "030-packer",
+        "name": "packer",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.1.3",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 92,
+      "file_uri": "/v3/files/030-packer-0.1.3.tar.gz",
+      "file_size": 1610,
+      "file_md5": "01e8010c5adca22a541422c4cc668143",
+      "file_sha256": "67f68cb2619109898061c11c7e517a486f1c54ef9a2d0bf7629a3009d99dba40",
+      "downloads": 6115,
+      "created_at": "2016-06-29 14:40:50 -0700",
+      "updated_at": "2019-07-03 16:13:57 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-packer-0.1.2",
+      "slug": "030-packer-0.1.2",
+      "module": {
+        "uri": "/v3/modules/030-packer",
+        "slug": "030-packer",
+        "name": "packer",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.1.2",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 96,
+      "file_uri": "/v3/files/030-packer-0.1.2.tar.gz",
+      "file_size": 1470,
+      "file_md5": "55bca7816186e740e96eb5367149ae42",
+      "file_sha256": "2a806b51cb19d9641e867ece15a063184b2488f5ef926227a4c1a393c65844ab",
+      "downloads": 548,
+      "created_at": "2016-06-19 13:01:03 -0700",
+      "updated_at": "2019-07-03 15:58:31 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-sftp-0.1.1",
+      "slug": "030-sftp-0.1.1",
+      "module": {
+        "uri": "/v3/modules/030-sftp",
+        "slug": "030-sftp",
+        "name": "sftp",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.1.1",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 92,
+      "file_uri": "/v3/files/030-sftp-0.1.1.tar.gz",
+      "file_size": 3357,
+      "file_md5": "8ca922b6cf0162ac7b7fa6543431d5af",
+      "file_sha256": "6fea5c79317168418037560684061089aa2c4dff5de82755dc067d241899fcc0",
+      "downloads": 5923,
+      "created_at": "2016-06-28 00:13:51 -0700",
+      "updated_at": "2019-07-03 15:57:12 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    }
+  ]
+}

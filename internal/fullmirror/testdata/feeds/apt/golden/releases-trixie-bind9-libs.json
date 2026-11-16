@@ -1,0 +1,11 @@
+[
+  {
+    "version": "1:9.20.26-1~deb13u1",
+    "artifacts": [
+      {
+        "path": "/pool/main/b/bind9/bind9-libs_9.20.26-1~deb13u1_amd64.deb",
+        "size": 1247476
+      }
+    ]
+  }
+]

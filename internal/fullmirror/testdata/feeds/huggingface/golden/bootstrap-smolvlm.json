@@ -1,0 +1,56 @@
+[
+  {
+    "items": [
+      {
+        "name": "HuggingFaceTB/SmolVLM-500M-Instruct"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM-256M-Instruct"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM-Instruct"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM2-256M-Video-Instruct"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
+      }
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      {
+        "name": "HuggingFaceTB/SmolVLM2-2.2B-Instruct"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM2-2.2B-Base"
+      },
+      {
+        "name": "HuggingFaceTB/smolvlm-app-config"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM-500M-Base"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM-256M-Base"
+      }
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      {
+        "name": "HuggingFaceTB/SmolVLM-Base"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM-Synthetic"
+      },
+      {
+        "name": "HuggingFaceTB/SmolVLM-Instruct-DPO"
+      }
+    ],
+    "more": false
+  }
+]

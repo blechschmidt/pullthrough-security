@@ -1,0 +1,18 @@
+[
+  {
+    "version": "6.20.6",
+    "artifacts": [
+      {
+        "path": "/-/external-dns/6.20.6/external-dns-6.20.6.tgz"
+      }
+    ]
+  },
+  {
+    "version": "9.0.3",
+    "artifacts": [
+      {
+        "path": "/-/external-dns/9.0.3/external-dns-9.0.3.tgz"
+      }
+    ]
+  }
+]

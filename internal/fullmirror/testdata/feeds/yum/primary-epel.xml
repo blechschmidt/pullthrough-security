@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://linux.duke.edu/metadata/common" xmlns:rpm="http://linux.duke.edu/metadata/rpm" packages="1">
+<package type="rpm">
+  <name>3cpio</name>
+  <arch>x86_64</arch>
+  <version epoch="0" ver="0.14.0" rel="1.el9"/>
+  <checksum type="sha256" pkgid="YES">0022bf15d74e01ea04f94c853445e2bfa839633447905c1329bb8442251f9333</checksum>
+  <summary>Manage initrd cpio archives</summary>
+  <description>Manage initrd cpio archives.</description>
+  <packager>Fedora Project</packager>
+  <url>https://crates.io/crates/threecpio</url>
+  <time file="1770284794" build="1770284211"/>
+  <size package="303374" installed="675021" archive="676732"/>
+  <location href="Packages/3/3cpio-0.14.0-1.el9.x86_64.rpm"/>
+  <format>
+    <rpm:license>ISC AND MIT AND (MIT OR Apache-2.0)</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildhw-x86-09.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>rust-threecpio-0.14.0-1.el9.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="4504" end="10381"/>
+    <rpm:provides>
+      <rpm:entry name="3cpio" flags="EQ" epoch="0" ver="0.14.0" rel="1.el9"/>
+      <rpm:entry name="3cpio(x86-64)" flags="EQ" epoch="0" ver="0.14.0" rel="1.el9"/>
+    </rpm:provides>
+    <rpm:requires>
+      <rpm:entry name="libgcc_s.so.1()(64bit)"/>
+      <rpm:entry name="libgcc_s.so.1(GCC_3.0)(64bit)"/>
+      <rpm:entry name="libgcc_s.so.1(GCC_3.3)(64bit)"/>
+      <rpm:entry name="libgcc_s.so.1(GCC_4.2.0)(64bit)"/>
+      <rpm:entry name="rtld(GNU_HASH)"/>
+      <rpm:entry name="libc.so.6(GLIBC_2.34)(64bit)"/>
+    </rpm:requires>
+    <file>/usr/bin/3cpio</file>
+  </format>
+</package>
+</metadata>

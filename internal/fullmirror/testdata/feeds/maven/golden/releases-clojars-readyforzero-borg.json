@@ -1,0 +1,50 @@
+[
+  {
+    "version": "0.0.1",
+    "published": "2013-01-22T22:02:01Z",
+    "artifacts": [
+      {
+        "path": "/readyforzero/borg/0.0.1/borg-0.0.1.jar"
+      },
+      {
+        "path": "/readyforzero/borg/0.0.1/borg-0.0.1.pom"
+      }
+    ]
+  },
+  {
+    "version": "0.0.2",
+    "published": "2013-03-05T01:15:35Z",
+    "artifacts": [
+      {
+        "path": "/readyforzero/borg/0.0.2/borg-0.0.2.jar"
+      },
+      {
+        "path": "/readyforzero/borg/0.0.2/borg-0.0.2.pom"
+      }
+    ]
+  },
+  {
+    "version": "0.0.2a",
+    "published": "2013-03-05T01:57:56Z",
+    "artifacts": [
+      {
+        "path": "/readyforzero/borg/0.0.2a/borg-0.0.2a.jar"
+      },
+      {
+        "path": "/readyforzero/borg/0.0.2a/borg-0.0.2a.pom"
+      }
+    ]
+  },
+  {
+    "version": "0.0.2d",
+    "published": "2013-04-01T23:17:06Z",
+    "artifacts": [
+      {
+        "path": "/readyforzero/borg/0.0.2d/borg-0.0.2d.jar"
+      },
+      {
+        "path": "/readyforzero/borg/0.0.2d/borg-0.0.2d.pom"
+      }
+    ]
+  }
+]

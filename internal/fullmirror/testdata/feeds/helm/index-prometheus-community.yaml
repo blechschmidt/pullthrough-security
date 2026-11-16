@@ -1,0 +1,239 @@
+apiVersion: v1
+entries:
+  alertmanager:
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: v0.35.0
+    created: "2026-11-10T19:40:10.568277991Z"
+    description: The Alertmanager handles alerts sent by client applications such
+      as the Prometheus server.
+    digest: 951fb66e648e9edd1fe5851e5a9cb93c2161ec070c087a12542fe16d3672942c
+    home: https://prometheus.io/
+    icon: https://raw.githubusercontent.com/prometheus/prometheus.github.io/master/assets/prometheus_logo-cb55bb5c346.png
+    keywords:
+    - monitoring
+    kubeVersion: '>=1.25.0-0'
+    maintainers:
+    - email: maintainer@example.org
+      name: monotek
+      url: https://github.com/monotek
+    - email: maintainer@example.org
+      name: naseemkullah
+      url: https://github.com/naseemkullah
+    name: alertmanager
+    sources:
+    - https://github.com/prometheus/alertmanager
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/alertmanager-2.5.1/alertmanager-2.5.1.tgz
+    version: 2.5.1
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: v0.35.0
+    created: "2026-11-09T18:50:53.202974759Z"
+    description: The Alertmanager handles alerts sent by client applications such
+      as the Prometheus server.
+    digest: 8c735eeb90bb62dba4eed2757e74fac04086734849d253f0c13c9f16d336b6d0
+    home: https://prometheus.io/
+    icon: https://raw.githubusercontent.com/prometheus/prometheus.github.io/master/assets/prometheus_logo-cb55bb5c346.png
+    keywords:
+    - monitoring
+    kubeVersion: '>=1.25.0-0'
+    maintainers:
+    - email: maintainer@example.org
+      name: monotek
+      url: https://github.com/monotek
+    - email: maintainer@example.org
+      name: naseemkullah
+      url: https://github.com/naseemkullah
+    name: alertmanager
+    sources:
+    - https://github.com/prometheus/alertmanager
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/alertmanager-2.5.0/alertmanager-2.5.0.tgz
+    version: 2.5.0
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: v0.34.2
+    created: "2026-11-09T11:28:13.187384454Z"
+    description: The Alertmanager handles alerts sent by client applications such
+      as the Prometheus server.
+    digest: 8b810bb0db0b9ff3521ab38a935e49d6307da3cd26afe14859172fe52a66684e
+    home: https://prometheus.io/
+    icon: https://raw.githubusercontent.com/prometheus/prometheus.github.io/master/assets/prometheus_logo-cb55bb5c346.png
+    keywords:
+    - monitoring
+    kubeVersion: '>=1.25.0-0'
+    maintainers:
+    - email: maintainer@example.org
+      name: monotek
+      url: https://github.com/monotek
+    - email: maintainer@example.org
+      name: naseemkullah
+      url: https://github.com/naseemkullah
+    name: alertmanager
+    sources:
+    - https://github.com/prometheus/alertmanager
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/alertmanager-2.4.0/alertmanager-2.4.0.tgz
+    version: 2.4.0
+  kube-state-metrics:
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: 2.20.0
+    created: "2026-11-11T18:45:11.343849054Z"
+    description: Install kube-state-metrics to generate and expose cluster-level metrics
+    digest: 1a06f8bb44c545ade532f26ed11d8ae84753220e8c02e93c129618d9157420a5
+    home: https://github.com/kubernetes/kube-state-metrics/
+    icon: https://raw.githubusercontent.com/cncf/artwork/main/projects/kubernetes/icon/color/kubernetes-icon-color.svg
+    keywords:
+    - metric
+    - monitoring
+    - prometheus
+    - kubernetes
+    maintainers:
+    - email: maintainer@example.org
+      name: tariq1890
+      url: https://github.com/tariq1890
+    - email: maintainer@example.org
+      name: mrueg
+      url: https://github.com/mrueg
+    - email: maintainer@example.org
+      name: dotdc
+      url: https://github.com/dotdc
+    - email: maintainer@example.org
+      name: sebastiangaiser
+      url: https://github.com/sebastiangaiser
+    name: kube-state-metrics
+    sources:
+    - https://github.com/prometheus-community/helm-charts
+    - https://github.com/kubernetes/kube-state-metrics/
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/kube-state-metrics-9.0.1/kube-state-metrics-9.0.1.tgz
+    version: 9.0.1
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: 2.20.0
+    created: "2026-11-04T10:44:13.223047601Z"
+    description: Install kube-state-metrics to generate and expose cluster-level metrics
+    digest: d187c0990b6e65708280d65b3b371f93f99ef99277fb3d22975d952f110504f6
+    home: https://github.com/kubernetes/kube-state-metrics/
+    icon: https://raw.githubusercontent.com/cncf/artwork/main/projects/kubernetes/icon/color/kubernetes-icon-color.svg
+    keywords:
+    - metric
+    - monitoring
+    - prometheus
+    - kubernetes
+    maintainers:
+    - email: maintainer@example.org
+      name: tariq1890
+      url: https://github.com/tariq1890
+    - email: maintainer@example.org
+      name: mrueg
+      url: https://github.com/mrueg
+    - email: maintainer@example.org
+      name: dotdc
+      url: https://github.com/dotdc
+    - email: maintainer@example.org
+      name: sebastiangaiser
+      url: https://github.com/sebastiangaiser
+    name: kube-state-metrics
+    sources:
+    - https://github.com/kubernetes/kube-state-metrics/
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/kube-state-metrics-9.0.0/kube-state-metrics-9.0.0.tgz
+    version: 9.0.0
+  prometheus-node-exporter:
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: 1.12.1
+    created: "2026-11-10T19:48:24.811643632Z"
+    description: A Helm chart for prometheus node-exporter
+    digest: 908fb55ede2c340c64cd643bc6352ce46f3cbc94663014033b0b321a5013a0b8
+    home: https://github.com/prometheus/node_exporter/
+    icon: https://raw.githubusercontent.com/cncf/artwork/refs/heads/main/projects/prometheus/icon/color/prometheus-icon-color.svg
+    keywords:
+    - node-exporter
+    - prometheus
+    - exporter
+    maintainers:
+    - email: maintainer@example.org
+      name: gianrubio
+      url: https://github.com/gianrubio
+    - email: maintainer@example.org
+      name: zanhsieh
+      url: https://github.com/zanhsieh
+    - email: maintainer@example.org
+      name: zeritti
+      url: https://github.com/zeritti
+    name: prometheus-node-exporter
+    sources:
+    - https://github.com/prometheus-community/helm-charts
+    - https://github.com/prometheus/node_exporter/
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/prometheus-node-exporter-5.1.0/prometheus-node-exporter-5.1.0.tgz
+    version: 5.1.0
+  - annotations:
+      artifacthub.io/license: Apache-2.0
+      artifacthub.io/links: |
+        - name: Chart Source
+          url: https://github.com/prometheus-community/helm-charts
+    apiVersion: v2
+    appVersion: 1.12.1
+    created: "2026-11-10T13:13:26.990059797Z"
+    description: A Helm chart for prometheus node-exporter
+    digest: e502583a2037b50b46600ba8cb15ed4d5ac46f6d9351c4a886da1e27420d7265
+    home: https://github.com/prometheus/node_exporter/
+    icon: https://raw.githubusercontent.com/cncf/artwork/refs/heads/main/projects/prometheus/icon/color/prometheus-icon-color.svg
+    keywords:
+    - node-exporter
+    - prometheus
+    - exporter
+    maintainers:
+    - email: maintainer@example.org
+      name: gianrubio
+      url: https://github.com/gianrubio
+    - email: maintainer@example.org
+      name: zanhsieh
+      url: https://github.com/zanhsieh
+    - email: maintainer@example.org
+      name: zeritti
+      url: https://github.com/zeritti
+    name: prometheus-node-exporter
+    sources:
+    - https://github.com/prometheus-community/helm-charts
+    - https://github.com/prometheus/node_exporter/
+    type: application
+    urls:
+    - https://github.com/prometheus-community/helm-charts/releases/download/prometheus-node-exporter-5.0.1/prometheus-node-exporter-5.0.1.tgz
+    version: 5.0.1
+generated: "2026-11-15T23:31:53.852118585Z"

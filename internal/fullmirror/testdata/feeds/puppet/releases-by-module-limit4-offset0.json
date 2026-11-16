@@ -1,0 +1,129 @@
+{
+  "pagination": {
+    "limit": 4,
+    "offset": 0,
+    "first": "/v3/releases?sort_by=module&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "previous": null,
+    "current": "/v3/releases?sort_by=module&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "next": "/v3/releases?sort_by=module&limit=4&offset=4&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "total": 54828
+  },
+  "results": [
+    {
+      "uri": "/v3/releases/030-git-0.2.6",
+      "slug": "030-git-0.2.6",
+      "module": {
+        "uri": "/v3/modules/030-git",
+        "slug": "030-git",
+        "name": "git",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.2.6",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 97,
+      "file_uri": "/v3/files/030-git-0.2.6.tar.gz",
+      "file_size": 2031,
+      "file_md5": "30bffe29846eb21723fd1489815aa2ea",
+      "file_sha256": "ea999f491da7e2bfc8f6ca395697dcc8021d0699de5810d72a84f68318a63880",
+      "downloads": 5643,
+      "created_at": "2016-10-18 04:22:24 -0700",
+      "updated_at": "2019-07-03 16:03:12 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-git-0.2.5",
+      "slug": "030-git-0.2.5",
+      "module": {
+        "uri": "/v3/modules/030-git",
+        "slug": "030-git",
+        "name": "git",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.2.5",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 90,
+      "file_uri": "/v3/files/030-git-0.2.5.tar.gz",
+      "file_size": 1996,
+      "file_md5": "0a4e6f131f8b8da7f60d822d7ec4c5a3",
+      "file_sha256": "81c6f193d90f1c269305a977bea46a6937dc11f7ee5abf2a5266eb733ebfd3e2",
+      "downloads": 706,
+      "created_at": "2016-06-29 14:24:12 -0700",
+      "updated_at": "2019-07-03 15:53:59 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-git-0.2.4",
+      "slug": "030-git-0.2.4",
+      "module": {
+        "uri": "/v3/modules/030-git",
+        "slug": "030-git",
+        "name": "git",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.2.4",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 90,
+      "file_uri": "/v3/files/030-git-0.2.4.tar.gz",
+      "file_size": 1886,
+      "file_md5": "ecc7271ced935433b69c8cb13e748298",
+      "file_sha256": "997885fed873209fafbc45b2579a4bafe3b9ddabea7c18325e619437c558af1f",
+      "downloads": 1041,
+      "created_at": "2016-05-24 12:57:08 -0700",
+      "updated_at": "2019-07-03 16:14:53 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-git-0.2.3",
+      "slug": "030-git-0.2.3",
+      "module": {
+        "uri": "/v3/modules/030-git",
+        "slug": "030-git",
+        "name": "git",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.2.3",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 90,
+      "file_uri": "/v3/files/030-git-0.2.3.tar.gz",
+      "file_size": 1825,
+      "file_md5": "f2aa9c12c40a1af74f8de4143e22c373",
+      "file_sha256": "78a3325ddc247e51e93edc1dc2a2c9959fe93591eeff872b3633ce155995e6dd",
+      "downloads": 523,
+      "created_at": "2016-05-18 14:21:04 -0700",
+      "updated_at": "2019-07-03 16:14:47 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "version": "9.0.0",
+    "artifacts": [
+      {
+        "path": "/-/kube-state-metrics/9.0.0/kube-state-metrics-9.0.0.tgz"
+      }
+    ]
+  },
+  {
+    "version": "9.0.1",
+    "artifacts": [
+      {
+        "path": "/-/kube-state-metrics/9.0.1/kube-state-metrics-9.0.1.tgz"
+      }
+    ]
+  }
+]

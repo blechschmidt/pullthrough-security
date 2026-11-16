@@ -1,0 +1,30 @@
+{
+  "items": [
+    {
+      "name": "ca-certificates"
+    },
+    {
+      "name": "jq"
+    },
+    {
+      "name": "libxml++"
+    },
+    {
+      "name": "openssl@3"
+    }
+  ],
+  "next": {
+    "format": "homebrew/1",
+    "snap": "c42d128a3d6d7df2dadbc6ebbce0d06d482d0c4db03b122a08253f039d990e4b",
+    "state": {
+      "etag": "\"i1\"",
+      "lastModified": "Mon, 16 Nov 2026 05:35:12 GMT"
+    },
+    "head": "c9b7dd72533f340d7ebab4816c1b3c098c65de83",
+    "headTime": "2026-11-16T05:35:12Z"
+  },
+  "more": false,
+  "head": "c9b7dd72533f340d7ebab4816c1b3c098c65de83",
+  "lagKnown": true,
+  "headTime": "2026-11-16T05:35:12Z"
+}

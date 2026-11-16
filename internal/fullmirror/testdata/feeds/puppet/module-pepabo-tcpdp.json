@@ -1,0 +1,41 @@
+{
+  "uri": "/v3/modules/pepabo-tcpdp",
+  "slug": "pepabo-tcpdp",
+  "name": "tcpdp",
+  "downloads": 1,
+  "created_at": "2026-11-09 23:43:28 -0800",
+  "updated_at": "2026-11-09 23:43:28 -0800",
+  "deprecated_at": null,
+  "deprecated_for": null,
+  "superseded_by": null,
+  "supported": false,
+  "endorsement": null,
+  "module_group": "base",
+  "owner": {
+    "uri": "/v3/users/pepabo",
+    "slug": "pepabo",
+    "username": "pepabo",
+    "gravatar_id": "a38bfc1943aed4b717a61e85d4da64c5"
+  },
+  "premium": false,
+  "login_required": false,
+  "followers_count": 0,
+  "followed": false,
+  "current_release": null,
+  "releases": [
+    {
+      "uri": "/v3/releases/pepabo-tcpdp-0.1.4",
+      "slug": "pepabo-tcpdp-0.1.4",
+      "version": "0.1.4",
+      "supported": false,
+      "created_at": "2026-11-09 23:43:28 -0800",
+      "deleted_at": "2026-11-09 23:48:29 -0800",
+      "file_uri": "/v3/files/pepabo-tcpdp-0.1.4.tar.gz",
+      "file_size": 4869
+    }
+  ],
+  "feedback_score": null,
+  "homepage_url": "https://github.com/pepabo/puppet-tcpdp",
+  "issues_url": "https://github.com/pepabo/puppet-tcpdp/issues",
+  "contributions_requested_from": null
+}

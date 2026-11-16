@@ -1,0 +1,71 @@
+{
+  "pagination": {
+    "limit": 4,
+    "offset": 54826,
+    "first": "/v3/releases?sort_by=module&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "previous": "/v3/releases?sort_by=module&limit=4&offset=54822&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "current": "/v3/releases?sort_by=module&limit=4&offset=54826&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "next": null,
+    "total": 54828
+  },
+  "results": [
+    {
+      "uri": "/v3/releases/zyronix-ipsets-1.0.1",
+      "slug": "zyronix-ipsets-1.0.1",
+      "module": {
+        "uri": "/v3/modules/zyronix-ipsets",
+        "slug": "zyronix-ipsets",
+        "name": "ipsets",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/zyronix",
+          "slug": "zyronix",
+          "username": "zyronix",
+          "gravatar_id": "ffc40393fa65dbf38444e18f9e156992"
+        }
+      },
+      "version": "1.0.1",
+      "supported": false,
+      "pdk": true,
+      "validation_score": 100,
+      "file_uri": "/v3/files/zyronix-ipsets-1.0.1.tar.gz",
+      "file_size": 13567,
+      "file_md5": "88c41e296f5da907fda0ebeb4af13665",
+      "file_sha256": "5d75d661c4c51f82ac5030b2a8d369bb47f06710d7caf59650375afbb9cdba5b",
+      "downloads": 551,
+      "created_at": "2019-01-15 13:41:26 -0800",
+      "updated_at": "2019-07-03 16:16:10 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/zyronix-ipsets-1.0.0",
+      "slug": "zyronix-ipsets-1.0.0",
+      "module": {
+        "uri": "/v3/modules/zyronix-ipsets",
+        "slug": "zyronix-ipsets",
+        "name": "ipsets",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/zyronix",
+          "slug": "zyronix",
+          "username": "zyronix",
+          "gravatar_id": "ffc40393fa65dbf38444e18f9e156992"
+        }
+      },
+      "version": "1.0.0",
+      "supported": false,
+      "pdk": true,
+      "validation_score": 100,
+      "file_uri": "/v3/files/zyronix-ipsets-1.0.0.tar.gz",
+      "file_size": 13476,
+      "file_md5": "ff299871e6051f4f93b5ec101adce9bc",
+      "file_sha256": "4b519335a4207cc900b2db2b03f0eea64781775e57906c25a48d9e3974e22975",
+      "downloads": 180,
+      "created_at": "2019-01-15 12:14:49 -0800",
+      "updated_at": "2019-07-03 15:53:41 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    }
+  ]
+}

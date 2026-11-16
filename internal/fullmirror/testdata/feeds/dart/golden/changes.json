@@ -1,0 +1,9 @@
+{
+  "items": [
+    "bones_api",
+    "html_to_markdown_ffi",
+    "html_to_markdown_ffi_flutter",
+    "open_at_login"
+  ],
+  "more": false
+}

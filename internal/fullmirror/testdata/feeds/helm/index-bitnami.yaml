@@ -1,0 +1,163 @@
+apiVersion: v1
+entries:
+  airflow:
+  - annotations:
+      category: WorkFlow
+      images: |
+        - name: airflow
+          image: docker.io/bitnami/airflow:3.0.5-debian-12-r0
+        - name: statsd-exporter
+          image: docker.io/bitnami/statsd-exporter:0.28.0-debian-12-r24
+      licenses: Apache-2.0
+      tanzuCategory: service
+    apiVersion: v2
+    appVersion: 3.0.5
+    created: "2025-08-21T03:20:00.91572711Z"
+    dependencies:
+    - condition: redis.enabled
+      name: redis
+      repository: oci://registry-1.docker.io/bitnamicharts
+      version: 22.x.x
+    - condition: postgresql.enabled
+      name: postgresql
+      repository: oci://registry-1.docker.io/bitnamicharts
+      version: 16.x.x
+    - name: common
+      repository: oci://registry-1.docker.io/bitnamicharts
+      tags:
+      - bitnami-common
+      version: 2.x.x
+    description: Apache Airflow is a tool to express and execute workflows as directed
+      acyclic graphs (DAGs). It includes utilities to schedule tasks, monitor task
+      progress and handle task dependencies.
+    digest: 8819aa6cc09b3669f58b8b05dcf48d13df3c2894c4ef39391673696a285c2bbc
+    home: https://bitnami.com
+    icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/airflow/img/airflow-stack-220x234.png
+    keywords:
+    - apache
+    - airflow
+    - workflow
+    - dag
+    maintainers:
+    - name: Broadcom, Inc. All Rights Reserved.
+      url: https://github.com/bitnami/charts
+    name: airflow
+    sources:
+    - https://github.com/bitnami/charts/tree/main/bitnami/airflow
+    urls:
+    - oci://registry-1.docker.io/bitnamicharts/airflow:25.0.2
+    version: 25.0.2
+  - annotations:
+      category: WorkFlow
+      images: |
+        - name: airflow
+          image: docker.io/bitnami/airflow:2.10.3-debian-12-r5
+        - name: airflow-exporter
+          image: docker.io/bitnami/airflow-exporter:0.20220314.0-debian-12-r51
+      licenses: Apache-2.0
+    apiVersion: v2
+    appVersion: 2.10.3
+    created: "2024-11-14T10:53:37.507090726Z"
+    dependencies:
+    - condition: redis.enabled
+      name: redis
+      repository: oci://registry-1.docker.io/bitnamicharts
+      version: 20.x.x
+    - condition: postgresql.enabled
+      name: postgresql
+      repository: oci://registry-1.docker.io/bitnamicharts
+      version: 16.x.x
+    - name: common
+      repository: oci://registry-1.docker.io/bitnamicharts
+      tags:
+      - bitnami-common
+      version: 2.x.x
+    description: Apache Airflow is a tool to express and execute workflows as directed
+      acyclic graphs (DAGs). It includes utilities to schedule tasks, monitor task
+      progress and handle task dependencies.
+    digest: d71af86d25ec956de78c17c9cc47313977f81c0a556ab59bf4f02c2638b3373c
+    home: https://bitnami.com
+    icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/airflow/img/airflow-stack-220x234.png
+    keywords:
+    - apache
+    - airflow
+    - workflow
+    - dag
+    maintainers:
+    - name: Broadcom, Inc. All Rights Reserved.
+      url: https://github.com/bitnami/charts
+    name: airflow
+    sources:
+    - https://github.com/bitnami/charts/tree/main/bitnami/airflow
+    urls:
+    - https://charts.bitnami.com/bitnami/airflow-21.9.0.tgz
+    version: 21.9.0
+  external-dns:
+  - annotations:
+      category: DeveloperTools
+      images: |
+        - name: external-dns
+          image: docker.io/bitnami/external-dns:0.18.0-debian-12-r4
+      licenses: Apache-2.0
+      tanzuCategory: clusterUtility
+    apiVersion: v2
+    appVersion: 0.18.0
+    created: "2025-08-13T18:05:38.121833225Z"
+    dependencies:
+    - name: common
+      repository: oci://registry-1.docker.io/bitnamicharts
+      tags:
+      - bitnami-common
+      version: 2.x.x
+    description: ExternalDNS is a Kubernetes addon that configures public DNS servers
+      with information about exposed Kubernetes services to make them discoverable.
+    digest: 4f701e842ab91a2a07c1b9ee6c18619b3ec38a61e9327e4b7bfebbcb544ac3d7
+    home: https://bitnami.com
+    icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/external-dns/img/external-dns-stack-220x234.png
+    keywords:
+    - external-dns
+    - network
+    - dns
+    maintainers:
+    - name: Broadcom, Inc. All Rights Reserved.
+      url: https://github.com/bitnami/charts
+    name: external-dns
+    sources:
+    - https://github.com/bitnami/charts/tree/main/bitnami/external-dns
+    urls:
+    - oci://registry-1.docker.io/bitnamicharts/external-dns:9.0.3
+    version: 9.0.3
+  - annotations:
+      category: DeveloperTools
+      images: |-
+        - name: external-dns
+          image: registry-1.docker.io/bitnami/external-dns:0.13.5-debian-11-r55
+      licenses: Apache-2.0
+    apiVersion: v2
+    appVersion: 0.13.5
+    created: "2023-07-27T06:35:02.133463481Z"
+    dependencies:
+    - name: common
+      repository: oci://registry-1.docker.io/bitnamicharts
+      tags:
+      - bitnami-common
+      version: 2.x.x
+    description: ExternalDNS is a Kubernetes addon that configures public DNS servers
+      with information about exposed Kubernetes services to make them discoverable.
+    digest: 2ef715185d22549728078c664fe24611185258202c7d70fb2173baa82e9509cd
+    home: https://bitnami.com
+    icon: https://dyltqmyl993wv.cloudfront.net/assets/stacks/external-dns/img/external-dns-stack-220x234.png
+    keywords:
+    - external-dns
+    - network
+    - dns
+    maintainers:
+    - name: VMware, Inc.
+      url: https://github.com/bitnami/charts
+    name: external-dns
+    sources:
+    - https://github.com/bitnami/charts/tree/main/bitnami/external-dns
+    urls:
+    - https://charts.bitnami.com/bitnami/external-dns-6.20.6.tgz
+    version: 6.20.6
+generated: "2026-11-14T02:35:18.335903141Z"

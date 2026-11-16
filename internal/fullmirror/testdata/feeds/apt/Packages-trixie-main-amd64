@@ -1,0 +1,172 @@
+Package: 0ad
+Source: 0ad (0.27.0-2)
+Version: 0.27.0-2+b1
+Installed-Size: 54427
+Maintainer: Debian Games Team <pkg-games-devel@lists.alioth.debian.org>
+Architecture: amd64
+Depends: 0ad-data (>= 0.27.0), 0ad-data (<= 0.27.0-2), 0ad-data-common (>= 0.27.0), 0ad-data-common (<= 0.27.0-2), libboost-filesystem1.83.0 (>= 1.83.0), libc6 (>= 2.39), libcurl3t64-gnutls (>= 7.32.0), libenet7 (>= 1.3), libfmt10 (>= 10.1.1+ds1), libfreetype6 (>= 2.2.1), libgcc-s1 (>= 4.2), libgloox18 (>= 1.0.28), libicu76 (>= 76.1-1~), libminiupnpc18 (>= 2.2.8), libopenal1 (>= 1.14), libpng16-16t64 (>= 1.6.46), libsdl2-2.0-0 (>= 2.0.12), libsodium23 (>= 1.0.14), libstdc++6 (>= 14), libvorbisfile3 (>= 1.1.2), libwxbase3.2-1t64 (>= 3.2.6+dfsg), libwxgtk-gl3.2-1t64 (>= 3.2.6+dfsg), libwxgtk3.2-1t64 (>= 3.2.6+dfsg), libx11-6, libxml2 (>= 2.9.0), zlib1g (>= 1:1.2.0)
+Pre-Depends: dpkg (>= 1.15.6~)
+Description: Real-time strategy game of ancient warfare
+Homepage: https://play0ad.com/
+Description-md5: d943033bedada21853d2ae54a2578a7b
+Tag: game::strategy, interface::graphical, interface::x11, role::program,
+ uitoolkit::sdl, uitoolkit::wxwidgets, use::gameplaying,
+ x11::application
+Section: games
+Priority: optional
+Filename: pool/main/0/0ad/0ad_0.27.0-2+b1_amd64.deb
+Size: 15478892
+MD5sum: def4e9fbaca705a3ef4e16904cdd6dc5
+SHA256: 704dae7df79a35ed1bd3a0a8d5d1b9ce7a4ecdef74ddff72114d9523d63710eb
+
+Package: 0ad-data
+Version: 0.27.0-1
+Installed-Size: 3433612
+Maintainer: Debian Games Team <pkg-games-devel@lists.alioth.debian.org>
+Architecture: all
+Pre-Depends: dpkg (>= 1.15.6~)
+Suggests: 0ad
+Description: Real-time strategy game of ancient warfare (data files)
+Multi-Arch: foreign
+Homepage: https://play0ad.com/
+Description-md5: 26581e685027d5ae84824362a4ba59ee
+Tag: role::app-data
+Section: games
+Priority: optional
+Filename: pool/main/0/0ad-data/0ad-data_0.27.0-1_all.deb
+Size: 1389812248
+MD5sum: 8bc5ae2a785f8a88e4c6a1ecc1e0e245
+SHA256: 7a25d66175bdc75cbd6a90e98b71dcb0d76f7763c589bd71880503f1c6185e4c
+
+Package: bind9-libs
+Source: bind9
+Version: 1:9.20.26-1~deb13u1
+Installed-Size: 3653
+Maintainer: Debian DNS Team <team+dns@tracker.debian.org>
+Architecture: amd64
+Replaces: bind-libs (<< 1:9.13.6~)
+Depends: libc6 (>= 2.38), libfstrm0 (>= 0.2.0), libgssapi-krb5-2 (>= 1.17), libjemalloc2 (>= 4.0.0), libjson-c5 (>= 0.15), libkrb5-3 (>= 1.6.dfsg.2), liblmdb0 (>= 0.9.7), libmaxminddb0 (>= 1.3.0), libnghttp2-14 (>= 1.12.0), libprotobuf-c1 (>= 1.0.1), libssl3t64 (>= 3.4.0), liburcu8t64 (>= 0.13.0), libuv1t64 (>= 1.38.0), libxml2 (>= 2.7.4), zlib1g (>= 1:1.1.4)
+Breaks: bind-libs (<< 1:9.13.6~)
+Description: Shared Libraries used by BIND 9
+Multi-Arch: same
+Homepage: https://www.isc.org/downloads/bind/
+Description-md5: 5d0130b772445112be93a9bd80da10e6
+Tag: role::shared-lib
+Section: libs
+Priority: optional
+Filename: pool/main/b/bind9/bind9-libs_9.20.26-1~deb13u1_amd64.deb
+Size: 1247476
+MD5sum: 04e4cf207a44800c65b9cdb379f8dcba
+SHA256: 989f407ea08bc6e42fd891c607f2403bc8279c58fbf5b489244328d985ef8190
+
+Package: curl
+Version: 8.14.1-2+deb13u5
+Installed-Size: 495
+Maintainer: Debian Curl Maintainers <team+curl@tracker.debian.org>
+Architecture: amd64
+Depends: libc6 (>= 2.34), libcurl4t64 (= 8.14.1-2+deb13u5), zlib1g (>= 1:1.1.4)
+Recommends: bash-completion
+Description: command line tool for transferring data with URL syntax
+Multi-Arch: foreign
+Homepage: https://curl.se/
+Description-md5: f83293d10df083ae6f7bb7d01642913c
+Tag: implemented-in::c, interface::commandline, network::client,
+ protocol::ftp, protocol::gopher, protocol::http, protocol::imap,
+ protocol::ipv6, protocol::kerberos, protocol::ldap, protocol::pop3,
+ protocol::sftp, protocol::smtp, protocol::ssh, protocol::ssl,
+ protocol::telnet, protocol::tftp, role::program, scope::utility,
+ use::downloading, use::synchronizing, use::transmission,
+ works-with::file, works-with::mail
+Section: web
+Priority: optional
+Filename: pool/main/c/curl/curl_8.14.1-2+deb13u5_amd64.deb
+Size: 270064
+MD5sum: eccc40a5650e9ece7c0fcbb3fcf9f076
+SHA256: ebb7e0cbe30ad23bce0d28a848ccfeb9b73b82817eb4fe12fa20d2845f62dc73
+
+Package: libcurl4t64
+Source: curl
+Version: 8.14.1-2+deb13u5
+Installed-Size: 1013
+Maintainer: Debian Curl Maintainers <team+curl@tracker.debian.org>
+Architecture: amd64
+Replaces: libcurl3, libcurl4
+Provides: libcurl4 (= 8.14.1-2+deb13u5)
+Depends: libbrotli1 (>= 0.6.0), libc6 (>= 2.38), libgssapi-krb5-2 (>= 1.17), libidn2-0 (>= 2.0.0), libldap2 (>= 2.6.2), libnghttp2-14 (>= 1.50.0), libnghttp3-9 (>= 0.15.0), libpsl5t64 (>= 0.16.0), librtmp1 (>= 2.3), libssh2-1t64 (>= 1.11.1), libssl3t64 (>= 3.3.0), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.2.3.4)
+Recommends: ca-certificates
+Conflicts: libcurl3
+Breaks: libcurl4 (<< 8.14.1-2+deb13u5)
+Description: easy-to-use client-side URL transfer library (OpenSSL flavour)
+Multi-Arch: same
+Homepage: https://curl.se/
+Description-md5: f1c7f18aba2d8ab7a7e32acea1dc61e7
+Section: libs
+Priority: optional
+Filename: pool/main/c/curl/libcurl4t64_8.14.1-2+deb13u5_amd64.deb
+Size: 391492
+MD5sum: f4eafe0d0739cc44a3a387a7ab09eba1
+SHA256: 0dedddfe614fc4a4335c9167b73c64a50136edd76b7991aa851408d0795163eb
+
+Package: libstdc++6
+Source: gcc-14
+Version: 14.2.0-19
+Installed-Size: 3019
+Maintainer: Debian GCC Maintainers <debian-gcc@lists.debian.org>
+Architecture: amd64
+Replaces: libstdc++6-14-dbg (<< 4.9.0-3)
+Depends: gcc-14-base (= 14.2.0-19), libc6 (>= 2.38), libgcc-s1 (>= 4.3)
+Conflicts: scim (<< 1.4.2-1)
+Breaks: gcc-4.3 (<< 4.3.6-1), gcc-4.4 (<< 4.4.6-4), gcc-4.5 (<< 4.5.3-2)
+Description: GNU Standard C++ Library v3
+Multi-Arch: same
+Homepage: http://gcc.gnu.org/
+Description-md5: 724ab84919e0e220afb960e36463914d
+Tag: role::shared-lib
+Section: libs
+Priority: optional
+Filename: pool/main/g/gcc-14/libstdc++6_14.2.0-19_amd64.deb
+Size: 713628
+MD5sum: 8954f7d89eb15031f88e9f3047be059e
+SHA256: ab1fa05837aa7a92aae748fd07a18a35f7d18bb4a71c4724fe2bbf0e32089de0
+
+Package: tzdata
+Version: 2026c-0+deb13u1
+Installed-Size: 1358
+Maintainer: GNU Libc Maintainers <debian-glibc@lists.debian.org>
+Architecture: all
+Replaces: tzdata-legacy (= 2023c-8), tzdata-legacy (= 2023c-9)
+Provides: tzdata-trixie
+Depends: debconf (>= 0.5) | debconf-2.0
+Breaks: tzdata-legacy (= 2023c-8), tzdata-legacy (= 2023c-9)
+Description: time zone and daylight-saving time data
+Multi-Arch: foreign
+Homepage: https://www.iana.org/time-zones
+Description-md5: a77a3cc9a67658dd7cfdc6547391b8f8
+Tag: role::app-data, use::timekeeping
+Section: localization
+Priority: required
+Filename: pool/main/t/tzdata/tzdata_2026c-0+deb13u1_all.deb
+Size: 264156
+MD5sum: 57b7a59698976d6c0e7e769a049eb3fe
+SHA256: 813b9bbbe14ccda2b24617b8bade0ade4d745957e75921766c153d249886bd4c
+
+Package: vim
+Version: 2:9.1.1230-2
+Installed-Size: 3930
+Maintainer: Debian Vim Maintainers <team+vim@tracker.debian.org>
+Architecture: amd64
+Provides: editor
+Depends: vim-common (= 2:9.1.1230-2), vim-runtime (= 2:9.1.1230-2), libacl1 (>= 2.2.23), libc6 (>= 2.38), libgpm2 (>= 1.20.7), libselinux1 (>= 3.1~), libsodium23 (>= 1.0.14), libtinfo6 (>= 6)
+Suggests: ctags, vim-doc, vim-scripts
+Description: Vi IMproved - enhanced vi editor
+Homepage: https://www.vim.org/
+Description-md5: 59e8b8f7757db8b53566d5d119872de8
+Tag: devel::editor, implemented-in::c, interface::commandline,
+ interface::text-mode, role::program, scope::application,
+ uitoolkit::ncurses, use::editing, works-with::text, works-with::unicode
+Section: editors
+Priority: optional
+Filename: pool/main/v/vim/vim_9.1.1230-2_amd64.deb
+Size: 1669984
+MD5sum: 677a10c17a1b230a84d62e486177e784
+SHA256: 7050d710bbcd5dee68865d90fd95a9aa865bf16d9a3874c5bb6a4f1d69231cfe

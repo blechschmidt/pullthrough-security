@@ -87,7 +87,10 @@ type testListingFeed struct{ *listingFeed }
 func (testListingFeed) Releases(context.Context, string) ([]Release, error) { return nil, nil }
 
 func newTestListingFeed(l listingSource) testListingFeed {
-	return testListingFeed{newListingFeed("test", l)}
+	f := newListingFeed("test", l)
+	// The registry's clock: a day after the listings' times.
+	f.now = func() time.Time { return listT0.Add(24 * time.Hour) }
+	return testListingFeed{f}
 }
 
 func at(min int) time.Time { return listT0.Add(time.Duration(min) * time.Minute) }
@@ -112,7 +115,7 @@ func TestListingFeedFollowsTheNewest(t *testing.T) {
 	l.publish("a", "2", at(5))
 	l.publish("d", "1", at(2))
 	got, cursor := drainChanges(t, f, cursor)
-	if strings.Join(got, ",") != "a@2,d@1" {
+	if strings.Join(got, ",") != "d@1,a@2" { // oldest first
 		t.Errorf("Changes = %v", got)
 	}
 	if got, _ := drainChanges(t, f, cursor); len(got) != 0 {
@@ -141,6 +144,7 @@ func TestListingFeedBootstrapMarkIsTakenFirst(t *testing.T) {
 	l.publish("b", "1", at(1))
 	f := newTestListingFeed(l)
 	f.maxPages = 1
+	f.lookback = 0 // (one page per call cannot cover the window)
 	b, err := f.Bootstrap(context.Background(), "")
 	if err != nil || !b.More {
 		t.Fatalf("first Bootstrap page: %+v %v", b, err)
@@ -237,4 +241,104 @@ func TestListingFeedSplitsALargePage(t *testing.T) {
 		}
 		seen[n] = true
 	}
+}
+
+// listingReleases answers Releases from the fake listing: every version
+// published, one file each.
+type listingReleasesFeed struct {
+	*listingFeed
+	l *fakeListing
+}
+
+func (f listingReleasesFeed) Releases(_ context.Context, name string) ([]Release, error) {
+	f.l.mu.Lock()
+	defer f.l.mu.Unlock()
+	var out []Release
+	for i := len(f.l.items) - 1; i >= 0; i-- {
+		if it := f.l.items[i]; it.Name == name {
+			out = append(out, Release{Version: it.Version, Artifacts: []Artifact{{Path: "/f/" + name + "-" + it.Version}}})
+		}
+	}
+	if len(out) == 0 {
+		return nil, Permanent(errors.New("unknown"))
+	}
+	return out, nil
+}
+
+// The engine follows a listing adapter end to end: everything the Bootstrap
+// lists is fetched, then — after a restart — only what was published since.
+func TestListingFeedThroughTheEngine(t *testing.T) {
+	l := &fakeListing{size: 2}
+	l.publish("a", "1", at(0))
+	l.publish("b", "1", at(1))
+	l.publish("b", "2", at(2))
+	stateDir := t.TempDir()
+	fetcher := newFakeFetcher()
+	run := func() {
+		t.Helper()
+		e, err := New(Options{
+			Dir: stateDir, Upstreams: []Upstream{{Settings: testSettings("lst"), Feed: listingReleasesFeed{newTestListingFeed(l).listingFeed, l}}},
+			Logger: discardLogger(), MaxAttempts: 2, BaseBackoff: time.Millisecond, MaxBackoff: time.Millisecond, MaxRounds: 2,
+			RoundBackoff: time.Millisecond, PollBackoff: time.Millisecond, ControlRefresh: time.Millisecond,
+			PersistInterval: time.Millisecond, StandbyInterval: time.Millisecond,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer e.Close()
+		e.Attach(fetcher)
+		fl := e.followers[0]
+		for i := 0; i < 20; i++ {
+			wait := fl.safeStep(context.Background())
+			if wait > time.Second {
+				break
+			}
+			time.Sleep(wait)
+		}
+	}
+	run()
+	for _, p := range []string{"/f/a-1", "/f/b-1", "/f/b-2"} {
+		if n := fetcher.fetchCount(p); n != 1 {
+			t.Errorf("%s fetched %d times after the Bootstrap, want 1", p, n)
+		}
+	}
+	l.publish("a", "2", at(10))
+	l.publish("c", "1", at(11))
+	run()
+	for _, p := range []string{"/f/a-2", "/f/c-1"} {
+		if n := fetcher.fetchCount(p); n != 1 {
+			t.Errorf("%s fetched %d times, want 1", p, n)
+		}
+	}
+	if n := fetcher.totalFetches(); n != 5 {
+		t.Errorf("%d fetches in all, want 5", n)
+	}
+}
+
+// listingSeenAt is a cursor's Seen list for items remembered at time at.
+func listingSeenAt(at time.Time, ids ...string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, strconv.FormatInt(at.Unix(), 10)+":"+listingHash(id))
+	}
+	return out
+}
+
+// newest returns the newest time of a page's valid items and the ids at it:
+// what a mark is taken from.
+func newest(items []listingItem) (time.Time, []string) {
+	var top time.Time
+	var at []string
+	for _, it := range items {
+		if !it.valid() || it.Time.IsZero() {
+			continue
+		}
+		switch {
+		case it.Time.After(top):
+			top, at = it.Time, []string{it.id()}
+		case it.Time.Equal(top):
+			at = append(at, it.id())
+		}
+	}
+	return top, at
 }

@@ -1,0 +1,60 @@
+[
+  {
+    "items": [
+      {
+        "name": "emacs-devel"
+      },
+      {
+        "name": "kicad-doc"
+      }
+    ],
+    "next": {
+      "format": "yum/1",
+      "snap": "c2db764232897a21dbcb1feb438e3c4f70600fe11c22f9007bd265036875c1aa",
+      "state": {
+        "validators": {
+          "etag": "\"1b8f-6605a87730d89\"",
+          "lastModified": "Mon, 16 Nov 2026 01:16:36 GMT"
+        },
+        "primary": "sha256:\u003cprimary-fedora.xml.zst\u003e"
+      },
+      "listing": true,
+      "after": "kicad-doc",
+      "listed": 2,
+      "head": "1794788928",
+      "headTime": "2026-11-16T00:28:40Z"
+    },
+    "more": true,
+    "head": "1794788928",
+    "lag": 2,
+    "lagKnown": true,
+    "headTime": "2026-11-16T00:28:40Z"
+  },
+  {
+    "items": [
+      {
+        "name": "octave-doc"
+      },
+      {
+        "name": "stb-doc"
+      }
+    ],
+    "next": {
+      "format": "yum/1",
+      "snap": "c2db764232897a21dbcb1feb438e3c4f70600fe11c22f9007bd265036875c1aa",
+      "state": {
+        "validators": {
+          "etag": "\"1b8f-6605a87730d89\"",
+          "lastModified": "Mon, 16 Nov 2026 01:16:36 GMT"
+        },
+        "primary": "sha256:\u003cprimary-fedora.xml.zst\u003e"
+      },
+      "head": "1794788928",
+      "headTime": "2026-11-16T00:28:40Z"
+    },
+    "more": false,
+    "head": "1794788928",
+    "lagKnown": true,
+    "headTime": "2026-11-16T00:28:40Z"
+  }
+]

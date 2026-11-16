@@ -1,0 +1,26 @@
+{
+  "manifest": {
+    "/README.md": {
+      "size": 279,
+      "checksum": "sha256-f544a1489e93e93957d6bd03f069e0db7a9bef4af6eeae46a86b4e3316e598c3"
+    },
+    "/LICENSE": {
+      "size": 1070,
+      "checksum": "sha256-c3f0644e8374585b209ea5206ab88055c1c503c202bff5d1f01bb29c07041fbb"
+    },
+    "/deno.json": {
+      "size": 75,
+      "checksum": "sha256-530ae36663f351334929169679ef53ee37d4a351f2809248e04075f2094d9b86"
+    },
+    "/main.ts": {
+      "size": 2989,
+      "checksum": "sha256-a41796ceb0be1bca3aa446ddebebcd732492ccb2cdcb8912adbabef3375fafc8"
+    }
+  },
+  "moduleGraph1": {
+    "/main.ts": {}
+  },
+  "exports": {
+    ".": "./main.ts"
+  }
+}

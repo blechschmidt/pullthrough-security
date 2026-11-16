@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"container/heap"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -13,9 +14,11 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"io/fs"
 	"os"
 	"sort"
 	"strconv"
+	"time"
 	"unicode/utf8"
 )
 
@@ -61,11 +64,19 @@ const (
 	snapMaxLine = 64 << 10
 	// snapMaxRecords bounds a copy.
 	snapMaxRecords = 50_000_000
-	// snapMaxGroup bounds the records of one package (a conda package with
-	// every build of every version has a few thousand).
-	snapMaxGroup = 200_000
-	// snapMaxBlock bounds one block, which holds at least one package.
-	snapMaxBlock = 128 << 20
+	// snapMaxGroup and snapMaxGroupBytes bound the records of one package.
+	// The largest real ones are conda-forge's: awscli lists 56,247 files
+	// (8.3 MB of records) across the default subdirs, pyarrow 26,126. A
+	// package past the bounds is left out of the copy (counted in its header
+	// and logged): one hostile entry does not fail the index. A package is
+	// held whole in memory when its block is read (twice when diffed).
+	snapMaxGroup      = 500_000
+	snapMaxGroupBytes = 64 << 20
+	// snapMaxBlock bounds one block, decompressed: blocks end at the first
+	// package boundary past snapBlockTarget.
+	snapMaxBlock = snapBlockTarget + snapMaxGroupBytes
+	// snapMaxOversizedNames is how many left-out packages a header names.
+	snapMaxOversizedNames = 10
 )
 
 // snapRecord is one record of a stored index: a file of a version of a
@@ -233,11 +244,19 @@ type snapHeader struct {
 	Names   int         `json:"names"`
 	Records int         `json:"records"`
 	Blocks  []snapBlock `json:"blocks"`
+	// Oversized counts the packages left out because they list more records
+	// than a package may (snapMaxGroup, snapMaxGroupBytes); OversizedNames
+	// names the first few.
+	Oversized      int      `json:"oversized,omitempty"`
+	OversizedNames []string `json:"oversizedNames,omitempty"`
 
-	// Set when the header is read.
+	// Set when the header is read: the block keys, where the blocks start,
+	// and the size and modification time of the file the header was read
+	// from (a reader checks it is still that file).
 	keys      [][]byte
 	dataStart int64
 	size      int64
+	mod       time.Time
 }
 
 // snapBlock is one block of a copy.
@@ -268,12 +287,73 @@ func snapIsDigest(s string) bool {
 	return true
 }
 
-// errSnapInvalid marks a stored copy that does not read back: missing,
-// damaged, or not the copy its name says.
-var errSnapInvalid = errors.New("the stored copy of the index does not read")
+// errSnapInvalid marks a stored copy that does not read back: missing, or
+// damaged (errSnapDamaged: its content is not what was written — a flipped
+// bit, a truncated file, another copy under its name). An I/O error of the
+// file system is neither: it is returned as it is, to be retried.
+// errSnapChanged is a copy replaced while it was being read (another
+// replica rewrote it): reading again is the remedy.
+var (
+	errSnapInvalid = errors.New("the stored copy of the index does not read")
+	errSnapDamaged = errors.New("the stored copy of the index is damaged")
+	errSnapChanged = errors.New("the stored copy of the index changed while it was read")
+)
 
+// snapError is a stored copy that does not read back.
+type snapError struct {
+	digest  string
+	damaged bool
+	err     error
+}
+
+func (e *snapError) Error() string {
+	what := "is missing"
+	if e.damaged {
+		what = "is damaged"
+	}
+	return fmt.Sprintf("the stored copy of the index %s %s: %v", truncate(e.digest, 12), what, e.err)
+}
+
+func (e *snapError) Unwrap() error { return e.err }
+
+func (e *snapError) Is(target error) bool {
+	return target == errSnapInvalid || (e.damaged && target == errSnapDamaged)
+}
+
+// snapInvalid reports a copy whose content is not what was written.
 func snapInvalid(digest string, err error) error {
-	return fmt.Errorf("%w %s: %v", errSnapInvalid, truncate(digest, 12), err)
+	return &snapError{digest: digest, damaged: true, err: err}
+}
+
+// snapMissing reports a copy that is not there.
+func snapMissing(digest string, err error) error { return &snapError{digest: digest, err: err} }
+
+// snapFail classifies an error met reading the copy named by digest: an I/O
+// error of the file system (returned wrapped, to be retried), a missing file,
+// or a damaged copy (anything the content is to blame for: a gzip checksum,
+// an unexpected end, a line that is not a record).
+func snapFail(digest string, err error) error {
+	var se *snapError
+	var pe *fs.PathError
+	switch {
+	case errors.As(err, &se), errors.Is(err, errSnapChanged), errors.Is(err, errValidationOnly):
+		return err
+	case errors.Is(err, fs.ErrNotExist):
+		return snapMissing(digest, err)
+	case errors.As(err, &pe):
+		return fmt.Errorf("reading the stored copy of the index %s: %w", truncate(digest, 12), err)
+	}
+	return snapInvalid(digest, err)
+}
+
+// snapDamagedDigest returns the digest of the damaged copy err reports, if it
+// reports one.
+func snapDamagedDigest(err error) (string, bool) {
+	var se *snapError
+	if errors.As(err, &se) && se.damaged {
+		return se.digest, true
+	}
+	return "", false
 }
 
 // --- building a copy ---------------------------------------------------------
@@ -290,13 +370,16 @@ type snapBuilder struct {
 	scratch []byte
 	failed  error
 	// limit is the bytes of lines held before a run spills (snapRunLimit;
-	// lowered by tests).
-	limit int
+	// lowered by tests), maxGroup and maxGroupBytes the bounds of one
+	// package (snapMaxGroup, snapMaxGroupBytes; lowered by tests).
+	limit         int
+	maxGroup      int
+	maxGroupBytes int
 }
 
 // newSnapBuilder starts a copy for an adapter of type kind in the files' dir.
 func (f files) newSnapBuilder(kind string) *snapBuilder {
-	return &snapBuilder{f: f, kind: kind, limit: snapRunLimit}
+	return &snapBuilder{f: f, kind: kind, limit: snapRunLimit, maxGroup: snapMaxGroup, maxGroupBytes: snapMaxGroupBytes}
 }
 
 // Add adds a record. A record that cannot be stored (an invalid name, a path
@@ -596,8 +679,21 @@ func (b *snapBuilder) Finish() (*snapHeader, error) {
 	h := sha256.New()
 	hdr := &snapHeader{Format: snapFormat, Kind: b.kind, Blocks: []snapBlock{}}
 	var block bytes.Buffer
-	var curKey []byte
-	first, blockRecords, group := "", 0, 0
+	var curKey, dropKey []byte
+	first, blockRecords := "", 0
+	// The package being written: where it starts in the block and how many
+	// records it has so far. It is hashed and counted once it is complete,
+	// so that a package found too large can be taken out again.
+	groupStart, groupRecords := 0, 0
+	endGroup := func() {
+		if groupRecords > 0 {
+			h.Write(block.Bytes()[groupStart:])
+			hdr.Records += groupRecords
+			blockRecords += groupRecords
+			hdr.Names++
+		}
+		groupRecords = 0
+	}
 	flush := func() error {
 		if block.Len() == 0 {
 			return nil
@@ -621,38 +717,44 @@ func (b *snapBuilder) Finish() (*snapHeader, error) {
 		if !ok {
 			return nil, fmt.Errorf("fullmirror: a record line of the copy being built has no name: %.80q", line)
 		}
+		if dropKey != nil && bytes.Equal(key, dropKey) {
+			continue
+		}
 		if !bytes.Equal(key, curKey) {
+			endGroup()
+			dropKey = nil
 			if block.Len() >= snapBlockTarget {
 				if err := flush(); err != nil {
 					return nil, err
 				}
 			}
 			curKey = append(curKey[:0], key...)
-			group = 0
-			hdr.Names++
+			groupStart = block.Len()
 			if block.Len() == 0 {
 				if err := json.Unmarshal(key, &first); err != nil {
 					return nil, fmt.Errorf("fullmirror: a record's name does not decode: %w", err)
 				}
 			}
 		}
-		group++
-		if group > snapMaxGroup {
-			return nil, Permanent(fmt.Errorf("the index lists more than %d files for package %s", snapMaxGroup, snapKeyName(curKey)))
+		if groupRecords+1 > b.maxGroup || block.Len()-groupStart+len(line)+1 > b.maxGroupBytes {
+			// Too large a package: leave it out, and its other records.
+			block.Truncate(groupStart)
+			groupRecords = 0
+			dropKey = append([]byte(nil), key...)
+			hdr.Oversized++
+			if len(hdr.OversizedNames) < snapMaxOversizedNames {
+				hdr.OversizedNames = append(hdr.OversizedNames, snapKeyName(key))
+			}
+			continue
 		}
 		block.Write(line)
 		block.WriteByte('\n')
-		if block.Len() > snapMaxBlock {
-			return nil, Permanent(fmt.Errorf("the index lists more than %d bytes of records for package %s", snapMaxBlock, snapKeyName(curKey)))
-		}
-		h.Write(line)
-		h.Write([]byte{'\n'})
-		hdr.Records++
-		blockRecords++
+		groupRecords++
 	}
 	if err := src.err(); err != nil {
 		return nil, err
 	}
+	endGroup()
 	if err := flush(); err != nil {
 		return nil, err
 	}
@@ -666,6 +768,13 @@ func (b *snapBuilder) Finish() (*snapHeader, error) {
 	}
 	if len(head) > snapMaxHeader {
 		return nil, Permanent(fmt.Errorf("the index is too large to keep a copy of (%d blocks)", len(hdr.Blocks)))
+	}
+	size := int64(len(snapMagic)+8+len(head)) + cw.n
+	// The same records make the same file: a copy already there, reading
+	// back with the same size, is kept (rewriting it would only change its
+	// time and make readers holding its header read it again).
+	if old, err := b.f.readSnapHeader(hdr.Digest, b.kind); err == nil && old.size == size {
+		return old, nil
 	}
 	err = b.f.write(snapName(hdr.Digest), func(w io.Writer) error {
 		var pre [len(snapMagic) + 8]byte
@@ -700,20 +809,23 @@ func (f files) readSnapHeader(digest, kind string) (*snapHeader, error) {
 		return nil, errValidationOnly
 	}
 	if !snapIsDigest(digest) {
-		return nil, snapInvalid(digest, errors.New("not the digest of a stored copy"))
+		return nil, snapMissing(digest, errors.New("not the digest of a stored copy"))
 	}
 	fh, err := os.Open(f.path(snapName(digest)))
 	if err != nil {
-		return nil, snapInvalid(digest, err)
+		return nil, snapFail(digest, err)
 	}
 	defer fh.Close()
 	st, err := fh.Stat()
 	if err != nil {
-		return nil, snapInvalid(digest, err)
+		return nil, snapFail(digest, err)
 	}
 	var pre [len(snapMagic) + 8]byte
-	if _, err := io.ReadFull(fh, pre[:]); err != nil || string(pre[:len(snapMagic)]) != snapMagic {
-		return nil, snapInvalid(digest, fmt.Errorf("not a stored copy (%v)", err))
+	if _, err := io.ReadFull(fh, pre[:]); err != nil {
+		return nil, snapFail(digest, err)
+	}
+	if string(pre[:len(snapMagic)]) != snapMagic {
+		return nil, snapInvalid(digest, errors.New("not a stored copy"))
 	}
 	n := binary.BigEndian.Uint64(pre[len(snapMagic):])
 	if n == 0 || n > snapMaxHeader || int64(n) > st.Size()-int64(len(pre)) {
@@ -721,14 +833,14 @@ func (f files) readSnapHeader(digest, kind string) (*snapHeader, error) {
 	}
 	head := make([]byte, n)
 	if _, err := io.ReadFull(fh, head); err != nil {
-		return nil, snapInvalid(digest, err)
+		return nil, snapFail(digest, err)
 	}
 	var hdr snapHeader
 	if err := json.Unmarshal(head, &hdr); err != nil {
 		return nil, snapInvalid(digest, err)
 	}
 	hdr.dataStart = int64(len(pre)) + int64(n)
-	hdr.size = st.Size()
+	hdr.size, hdr.mod = st.Size(), st.ModTime()
 	if err := hdr.check(digest, kind); err != nil {
 		return nil, snapInvalid(digest, err)
 	}
@@ -748,6 +860,8 @@ func (h *snapHeader) check(digest, kind string) error {
 		return fmt.Errorf("%d records of %d packages", h.Records, h.Names)
 	case (h.Records == 0) != (len(h.Blocks) == 0) || len(h.Blocks) > h.Names:
 		return fmt.Errorf("%d blocks for %d packages", len(h.Blocks), h.Names)
+	case h.Oversized < 0 || len(h.OversizedNames) > snapMaxOversizedNames:
+		return fmt.Errorf("%d oversized packages", h.Oversized)
 	}
 	h.keys = make([][]byte, len(h.Blocks))
 	var off int64
@@ -775,23 +889,86 @@ func (h *snapHeader) check(digest, kind string) error {
 	return nil
 }
 
-// snapReader walks a stored copy's records in order. It checks them as it
-// reads — in order, each a record the builder could have written — and, for
-// a reader opened at the start, the count and the digest once the last record
-// has been read: a caller acts on what it read only once Next has returned
-// false and Err is nil.
+// openCopy opens the file of a copy whose header was read, checking that it
+// is still the file the header was read from.
+func (f files) openCopy(hdr *snapHeader) (*os.File, error) {
+	fh, err := os.Open(f.path(snapName(hdr.Digest)))
+	if err != nil {
+		return nil, snapFail(hdr.Digest, err)
+	}
+	st, err := fh.Stat()
+	if err != nil {
+		fh.Close()
+		return nil, snapFail(hdr.Digest, err)
+	}
+	if st.Size() != hdr.size || !st.ModTime().Equal(hdr.mod) {
+		fh.Close()
+		return nil, fmt.Errorf("%w (%s)", errSnapChanged, truncate(hdr.Digest, 12))
+	}
+	return fh, nil
+}
+
+// snapReadBlock reads block i of a copy whole — so that its gzip checksum is
+// verified before any of it is used — and checks what it holds: lines that
+// each start with a package key, in order, as many as the header says, the
+// first of the package the header names. It returns the lines, each ended by
+// a newline.
+func snapReadBlock(fh *os.File, hdr *snapHeader, i int) ([]byte, error) {
+	b := hdr.Blocks[i]
+	zr, err := gzip.NewReader(io.NewSectionReader(fh, hdr.dataStart+b.Off, b.Len))
+	if err != nil {
+		return nil, snapFail(hdr.Digest, fmt.Errorf("block %d: %w", i, err))
+	}
+	defer zr.Close()
+	zr.Multistream(false)
+	data, err := io.ReadAll(io.LimitReader(zr, snapMaxBlock+1))
+	if err != nil {
+		return nil, snapFail(hdr.Digest, fmt.Errorf("block %d: %w", i, err))
+	}
+	if len(data) > snapMaxBlock || len(data) == 0 || data[len(data)-1] != '\n' {
+		return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d holds %d bytes not ending a line", i, len(data)))
+	}
+	var prev []byte
+	n := 0
+	for pos := 0; pos < len(data); n++ {
+		end := pos + bytes.IndexByte(data[pos:], '\n')
+		line := data[pos:end]
+		pos = end + 1
+		k, ok := snapLineKey(line)
+		switch {
+		case !ok || len(line) > snapMaxLine:
+			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d: line %d is not a record", i, n+1))
+		case n == 0 && !bytes.Equal(k, hdr.keys[i]):
+			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d does not start with %q", i, truncate(b.First, 60)))
+		case n > 0 && bytes.Compare(line, prev) <= 0:
+			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d is out of order", i))
+		}
+		prev = line
+	}
+	if n != b.Records {
+		return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d holds %d records, the header says %d", i, n, b.Records))
+	}
+	return data, nil
+}
+
+// snapReader walks a stored copy's records in order, a whole block at a time:
+// every record it yields comes from a block whose checksum and order were
+// checked. A reader opened at the start (with check) also verifies the count
+// and the digest once the last record has been read: a caller acts on what it
+// read only once Next has returned false and Err is nil.
 type snapReader struct {
-	hdr    *snapHeader
-	fh     *os.File
-	zr     *gzip.Reader
-	br     *bufio.Reader
-	h      hash.Hash
-	cur    []byte
-	rec    snapRecord
-	n      int
-	err    error
-	done   bool
-	digest string
+	hdr  *snapHeader
+	fh   *os.File
+	next int
+	data []byte
+	pos  int
+	h    hash.Hash
+	prev []byte
+	cur  []byte
+	rec  snapRecord
+	n    int
+	err  error
+	done bool
 }
 
 // openSnapshot opens a copy for reading from its first record; with check, the
@@ -800,37 +977,27 @@ func (f files) openSnapshot(hdr *snapHeader, check bool) (*snapReader, error) {
 	return f.openSnapshotAt(hdr, 0, check)
 }
 
-// openSnapshotAt opens a copy for reading from block i.
+// openSnapshotAt opens a copy for reading from block i (check only from 0).
 func (f files) openSnapshotAt(hdr *snapHeader, i int, check bool) (*snapReader, error) {
-	r := &snapReader{hdr: hdr, digest: hdr.Digest}
-	if i >= len(hdr.Blocks) {
-		r.done = true
-		if check && (i != 0 || hdr.Records != 0 || hex.EncodeToString(sha256.New().Sum(nil)) != hdr.Digest) {
-			return nil, snapInvalid(hdr.Digest, errors.New("an empty copy that does not match its digest"))
-		}
-		return r, nil
+	if check && i != 0 {
+		return nil, errors.New("fullmirror: a copy is checked from its first block only")
 	}
-	fh, err := os.Open(f.path(snapName(hdr.Digest)))
-	if err != nil {
-		return nil, snapInvalid(hdr.Digest, err)
-	}
-	start := hdr.dataStart + hdr.Blocks[i].Off
-	zr, err := gzip.NewReader(bufio.NewReaderSize(io.NewSectionReader(fh, start, hdr.size-start), 256<<10))
-	if err != nil {
-		fh.Close()
-		return nil, snapInvalid(hdr.Digest, err)
-	}
-	r.fh, r.zr = fh, zr
-	r.br = bufio.NewReaderSize(zr, snapMaxLine+1)
-	if check && i == 0 {
+	r := &snapReader{hdr: hdr, next: i}
+	if check {
 		r.h = sha256.New()
+	}
+	if i < len(hdr.Blocks) {
+		fh, err := f.openCopy(hdr)
+		if err != nil {
+			return nil, err
+		}
+		r.fh = fh
 	}
 	return r, nil
 }
 
 func (r *snapReader) fail(err error) bool {
-	r.err = snapInvalid(r.digest, err)
-	r.done = true
+	r.err, r.done = err, true
 	return false
 }
 
@@ -839,41 +1006,46 @@ func (r *snapReader) Next() bool {
 	if r.done || r.err != nil {
 		return false
 	}
-	line, err := r.br.ReadSlice('\n')
-	if err != nil {
-		if err == io.EOF && len(line) == 0 {
+	for r.pos >= len(r.data) {
+		if r.next >= len(r.hdr.Blocks) {
 			r.done = true
 			if r.h != nil {
 				switch {
 				case r.n != r.hdr.Records:
-					return r.fail(fmt.Errorf("%d records, the header says %d", r.n, r.hdr.Records))
-				case hex.EncodeToString(r.h.Sum(nil)) != r.digest:
-					return r.fail(errors.New("its records do not match its digest"))
+					return r.fail(snapInvalid(r.hdr.Digest, fmt.Errorf("%d records, the header says %d", r.n, r.hdr.Records)))
+				case hex.EncodeToString(r.h.Sum(nil)) != r.hdr.Digest:
+					return r.fail(snapInvalid(r.hdr.Digest, errors.New("its records do not match its digest")))
 				}
 			}
 			return false
 		}
-		return r.fail(fmt.Errorf("record %d: %v", r.n+1, err))
+		data, err := snapReadBlock(r.fh, r.hdr, r.next)
+		if err != nil {
+			return r.fail(err)
+		}
+		if r.h != nil {
+			r.h.Write(data)
+		}
+		r.data, r.pos = data, 0
+		r.next++
 	}
-	line = line[:len(line)-1]
-	if r.n > 0 && bytes.Compare(line, r.cur) <= 0 {
-		return r.fail(fmt.Errorf("record %d is out of order", r.n+1))
+	end := r.pos + bytes.IndexByte(r.data[r.pos:], '\n')
+	line := r.data[r.pos:end]
+	r.pos = end + 1
+	if r.n > 0 && bytes.Compare(line, r.prev) <= 0 {
+		return r.fail(snapInvalid(r.hdr.Digest, fmt.Errorf("record %d is out of order", r.n+1)))
 	}
 	rec, ok := snapDecodeLine(line)
 	if !ok {
-		return r.fail(fmt.Errorf("record %d is not a record", r.n+1))
+		return r.fail(snapInvalid(r.hdr.Digest, fmt.Errorf("record %d is not a record", r.n+1)))
 	}
-	if r.h != nil {
-		r.h.Write(line)
-		r.h.Write([]byte{'\n'})
-	}
-	r.cur = append(r.cur[:0], line...)
-	r.rec = rec
+	r.prev, r.cur, r.rec = line, line, rec
 	r.n++
 	return true
 }
 
-// Record is the current record; Line its encoding (valid until Next).
+// Record is the current record; Line its encoding (valid until the reader is
+// closed: blocks are never reused).
 func (r *snapReader) Record() snapRecord { return r.rec }
 func (r *snapReader) Line() []byte       { return r.cur }
 
@@ -882,9 +1054,6 @@ func (r *snapReader) Err() error { return r.err }
 
 // Close releases the file.
 func (r *snapReader) Close() {
-	if r.zr != nil {
-		r.zr.Close()
-	}
 	if r.fh != nil {
 		r.fh.Close()
 	}
@@ -904,43 +1073,21 @@ func (f files) snapLookup(hdr *snapHeader, name string) ([]snapRecord, error) {
 	if i < 0 {
 		return nil, nil
 	}
-	b := hdr.Blocks[i]
-	fh, err := os.Open(f.path(snapName(hdr.Digest)))
+	fh, err := f.openCopy(hdr)
 	if err != nil {
-		return nil, snapInvalid(hdr.Digest, err)
+		return nil, err
 	}
 	defer fh.Close()
-	zr, err := gzip.NewReader(io.NewSectionReader(fh, hdr.dataStart+b.Off, b.Len))
+	data, err := snapReadBlock(fh, hdr, i)
 	if err != nil {
-		return nil, snapInvalid(hdr.Digest, err)
+		return nil, err
 	}
-	defer zr.Close()
-	zr.Multistream(false)
-	br := bufio.NewReaderSize(zr, snapMaxLine+1)
 	var out []snapRecord
-	var prev []byte
-	for n := 0; ; n++ {
-		line, err := br.ReadSlice('\n')
-		if err != nil {
-			if err == io.EOF && len(line) == 0 {
-				if n != b.Records {
-					return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d holds %d records, the header says %d", i, n, b.Records))
-				}
-				return out, nil
-			}
-			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d: %v", i, err))
-		}
-		line = line[:len(line)-1]
-		k, ok := snapLineKey(line)
-		switch {
-		case !ok:
-			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d: a line without a name", i))
-		case n == 0 && !bytes.Equal(k, hdr.keys[i]):
-			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d does not start with %q", i, truncate(b.First, 60)))
-		case n > 0 && bytes.Compare(line, prev) <= 0:
-			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d is out of order", i))
-		}
-		prev = append(prev[:0], line...)
+	for pos := 0; pos < len(data); {
+		end := pos + bytes.IndexByte(data[pos:], '\n')
+		line := data[pos:end]
+		pos = end + 1
+		k, _ := snapLineKey(line)
 		switch c := bytes.Compare(k, key); {
 		case c < 0:
 			continue
@@ -951,11 +1098,9 @@ func (f files) snapLookup(hdr *snapHeader, name string) ([]snapRecord, error) {
 		if !ok {
 			return nil, snapInvalid(hdr.Digest, fmt.Errorf("block %d: a line that is not a record", i))
 		}
-		if len(out) >= snapMaxGroup {
-			return nil, snapInvalid(hdr.Digest, fmt.Errorf("more than %d records for %s", snapMaxGroup, truncate(name, 60)))
-		}
 		out = append(out, rec)
 	}
+	return out, nil
 }
 
 // snapListNames lists up to max package names of a copy that sort after
@@ -987,7 +1132,7 @@ func (f files) snapListNames(hdr *snapHeader, after string, max int) ([]string, 
 		if len(names) == max {
 			return names, true, nil
 		}
-		last = append(last[:0], k...)
+		last = k
 		names = append(names, r.Record().Name)
 	}
 	return names, false, r.Err()
@@ -995,15 +1140,16 @@ func (f files) snapListNames(hdr *snapHeader, after string, max int) ([]string, 
 
 // --- diffing two copies --------------------------------------------------------
 
-// snapGroups reads a copy one package at a time.
+// snapGroups reads a copy one package at a time. A package's lines are
+// slices of the block that holds them (a package never spans blocks).
 type snapGroups struct {
-	r     *snapReader
-	held  bool
-	key   []byte
-	name  string
-	lines [][]byte
-	recs  []snapRecord
-	err   error
+	r        *snapReader
+	held     bool
+	key      []byte
+	name     string
+	lines    [][]byte
+	versions []string
+	err      error
 }
 
 func newSnapGroups(r *snapReader) *snapGroups {
@@ -1018,21 +1164,20 @@ func (g *snapGroups) next() bool {
 		g.err = g.r.Err()
 		return false
 	}
-	k, _ := snapLineKey(g.r.Line())
-	g.key = append(g.key[:0], k...)
+	g.key, _ = snapLineKey(g.r.Line())
 	g.name = g.r.Record().Name
-	g.lines, g.recs = g.lines[:0], g.recs[:0]
+	g.lines, g.versions = g.lines[:0], g.versions[:0]
 	for g.held {
 		k, _ := snapLineKey(g.r.Line())
 		if !bytes.Equal(k, g.key) {
 			break
 		}
 		if len(g.lines) >= snapMaxGroup {
-			g.err = snapInvalid(g.r.digest, fmt.Errorf("more than %d records for %s", snapMaxGroup, truncate(g.name, 60)))
+			g.err = snapInvalid(g.r.hdr.Digest, fmt.Errorf("more than %d records for %s", snapMaxGroup, truncate(g.name, 60)))
 			return false
 		}
-		g.lines = append(g.lines, append([]byte(nil), g.r.Line()...))
-		g.recs = append(g.recs, g.r.Record())
+		g.lines = append(g.lines, g.r.Line())
+		g.versions = append(g.versions, g.r.Record().Version)
 		g.held = g.r.Next()
 	}
 	return true
@@ -1045,9 +1190,19 @@ func (g *snapGroups) next() bool {
 // name and version) and each version gone (deleted). emit returns false to
 // stop the walk.
 func snapDiff(old, cur *snapReader, emit func(Coordinate) bool) error {
+	return snapDiffContext(context.Background(), old, cur, emit)
+}
+
+// snapDiffContext is snapDiff, stopping with ctx's error when it is done.
+func snapDiffContext(ctx context.Context, old, cur *snapReader, emit func(Coordinate) bool) error {
 	a, b := newSnapGroups(old), newSnapGroups(cur)
 	okA, okB := a.next(), b.next()
-	for okA || okB {
+	for n := 0; okA || okB; n++ {
+		if n%1024 == 1023 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		var c int
 		switch {
 		case !okB:
@@ -1108,33 +1263,37 @@ func snapDiffPackage(a, b *snapGroups, emit func(Coordinate) bool) bool {
 	return true
 }
 
-// snapByVersion splits a package's record lines into its package-level lines
-// (joined) and each version's (joined, by version), with the versions in the
-// order they first appear.
-func snapByVersion(g *snapGroups) (string, map[string]string, []string) {
-	var pkg bytes.Buffer
-	byVersion := map[string]*bytes.Buffer{}
+// snapByVersion hashes a package's record lines: its package-level lines, and
+// each version's, with the versions in the order they first appear.
+func snapByVersion(g *snapGroups) ([sha256.Size]byte, map[string][sha256.Size]byte, []string) {
+	pkg := sha256.New()
+	byVersion := map[string]hash.Hash{}
 	var order []string
-	for i, rec := range g.recs {
-		if rec.Version == "" {
-			pkg.Write(g.lines[i])
-			pkg.WriteByte('\n')
+	for i, line := range g.lines {
+		v := g.versions[i]
+		if v == "" {
+			pkg.Write(line)
+			pkg.Write([]byte{'\n'})
 			continue
 		}
-		buf, ok := byVersion[rec.Version]
+		h, ok := byVersion[v]
 		if !ok {
-			buf = &bytes.Buffer{}
-			byVersion[rec.Version] = buf
-			order = append(order, rec.Version)
+			h = sha256.New()
+			byVersion[v] = h
+			order = append(order, v)
 		}
-		buf.Write(g.lines[i])
-		buf.WriteByte('\n')
+		h.Write(line)
+		h.Write([]byte{'\n'})
 	}
-	out := make(map[string]string, len(byVersion))
-	for v, buf := range byVersion {
-		out[v] = buf.String()
+	var p [sha256.Size]byte
+	copy(p[:], pkg.Sum(nil))
+	out := make(map[string][sha256.Size]byte, len(byVersion))
+	for v, h := range byVersion {
+		var d [sha256.Size]byte
+		copy(d[:], h.Sum(nil))
+		out[v] = d
 	}
-	return pkg.String(), out, order
+	return p, out, order
 }
 
 func snapSameLines(a, b [][]byte) bool {
@@ -1152,7 +1311,10 @@ func snapSameLines(a, b [][]byte) bool {
 // snapReleases groups a package's records into releases: one per version,
 // whose files are the records with a path (each path once). Published is the
 // earliest time the records state; a version any record marks yanked is
-// yanked. Package-level records are left out.
+// yanked. Package-level records are left out. A version whose records name
+// no file comes back without artifacts: an adapter that attaches the files
+// itself fills them, any other drops such releases (withArtifacts) — they
+// would count towards a "latest N" policy.
 func snapReleases(recs []snapRecord) []Release {
 	var out []Release
 	idx := map[string]int{}
@@ -1179,6 +1341,17 @@ func snapReleases(recs []snapRecord) []Release {
 		if r.Path != "" && !seen[r.Version+"\x00"+r.Path] {
 			seen[r.Version+"\x00"+r.Path] = true
 			rel.Artifacts = append(rel.Artifacts, Artifact{Path: r.Path, Size: r.Size})
+		}
+	}
+	return out
+}
+
+// withArtifacts returns the releases that have at least one file.
+func withArtifacts(rels []Release) []Release {
+	out := rels[:0:0]
+	for _, r := range rels {
+		if len(r.Artifacts) > 0 {
+			out = append(out, r)
 		}
 	}
 	return out

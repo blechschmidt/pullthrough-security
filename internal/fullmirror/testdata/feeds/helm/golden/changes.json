@@ -1,0 +1,30 @@
+{
+  "items": [
+    {
+      "name": "alertmanager",
+      "version": "2.5.2"
+    },
+    {
+      "name": "kube-state-metrics",
+      "version": "9.0.0"
+    },
+    {
+      "name": "prometheus-node-exporter",
+      "deleted": true
+    }
+  ],
+  "next": {
+    "format": "helm/1",
+    "snap": "76ec8719f450b55e7205eaad8726aa08ae349f197d6aac9202bd48eb50e471bc",
+    "state": {
+      "url": "http://repository.example/index.yaml",
+      "etag": "\"6afa4111-1\""
+    },
+    "head": "2026-11-16T05:01:02.5Z",
+    "headTime": "2026-11-16T05:01:02.5Z"
+  },
+  "more": false,
+  "head": "2026-11-16T05:01:02.5Z",
+  "lagKnown": true,
+  "headTime": "2026-11-16T05:01:02.5Z"
+}

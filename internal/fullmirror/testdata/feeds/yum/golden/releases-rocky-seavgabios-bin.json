@@ -1,0 +1,22 @@
+[
+  {
+    "version": "1.16.3-5.el9",
+    "published": "2025-12-31T00:44:55Z",
+    "artifacts": [
+      {
+        "path": "/Packages/s/seavgabios-bin-1.16.3-5.el9.noarch.rpm",
+        "size": 35109
+      }
+    ]
+  },
+  {
+    "version": "1.16.3-5.el9_8.1",
+    "published": "2026-10-27T19:55:00Z",
+    "artifacts": [
+      {
+        "path": "/Packages/s/seavgabios-bin-1.16.3-5.el9_8.1.noarch.rpm",
+        "size": 34854
+      }
+    ]
+  }
+]

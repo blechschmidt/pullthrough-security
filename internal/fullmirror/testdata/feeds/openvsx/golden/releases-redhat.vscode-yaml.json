@@ -1,0 +1,43 @@
+[
+  {
+    "version": "2.1.2026102108",
+    "artifacts": [
+      {
+        "path": "/api/redhat/vscode-yaml/2.1.2026102108/file/redhat.vscode-yaml-2.1.2026102108.vsix"
+      }
+    ]
+  },
+  {
+    "version": "2.1.2026102308",
+    "artifacts": [
+      {
+        "path": "/api/redhat/vscode-yaml/2.1.2026102308/file/redhat.vscode-yaml-2.1.2026102308.vsix"
+      }
+    ]
+  },
+  {
+    "version": "2.1.2026110508",
+    "artifacts": [
+      {
+        "path": "/api/redhat/vscode-yaml/2.1.2026110508/file/redhat.vscode-yaml-2.1.2026110508.vsix"
+      }
+    ]
+  },
+  {
+    "version": "2.1.2026110608",
+    "artifacts": [
+      {
+        "path": "/api/redhat/vscode-yaml/2.1.2026110608/file/redhat.vscode-yaml-2.1.2026110608.vsix"
+      }
+    ]
+  },
+  {
+    "version": "2.1.2026111208",
+    "published": "2026-11-12T08:12:12.26588Z",
+    "artifacts": [
+      {
+        "path": "/api/redhat/vscode-yaml/2.1.2026111208/file/redhat.vscode-yaml-2.1.2026111208.vsix"
+      }
+    ]
+  }
+]

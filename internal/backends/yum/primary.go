@@ -2,15 +2,15 @@ package yum
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"strings"
 )
 
-// primary.xml (usually served gzip-compressed as <hash>-primary.xml.gz) is the
-// package list of an RPM repository. Each <package> entry carries the .rpm's
+// primary.xml (served compressed: <hash>-primary.xml.gz from createrepo's older
+// defaults and RHEL-family repositories, .xz from EPEL, .zst — the only form
+// beside zchunk — from current Fedora) is the package list of an RPM repository. Each <package> entry carries the .rpm's
 // repository-root-relative location and the checksum that anchors its
 // verification. The proxy parses it to record every (rpm-path -> checksum) pair
 // into the digest store, then verifies a fetched .rpm against the recorded digest.
@@ -37,10 +37,10 @@ type PackageEntry struct {
 }
 
 // ParsePrimary decodes a (already-decompressed) primary.xml into the list of
-// (location, checksum) pairs the backend records. It streams the document with a
-// token decoder so a large package list does not require materializing a full
-// DOM. Entries without a usable location or a supported checksum are skipped
-// rather than failing the whole parse.
+// (location, checksum) pairs it declares. Entries without a usable location or
+// a supported checksum are skipped rather than failing the whole parse. It
+// takes the whole document and returns every entry at once; the backend reads
+// primaries with StreamPrimary instead, which holds one entry at a time.
 func ParsePrimary(data []byte) ([]PackageEntry, error) {
 	if len(data) > maxPrimaryBytes {
 		return nil, fmt.Errorf("yum: primary.xml exceeds %d bytes", maxPrimaryBytes)
@@ -92,27 +92,20 @@ type rawPackage struct {
 }
 
 // decompressPrimary returns the decompressed bytes of a primary.xml given its
-// filename (which encodes the compression). It supports gzip (the createrepo
-// default) and plain XML; xz/zstd primaries require an external decoder and are
-// reported unsupported so the caller serves the file live without populating the
-// digest store (a documented limitation — gzip is the overwhelming default).
+// filename (which encodes the compression): gzip, xz, zstd, bzip2 or plain XML
+// (see OpenPrimary; zchunk is reported unsupported). It holds the whole
+// document in memory, for ParsePrimary; the backend itself streams the
+// document instead (populateFromPrimaryBytes).
 func decompressPrimary(filename string, data []byte) ([]byte, error) {
-	switch {
-	case strings.HasSuffix(filename, ".gz"):
-		zr, err := gzip.NewReader(bytes.NewReader(data))
-		if err != nil {
-			return nil, fmt.Errorf("yum: gzip primary.xml: %w", err)
-		}
-		defer zr.Close()
-		return io.ReadAll(io.LimitReader(zr, maxPrimaryBytes+1))
-	case strings.HasSuffix(filename, ".xz"), strings.HasSuffix(filename, ".zst"), strings.HasSuffix(filename, ".zck"):
-		return nil, fmt.Errorf("yum: %w: unsupported primary.xml compression for %q", errUnsupportedCompression, filename)
-	default:
-		return data, nil
+	r, release, err := OpenPrimary(bytes.NewReader(data), filename, maxPrimaryBytes)
+	if err != nil {
+		return nil, err
 	}
+	defer release()
+	return io.ReadAll(r)
 }
 
 // errUnsupportedCompression flags a compression encoding the backend cannot
-// decode in-process; it is handled by serving the file live and skipping digest
-// extraction, not by failing the request.
+// decode in-process (zchunk); it is handled by serving the file live and
+// skipping digest extraction, not by failing the request.
 var errUnsupportedCompression = fmt.Errorf("unsupported compression")

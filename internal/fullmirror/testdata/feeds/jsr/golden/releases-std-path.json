@@ -1,0 +1,36 @@
+[
+  {
+    "version": "1.1.6",
+    "published": "2026-06-30T10:24:29.944663Z",
+    "artifacts": [
+      {
+        "path": "/@std/path/1.1.6/LICENSE",
+        "size": 1075
+      },
+      {
+        "path": "/@std/path/1.1.6/_common/assert_path.ts",
+        "size": 288
+      },
+      {
+        "path": "/@std/path/1.1.6/deno.json",
+        "size": 2846
+      },
+      {
+        "path": "/@std/path/1.1.6/join.ts",
+        "size": 1237
+      },
+      {
+        "path": "/@std/path/1.1.6/mod.ts",
+        "size": 7621
+      },
+      {
+        "path": "/@std/path/1.1.6/posix/join.ts",
+        "size": 1587
+      },
+      {
+        "path": "/@std/path/1.1.6/windows/join.ts",
+        "size": 2748
+      }
+    ]
+  }
+]

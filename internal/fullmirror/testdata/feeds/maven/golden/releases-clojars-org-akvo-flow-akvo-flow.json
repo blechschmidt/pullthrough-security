@@ -1,0 +1,14 @@
+[
+  {
+    "version": "v1.9.49-99-gee405cc0",
+    "published": "2019-09-23T11:45:08Z",
+    "artifacts": [
+      {
+        "path": "/org/akvo/flow/akvo-flow/v1.9.49-99-gee405cc0/akvo-flow-v1.9.49-99-gee405cc0.pom"
+      },
+      {
+        "path": "/org/akvo/flow/akvo-flow/v1.9.49-99-gee405cc0/akvo-flow-v1.9.49-99-gee405cc0.war"
+      }
+    ]
+  }
+]

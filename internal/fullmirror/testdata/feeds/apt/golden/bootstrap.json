@@ -1,0 +1,92 @@
+[
+  {
+    "items": [
+      {
+        "name": "0ad"
+      },
+      {
+        "name": "0ad-data"
+      },
+      {
+        "name": "bind9-libs"
+      },
+      {
+        "name": "curl"
+      },
+      {
+        "name": "libcurl4t64"
+      }
+    ],
+    "next": {
+      "format": "apt/1",
+      "snap": "d28cdec80cb3b6fa5c3c4cc295be40660b19deddf2c8e10cf54ce5e9a726258c",
+      "state": {
+        "config": "2c5ba90720db5e9e",
+        "suites": [
+          {
+            "suite": "trixie",
+            "file": "InRelease",
+            "validators": {
+              "etag": "\"22485-65b4493787114\"",
+              "lastModified": "Sat, 12 Sep 2026 07:59:10 GMT"
+            },
+            "date": 1789199741,
+            "parts": {
+              "main/binary-amd64": "4e1a3a4e7417b86cdfeded03b64a3698327a63cffdce3ae451219fc98ea05eec"
+            }
+          }
+        ]
+      },
+      "listing": true,
+      "after": "libcurl4t64",
+      "listed": 5,
+      "head": "2026-09-12T07:55:41Z",
+      "headTime": "2026-09-12T07:55:41Z"
+    },
+    "more": true,
+    "head": "2026-09-12T07:55:41Z",
+    "lag": 3,
+    "lagKnown": true,
+    "headTime": "2026-09-12T07:55:41Z"
+  },
+  {
+    "items": [
+      {
+        "name": "libstdc++6"
+      },
+      {
+        "name": "tzdata"
+      },
+      {
+        "name": "vim"
+      }
+    ],
+    "next": {
+      "format": "apt/1",
+      "snap": "d28cdec80cb3b6fa5c3c4cc295be40660b19deddf2c8e10cf54ce5e9a726258c",
+      "state": {
+        "config": "2c5ba90720db5e9e",
+        "suites": [
+          {
+            "suite": "trixie",
+            "file": "InRelease",
+            "validators": {
+              "etag": "\"22485-65b4493787114\"",
+              "lastModified": "Sat, 12 Sep 2026 07:59:10 GMT"
+            },
+            "date": 1789199741,
+            "parts": {
+              "main/binary-amd64": "4e1a3a4e7417b86cdfeded03b64a3698327a63cffdce3ae451219fc98ea05eec"
+            }
+          }
+        ]
+      },
+      "head": "2026-09-12T07:55:41Z",
+      "headTime": "2026-09-12T07:55:41Z"
+    },
+    "more": false,
+    "head": "2026-09-12T07:55:41Z",
+    "lagKnown": true,
+    "headTime": "2026-09-12T07:55:41Z"
+  }
+]

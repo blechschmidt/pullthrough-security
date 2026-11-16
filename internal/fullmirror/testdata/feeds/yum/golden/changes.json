@@ -1,0 +1,41 @@
+{
+  "items": [
+    {
+      "name": "emacs-devel",
+      "version": "1:30.2-30.fc44"
+    },
+    {
+      "name": "emacs-devel",
+      "version": "1:30.2-29.fc44",
+      "deleted": true
+    },
+    {
+      "name": "kicad-doc",
+      "version": "1:10.0.8-1.fc44"
+    },
+    {
+      "name": "octave-doc",
+      "deleted": true
+    },
+    {
+      "name": "stb-devel"
+    }
+  ],
+  "next": {
+    "format": "yum/1",
+    "snap": "ae1fce408a8c888767bc8f1967a5313ea4fce46538554dee19c8ad4592f49261",
+    "state": {
+      "validators": {
+        "etag": "\"r3\"",
+        "lastModified": "Mon, 16 Nov 2026 01:16:36 GMT"
+      },
+      "primary": "sha256:\u003cprimary-fedora-2.xml.zst\u003e"
+    },
+    "head": "1794792528",
+    "headTime": "2026-11-16T00:28:40Z"
+  },
+  "more": false,
+  "head": "1794792528",
+  "lagKnown": true,
+  "headTime": "2026-11-16T00:28:40Z"
+}

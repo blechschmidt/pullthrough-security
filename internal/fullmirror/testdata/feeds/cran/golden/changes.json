@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "name": "abind",
+      "deleted": true
+    },
+    {
+      "name": "jsonlite",
+      "version": "2.0.1"
+    },
+    {
+      "name": "jsonlite",
+      "version": "2.0.0",
+      "deleted": true
+    },
+    {
+      "name": "zzz"
+    }
+  ],
+  "next": {
+    "format": "cran/1",
+    "snap": "dccd88241e7b0f976dca0ac665f4658bb2ca590fe25d2d62f5af2936e65cb06c",
+    "state": {
+      "url": "http://cran.example",
+      "file": "src/contrib/PACKAGES.gz",
+      "etag": "\"2\"",
+      "lastModified": "Mon, 16 Nov 2026 05:51:36 GMT"
+    },
+    "headTime": "2026-11-16T05:51:36Z"
+  },
+  "more": false,
+  "lagKnown": true,
+  "headTime": "2026-11-16T05:51:36Z"
+}

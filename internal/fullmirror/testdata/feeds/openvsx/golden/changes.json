@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "name": "new-ns.new-ext"
+    },
+    {
+      "name": "redhat.vscode-yaml"
+    },
+    {
+      "name": "ugi-dev.ad-astra",
+      "deleted": true
+    }
+  ],
+  "next": {
+    "format": "openvsx/1",
+    "snap": "a71b5e067f4c28e786406010612de8f199d6b098d6b721e58c63dba22262a510",
+    "state": {
+      "mark": 1794830462000003
+    },
+    "headTime": "2026-11-16T12:01:02.000003Z"
+  },
+  "more": false,
+  "lagKnown": true,
+  "headTime": "2026-11-16T12:01:02.000003Z"
+}

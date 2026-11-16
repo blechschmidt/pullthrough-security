@@ -1,0 +1,15 @@
+[
+  {
+    "version": "0.6.5",
+    "published": "2024-05-04T21:35:36Z",
+    "artifacts": [
+      {
+        "path": "/org/soulspace/clj/cmp.poi/0.6.5/cmp.poi-0.6.5.jar",
+        "size": 14511
+      },
+      {
+        "path": "/org/soulspace/clj/cmp.poi/0.6.5/cmp.poi-0.6.5.pom"
+      }
+    ]
+  }
+]

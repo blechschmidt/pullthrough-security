@@ -1,0 +1,122 @@
+[
+  {
+    "version": "d039ab0d4b9311b617e8ffec1d06c8464364aeb3",
+    "published": "2026-11-13T08:37:48Z",
+    "artifacts": [
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/.gitattributes"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/README.md"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/added_tokens.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/chat_template.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/config.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/generation_config.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/merges.txt"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/model.safetensors"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_bnb4.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_fp16.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_int8.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_q4.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_q4f16.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_quantized.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/decoder_model_merged_uint8.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_bnb4.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_fp16.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_int8.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_q4.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_q4f16.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_quantized.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/embed_tokens_uint8.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_bnb4.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_fp16.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_int8.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_q4.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_q4f16.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_quantized.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/onnx/vision_encoder_uint8.onnx"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/preprocessor_config.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/processor_config.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/special_tokens_map.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/tokenizer.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/tokenizer_config.json"
+      },
+      {
+        "path": "/HuggingFaceTB/SmolVLM-256M-Instruct/resolve/d039ab0d4b9311b617e8ffec1d06c8464364aeb3/vocab.json"
+      }
+    ]
+  }
+]

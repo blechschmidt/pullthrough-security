@@ -1,0 +1,15 @@
+[
+  {
+    "version": "3.5.9",
+    "published": "2026-10-29T11:13:40Z",
+    "artifacts": [
+      {
+        "path": "/thheller/shadow-cljs/3.5.9/shadow-cljs-3.5.9.jar",
+        "size": 2936727
+      },
+      {
+        "path": "/thheller/shadow-cljs/3.5.9/shadow-cljs-3.5.9.pom"
+      }
+    ]
+  }
+]

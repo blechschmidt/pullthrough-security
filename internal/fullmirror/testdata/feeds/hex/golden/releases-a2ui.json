@@ -1,0 +1,36 @@
+[
+  {
+    "version": "0.1.0",
+    "artifacts": [
+      {
+        "path": "/tarballs/a2ui-0.1.0.tar"
+      }
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/tarballs/a2ui-0.2.0.tar"
+      }
+    ]
+  },
+  {
+    "version": "0.3.0",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/tarballs/a2ui-0.3.0.tar"
+      }
+    ]
+  },
+  {
+    "version": "0.3.1",
+    "artifacts": [
+      {
+        "path": "/tarballs/a2ui-0.3.1.tar"
+      }
+    ]
+  }
+]

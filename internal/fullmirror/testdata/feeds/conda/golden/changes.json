@@ -1,0 +1,37 @@
+{
+  "items": [
+    {
+      "name": "7zip",
+      "version": "26.07"
+    },
+    {
+      "name": "micromamba",
+      "version": "2.9.0",
+      "deleted": true
+    }
+  ],
+  "next": {
+    "format": "conda/1",
+    "snap": "88716483f583f60c6dd4d92fcaaea54ed9520e915f463768cb9dce716d7c8d91",
+    "state": {
+      "url": "http://channel.example/conda-forge",
+      "index": "repodata",
+      "subdirs": {
+        "linux-64": {},
+        "noarch": {
+          "file": "repodata.json.zst",
+          "etag": "\"cc735e87c358de7dedc9394b12e864d0\"",
+          "lastModified": "Mon, 16 Nov 2026 04:48:24 GMT"
+        },
+        "win-arm64": {
+          "file": "repodata.json",
+          "etag": "\"win-arm64-2\""
+        }
+      }
+    },
+    "headTime": "2026-11-16T04:48:24Z"
+  },
+  "more": false,
+  "lagKnown": true,
+  "headTime": "2026-11-16T04:48:24Z"
+}

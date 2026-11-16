@@ -1,0 +1,15 @@
+[
+  {
+    "version": "1.15.6",
+    "published": "2026-10-19T14:44:39Z",
+    "artifacts": [
+      {
+        "path": "/org/ring-clojure/ring-websocket-protocols/1.15.6/ring-websocket-protocols-1.15.6.jar",
+        "size": 3820
+      },
+      {
+        "path": "/org/ring-clojure/ring-websocket-protocols/1.15.6/ring-websocket-protocols-1.15.6.pom"
+      }
+    ]
+  }
+]

@@ -1,0 +1,141 @@
+[
+  {
+    "version": "0.225.0",
+    "published": "2024-04-29T16:04:57.578432Z",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/@std/fmt/0.225.0/bytes.ts",
+        "size": 4538
+      },
+      {
+        "path": "/@std/fmt/0.225.0/bytes_test.ts",
+        "size": 7144
+      },
+      {
+        "path": "/@std/fmt/0.225.0/colors.ts",
+        "size": 12876
+      },
+      {
+        "path": "/@std/fmt/0.225.0/colors_test.ts",
+        "size": 6420
+      },
+      {
+        "path": "/@std/fmt/0.225.0/deno.json",
+        "size": 194
+      },
+      {
+        "path": "/@std/fmt/0.225.0/duration.ts",
+        "size": 4217
+      },
+      {
+        "path": "/@std/fmt/0.225.0/duration_test.ts",
+        "size": 2018
+      },
+      {
+        "path": "/@std/fmt/0.225.0/printf.ts",
+        "size": 27850
+      },
+      {
+        "path": "/@std/fmt/0.225.0/printf_test.ts",
+        "size": 26238
+      }
+    ]
+  },
+  {
+    "version": "1.0.0-rc.1",
+    "published": "2024-07-12T10:50:24.687939Z",
+    "artifacts": [
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/README.md",
+        "size": 464
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/bytes.ts",
+        "size": 5425
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/bytes_test.ts",
+        "size": 7142
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/colors.ts",
+        "size": 21831
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/colors_test.ts",
+        "size": 6418
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/deno.json",
+        "size": 197
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/duration.ts",
+        "size": 4549
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/duration_test.ts",
+        "size": 2016
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/printf.ts",
+        "size": 29007
+      },
+      {
+        "path": "/@std/fmt/1.0.0-rc.1/printf_test.ts",
+        "size": 27079
+      }
+    ]
+  },
+  {
+    "version": "1.0.10",
+    "published": "2026-04-20T13:57:49.081598Z",
+    "artifacts": [
+      {
+        "path": "/@std/fmt/1.0.10/LICENSE",
+        "size": 1075
+      },
+      {
+        "path": "/@std/fmt/1.0.10/README.md",
+        "size": 888
+      },
+      {
+        "path": "/@std/fmt/1.0.10/bytes.ts",
+        "size": 5760
+      },
+      {
+        "path": "/@std/fmt/1.0.10/bytes_test.ts",
+        "size": 8621
+      },
+      {
+        "path": "/@std/fmt/1.0.10/colors.ts",
+        "size": 21716
+      },
+      {
+        "path": "/@std/fmt/1.0.10/colors_test.ts",
+        "size": 6398
+      },
+      {
+        "path": "/@std/fmt/1.0.10/deno.json",
+        "size": 193
+      },
+      {
+        "path": "/@std/fmt/1.0.10/duration.ts",
+        "size": 4726
+      },
+      {
+        "path": "/@std/fmt/1.0.10/duration_test.ts",
+        "size": 2312
+      },
+      {
+        "path": "/@std/fmt/1.0.10/printf.ts",
+        "size": 30563
+      },
+      {
+        "path": "/@std/fmt/1.0.10/printf_test.ts",
+        "size": 30356
+      }
+    ]
+  }
+]

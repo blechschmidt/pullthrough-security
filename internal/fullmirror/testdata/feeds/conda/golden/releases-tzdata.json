@@ -1,0 +1,42 @@
+[
+  {
+    "version": "2022e",
+    "published": "2022-10-12T12:49:35Z",
+    "artifacts": [
+      {
+        "path": "/noarch/tzdata-2022e-h191b570_0.tar.bz2",
+        "size": 121099
+      }
+    ]
+  },
+  {
+    "version": "2022f",
+    "published": "2022-11-01T12:28:48Z",
+    "artifacts": [
+      {
+        "path": "/noarch/tzdata-2022f-h191b570_0.tar.bz2",
+        "size": 121226
+      }
+    ]
+  },
+  {
+    "version": "2026c",
+    "published": "2026-07-17T01:06:46Z",
+    "artifacts": [
+      {
+        "path": "/noarch/tzdata-2026c-h151e31d_0.conda",
+        "size": 118849
+      }
+    ]
+  },
+  {
+    "version": "2026e",
+    "published": "2026-10-23T12:26:22Z",
+    "artifacts": [
+      {
+        "path": "/noarch/tzdata-2026e-h5d301ff_0.conda",
+        "size": 119208
+      }
+    ]
+  }
+]

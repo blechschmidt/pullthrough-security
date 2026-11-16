@@ -1,0 +1,58 @@
+[
+  {
+    "version": "0.3.3113",
+    "artifacts": [
+      {
+        "path": "/api/rust-lang/rust-analyzer/linux-x64/0.3.3113/file/rust-lang.rust-analyzer-0.3.3113@linux-x64.vsix"
+      }
+    ]
+  },
+  {
+    "version": "0.3.3121",
+    "artifacts": [
+      {
+        "path": "/api/rust-lang/rust-analyzer/linux-x64/0.3.3121/file/rust-lang.rust-analyzer-0.3.3121@linux-x64.vsix"
+      }
+    ]
+  },
+  {
+    "version": "0.4.3118",
+    "artifacts": [
+      {
+        "path": "/api/rust-lang/rust-analyzer/0.4.3118/file/rust-lang.rust-analyzer-0.4.3118.vsix"
+      },
+      {
+        "path": "/api/rust-lang/rust-analyzer/linux-x64/0.4.3118/file/rust-lang.rust-analyzer-0.4.3118@linux-x64.vsix"
+      }
+    ]
+  },
+  {
+    "version": "0.4.3119",
+    "artifacts": [
+      {
+        "path": "/api/rust-lang/rust-analyzer/0.4.3119/file/rust-lang.rust-analyzer-0.4.3119.vsix"
+      },
+      {
+        "path": "/api/rust-lang/rust-analyzer/darwin-arm64/0.4.3119/file/rust-lang.rust-analyzer-0.4.3119@darwin-arm64.vsix"
+      },
+      {
+        "path": "/api/rust-lang/rust-analyzer/linux-x64/0.4.3119/file/rust-lang.rust-analyzer-0.4.3119@linux-x64.vsix"
+      }
+    ]
+  },
+  {
+    "version": "0.4.3120",
+    "published": "2026-11-16T00:55:35.713671Z",
+    "artifacts": [
+      {
+        "path": "/api/rust-lang/rust-analyzer/0.4.3120/file/rust-lang.rust-analyzer-0.4.3120.vsix"
+      },
+      {
+        "path": "/api/rust-lang/rust-analyzer/darwin-arm64/0.4.3120/file/rust-lang.rust-analyzer-0.4.3120@darwin-arm64.vsix"
+      },
+      {
+        "path": "/api/rust-lang/rust-analyzer/linux-x64/0.4.3120/file/rust-lang.rust-analyzer-0.4.3120@linux-x64.vsix"
+      }
+    ]
+  }
+]

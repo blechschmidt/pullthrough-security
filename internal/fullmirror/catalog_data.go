@@ -8,12 +8,9 @@ package fullmirror
 // change: re-check an entry before building on a number in it, and update the
 // entry (then `make full-mirroring-reference-gen`) when it no longer holds.
 
-// Implementation-status notes for the tasks planned to follow each tier.
-const (
-	planIndex   = "index-polling adapter planned in Task 191"
-	planListing = "listing adapter planned in Task 191"
-	planPartial = "no registry-wide feed to follow"
-)
+// planPartial is the implementation-status note of a tier-(d) registry with a
+// partial feed only.
+const planPartial = "no registry-wide feed to follow"
 
 // privateAQLNexus is the part of every "private upstreams" answer that holds
 // for Artifactory and Nexus regardless of the ecosystem.
@@ -617,7 +614,7 @@ var catalog = []Entry{
 			{"brew: Library/Homebrew/api/formula.rb (signed JSON)", "https://github.com/Homebrew/brew/blob/HEAD/Library/Homebrew/api/formula.rb"},
 			{"Homebrew/homebrew-core", "https://github.com/Homebrew/homebrew-core"},
 		},
-		Status: ImplStatus{StateImplemented, "Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). A mirror of the JSON API needs feed option `url`, a clone of homebrew-core."},
+		Status: ImplStatus{StateImplemented, "Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). Task 191: a mirror of the JSON API is followed through its formula index, `/api/formula.json`, polled conditionally and diffed, one change per version added or rebottled; the version and its bottles from the copy of the index, at the paths the backend rewrites them to (feed option `mode`: `auto`, the default, `git` or `index`)."},
 	},
 	// --- (b) complete indexes to poll and diff ------------------------------------
 	{
@@ -666,7 +663,7 @@ var catalog = []Entry{
 			{"Debian: mirror size", "https://www.debian.org/mirror/size"},
 			{"Ubuntu release team: mirrors", "https://documentation.ubuntu.com/project/release-team/mirrors"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls each suite's `InRelease` (or `Release`) conditionally and reads, by hash and verified, the `Packages` indexes whose SHA-256 changed, diffing a stored copy; versions and files from the index itself (dpkg order). Feed options `suites` (required), `components` (default `main`), `architectures` (default `amd64`; `all` reads `binary-all` where the Release lists it, and is skipped where it does not, as on Ubuntu), `url` (another archive root). The apt backend verifies a `.deb` only against a `Packages` file it served by name: mirrored `.deb`s are cached without that check (see the findings below)."},
 	},
 	{
 		Type:     "yum",
@@ -704,14 +701,14 @@ var catalog = []Entry{
 		},
 		Private: "Pulp, Artifactory and Nexus YUM repositories generate repodata for what they hold, so the same poll applies. " + privateAQLNexus,
 		Notes: []string{
-			"This proxy's yum backend decodes only gzip-compressed primaries (`internal/backends/yum/primary.go`). Against current Fedora repodata (`.zst`/`.zck` only) it records no package digests and serves RPMs unverified (counted by `pullthrough_yum_checksum_missing_total`, without an `X-Checksum-Verified` header); a follower — and that backend — needs a zstd decoder.",
+			"Until Task 191 this proxy's yum backend decoded only gzip-compressed primaries, so against current Fedora repodata (`.zst`/`.zck` only) it recorded no package digests and served RPMs unverified. It now decodes gzip, xz and zstd primaries and reads them as a stream, one package at a time (`internal/backends/yum/stream.go`); zchunk is not decoded, and `repomd.xml` lists a `.zst` (or `.gz`) primary beside it. It records a primary's digests only once it has verified the primary against `repomd.xml` (whose signature it checks when a keyring is configured) and parsed it whole; populations run one at a time, and none while `repomd.xml` still names the primary loaded.",
 		},
 		Sources: []Source{
 			{"Fedora infrastructure: mirroring", "https://fedoraproject.org/wiki/Infrastructure/Mirroring"},
 			{"Fedora infrastructure: mirror tiering", "https://fedoraproject.org/wiki/Infrastructure/Mirroring/Tiering"},
 			{"dl.fedoraproject.org directory sizes", "https://dl.fedoraproject.org/pub/DIRECTORY_SIZES.txt"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls `repodata/repomd.xml` conditionally and, when its primary changed, streams the primary (zstd, gzip or xz; size and checksums verified) into a stored copy it diffs; versions (`[epoch:]version-release`, rpm order) and files from the primary itself. One upstream is one repository root; feed option `url` names another mirror of it."},
 	},
 	{
 		Type:     "helm",
@@ -760,7 +757,7 @@ var catalog = []Entry{
 			{"Bitnami charts: upcoming changes (issue 35164)", "https://github.com/bitnami/charts/issues/35164"},
 			{"Helm: chart repository guide", "https://helm.sh/docs/topics/chart_repository/"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls the repository's `index.yaml` conditionally (ETag/Last-Modified, redirects followed) and diffs it against a stored copy, one record per chart version (`created` left out: an index regenerated without `--merge` re-reports nothing); the index is read as a stream (one of at most 8 MiB the streaming reader does not handle is read whole with yaml.v3, a larger one is refused). A version is reported once listed for feed option `settle` (default 15m, from the poll that first saw it), so that the index the backend reads lists it too. Versions from the stored copy, each with its archive at the path the backend's rewritten index hands clients. Feed option `url` names another copy of the index; an OCI upstream (setting `oci`) cannot be followed."},
 	},
 	{
 		Type:     "conda",
@@ -795,6 +792,7 @@ var catalog = []Entry{
 		},
 		Private: "Artifactory (Conda local/remote/virtual), Nexus (Conda proxy/hosted/group), Quetz and prefix.dev channels serve repodata for what they hold, so the same poll applies. " + privateAQLNexus,
 		Notes: []string{
+			"Measured on 2026-11-16: following conda-forge's six default subdirs reads 236 MB of zstd per poll that finds them all changed (about 1.6 GB of JSON, under a minute of CPU), and conda-forge changes every few minutes — about 17 GB a day at a 5-minute poll interval; `current_repodata.json` of the same subdirs is 41 MB.",
 			"Incremental repodata patches (JLAP) are not served: `repodata.jlap` → 404 on 2026-11-15.",
 		},
 		Sources: []Source{
@@ -803,7 +801,7 @@ var catalog = []Entry{
 			{"Anaconda Package Security Manager: mirrors", "https://www.anaconda.com/docs/psm/on-prem/latest/admin/mirrors"},
 			{"conda-forge: total size of the conda-forge repo (2021)", "https://groups.google.com/g/conda-forge/c/AlY_u8TCjO8"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls each followed subdir's `repodata.json.zst` (`repodata.json` where there is none, the `.zst` asked for again at every poll; a 403 counts as not found, as S3 answers) conditionally and diffs it against a stored copy, an unchanged subdir copied rather than read again, one that stops answering kept for 3 polls; a file is reported once listed for feed option `settle` (default 30m, from the poll that first saw it), so that the plain `repodata.json` the backend verifies against lists it. Versions from the stored copy, each with every file (every build, both formats) of the subdirs followed. Feed options `subdirs` (default noarch, linux-64, linux-aarch64, osx-64, osx-arm64, win-64), `index` (`repodata`, or `current`: `current_repodata.json`, the latest versions only), `settle` and `url` (another channel)."},
 	},
 	{
 		Type:     "cran",
@@ -840,7 +838,7 @@ var catalog = []Entry{
 			{"CRAN mirror HOWTO", "https://cran.r-project.org/mirror-howto.html"},
 			{"CRAN mirrors", "https://cran.r-project.org/mirrors.html"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls `src/contrib/PACKAGES.gz` (`PACKAGES` where there is none, `PACKAGES.gz` asked for again at every poll; a 403 counts as not found) conditionally and diffs it against a stored copy; a version is reported once listed for feed option `settle` (default 45m, from the poll that first saw it; the version it supersedes is kept meanwhile), so that the plain `PACKAGES` the backend verifies against lists it. Each package's current version from the stored copy, with its source tarball where R downloads it. Archived versions (listed only in `Meta/archive.rds`) and Windows/macOS binaries are not followed. Feed options `settle` and `url` (another repository root)."},
 	},
 	{
 		Type:     "hex",
@@ -881,7 +879,7 @@ var catalog = []Entry{
 			{"Hex mirrors", "https://hex.pm/docs/mirrors"},
 			{"Artifactory Hex repositories", "https://docs.jfrog.com/artifactory/docs/hex-repositories"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls the signed `/names` and `/versions` with conditional requests and diffs `/versions`, one change per version added, retired or gone; versions and their tarballs from the copy, retired versions yanked. `/versions` must verify (hex.pm's key, which also signs its organisations' repositories; feed option `publicKey` names another, or `none`) and name the repository (`hexpm`, an organisation's own name; feed option `repository`); `/names` gives only the head time. Feed option `url` names another repository."},
 	},
 	{
 		Type:     "maven",
@@ -937,7 +935,7 @@ var catalog = []Entry{
 			{"Maven Central: 429 errors (rate limiting)", "https://central.sonatype.org/faq/429-error/"},
 			{"JFrog: 429 rate limits from Maven Central surface as 404s", "https://jfrog.com/help/r/artifactory-429-rate-limits-from-maven-central-public-upstreams-surface-as-404s"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StatePartial, "Task 191: follows a repository manager's Maven Indexer index (`<url>/.index/`): the properties file read conditionally, the chunks after the stored one applied to the stored copy while its chain lasts (a chunk gone or malformed, a full index older than the properties, or another `classifiers` selection makes it a full read), otherwise the full index streamed and diffed; releases from the stored copy, each document standing for its file and its release's POM (a POM alone for the main artifact its packaging names), classifiers per feed option `classifiers`, snapshots skipped. Maven Central itself is refused, by its host names (Google's copies too) and at every read by its index id `central` or its chain id: its terms forbid mirroring it. Feed option `url` names another index directory."},
 	},
 	{
 		Type:     "openvsx",
@@ -971,11 +969,14 @@ var catalog = []Entry{
 		},
 		Private: "A self-hosted openvsx-server serves the same API and sitemap and can itself mirror open-vsx.org (`ovsx.data.mirror.enabled`). " +
 			"Artifactory documents a remote-only \"AI Editor Extensions\" repository type (whether it fronts Open VSX was not verified); Nexus documents no such format.",
+		Notes: []string{
+			"open-vsx.org sends no validators for its sitemap (checked 2026-11-16), so every poll reads it whole, plus one to three pages of the search listing by time.",
+		},
 		Sources: []Source{
 			{"openvsx-server mirror mode (source)", "https://github.com/eclipse-openvsx/openvsx/tree/master/server/src/main/java/org/eclipse/openvsx/mirror"},
 			{"Eclipse Foundation: Open VSX rate limiting (2026-02-11)", "https://blogs.eclipse.org/node/8762"},
 		},
-		Status: ImplStatus{StateNotStarted, planIndex},
+		Status: ImplStatus{StateImplemented, "Task 191: polls the sitemap (conditionally, where the server sends validators) and diffs it, one change per extension whose date moved; the search listing by time, read at every poll, adds second publications on a day (a server re-dating every extension, as one in mirror mode does, is recognised). Versions from each target platform's version listing, up to 2,000 a platform, past pre-release lines; one `.vsix` per version and platform (feed option `platforms` keeps some). Feed option `url` names another sitemap."},
 	},
 
 	// --- (c) paginated listings only ---------------------------------------------------
@@ -997,6 +998,17 @@ var catalog = []Entry{
 					"`/api/packages/{name}`), `next_url` page 2.",
 			},
 			{
+				Name:    "newest versions (Atom feed)",
+				URL:     "https://pub.dev/feed.atom",
+				Cursor:  CursorTimestamp,
+				Partial: true,
+				Semantics: "The 100 most recently published versions, newest first (retracted and moderated versions left out), each entry " +
+					"`v{version} of {package}` with its publication time in `<updated>` and a changelog excerpt escaped for markup only " +
+					"(control characters can occur). Built from a datastore query and cached for three minutes, it covers two to four hours " +
+					"of publishing: a follower reads it at every poll and falls back to the listing after a longer pause.",
+				Verified: "2026-11-16: 100 entries from 05:07:32Z to 07:23:56Z (2h16m, 87 packages), 80,092 bytes, `cache-control: no-store`.",
+			},
+			{
 				Name:    "package names",
 				URL:     "https://pub.dev/api/package-names",
 				Cursor:  CursorValidator,
@@ -1014,11 +1026,14 @@ var catalog = []Entry{
 		},
 		Private: "The hosted-repository specification v2 has no listing endpoint, so spec-only servers (unpub, OnePub) are tier (d) unless they " +
 			"add one. Artifactory (Pub) and Nexus (Pub/Flutter proxy/hosted/group) support the format; a listing is not documented.",
+		Notes: []string{
+			"pub.dev serves its package listings (`/api/packages`, `/packages.json`) from an in-memory list on each server instance, refreshed every 15 minutes, so consecutive pages can come from instances that disagree: five requests for page 1 within ten seconds came back in three different states on 2026-11-16. A pass over the listing can skip a package at a page boundary unless the boundary is checked again later.",
+		},
 		Sources: []Source{
 			{"pub.dev API", "https://pub.dev/help/api"},
 			{"Hosted pub repository specification v2", "https://github.com/dart-lang/pub/blob/master/doc/repository-spec-v2.md"},
 		},
-		Status: ImplStatus{StateNotStarted, planListing},
+		Status: ImplStatus{StateImplemented, "Task 191: follows the Atom feed of the 100 newest versions down to a high-water mark, and the live `/packages.json` listing where the feed does not reach back (the document of a page's last package tells where to stop; a page boundary pub.dev's instances may disagree on is kept in the cursor and looked at again 35 minutes later), by package name, versions younger than feed option `settle` held back (default 5m; 2h30m when the upstream is a server in front of pub.dev); Bootstrap lists `/api/package-names` and the feed's packages. Versions from the package document read through the proxy, retracted ones as yanked. Another pub server needs feed option `url`, a site that serves pub.dev's feed and listings."},
 	},
 	{
 		Type:     "jsr",
@@ -1051,11 +1066,14 @@ var catalog = []Entry{
 			Basis:  "Package total on 2026-11-15. JSR serves source files, so packages are small.",
 		},
 		Private: "There is no self-hosted JSR server in common use.",
+		Notes: []string{
+			"Measured on 2026-11-16: a full pass over the package list is 214 requests and about 11 MB, so polling every 5 minutes costs about 61,600 requests and 3.2 GB a day; an hourly poll about 5,100 requests and 260 MB.",
+		},
 		Sources: []Source{
 			{"JSR API", "https://jsr.io/docs/api"},
 			{"JSR management API (OpenAPI)", "https://api.jsr.io/.well-known/openapi"},
 		},
-		Status: ImplStatus{StateNotStarted, planListing},
+		Status: ImplStatus{StateImplemented, "Task 191: reads every page of the management API's package list at each poll, to its first empty page, into a copy diffed against the last (a publish moves the version count, not `updatedAt`), changes by package; versions from `meta.json` and their module files from each version's manifest, read through the proxy (every package's file lists kept: a publish reads the new version's manifest only). Another upstream needs feed option `url`, an API that lists packages as api.jsr.io does."},
 	},
 	{
 		Type:     "huggingface",
@@ -1085,12 +1103,15 @@ var catalog = []Entry{
 		},
 		Private: "Artifactory (Hugging Face and Machine Learning repositories) and Nexus (Hugging Face proxy) cache models and datasets for " +
 			"clients; neither documents its upstream's `/api/models` listing. Hugging Face webhooks cover only the repositories or users one watches.",
+		Notes: []string{
+			"At the anonymous limit of 500 API calls per 5 minutes a follower must stay below 1.7 requests a second (about 3 with a free account's token); its listing, metadata and file requests all count, and so do other clients behind the same egress address.",
+		},
 		Sources: []Source{
 			{"Hugging Face Hub API", "https://huggingface.co/docs/hub/api"},
 			{"Hugging Face Hub rate limits", "https://huggingface.co/docs/hub/rate-limits"},
 			{"Migrating the Hub to Xet (2025-07-15)", "https://huggingface.co/blog/migrating-the-hub-to-xet"},
 		},
-		Status: ImplStatus{StateNotStarted, planListing},
+		Status: ImplStatus{StatePartial, "Task 191: follows the listing by last modification (`/api/models`, or datasets or spaces per feed option `kind`) for the scope feed options `author` (comma-separated, at most 32, one listing each, read in turn down to the mark's lookback window) and/or `search` name — the whole Hub is not enumerated; hf.co's listing is read at huggingface.co. The files of the commit main is at, from the metadata read through the proxy (feed option `files` keeps some; gated and private repositories are skipped unless feed option `restricted` is `include`). Feed option `url` names the listing API for an upstream that is not the Hub."},
 	},
 	{
 		Type:     "puppet",
@@ -1119,7 +1140,7 @@ var catalog = []Entry{
 			{"Puppet Forge API v3", "https://forgeapi.puppet.com/"},
 			{"Puppet module developer EULA FAQ (2025)", "https://puppet.com/blog/puppet-module-developer-eula-faq"},
 		},
-		Status: ImplStatus{StateNotStarted, planListing},
+		Status: ImplStatus{StateImplemented, "Task 191: follows `/v3/releases?sort_by=release_date` down to a high-water mark and a day below it, by module name, releases younger than feed option `settle` held back (default 90m: the CDN serves module documents up to an hour old; 3h30m when the upstream is a server in front of the Forge), after enumerating the modules from the same listing sorted by module; versions from the module document read through the proxy, deleted releases as yanked, premium and login-required modules only with credentials. Feed option `url` names the Forge for an Artifactory remote."},
 	},
 	{
 		Type:     "ansible",
@@ -1151,7 +1172,7 @@ var catalog = []Entry{
 			{"pulp_ansible: collections", "https://pulpproject.org/pulp_ansible/docs/user/guides/collections/"},
 			{"Automation Hub: requirements file for galaxy.ansible.com remotes (AAH-2280)", "https://issues.redhat.com/browse/AAH-2280"},
 		},
-		Status: ImplStatus{StateNotStarted, planListing},
+		Status: ImplStatus{StateImplemented, "Task 191: follows the collection-version search (`order_by=-pulp_created`, `distribution_base_path` = the upstream's `repository`) down to a high-water mark and a day below it, versions younger than feed option `settle` held back (default 10m), after enumerating the repository's collection index; a search that lists nothing while the index lists collections fails. Versions from the versions list read from the registry (the pipeline takes no query). Roles are not followed. Feed option `url` names a Galaxy NG for an Artifactory or Nexus remote."},
 	},
 	{
 		Type:     "terraform",

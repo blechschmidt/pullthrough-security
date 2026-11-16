@@ -1,0 +1,236 @@
+{
+  "uri": "/v3/modules/puppetlabs-cem_linux",
+  "slug": "puppetlabs-cem_linux",
+  "name": "cem_linux",
+  "downloads": 5436,
+  "created_at": "2021-09-28 11:03:10 -0700",
+  "updated_at": "2024-05-08 14:00:29 -0700",
+  "deprecated_at": "2024-05-08 14:00:29 -0700",
+  "deprecated_for": null,
+  "superseded_by": {
+    "uri": "/v3/modules/puppetlabs-sce_linux",
+    "slug": "puppetlabs-sce_linux"
+  },
+  "supported": false,
+  "endorsement": null,
+  "module_group": "base",
+  "owner": {
+    "uri": "/v3/users/puppetlabs",
+    "slug": "puppetlabs",
+    "username": "puppetlabs",
+    "gravatar_id": "fdd009b7c1ec96e088b389f773e87aec"
+  },
+  "premium": true,
+  "login_required": false,
+  "followers_count": 0,
+  "followed": false,
+  "current_release": {
+    "uri": "/v3/releases/puppetlabs-cem_linux-1.9.1",
+    "slug": "puppetlabs-cem_linux-1.9.1",
+    "module": {
+      "uri": "/v3/modules/puppetlabs-cem_linux",
+      "slug": "puppetlabs-cem_linux",
+      "name": "cem_linux",
+      "deprecated_at": "2024-05-08 14:00:29 -0700",
+      "owner": {
+        "uri": "/v3/users/puppetlabs",
+        "slug": "puppetlabs",
+        "username": "puppetlabs",
+        "gravatar_id": "fdd009b7c1ec96e088b389f773e87aec"
+      }
+    },
+    "version": "1.9.1",
+    "metadata": {
+      "name": "puppetlabs-cem_linux",
+      "version": "1.9.1",
+      "author": "puppetlabs",
+      "summary": "Compliance Enforcement Module for Linux",
+      "license": "proprietary",
+      "source": "https://github.com/puppetlabs/puppetlabs-cem_linux",
+      "project_page": "https://portal.productboard.com/puppet/1-puppet-idea-portal/tabs/42-compliance-content",
+      "issues_url": "https://support.puppet.com",
+      "dependencies": [
+        {
+          "name": "puppetlabs/stdlib",
+          "version_requirement": ">= 4.13.1 < 9.0.0"
+        },
+        {
+          "name": "puppetlabs/concat",
+          "version_requirement": ">= 6.4.0 < 9.0.0"
+        },
+        {
+          "name": "puppetlabs/inifile",
+          "version_requirement": ">= 1.6.0 < 6.1.0"
+        },
+        {
+          "name": "puppetlabs/augeas_core",
+          "version_requirement": ">= 1.1.1 < 2.0.0"
+        },
+        {
+          "name": "puppetlabs/firewall",
+          "version_requirement": ">= 5.0.0 < 6.0.0"
+        },
+        {
+          "name": "puppet/firewalld",
+          "version_requirement": ">= 4.5.0 < 5.0.0"
+        },
+        {
+          "name": "puppet/logrotate",
+          "version_requirement": ">= 5.0.0 < 7.0.0"
+        },
+        {
+          "name": "puppet/selinux",
+          "version_requirement": ">= 3.2.0 < 4.0.0"
+        },
+        {
+          "name": "puppet/systemd",
+          "version_requirement": ">= 3.5.0 < 5.1.0"
+        }
+      ],
+      "operatingsystem_support": [
+        {
+          "operatingsystem": "CentOS",
+          "operatingsystemrelease": [
+            "7"
+          ]
+        },
+        {
+          "operatingsystem": "RedHat",
+          "operatingsystemrelease": [
+            "7",
+            "8",
+            "9"
+          ]
+        },
+        {
+          "operatingsystem": "OracleLinux",
+          "operatingsystemrelease": [
+            "7",
+            "8",
+            "9"
+          ]
+        },
+        {
+          "operatingsystem": "AlmaLinux",
+          "operatingsystemrelease": [
+            "8"
+          ]
+        },
+        {
+          "operatingsystem": "Rocky",
+          "operatingsystemrelease": [
+            "8"
+          ]
+        }
+      ],
+      "requirements": [
+        {
+          "name": "puppet",
+          "version_requirement": ">= 6.23.0 < 9.0.0"
+        },
+        {
+          "name": "puppet_enterprise",
+          "version_requirement": ">= 2019.8.4 < 2024.0.0"
+        }
+      ],
+      "tags": [
+        "CIS",
+        "STIG",
+        "compliance",
+        "comply",
+        "security",
+        "hardening"
+      ],
+      "pdk-version": "2.2.0",
+      "template-url": "https://github.com/puppetlabs/pdk-templates#main",
+      "template-ref": "heads/main-0-gbd3742c"
+    },
+    "tags": [
+      "security",
+      "hardening",
+      "compliance",
+      "stig",
+      "cis",
+      "comply"
+    ],
+    "supported": false,
+    "pdk": true,
+    "validation_score": null,
+    "file_uri": "/v3/files/puppetlabs-cem_linux-1.9.1.tar.gz",
+    "file_size": 1272256,
+    "file_md5": "8649be05f386dc36939d4149b688307e",
+    "file_sha256": "6af14224faa6673b1dc54d9959188e65a38f92b81c0aae6422b6e402d08c5e01",
+    "downloads": 385,
+    "readme": "# `cem_linux`\n\nStarting with CEM Linux v1.4.0, product documentation is available on the [Puppet Docs website](https://puppet.com/docs/comply/latest/cem_intro.h…",
+    "changelog": "# Change log\n\nAll notable changes to this project will be documented in this file. The\nformat is based on [Keep a Changelog][1] and this project adheres to\n[Sem…",
+    "license": null,
+    "reference": "# CEM Linux Reference\n\n## Table of Contents\n\n* [CIS CentOS Linux 7 Benchmark 3.1.2](#cis-centos-linux-7-benchmark-312)\n* [CIS Red Hat Enterprise Linux 7 Benchma…",
+    "malware_scan": null,
+    "tasks": [
+      {
+        "name": "audit_authselect",
+        "executable": "audit_authselect.sh",
+        "executables": [
+          "audit_authselect.sh"
+        ],
+        "description": "Audit authselect profile for RHEL8 and CentOS8",
+        "metadata": {
+          "description": "Audit authselect profile for RHEL8 and CentOS8",
+          "supports_noop": false,
+          "puppet_task_version": 1
+        }
+      }
+    ],
+    "plans": [],
+    "created_at": "2024-02-08 13:04:02 -0800",
+    "updated_at": "2024-02-08 13:04:03 -0800",
+    "deleted_at": null,
+    "deleted_for": null
+  },
+  "releases": [
+    {
+      "uri": "/v3/releases/puppetlabs-cem_linux-1.9.1",
+      "slug": "puppetlabs-cem_linux-1.9.1",
+      "version": "1.9.1",
+      "supported": false,
+      "created_at": "2024-02-08 13:04:02 -0800",
+      "deleted_at": null,
+      "file_uri": "/v3/files/puppetlabs-cem_linux-1.9.1.tar.gz",
+      "file_size": 1272256
+    },
+    {
+      "uri": "/v3/releases/puppetlabs-cem_linux-1.9.0",
+      "slug": "puppetlabs-cem_linux-1.9.0",
+      "version": "1.9.0",
+      "supported": false,
+      "created_at": "2023-12-14 13:14:09 -0800",
+      "deleted_at": null,
+      "file_uri": "/v3/files/puppetlabs-cem_linux-1.9.0.tar.gz",
+      "file_size": 1268973
+    },
+    {
+      "uri": "/v3/releases/puppetlabs-cem_linux-1.8.0",
+      "slug": "puppetlabs-cem_linux-1.8.0",
+      "version": "1.8.0",
+      "supported": false,
+      "created_at": "2023-10-24 13:26:31 -0700",
+      "deleted_at": null,
+      "file_uri": "/v3/files/puppetlabs-cem_linux-1.8.0.tar.gz",
+      "file_size": 1093072
+    },
+    {
+      "uri": "/v3/releases/puppetlabs-cem_linux-1.7.1",
+      "slug": "puppetlabs-cem_linux-1.7.1",
+      "version": "1.7.1",
+      "supported": false,
+      "created_at": "2023-09-29 10:14:06 -0700",
+      "deleted_at": null,
+      "file_uri": "/v3/files/puppetlabs-cem_linux-1.7.1.tar.gz",
+      "file_size": 1000686
+    }
+  ],
+  "feedback_score": null,
+  "homepage_url": "https://portal.productboard.com/puppet/1-puppet-idea-portal/tabs/42-compliance-content",
+  "issues_url": "https://support.puppet.com",
+  "contributions_requested_from": null
+}

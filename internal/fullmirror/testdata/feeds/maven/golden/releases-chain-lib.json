@@ -1,0 +1,40 @@
+[
+  {
+    "version": "1.0",
+    "published": "2023-11-14T22:21:40Z",
+    "artifacts": [
+      {
+        "path": "/com/example/lib/1.0/lib-1.0.jar",
+        "size": 1001
+      },
+      {
+        "path": "/com/example/lib/1.0/lib-1.0.pom"
+      }
+    ]
+  },
+  {
+    "version": "1.1",
+    "published": "2023-11-14T22:15:00Z",
+    "artifacts": [
+      {
+        "path": "/com/example/lib/1.1/lib-1.1.jar"
+      },
+      {
+        "path": "/com/example/lib/1.1/lib-1.1.pom"
+      }
+    ]
+  },
+  {
+    "version": "1.2",
+    "published": "2023-11-14T22:20:00Z",
+    "artifacts": [
+      {
+        "path": "/com/example/lib/1.2/lib-1.2.jar",
+        "size": 1200
+      },
+      {
+        "path": "/com/example/lib/1.2/lib-1.2.pom"
+      }
+    ]
+  }
+]

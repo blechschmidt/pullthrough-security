@@ -1,0 +1,26 @@
+[
+  {
+    "version": "2.4.0",
+    "artifacts": [
+      {
+        "path": "/-/alertmanager/2.4.0/alertmanager-2.4.0.tgz"
+      }
+    ]
+  },
+  {
+    "version": "2.5.0",
+    "artifacts": [
+      {
+        "path": "/-/alertmanager/2.5.0/alertmanager-2.5.0.tgz"
+      }
+    ]
+  },
+  {
+    "version": "2.5.1",
+    "artifacts": [
+      {
+        "path": "/-/alertmanager/2.5.1/alertmanager-2.5.1.tgz"
+      }
+    ]
+  }
+]

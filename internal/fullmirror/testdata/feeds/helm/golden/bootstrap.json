@@ -1,0 +1,53 @@
+[
+  {
+    "items": [
+      {
+        "name": "alertmanager"
+      },
+      {
+        "name": "kube-state-metrics"
+      }
+    ],
+    "next": {
+      "format": "helm/1",
+      "snap": "a9c6dfe8ccb1f71e79c71f7f245438271598d0b55e061884585d98fe1879af65",
+      "state": {
+        "url": "http://repository.example/index.yaml",
+        "etag": "\"6afa4110-679879\"",
+        "lastModified": "Sun, 15 Nov 2026 23:32:32 GMT"
+      },
+      "listing": true,
+      "after": "kube-state-metrics",
+      "listed": 2,
+      "head": "2026-11-15T23:31:53.852118585Z",
+      "headTime": "2026-11-15T23:31:53.852118585Z"
+    },
+    "more": true,
+    "head": "2026-11-15T23:31:53.852118585Z",
+    "lag": 1,
+    "lagKnown": true,
+    "headTime": "2026-11-15T23:31:53.852118585Z"
+  },
+  {
+    "items": [
+      {
+        "name": "prometheus-node-exporter"
+      }
+    ],
+    "next": {
+      "format": "helm/1",
+      "snap": "a9c6dfe8ccb1f71e79c71f7f245438271598d0b55e061884585d98fe1879af65",
+      "state": {
+        "url": "http://repository.example/index.yaml",
+        "etag": "\"6afa4110-679879\"",
+        "lastModified": "Sun, 15 Nov 2026 23:32:32 GMT"
+      },
+      "head": "2026-11-15T23:31:53.852118585Z",
+      "headTime": "2026-11-15T23:31:53.852118585Z"
+    },
+    "more": false,
+    "head": "2026-11-15T23:31:53.852118585Z",
+    "lagKnown": true,
+    "headTime": "2026-11-15T23:31:53.852118585Z"
+  }
+]

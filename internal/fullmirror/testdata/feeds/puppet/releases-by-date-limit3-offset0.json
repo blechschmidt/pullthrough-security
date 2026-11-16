@@ -1,0 +1,100 @@
+{
+  "pagination": {
+    "limit": 3,
+    "offset": 0,
+    "first": "/v3/releases?sort_by=release_date&limit=3&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "previous": null,
+    "current": "/v3/releases?sort_by=release_date&limit=3&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "next": "/v3/releases?sort_by=release_date&limit=3&offset=3&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "total": 54828
+  },
+  "results": [
+    {
+      "uri": "/v3/releases/albatrossflavour-soundwave-0.2.0",
+      "slug": "albatrossflavour-soundwave-0.2.0",
+      "module": {
+        "uri": "/v3/modules/albatrossflavour-soundwave",
+        "slug": "albatrossflavour-soundwave",
+        "name": "soundwave",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/albatrossflavour",
+          "slug": "albatrossflavour",
+          "username": "albatrossflavour",
+          "gravatar_id": "4fce033d079d9cb954f6ac0f2117523f"
+        }
+      },
+      "version": "0.2.0",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/albatrossflavour-soundwave-0.2.0.tar.gz",
+      "file_size": 145938,
+      "file_md5": "d1e8031ce042dcd70ab22b023715284d",
+      "file_sha256": "bac1b750671b6800b935a48e3f7d7e35e82ccb14359a636c1d3818d588f66bbc",
+      "downloads": 7,
+      "created_at": "2026-11-15 18:22:48 -0800",
+      "updated_at": "2026-11-15 18:22:48 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/jdowning-rbenv-4.0.0",
+      "slug": "jdowning-rbenv-4.0.0",
+      "module": {
+        "uri": "/v3/modules/jdowning-rbenv",
+        "slug": "jdowning-rbenv",
+        "name": "rbenv",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/jdowning",
+          "slug": "jdowning",
+          "username": "jdowning",
+          "gravatar_id": "bef1a655f9a04d0520a0cb9a2f9cf6ce"
+        }
+      },
+      "version": "4.0.0",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/jdowning-rbenv-4.0.0.tar.gz",
+      "file_size": 9989,
+      "file_md5": "101ef546f5d9a51d74a75f2ccd8dff0a",
+      "file_sha256": "23ddbeaadc893888795341eeef0c8f774c140a46d4ebdd68903bf71c3ca42113",
+      "downloads": 12,
+      "created_at": "2026-11-15 13:58:24 -0800",
+      "updated_at": "2026-11-15 13:58:24 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/treydock-slurm-7.1.1",
+      "slug": "treydock-slurm-7.1.1",
+      "module": {
+        "uri": "/v3/modules/treydock-slurm",
+        "slug": "treydock-slurm",
+        "name": "slurm",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/treydock",
+          "slug": "treydock",
+          "username": "treydock",
+          "gravatar_id": "f4e90c29a1d297f9525226a845477f0d"
+        }
+      },
+      "version": "7.1.1",
+      "supported": false,
+      "pdk": true,
+      "validation_score": null,
+      "file_uri": "/v3/files/treydock-slurm-7.1.1.tar.gz",
+      "file_size": 40678,
+      "file_md5": "b4d1b970d2c6e342432a709f8ca975f2",
+      "file_sha256": "fcb60fac81f2564bd6acef70b44f6cbfbd8a88333432b6628f096d8ed47d8867",
+      "downloads": 12,
+      "created_at": "2026-11-15 06:48:09 -0800",
+      "updated_at": "2026-11-15 06:48:09 -0800",
+      "deleted_at": null,
+      "deleted_for": null
+    }
+  ]
+}

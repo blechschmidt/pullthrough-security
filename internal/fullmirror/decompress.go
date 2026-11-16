@@ -81,6 +81,11 @@ func (l *limitedBody) Close() error {
 // fails permanently. The returned function releases the decoder.
 func openContent(r io.Reader, what string, limit int64) (io.Reader, func(), error) {
 	br := bufio.NewReaderSize(r, 64<<10)
+	// Read what the decoder looks at first: an error here is the
+	// connection's (retried), not the document's (permanent).
+	if _, err := br.Peek(512); err != nil && err != io.EOF {
+		return nil, func() {}, fmt.Errorf("reading %s: %w", what, err)
+	}
 	dec, release, compressed, err := contentscan.OpenCompressed(br)
 	if err != nil {
 		release()

@@ -273,17 +273,28 @@ func TestSnapshotDetectsDamage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restore := func() {
-		if err := os.WriteFile(path, orig, 0o644); err != nil {
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// silently writes data over the copy keeping its time stamp, as a bit
+	// flipped on disk would: readers holding the header see the same file.
+	silently := func(data []byte) {
+		t.Helper()
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, st.ModTime(), st.ModTime()); err != nil {
 			t.Fatal(err)
 		}
 	}
+	restore := func() { silently(orig) }
 
 	// Another adapter's copy, a wrong digest, a missing file.
 	if _, err := f.readSnapHeader(h.Digest, "other"); !errors.Is(err, errSnapInvalid) {
 		t.Errorf("another kind: %v", err)
 	}
-	if _, err := f.readSnapHeader(strings.Repeat("0", 64), "test"); !errors.Is(err, errSnapInvalid) {
+	if _, err := f.readSnapHeader(strings.Repeat("0", 64), "test"); !errors.Is(err, errSnapInvalid) || errors.Is(err, errSnapDamaged) {
 		t.Errorf("missing: %v", err)
 	}
 	if _, err := f.readSnapHeader("../x", "test"); !errors.Is(err, errSnapInvalid) {
@@ -294,10 +305,8 @@ func TestSnapshotDetectsDamage(t *testing.T) {
 	// and a full read.
 	damaged := append([]byte(nil), orig...)
 	damaged[len(damaged)-20] ^= 0xff
-	if err := os.WriteFile(path, damaged, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.snapLookup(h, "p2999"); !errors.Is(err, errSnapInvalid) {
+	silently(damaged)
+	if _, err := f.snapLookup(h, "p2999"); !errors.Is(err, errSnapDamaged) {
 		t.Errorf("lookup in a damaged block: %v", err)
 	}
 	r, err := f.openSnapshot(h, true)
@@ -306,17 +315,26 @@ func TestSnapshotDetectsDamage(t *testing.T) {
 	}
 	for r.Next() {
 	}
-	if !errors.Is(r.Err(), errSnapInvalid) {
+	if !errors.Is(r.Err(), errSnapDamaged) {
 		t.Errorf("full read of a damaged copy: %v", r.Err())
 	}
 	r.Close()
+	// A copy replaced since its header was read is not damaged: it is read
+	// again.
+	if err := os.WriteFile(path, orig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, st.ModTime().Add(time.Second), st.ModTime().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.snapLookup(h, "p1"); !errors.Is(err, errSnapChanged) || errors.Is(err, errSnapInvalid) {
+		t.Errorf("a replaced copy: %v", err)
+	}
 	restore()
 
 	// A truncated file no longer matches its header.
-	if err := os.WriteFile(path, orig[:len(orig)-1], 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.readSnapHeader(h.Digest, "test"); !errors.Is(err, errSnapInvalid) {
+	silently(orig[:len(orig)-1])
+	if _, err := f.readSnapHeader(h.Digest, "test"); !errors.Is(err, errSnapDamaged) {
 		t.Errorf("truncated: %v", err)
 	}
 	restore()
@@ -325,10 +343,8 @@ func TestSnapshotDetectsDamage(t *testing.T) {
 	// the digest.
 	other := buildSnap(t, f, recs[:10], 0)
 	data, _ := os.ReadFile(f.path(snapName(other.Digest)))
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.readSnapHeader(h.Digest, "test"); !errors.Is(err, errSnapInvalid) {
+	silently(data)
+	if _, err := f.readSnapHeader(h.Digest, "test"); !errors.Is(err, errSnapDamaged) {
 		t.Errorf("another copy under this name: %v", err)
 	}
 	restore()
@@ -360,13 +376,17 @@ func TestSnapshotConcurrentLookups(t *testing.T) {
 		recs = append(recs, snapRecord{Name: fmt.Sprintf("n%d", i), Version: "1"})
 	}
 	h := buildSnap(t, f, recs, 0)
+	stride := 8
+	if raceEnabled {
+		stride = 80 // every lookup reads a whole block: sample them
+	}
 	var wg sync.WaitGroup
 	var bad atomic.Int32
 	for w := 0; w < 8; w++ {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			for i := w; i < 5000; i += 8 {
+			for i := w; i < 5000; i += stride {
 				got, err := f.snapLookup(h, fmt.Sprintf("n%d", i))
 				if err != nil || len(got) != 1 {
 					bad.Add(1)
@@ -389,8 +409,12 @@ func TestSnapshotBuildMemoryIsBounded(t *testing.T) {
 	f := files{dir: t.TempDir()}
 	b := f.newSnapBuilder("test")
 	b.limit = 8 << 20
+	n := 600_000
+	if raceEnabled {
+		n, b.limit = 60_000, 1<<20
+	}
 	peak := sampleHeap(t, func() {
-		for i := 0; i < 600_000; i++ {
+		for i := 0; i < n; i++ {
 			// ~120 bytes per record: 72 MB of records in all.
 			b.Add(snapRecord{
 				Name:    fmt.Sprintf("package-%07d", (i*104729)%600_000),
@@ -403,13 +427,13 @@ func TestSnapshotBuildMemoryIsBounded(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if h.Records != 600_000 {
+		if h.Records != n {
 			t.Errorf("records %d", h.Records)
 		}
 	})
 	const ceiling = 160 << 20
-	t.Logf("peak heap while building a copy of 600,000 records: %d MiB", peak>>20)
-	if peak > ceiling {
+	t.Logf("peak heap while building a copy of %d records: %d MiB", n, peak>>20)
+	if peak > ceiling && !raceEnabled {
 		t.Errorf("building the copy held %d MiB of heap; the bound is %d MiB", peak>>20, ceiling>>20)
 	}
 }

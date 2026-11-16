@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://linux.duke.edu/metadata/common" xmlns:rpm="http://linux.duke.edu/metadata/rpm" packages="5">
+<package type="rpm">
+  <name>emacs-devel</name>
+  <arch>i686</arch>
+  <version epoch="1" ver="30.2" rel="29.fc44"/>
+  <checksum type="sha256" pkgid="YES">3a300df711600302676365891e9dd3f9ea4e3d8712ac01fef51a371f42328dc0</checksum>
+  <summary>Development header files for Emacs</summary>
+  <description>Development header files for Emacs.</description>
+  <packager>Fedora Project</packager>
+  <url>https://www.gnu.org/software/emacs/</url>
+  <time file="1787926286" build="1787917053"/>
+  <size package="13670" installed="36970" archive="37236"/>
+  <location href="Packages/e/emacs-devel-30.2-29.fc44.i686.rpm"/>
+  <format>
+    <rpm:license>GPL-3.0-or-later AND CC0-1.0</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildvm-x86-21.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>emacs-30.2-29.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="4504" end="10513"/>
+    <rpm:provides>
+      <rpm:entry name="emacs-devel" flags="EQ" epoch="1" ver="30.2" rel="29.fc44"/>
+      <rpm:entry name="emacs-devel(x86-32)" flags="EQ" epoch="1" ver="30.2" rel="29.fc44"/>
+    </rpm:provides>
+  </format>
+</package>
+<package type="rpm">
+  <name>emacs-devel</name>
+  <arch>x86_64</arch>
+  <version epoch="1" ver="30.2" rel="29.fc44"/>
+  <checksum type="sha256" pkgid="YES">e7e5d0b6f882295a7eab82f0a94b4193977acaf6552609bca0aaff8b4ec74e2e</checksum>
+  <summary>Development header files for Emacs</summary>
+  <description>Development header files for Emacs.</description>
+  <packager>Fedora Project</packager>
+  <url>https://www.gnu.org/software/emacs/</url>
+  <time file="1787926286" build="1787917059"/>
+  <size package="13710" installed="36970" archive="37236"/>
+  <location href="Packages/e/emacs-devel-30.2-29.fc44.x86_64.rpm"/>
+  <format>
+    <rpm:license>GPL-3.0-or-later AND CC0-1.0</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildhw-x86-06.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>emacs-30.2-29.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="4504" end="10553"/>
+    <rpm:provides>
+      <rpm:entry name="emacs-devel" flags="EQ" epoch="1" ver="30.2" rel="29.fc44"/>
+      <rpm:entry name="emacs-devel(x86-64)" flags="EQ" epoch="1" ver="30.2" rel="29.fc44"/>
+    </rpm:provides>
+  </format>
+</package>
+<package type="rpm">
+  <name>kicad-doc</name>
+  <arch>noarch</arch>
+  <version epoch="1" ver="10.0.8" rel="1.fc44"/>
+  <checksum type="sha256" pkgid="YES">4c7bd88324b81988389064d54e0aca5e3bb24c1159ab0f4201790cfc701b2f63</checksum>
+  <summary>Documentation for KiCad</summary>
+  <description>Documentation for KiCad.</description>
+  <packager>Fedora Project</packager>
+  <url>https://www.kicad.org</url>
+  <time file="1793323640" build="1793310924"/>
+  <size package="95650510" installed="128034897" archive="130109308"/>
+  <location href="Packages/k/kicad-doc-10.0.8-1.fc44.noarch.rpm"/>
+  <format>
+    <rpm:license>GPL-3.0-or-later or CC-BY-3.0</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildhw-x86-13.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>kicad-10.0.8-1.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="1910376" end="3578285"/>
+    <rpm:provides>
+      <rpm:entry name="kicad-doc" flags="EQ" epoch="1" ver="10.0.8" rel="1.fc44"/>
+    </rpm:provides>
+  </format>
+</package>
+<package type="rpm">
+  <name>octave-doc</name>
+  <arch>noarch</arch>
+  <version epoch="6" ver="10.3.0" rel="8.fc44"/>
+  <checksum type="sha256" pkgid="YES">70995d07a9660fb9aae348321c2bd0cd958351d3f825f36966413dbaea6218fe</checksum>
+  <summary>Documentation for Octave</summary>
+  <description>This package contains documentation for Octave.</description>
+  <packager>Fedora Project</packager>
+  <url>http://www.octave.org</url>
+  <time file="1784296517" build="1784257001"/>
+  <size package="8171557" installed="18580370" archive="19136272"/>
+  <location href="Packages/o/octave-doc-10.3.0-8.fc44.noarch.rpm"/>
+  <format>
+    <rpm:license>GPL-3.0-or-later</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildvm-x86-17.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>octave-10.3.0-8.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="527048" end="987069"/>
+    <rpm:provides>
+      <rpm:entry name="octave-doc" flags="EQ" epoch="6" ver="10.3.0" rel="8.fc44"/>
+    </rpm:provides>
+  </format>
+</package>
+<package type="rpm">
+  <name>stb-doc</name>
+  <arch>noarch</arch>
+  <version epoch="0" ver="0^20261009.a7d4c21" rel="7.fc44"/>
+  <checksum type="sha256" pkgid="YES">c565d2f05af42cad796248d5e74b27c7a3882cafd9973fdc2dbccbc1593f867d</checksum>
+  <summary>Documentation for stb</summary>
+  <description>Documentation for stb.</description>
+  <packager>Fedora Project</packager>
+  <url>https://github.com/nothings/stb</url>
+  <time file="1792686056" build="1792685657"/>
+  <size package="24907" installed="37462" archive="39120"/>
+  <location href="Packages/s/stb-doc-0^20261009.a7d4c21-7.fc44.noarch.rpm"/>
+  <format>
+    <rpm:license>MIT OR Unlicense</rpm:license>
+    <rpm:vendor>Fedora Project</rpm:vendor>
+    <rpm:group>Unspecified</rpm:group>
+    <rpm:buildhost>buildvm-x86-25.rdu3.fedoraproject.org</rpm:buildhost>
+    <rpm:sourcerpm>stb-0^20261009.a7d4c21-7.fc44.src.rpm</rpm:sourcerpm>
+    <rpm:header-range start="4504" end="11541"/>
+    <rpm:provides>
+      <rpm:entry name="stb-doc" flags="EQ" epoch="0" ver="0^20261009.a7d4c21" rel="7.fc44"/>
+    </rpm:provides>
+  </format>
+</package>
+</metadata>

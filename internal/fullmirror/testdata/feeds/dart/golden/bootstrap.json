@@ -1,0 +1,26 @@
+[
+  {
+    "items": [
+      "bones_api",
+      "calendar_constants",
+      "font_face_observer",
+      "html_to_markdown_ffi_macos"
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      "is_effects",
+      "json_rpc",
+      "open_at_login",
+      "quart"
+    ],
+    "more": true
+  },
+  {
+    "items": [
+      "zepben_protobuf"
+    ],
+    "more": false
+  }
+]

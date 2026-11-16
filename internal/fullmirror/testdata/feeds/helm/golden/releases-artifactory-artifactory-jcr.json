@@ -1,0 +1,18 @@
+[
+  {
+    "version": "3.8.0-11311",
+    "artifacts": [
+      {
+        "path": "/-/artifactory-jcr/3.8.0-11311/jfrog-artifactory-jcr-3.8.0-11311-helm.tgz"
+      }
+    ]
+  },
+  {
+    "version": "107.161.26",
+    "artifacts": [
+      {
+        "path": "/-/artifactory-jcr/107.161.26/artifactory-jcr-107.161.26.tgz"
+      }
+    ]
+  }
+]

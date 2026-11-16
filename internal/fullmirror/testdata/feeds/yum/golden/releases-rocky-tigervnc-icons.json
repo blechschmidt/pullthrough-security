@@ -1,0 +1,22 @@
+[
+  {
+    "version": "1.15.0-7.el9_8.1",
+    "published": "2026-05-20T19:26:52Z",
+    "artifacts": [
+      {
+        "path": "/Packages/t/tigervnc-icons-1.15.0-7.el9_8.1.noarch.rpm",
+        "size": 38310
+      }
+    ]
+  },
+  {
+    "version": "1.15.0-7.el9_8.2",
+    "published": "2026-06-25T19:30:09Z",
+    "artifacts": [
+      {
+        "path": "/Packages/t/tigervnc-icons-1.15.0-7.el9_8.2.noarch.rpm",
+        "size": 38302
+      }
+    ]
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "version": "1.7.26-puppetlabs-rc1",
+    "published": "2016-08-22T22:09:30Z",
+    "artifacts": [
+      {
+        "path": "/puppetlabs/org/jruby/jruby-parent/1.7.26-puppetlabs-rc1/jruby-parent-1.7.26-puppetlabs-rc1.pom",
+        "size": 570
+      }
+    ]
+  }
+]

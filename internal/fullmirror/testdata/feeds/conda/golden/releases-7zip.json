@@ -1,0 +1,22 @@
+[
+  {
+    "version": "26.05",
+    "published": "2026-10-21T13:57:28Z",
+    "artifacts": [
+      {
+        "path": "/win-arm64/7zip-26.05-h11ae69d_0.conda",
+        "size": 1881980
+      }
+    ]
+  },
+  {
+    "version": "26.06",
+    "published": "2026-11-07T15:59:37Z",
+    "artifacts": [
+      {
+        "path": "/win-arm64/7zip-26.06-h11ae69d_0.conda",
+        "size": 1876285
+      }
+    ]
+  }
+]

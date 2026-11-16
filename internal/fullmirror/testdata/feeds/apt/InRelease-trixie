@@ -1,0 +1,64 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Origin: Debian
+Label: Debian
+Suite: stable
+Version: 13.7
+Codename: trixie
+Changelogs: https://metadata.ftp-master.debian.org/changelogs/@CHANGEPATH@_changelog
+Date: Sat, 12 Sep 2026 07:55:41 UTC
+Acquire-By-Hash: yes
+No-Support-for-Architecture-all: Packages
+Architectures: all amd64 arm64 armel armhf i386 ppc64el riscv64 s390x
+Components: main contrib non-free-firmware non-free
+Description: Debian 13.7 Released 12 September 2026
+MD5Sum:
+ 484485018a5da9ddcd977e45561f9bba 24080374 main/binary-all/Packages
+ 42335658eb1ec86d7c5182c0883c048d  6102697 main/binary-all/Packages.gz
+ 6f508ba532c6d22628f1f11bc34749ab  4533564 main/binary-all/Packages.xz
+ 2560472819f2394207630bdf8e1854c5      114 main/binary-all/Release
+ e08be5a2aa84e0f84bd976c3ce580092 56620099 main/binary-amd64/Packages
+ 1c7c4d1c34c2b2022bae744c346926f6 13332733 main/binary-amd64/Packages.gz
+ 2d47057a46b268c5f031facecf74b20a  9678380 main/binary-amd64/Packages.xz
+ 90933639e41b73d5262908f8763423a8      116 main/binary-amd64/Release
+SHA256:
+ e2c065538be7f2224d44f75e4a5effd842412a756cb95b3930cc57b59a6ac030 24080374 main/binary-all/Packages
+ 4c71318071dbecfc0b0c1b9897ce70bb42cea0c482497dd4e1da2237a3f3d105  6102697 main/binary-all/Packages.gz
+ 55bef3400f6614ac8bfdd05922310d9ff456e458d0bf9a0a201e6d9359144108  4533564 main/binary-all/Packages.xz
+ 189f6ec0d525ffbd69ce1cf28138eb8abc8f73c4fe5b5c433f42ccdc65e9dc44      114 main/binary-all/Release
+ 4f2c68d67001d595fbd343f6dbad44468953a51c4d9dec3a4803249f6e295940 56620099 main/binary-amd64/Packages
+ 42c23aaca08e8225ed0449360724b92531952cbe4ce3bbf189298a7108f40a85 13332733 main/binary-amd64/Packages.gz
+ 7778d3e3f303b7ddb8ce0fe7c8d57473a076c6bf2e8f241f75421d2396352498  9678380 main/binary-amd64/Packages.xz
+ 36ca99b4967b84dec57de66f89d0ef57beefc925b6e48be16659053b6dabdd61      116 main/binary-amd64/Release
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCAAdFiEETLUBkCB7R1ij9zp5btDnuCZD4TEFAmqlBaIACgkQbtDnuCZD
+4TG1FQ//R2te2mWjL2iDTWI36upLITp6Vl6rnCLYIEd5dHPItipUPnxD9ScqJCMy
+J0Hd0o5aoa+6fU/uPe1m4aTgaM5G4J5L2LBwyWZQP1GBQT/thc7anyVBY+enhQZz
+FcyJkfZVr3hx1x10hicoBq6XdjmVWKnxqYCDAoEKXiEI70NFVG04xiAPUqx0+P/3
+sJCEcKKkLzkLm6jepGdvlPrwub/XNv+xeYp3dQ5btnjK6jmebGGVriPeoB9UkU0L
+5Riv6/YE4+5nRSNwpv3zNuokYj+Zw7InzvKlRUCtEQ57fKfLvIcdr4mv67XrmgTd
+F1sq4yDYvP70eqDHDnsdJ6D8YNBXahBmmf7Sj2EOOU94XymTAyREgDuBDs0rVlix
+iYmhzzu6pSXSXQ+XrAlsHNv6E94L7ItaS2BmdVmdQIdugqJfglLaCC9CbKSqGm4s
+80Y5b+VpT/xPDjmtpLmM5WYfjprfxG5EY++6nMtQcsI76K0Q+NdyiYnCJGibWj3c
+dsengVn/Cfj1IXAGTr2P3/zbMw9pNjoC11U+UnW24NJyVW4F7od+exQlDO4vzJiY
+V+erOijfT790afGoAOzXms7RTG7XXPkOqMgh565gi5VdQJGgCxoSNVvd253U0eHY
+X/vjaPXQONPeIxmTTY80kHqo9dgzipYr+yMqhlEn+m/G8L1GFgeJAjMEAQEIAB0W
+IQS45fExdtKnp1IgAoB426O8R+8iZQUCaqUFowAKCRB426O8R+8iZcHkEACJfXAY
+DHl3jsO66PDyQovNh7/e6fINr+rCoUIuiEo+GlVhDVHPuNOxovH4Z/YD/D/D8V3k
+7O//kggusqp0GRHOgesXI3RkE4qN8BqDNubiFWhJm31RQvzPvFLxngbyBrzytB12
+IkBiTcEEH+bRJecTiUb8F31w5rOcV5Q321OHeeUcE992TuxW3xyO7XbynrwxXW5x
+JgrrZ6uVrUEt3jDTjq541tap/py30rPQEDqL+7d+tof76ROMjLbXOMnxrLmuv6sz
+ESuqlf06+LN1yauarq/GTKkN11tTEBsyP6iXKQ+EDEiZ5EAsGrCL04XZb/h530OQ
+myvCZdwKcFLePCutN9S8bH+je5QT5a+fB/zW8arjANbviEnjYiIkYnHw2GR+I4Sb
+gjhIkiq2igvKLQXZZvE91+S1idhDnJqUTStT7h5s+NVWHblWfvhKasNjMYoCHvCV
+SCG+qQE93DewiU6H8XOs1QKkFsu4JMDL5FdmoBuX1SmvqI7qyBqiXs1AZZ3HDvMb
+b4RLW1Z7KWu1OfiE2YIbEyWhcIQAeZmv7LLnCzjiM63P15/yJ42NZpjHip6RfcXs
+2b7q53yswoTnbcv990fD0P4LUwz8d5VW4WCNPxWjuFcjqzg6b4enMtj1UOneRJt2
+ZSf2V4pHosCyl7NmlBHRugYGSBKS048tCkBHdYh1BAEWCAAdFiEEQVh/fbjHdLzP
+ExQWdi9noLLDneQFAmqlBfsACgkQdi9noLLDneRnzgD8CCJs/lzX0XvyI36mS0jq
+dUtF2XhJZZe2KWgtRAHBTHEBALJ8SIwmGzsCYTM1keOSD/zHJkICmxJwAuiX+MsV
+al8P
+=iG/U
+-----END PGP SIGNATURE-----

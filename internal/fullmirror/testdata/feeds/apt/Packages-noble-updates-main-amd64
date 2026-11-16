@@ -1,0 +1,155 @@
+Package: bind9-libs
+Source: bind9
+Priority: standard
+Section: libs
+Installed-Size: 3450
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 1:9.18.39-0ubuntu0.24.04.9
+Replaces: bind-libs (<< 1:9.13.6~)
+Depends: libuv1t64 (>= 1.40.0), libc6 (>= 2.38), libedit2 (>= 2.11-20080614-0), libgssapi-krb5-2 (>= 1.17), libjson-c5 (>= 0.15), libkrb5-3 (>= 1.6.dfsg.2), liblmdb0 (>= 0.9.7), libmaxminddb0 (>= 1.3.0), libnghttp2-14 (>= 1.12.0), libssl3t64 (>= 3.0.0), libxml2 (>= 2.7.4), zlib1g (>= 1:1.1.4)
+Breaks: bind-libs (<< 1:9.13.6~)
+Filename: pool/main/b/bind9/bind9-libs_9.18.39-0ubuntu0.24.04.9_amd64.deb
+Size: 1263158
+MD5sum: f481f0783a136fef341e8ad8bc7cae32
+SHA1: 6aee7c19af112d4283dcc55261156c1878bdeb2a
+SHA256: 8398995816db0090f7320717b6fade84f4c7ea353a04282fd4b29d1183b5b2b9
+SHA512: 4fd13fceeb7533886342a0fe1e7568067f7bbab3c6b0957e48d1df81eb8e3b6d411377c9051505a55d9201a275156277ba6a30073b3ad2869c98bd8800076a01
+Homepage: https://www.isc.org/downloads/bind/
+Description: Shared Libraries used by BIND 9
+Description-md5: 5d0130b772445112be93a9bd80da10e6
+Multi-Arch: same
+Original-Maintainer: Debian DNS Team <team+dns@tracker.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+Task: standard
+
+Package: curl
+Priority: optional
+Section: web
+Installed-Size: 524
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 8.5.0-2ubuntu10.16
+Depends: libc6 (>= 2.34), libcurl4t64 (= 8.5.0-2ubuntu10.16), zlib1g (>= 1:1.1.4)
+Filename: pool/main/c/curl/curl_8.5.0-2ubuntu10.16_amd64.deb
+Size: 226386
+MD5sum: ba2a389be169d2e4212eece82f8143b8
+SHA1: 238d29486b10706e769116effa5d9922c51f99c6
+SHA256: 3c5ca6af64370cfb0fac85876d8025563005cbd399fcaf7e34bbde9051058ae0
+SHA512: 7e5b34ef413ff5bc5e6c1f0b0d49de7071ff852257c95d6dbffd917ade9b45ddfb15e7add07bdc482f0d82859a74b45946bcf356ec394b0495e1f9ec8ff1e80b
+Homepage: https://curl.se/
+Description: command line tool for transferring data with URL syntax
+Description-md5: f83293d10df083ae6f7bb7d01642913c
+Multi-Arch: foreign
+Original-Maintainer: Debian Curl Maintainers <team+curl@tracker.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+Task: cloud-minimal, cloud-image, cloud-image, server-minimal, ubuntu-wsl, server, ubuntu-server-raspi, lubuntu-desktop, ubuntustudio-publishing, ubuntu-budgie-desktop-minimal, ubuntu-budgie-desktop, ubuntu-budgie-desktop-raspi
+
+Package: libcurl4t64
+Source: curl
+Priority: optional
+Section: libs
+Installed-Size: 928
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 8.5.0-2ubuntu10.16
+Recommends: ca-certificates
+Replaces: libcurl3, libcurl4
+Provides: libcurl4 (= 8.5.0-2ubuntu10.16)
+Depends: libbrotli1 (>= 0.6.0), libc6 (>= 2.34), libgssapi-krb5-2 (>= 1.17), libidn2-0 (>= 2.0.0), libldap2 (>= 2.6.2), libnghttp2-14 (>= 1.50.0), libpsl5t64 (>= 0.16.0), librtmp1 (>= 2.3), libssh-4 (>= 0.9.0), libssl3t64 (>= 3.0.0), libzstd1 (>= 1.5.5), zlib1g (>= 1:1.1.4)
+Conflicts: libcurl3
+Breaks: libcurl4 (<< 8.5.0-2ubuntu10.16)
+Filename: pool/main/c/curl/libcurl4t64_8.5.0-2ubuntu10.16_amd64.deb
+Size: 344412
+MD5sum: 3a8d173cded9ff2a9d3625f85a9e58e7
+SHA1: cf464abe152d2f0f65a70f5f1361178e0ef1fa89
+SHA256: 8196381b41f0078083a2a52b43f7e7ca9b0b79e5325451bf3948e4af7693cd8d
+SHA512: 505901a64500d43ad05385201e99dc3cb57789cbde2bd16e61e702cee0c6d17dfee1e2bfae0636c45f152e642166f396d3dedd6dd44f0afc5c499d5a86c7deb2
+Homepage: https://curl.se/
+Description: easy-to-use client-side URL transfer library (OpenSSL flavour)
+Description-md5: f1c7f18aba2d8ab7a7e32acea1dc61e7
+Multi-Arch: same
+Original-Maintainer: Debian Curl Maintainers <team+curl@tracker.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+Task: cloud-minimal, ubuntu-desktop-minimal, ubuntu-desktop, cloud-image, cloud-image, server-minimal, ubuntu-wsl, server, ubuntu-server-raspi, print-server, lamp-server, ubuntu-desktop-raspi, kubuntu-desktop, xubuntu-minimal, xubuntu-desktop, lubuntu-desktop, ubuntustudio-desktop-core, ubuntustudio-desktop, ubuntukylin-desktop, ubuntukylin-desktop-minimal, ubuntu-mate-core, ubuntu-mate-desktop, ubuntu-budgie-desktop-minimal, ubuntu-budgie-desktop, ubuntu-budgie-desktop-raspi, ubuntu-unity-desktop, edubuntu-desktop-gnome-minimal, edubuntu-desktop-gnome-raspi, ubuntucinnamon-desktop-minimal, ubuntucinnamon-desktop-raspi
+
+Package: libstdc++6
+Source: gcc-14
+Priority: important
+Section: libs
+Installed-Size: 3110
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 14.2.0-4ubuntu2~24.04.1
+Replaces: libstdc++6-14-dbg (<< 4.9.0-3)
+Depends: gcc-14-base (= 14.2.0-4ubuntu2~24.04.1), libc6 (>= 2.38), libgcc-s1 (>= 4.3)
+Conflicts: scim (<< 1.4.2-1)
+Breaks: gcc-4.3 (<< 4.3.6-1), gcc-4.4 (<< 4.4.6-4), gcc-4.5 (<< 4.5.3-2)
+Filename: pool/main/g/gcc-14/libstdc++6_14.2.0-4ubuntu2~24.04.1_amd64.deb
+Size: 792064
+MD5sum: e75dd005d377d610d20a2c9066ba062f
+SHA1: 497e4329313d7460e09b1cc96f7be4bcada8d358
+SHA256: a51f8de7829211db961a31f02158058ad1a95f92ac6d0a5dff6350e2821c54c0
+SHA512: a62224c9cda81e4a500fb71e40ecfc1a9b910685b75b693012490a3a0f84fc5e1eee56949c12d83565f98df7933a1b30bcaddf5caf28f95da74d940889c595f7
+Homepage: http://gcc.gnu.org/
+Description: GNU Standard C++ Library v3
+Description-md5: 724ab84919e0e220afb960e36463914d
+Multi-Arch: same
+Original-Maintainer: Debian GCC Maintainers <debian-gcc@lists.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+Task: cloud-minimal, minimal, server-minimal
+Build-Essential: yes
+
+Package: tzdata
+Priority: important
+Section: libs
+Installed-Size: 1389
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: all
+Version: 2026e-0ubuntu0.24.04.1
+Replaces: tzdata-legacy (= 2023c-8ubuntu1)
+Provides: tzdata-trixie
+Depends: debconf (>= 0.5) | debconf-2.0
+Breaks: tzdata-legacy (= 2023c-8ubuntu1)
+Filename: pool/main/t/tzdata/tzdata_2026e-0ubuntu0.24.04.1_all.deb
+Size: 282136
+MD5sum: d04b4d9c76a0acb9f3bdd9408abb857e
+SHA1: 7a8ef24b3da7c6e73cb12f7a2fbdf7faac4f540d
+SHA256: 2f6794a7f31753fc947d9ac02ff03ea46510f34864f9d132a93d7b105e3c4447
+SHA512: 9fb7d6cc56ee21cc8597338a0ff09d93c7f6a979f0a8e22d9421d3bd4685c214d928e1436ecf291184157a029e055fd3091ce68d1c1e41d56c15c01cf3a543ca
+Homepage: https://www.iana.org/time-zones
+Description: time zone and daylight-saving time data
+Description-md5: a77a3cc9a67658dd7cfdc6547391b8f8
+Multi-Arch: foreign
+Original-Maintainer: GNU Libc Maintainers <debian-glibc@lists.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+Task: cloud-minimal, minimal, server-minimal
+
+Package: vim
+Priority: optional
+Section: editors
+Installed-Size: 4137
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+Architecture: amd64
+Version: 2:9.1.0016-1ubuntu7.20
+Suggests: ctags, vim-doc, vim-scripts
+Provides: editor
+Depends: vim-common (= 2:9.1.0016-1ubuntu7.20), vim-runtime (= 2:9.1.0016-1ubuntu7.20), libacl1 (>= 2.2.23), libc6 (>= 2.38), libgpm2 (>= 1.20.7), libpython3.12t64 (>= 3.12.1), libselinux1 (>= 3.1~), libsodium23 (>= 1.0.14), libtinfo6 (>= 6)
+Filename: pool/main/v/vim/vim_9.1.0016-1ubuntu7.20_amd64.deb
+Size: 1884208
+MD5sum: cd6e0307a52674bf7a006c1786c72a08
+SHA1: c361977fd5d9db4b856a9bb6fd5193081024536b
+SHA256: fdfa220aa0a6b602c8d64a73f4ed36afdb9b30bf10eb5db4da233c60a42f77f0
+SHA512: d3203a44b9496b446fb530c371f62be2d3ff881d415efe7de026720a4f8841fc21d62106f6d7b85aedd7a44369e0d0ee71cfbcd24f1d92bab93ee41ef59ad87f
+Homepage: https://www.vim.org/
+Description: Vi IMproved - enhanced vi editor
+Description-md5: 59e8b8f7757db8b53566d5d119872de8
+Original-Maintainer: Debian Vim Maintainers <team+vim@tracker.debian.org>
+Origin: Ubuntu
+Bugs: https://bugs.launchpad.net/ubuntu/+filebug
+Task: cloud-image, cloud-image, ubuntu-wsl, server, ubuntu-server-raspi, kubuntu-desktop, kubuntu-full, lubuntu-desktop

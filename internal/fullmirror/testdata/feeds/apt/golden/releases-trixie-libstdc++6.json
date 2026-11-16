@@ -1,0 +1,11 @@
+[
+  {
+    "version": "14.2.0-19",
+    "artifacts": [
+      {
+        "path": "/pool/main/g/gcc-14/libstdc++6_14.2.0-19_amd64.deb",
+        "size": 713628
+      }
+    ]
+  }
+]

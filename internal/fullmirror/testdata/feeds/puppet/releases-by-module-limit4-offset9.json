@@ -1,0 +1,129 @@
+{
+  "pagination": {
+    "limit": 4,
+    "offset": 9,
+    "first": "/v3/releases?sort_by=module&limit=4&offset=0&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "previous": "/v3/releases?sort_by=module&limit=4&offset=5&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "current": "/v3/releases?sort_by=module&limit=4&offset=9&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "next": "/v3/releases?sort_by=module&limit=4&offset=13&with_html=false&exclude_fields=readme+changelog+license+reference+metadata+tasks+plans+tags+malware_scan",
+    "total": 54828
+  },
+  "results": [
+    {
+      "uri": "/v3/releases/030-sftp-0.1.1",
+      "slug": "030-sftp-0.1.1",
+      "module": {
+        "uri": "/v3/modules/030-sftp",
+        "slug": "030-sftp",
+        "name": "sftp",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.1.1",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 92,
+      "file_uri": "/v3/files/030-sftp-0.1.1.tar.gz",
+      "file_size": 3357,
+      "file_md5": "8ca922b6cf0162ac7b7fa6543431d5af",
+      "file_sha256": "6fea5c79317168418037560684061089aa2c4dff5de82755dc067d241899fcc0",
+      "downloads": 5923,
+      "created_at": "2016-06-28 00:13:51 -0700",
+      "updated_at": "2019-07-03 15:57:12 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/030-sftp-0.1.0",
+      "slug": "030-sftp-0.1.0",
+      "module": {
+        "uri": "/v3/modules/030-sftp",
+        "slug": "030-sftp",
+        "name": "sftp",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/030",
+          "slug": "030",
+          "username": "030",
+          "gravatar_id": "4ef03c2bf8d8689527903212d96fb45b"
+        }
+      },
+      "version": "0.1.0",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 92,
+      "file_uri": "/v3/files/030-sftp-0.1.0.tar.gz",
+      "file_size": 3356,
+      "file_md5": "3d5ccae23013c80cf8cf0143f031e855",
+      "file_sha256": "b7f154e6055ad4e50db9573b710ebf3a3aa13aa61a5dc964f8a5f404107c3b16",
+      "downloads": 389,
+      "created_at": "2016-06-25 17:11:17 -0700",
+      "updated_at": "2019-07-03 15:48:05 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/0cloud-anonymizer-0.1.1",
+      "slug": "0cloud-anonymizer-0.1.1",
+      "module": {
+        "uri": "/v3/modules/0cloud-anonymizer",
+        "slug": "0cloud-anonymizer",
+        "name": "anonymizer",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/0cloud",
+          "slug": "0cloud",
+          "username": "0cloud",
+          "gravatar_id": "e8cf2886ea616a5e99753ae5aadbb6c9"
+        }
+      },
+      "version": "0.1.1",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 50,
+      "file_uri": "/v3/files/0cloud-anonymizer-0.1.1.tar.gz",
+      "file_size": 4348,
+      "file_md5": "7802846a2b7cf6b99e1800be3c8283d3",
+      "file_sha256": "ccae6bf0b297bf66bb7c43ae2587a5d742cc81969a9fe5ad84ec5738f16c0394",
+      "downloads": 9589,
+      "created_at": "2014-10-16 16:04:44 -0700",
+      "updated_at": "2019-07-03 16:04:49 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    },
+    {
+      "uri": "/v3/releases/104corp-corp104_aws_agent-0.1.4",
+      "slug": "104corp-corp104_aws_agent-0.1.4",
+      "module": {
+        "uri": "/v3/modules/104corp-corp104_aws_agent",
+        "slug": "104corp-corp104_aws_agent",
+        "name": "corp104_aws_agent",
+        "deprecated_at": null,
+        "owner": {
+          "uri": "/v3/users/104corp",
+          "slug": "104corp",
+          "username": "104corp",
+          "gravatar_id": "fa9a02d924d6c78b1682cf29f40614c8"
+        }
+      },
+      "version": "0.1.4",
+      "supported": false,
+      "pdk": false,
+      "validation_score": 100,
+      "file_uri": "/v3/files/104corp-corp104_aws_agent-0.1.4.tar.gz",
+      "file_size": 11358,
+      "file_md5": "f880372cdf09489a80de540f5ef89c97",
+      "file_sha256": "54c9580c4fd09d98423697d7199c4eded0e15c00ca34fd4d4830fee7135aa5d4",
+      "downloads": 6630,
+      "created_at": "2017-09-18 23:13:17 -0700",
+      "updated_at": "2019-07-03 16:00:54 -0700",
+      "deleted_at": null,
+      "deleted_for": null
+    }
+  ]
+}

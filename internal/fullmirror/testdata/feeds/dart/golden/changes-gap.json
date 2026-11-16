@@ -1,0 +1,15 @@
+{
+  "items": [
+    "bones_api",
+    "calendar_constants",
+    "font_face_observer",
+    "html_to_markdown_ffi",
+    "html_to_markdown_ffi_flutter",
+    "html_to_markdown_ffi_macos",
+    "is_effects",
+    "json_rpc",
+    "open_at_login",
+    "zepben_protobuf"
+  ],
+  "more": false
+}

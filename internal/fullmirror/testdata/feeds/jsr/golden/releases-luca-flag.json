@@ -1,0 +1,23 @@
+[
+  {
+    "version": "1.0.1",
+    "artifacts": [
+      {
+        "path": "/@luca/flag/1.0.1/LICENSE",
+        "size": 1070
+      },
+      {
+        "path": "/@luca/flag/1.0.1/README.md",
+        "size": 279
+      },
+      {
+        "path": "/@luca/flag/1.0.1/deno.json",
+        "size": 75
+      },
+      {
+        "path": "/@luca/flag/1.0.1/main.ts",
+        "size": 2989
+      }
+    ]
+  }
+]

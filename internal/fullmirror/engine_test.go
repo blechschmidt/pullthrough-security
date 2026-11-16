@@ -1243,6 +1243,13 @@ func TestFollowableRefusesTypesWithoutAFeed(t *testing.T) {
 			t.Errorf("%s is refused but neither tier (d) nor %q in the catalog", typ, StateNotApplicable)
 		}
 	}
+	// And only those: every other type of the catalog has an adapter.
+	refused := map[string]bool{"docker": true, "terraform": true, "swift": true, "nix": true, "generic": true, "git": true}
+	for _, e := range Catalog() {
+		if err := Followable(e.Type); (err != nil) != refused[e.Type] {
+			t.Errorf("Followable(%q) = %v", e.Type, err)
+		}
+	}
 }
 
 func TestEveryAdapterMatchesTheCatalogStatus(t *testing.T) {

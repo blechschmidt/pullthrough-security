@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "name": "a2ui"
+    },
+    {
+      "name": "aatree"
+    },
+    {
+      "name": "altcha"
+    },
+    {
+      "name": "jason"
+    }
+  ],
+  "next": {
+    "format": "hex/1",
+    "snap": "bcee5fdf3e65e1b5765f8570cd85c044d5bf6890ca31d796b31150c549db95ab",
+    "state": {
+      "names": {
+        "etag": "\"names-1\""
+      },
+      "versions": {
+        "etag": "\"versions-1\""
+      }
+    },
+    "headTime": "2026-11-05T08:29:09.258823Z"
+  },
+  "more": false,
+  "lagKnown": true,
+  "headTime": "2026-11-05T08:29:09.258823Z"
+}

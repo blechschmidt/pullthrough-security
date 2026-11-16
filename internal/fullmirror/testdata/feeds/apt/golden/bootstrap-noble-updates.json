@@ -1,0 +1,51 @@
+[
+  {
+    "items": [
+      {
+        "name": "bind9-libs"
+      },
+      {
+        "name": "curl"
+      },
+      {
+        "name": "libcurl4t64"
+      },
+      {
+        "name": "libstdc++6"
+      },
+      {
+        "name": "tzdata"
+      },
+      {
+        "name": "vim"
+      }
+    ],
+    "next": {
+      "format": "apt/1",
+      "snap": "31547873cb3516aadf95487a0ebf460f0173197ea12e673442b47a3725b056f0",
+      "state": {
+        "config": "f309b9c588683c55",
+        "suites": [
+          {
+            "suite": "noble-updates",
+            "file": "InRelease",
+            "validators": {
+              "etag": "\"1ecad-66057503e62ce\"",
+              "lastModified": "Sat, 12 Sep 2026 07:59:10 GMT"
+            },
+            "date": 1794777923,
+            "parts": {
+              "main/binary-amd64": "55ff2c33564ddbfcf9ed121ea2bd85cddb61b122b1a8c81d6c01e4423a598921"
+            }
+          }
+        ]
+      },
+      "head": "2026-11-15T21:25:23Z",
+      "headTime": "2026-11-15T21:25:23Z"
+    },
+    "more": false,
+    "head": "2026-11-15T21:25:23Z",
+    "lagKnown": true,
+    "headTime": "2026-11-15T21:25:23Z"
+  }
+]

@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "name": "aescrypt-packetizer"
+    },
+    {
+      "name": "jq",
+      "version": "1.8.3"
+    },
+    {
+      "name": "jq",
+      "version": "1.8.2",
+      "deleted": true
+    },
+    {
+      "name": "libxml++3"
+    }
+  ],
+  "next": {
+    "format": "homebrew/1",
+    "snap": "bfd5d8eea3c85f6ca10c4c41ade14fa07e068af6e6945d9292f2daf222bc0f95",
+    "state": {
+      "etag": "\"i2\"",
+      "lastModified": "Mon, 16 Nov 2026 05:35:12 GMT"
+    },
+    "head": "c9b7dd72533f340d7ebab4816c1b3c098c65de83",
+    "headTime": "2026-11-16T05:35:12Z"
+  },
+  "more": false,
+  "head": "c9b7dd72533f340d7ebab4816c1b3c098c65de83",
+  "lagKnown": true,
+  "headTime": "2026-11-16T05:35:12Z"
+}

@@ -1,0 +1,36 @@
+[
+  {
+    "version": "1.15.0",
+    "published": "2020-05-21T17:14:33Z",
+    "artifacts": [
+      {
+        "path": "/noarch/six-1.15.0-pyh9f0ad1d_0.tar.bz2",
+        "size": 13926
+      }
+    ]
+  },
+  {
+    "version": "1.16.0",
+    "published": "2021-05-05T18:45:38Z",
+    "artifacts": [
+      {
+        "path": "/noarch/six-1.16.0-pyh6c4a22f_0.tar.bz2",
+        "size": 14259
+      }
+    ]
+  },
+  {
+    "version": "1.17.0",
+    "published": "2024-12-05T06:43:52Z",
+    "artifacts": [
+      {
+        "path": "/noarch/six-1.17.0-pyhd8ed1ab_0.conda",
+        "size": 16385
+      },
+      {
+        "path": "/noarch/six-1.17.0-pyhe01879c_1.conda",
+        "size": 18455
+      }
+    ]
+  }
+]

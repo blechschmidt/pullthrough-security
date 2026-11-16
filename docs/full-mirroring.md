@@ -17,18 +17,19 @@ on 2026-11-15, and describes the engine that follows them:
 
 - the engine: configuration, cursor state, and syncing through the gated pipeline (Task 189,
   in place: see [Running the full mirror](#running-the-full-mirror));
-- adapters for the tier-(a) feeds (Task 190, in place: see [Feed adapters](#feed-adapters)),
-  and for tiers (b) and (c) (Task 191);
+- adapters for the tier-(a) feeds (Task 190) and for the indexes and listings of tiers (b)
+  and (c) (Task 191), in place: see [Feed adapters](#feed-adapters);
 - scanning everything mirrored (Task 192), a view in the admin console (Task 193) and an
   end-to-end test suite (Task 194).
 
-The **implementation status** column says, per type, whether a feed adapter follows the
-registry yet; the configuration refuses full mirroring of a type nothing follows. Until the
-adapters arrive the proxy fetches ahead of time only three things: what tracked repositories
-pin ([repositories.md](repositories.md)), what an operator lists in a pre-warm manifest
-([air-gapped.md](air-gapped.md)), and what predictive pre-warming guesses from past pulls
-([prewarm.md](prewarm.md)). The last of these tries the next patch and minor version numbers;
-a feed says what was actually published.
+The **implementation status** column says, per type, what its feed adapter follows; the
+configuration refuses full mirroring of a type nothing can follow: Docker Hub, Swift package
+registries, the Nix binary cache, generic upstreams and Git hosting (tier (d)), and the
+Terraform Registry (see [its section](#terraform)). For those the proxy fetches ahead of time
+only three things: what tracked repositories pin ([repositories.md](repositories.md)), what an
+operator lists in a pre-warm manifest ([air-gapped.md](air-gapped.md)), and what predictive
+pre-warming guesses from past pulls ([prewarm.md](prewarm.md)). The last of these tries the
+next patch and minor version numbers; a feed says what was actually published.
 
 ## The four tiers
 
@@ -85,17 +86,18 @@ Three things limit what "full" can mean. Each registry's section below spells th
 
 The full-mirror engine (`internal/fullmirror`) follows the registry of every upstream that
 enables `fullMirror`, and fetches each new file through the proxy's own gated serve pipeline
-before any client asks for it. It needs a feed adapter for the upstream's type ([Feed adapters](#feed-adapters) below);
-until one is registered (the status column of the summary), the configuration refuses to
-enable the type:
+before any client asks for it. It needs a feed adapter for the upstream's type ([Feed adapters](#feed-adapters) below).
+A type with nothing to follow is refused when the configuration loads, with the section of this
+page that says why:
 
 ```
-config: upstream "cran": fullMirror.enabled: no feed adapter follows CRAN (R) yet (tier (b),
-complete index to poll and diff; implementation status: not started (index-polling adapter
-planned in Task 191); see docs/full-mirroring.md#cran)
+config: upstream "hub": fullMirror.enabled: Docker Hub cannot be followed: its tier is (d), no
+practical enumeration (see docs/full-mirroring.md#docker)
 ```
 
-A tier-(d) registry is refused for good: it cannot be enumerated.
+That holds for every tier-(d) type (`docker`, `swift`, `nix`, `generic`, `git`), which cannot be
+enumerated, and for `terraform`, whose listings would take a full pass for every new version
+and whose provider binaries live outside the registry.
 
 ### Configuration
 
@@ -251,8 +253,10 @@ proxy continues from the restored cursors.
 
 ### Feed adapters
 
-Every registry of tier (a) has a feed adapter (Task 190); the implementation-status column of
-the [summary](#summary) says what each one follows. They share these rules:
+Every registry of tiers (a), (b) and (c) except Terraform has a feed adapter: the change feeds
+of tier (a) since Task 190, the indexes of tier (b) and the listings of tier (c) since Task 191.
+The implementation-status column of the [summary](#summary) says what each one follows. They
+share these rules:
 
 - **The feed comes from the upstream's `url`.** For the public registry the adapter knows the
   public feed (npm's replica at replicate.npmjs.com, index.golang.org, packagist.org's change
@@ -315,10 +319,24 @@ upstreams fare, and the options (every adapter also takes `url`):
 | `julia` | the Pkg server's registry snapshots, diffed: each new registry tree is read through the proxy and indexed | the package tarball by uuid and git-tree-sha1; the binaries a package's Artifacts.toml names are not followed | PkgServer.jl as is | `flavor` (`conservative`, `eager`) |
 | `bazel` | bazel-central-registry's trees, diffed between settled head commits | MODULE.bazel, the source archive, and the patches and overlay files its source.json lists | a registry with a Git history, named by `url`; a static tree without one cannot be followed | `branch`, `settle` (10m) |
 | `conan` | conan-center-index's trees, diffed between settled head commits; versions from the remote's recipe search | the files of each version's latest recipe revision; binary packages per `binaries` | Artifactory, Nexus and conan_server have no feed: `url` must name a repository laid out as conan-center-index | `branch`, `settle` (1h), `binaries` (`none`, `all`, or settings such as `os=Linux,arch=x86_64;os=Macos,arch=armv8`) |
-| `homebrew` | homebrew-core's `Formula` trees, diffed between settled head commits | the bottles of the formula's current version (the JSON API lists no other); disabled formulae are skipped | API and bottle mirrors are static copies: `url` must name a homebrew-core clone | `branch`, `settle` (30m), `platforms` (bottle tags) |
+| `homebrew` | homebrew-core's `Formula` trees, diffed between settled head commits; for a mirror of the JSON API (`mode: index`), its `/api/formula.json` polled conditionally and diffed | the bottles of the formula's current version (the JSON API lists no other); disabled formulae are skipped | a JSON API mirror (`HOMEBREW_API_DOMAIN`) is followed through its formula index; the Git history needs `url`, a homebrew-core clone | `mode` (`auto`: `git` for formulae.brew.sh or with `url`, `index` otherwise; `git`, `index`), `branch`, `settle` (30m), `platforms` (bottle tags) |
+| `apt` | each suite's `InRelease` (or `Release`), polled conditionally; the `Packages` indexes whose SHA-256 changed, read by hash and verified against it, diffed against a stored copy | every `.deb` (`.udeb`, `.ddeb`) of the version at its `Filename`, with its size; versions with their epoch, in dpkg order | aptly, reprepro, Pulp, Artifactory and Nexus archives as is | `suites` (required), `components` (`main`), `architectures` (`amd64`; `all` reads `binary-all` where the Release lists it) |
+| `yum` | `repodata/repomd.xml`, polled conditionally; the primary (zstd, gzip or xz; size and checksum verified), streamed and diffed against a stored copy | every `.rpm` of the version (`[epoch:]version-release`, rpm order), all architectures, with size and time | one upstream is one repository root; Pulp, Artifactory, Nexus and createrepo_c trees as is | — |
+| `helm` | `index.yaml`, polled conditionally and read as a stream, diffed against a stored copy | the chart archive, at the path the backend's rewritten index hands clients | ChartMuseum, Artifactory, Nexus, GitLab and Harbor as is; an OCI upstream (setting `oci`) cannot be followed | `settle` (15m) |
+| `conda` | each followed subdir's `repodata.json.zst` (`repodata.json` where there is none), polled conditionally, diffed (an unchanged subdir copied, one that stops answering kept for three polls) | every file of the version — every build, both formats — of the followed subdirs, with size and upload time | Artifactory, Nexus, Quetz and prefix.dev channels as is; a 403 for a missing document counts as not found (S3) | `subdirs` (noarch, linux-64, linux-aarch64, osx-64, osx-arm64, win-64), `index` (`repodata`, `current`), `settle` (30m) |
+| `cran` | `src/contrib/PACKAGES.gz` (`PACKAGES` where there is none), polled conditionally, diffed | the current source tarball (archived versions and binaries are not followed) | Posit Package Manager, Bioconductor, miniCRAN, Artifactory and Nexus as is | `settle` (45m) |
+| `hex` | the signed `/names` and `/versions`, polled conditionally, `/versions` verified and diffed (`/names` gives the head time) | the tarball; retired versions marked yanked | organisation repositories as is; mini_repo and Artifactory need `publicKey` (or `none`) | `publicKey` (hex.pm's), `repository` (the name the index must carry) |
+| `maven` | a repository manager's Maven Indexer index under `.index/`: the properties file polled conditionally, incremental chunks applied while the chain lasts, otherwise the full index streamed and diffed | the classifier-less files the index lists and the POM; classifier files per `classifiers` | Nexus and Artifactory repositories that publish an index; Maven Central (and copies of its index) is refused: its terms forbid mirroring it | `classifiers` |
+| `openvsx` | `sitemap.xml`, diffed; the search listing by time, read at every poll, for a second publication on a day | one `.vsix` per version and target platform, from each platform's version listing | any openvsx-server, also one in mirror mode | `platforms` |
+| `jsr` | every page of api.jsr.io's package list at each poll, diffed | every module file of the version, from its manifest (file lists kept per package) | no self-hosted JSR in common use: `url` names an API that lists packages as api.jsr.io does | — |
+| `huggingface` | `/api/models` (or datasets, spaces) by last modification for each configured author and search, read in turn down to a high-water mark | the files of the commit `main` is at; gated and private repositories skipped unless `restricted` is `include` | Artifactory and Nexus remotes serve no listing: `url` names the Hub's API | `author` and/or `search` (one required; at most 32 authors), `kind`, `files`, `restricted` |
+| `puppet` | `/v3/releases?sort_by=release_date` down to a high-water mark and a day below it, by module; Bootstrap from the releases sorted by module | the release tarball; deleted releases as yanked | only the Forge itself; `url` names it for an Artifactory remote | `settle` (90m; 3h30m in front of the Forge) |
+| `ansible` | the collection-version search by `-pulp_created`, filtered by distribution, down to a high-water mark and a day below it; Bootstrap from the collection index | the collection artifact | galaxy_ng and pulp_ansible distributions as is; Artifactory and Nexus need `url` naming a Galaxy NG; a Private Automation Hub cannot be followed | `settle` (10m) |
+| `dart` | pub.dev's Atom feed of the newest versions down to a high-water mark, the live package listing where the feed does not reach back (unchecked page boundaries looked at again later); Bootstrap from `/api/package-names` | the archive of every version; retracted versions yanked | other pub servers need `url` naming a site that serves pub.dev's feed and listings | `settle` (5m; 2h30m in front of pub.dev) |
 
 `settle` holds a feed back from changes younger than the period, where what the feed reports
-reaches the documents clients read only minutes later: the registries built from a Git
+reaches the documents clients read — or the documents the backend verifies a file against —
+only minutes later: the registries built from a Git
 repository serve a commit's content after it is pushed (bcr.bazel.build is uploaded after a
 push, ConanCenter promotes merged recipes and serves its revision pointers from a CDN,
 formulae.brew.sh is regenerated and cached), NuGet's flat container lists a version minutes
@@ -332,7 +350,22 @@ Bootstrap lists the head without waiting, so a package whose metadata the enumer
 within the period of a commit can miss that commit's change; a resync catches it. Other feeds
 wait in their own terms: CPAN's reports an upload once its author's `CHECKSUMS` lists it (or
 after two hours), and Go's keeps the versions the index announced in its last two batches —
-in the state directory, across restarts — while `@v/list` lags behind.
+in the state directory, across restarts — while `@v/list` lags behind. The index feeds of Helm,
+conda and CRAN read a compressed index the backend does not verify against (it reads the plain
+`index.yaml`, `repodata.json` or `PACKAGES`, cached separately by the CDN): they report a file
+once it has been listed for the period, counted from the poll that first saw it on the
+registry's clock (the response's `Date`), and keep that table in the state directory. The
+listing feeds of pub.dev, the Puppet Forge and Galaxy hold back versions younger than the
+period; behind a cache of their own (an Artifactory remote, a pub.dev mirror) the default
+rises to the cache's lifetime.
+
+**Choosing the poll interval.** An index feed re-reads its whole index whenever it changed, so
+its cost per poll is the size of the index, and a busy registry changes at every poll: the
+catalog notes what conda-forge's default subdirs and JSR's package list cost at the default
+interval of five minutes. For those two, and for large Helm repositories and APT suites, a
+`pollInterval` of 30 minutes to an hour keeps the traffic reasonable at the price of later
+news. A listing feed is cheap when quiet (one request); the Hugging Face Hub's rate limit
+caps `requestsPerSecond` (see its section).
 
 #### Git-backed registries
 
@@ -351,6 +384,67 @@ fresh snapshot (a follower days behind a busy index), or names a tree the store 
 adapter asks for a snapshot instead. Every object's id is computed from its content as it is
 read, so each tree walked is the one the head commit names; packs are bounded in size, in
 what they inflate to, and in time.
+
+#### Index-polling registries
+
+The registries of tier (b) publish their whole current state, and the adapters of APT, YUM,
+Helm, conda, CRAN, Hex, Maven (where an index is published), Open VSX and JSR (whose
+alphabetical listing is read whole at every pass), and Homebrew's JSON API, follow them by
+keeping a copy of that state and diffing each new one against it:
+
+- **The copy.** An adapter reads its index as a stream — decompressing it (gzip, bzip2, xz or
+  zstd, with the decoder's memory bounded as for the [content scan](gates-reference.md)) and
+  parsing it as it arrives — into records: one per file a version lists (an APT `.deb`, a conda
+  package file), or one per version or per package where the index names no files. The records
+  are sorted in runs of bounded size that spill to the adapter's directory under the state
+  directory and are merged into the copy: gzip blocks with an index of the blocks, named by the
+  SHA-256 of the records. Building a copy of an index of hundreds of thousands of files holds
+  a few tens of megabytes of memory, however large the index; reading the same index twice
+  makes the same copy. A package listing more files than any real one does (the index is
+  untrusted input) is left out of the copy and counted, rather than failing the index. Every
+  block is checked as it is read; a copy whose content does not match its name is removed and
+  never trusted, and the cursor that names it starts the enumeration over (an I/O error of the
+  state directory is retried instead).
+- **A poll** reads the index conditionally: the cursor keeps the validators of the last read (an
+  ETag or Last-Modified, the digests a signed `InRelease` or `repomd.xml` lists), so a registry
+  that answers "not modified" costs one small request, and the parts of a multi-part index that
+  did not change (an unchanged suite's `Packages`, an unchanged conda subdir) are copied from
+  the previous copy rather than read again. A changed index becomes a new copy, and its
+  difference from the cursor's copy is what the poll reports: each package that appeared, each
+  version added or changed (with the version: only its files are fetched), and what is gone. A
+  difference larger than a batch is reported over several batches; both copies stay until the
+  engine has stored a cursor past them. Bootstrap reads the index once and lists every package
+  of the copy, page by page; what is published while the engine works through them is in the
+  first difference.
+- **Releases** come from the newest copy where the index names the files (APT, YUM, Helm, conda,
+  CRAN, Hex, Maven), so a version a difference reports is always there. Where the files come
+  from a package's own metadata document (Homebrew's formula JSON, Open VSX's extension
+  document, JSR's version manifests), the copy holds one record per package and changes name the
+  package only: the engine looks at its current versions, and a document a CDN still serves from
+  before the change does not lose a version.
+- **The cost** is a re-read of the whole index for every change, at the poll interval: a few
+  hundred kilobytes for Hex, tens of megabytes for an APT suite, Helm's large repositories,
+  Homebrew's JSON or a YUM repository, and more for conda's busiest subdirs, which change every
+  few minutes — set `pollInterval` to what the bandwidth allows. The table above says what each
+  type reads.
+
+#### Listing registries
+
+Puppet Forge, Ansible Galaxy, pub.dev and the Hugging Face Hub offer listings sorted newest
+first. Their adapters keep a high-water mark — the newest time they have reported — and the
+items they saw in a lookback window below it (ten minutes by default), and page each listing
+from its first page down to that window: everything newer than the mark is reported, and so is
+an item in the window that became visible late (its time stamp taken before it was committed).
+The newest item of the pass becomes the next mark — unless its time lies more than an hour
+ahead of the proxy's clock: such an item is reported, but one bogus date must not hide
+everything published after it. A Bootstrap takes the mark from the first pages before it
+enumerates the registry (through a name list or a listing of every package), so what is
+published during the enumeration comes with the first poll. Offset-paged listings shift while
+they are read: an item published during a pass pushes the others down (an item seen twice is
+reported once), and pages overlap by a few items so that an item deleted during a pass does not
+hide its neighbour. A pass longer than one poll continues in the next, one page back. Listings
+cost the most requests per discovered upload: mind each registry's rate limits (the table
+above).
 
 ### Writing a feed adapter
 
@@ -375,6 +469,13 @@ configuration knows it; the entry's `Status` in `catalog_data.go` must then say
   of the adapter's own, backed up with the state — file by file, so a cursor that does not
   match the files there must be detected and answered with `ErrCursorInvalid`.
 
+Most of that is done for an adapter whose registry fits a pattern. One for a complete index
+supplies an `indexSource` — how to read the index, conditionally, into records — and embeds
+`indexFeed` (`pollfeed.go`), which keeps the copies (`snapshot.go`), the cursor and the
+differences; one for a newest-first listing supplies a `listingSource` and embeds `listingFeed`
+(`listfeed.go`); one for a Git-built index uses `gitIndex` (`gitfeed_tree.go`). Large documents
+are read with `kit.getStream` and `openContent` (`decompress.go`), as streams, never whole.
+
 ## Private and self-hosted upstreams
 
 When an upstream is Artifactory, Nexus or a self-hosted server rather than the public
@@ -397,11 +498,20 @@ limits, terms and sizes come from the sources listed under each entry. "Not docu
 nothing was found in the vendor's documentation, not that the feature is proven absent.
 Registries change, so re-check an entry before relying on one of its numbers.
 
-Two findings concern this proxy itself:
+Three findings concern this proxy itself:
 
 - Current Fedora repositories publish `primary.xml` only as zstd and zchunk, and the `yum`
-  backend decodes only gzip. Against them it records no package digests and serves RPMs
-  unverified. See the [yum](#yum) section.
+  backend decoded only gzip: against them it recorded no package digests and served RPMs
+  unverified. Fixed in Task 191: the backend now decodes gzip, xz and zstd primaries, as a
+  stream (see the [yum](#yum) section).
+- **Open:** the `apt` backend verifies a `.deb` only against a `Packages` index it has itself
+  served, fetched by name and plain, gzip or bzip2. APT clients fetch the indexes by hash, and
+  the full mirror fetches `.deb`s without reading an index through the proxy, so in both cases
+  `.deb`s are served and cached without that check (counted by
+  `pullthrough_apt_checksum_missing_total`). The apt feed adapter verifies every `Packages`
+  file it reads against the suite's `InRelease`, but it only chooses which paths to fetch;
+  closing the gap needs the backend to read the index itself (or the mirror to hand the
+  index's digest to the fetch).
 - The `yum` example in [backends.md](backends.md) points at Fedora 40 on
   dl.fedoraproject.org, whose `repomd.xml` now answers 404 (the release directory keeps only a
   README): Fedora moved the release to archives.fedoraproject.org when it reached its end of
@@ -417,38 +527,38 @@ full-mirror engine and its feed adapters land.
 
 | Type | Registry | Tier | How to follow it | Cursor | Full-mirror size | Implementation status |
 |---|---|---|---|---|---|---|
-| [`ansible`](#ansible) | [galaxy.ansible.com](https://galaxy.ansible.com) | **(c)** paginated listings only | collection versions, newest first | page | 4,686 collections, 54,484 collection versions; 37,920 roles | not started (listing adapter planned in Task 191) |
-| [`apt`](#apt) / `deb` | [deb.debian.org/debian](https://deb.debian.org/debian) | **(b)** complete index to poll and diff | Release and Packages indexes | validator | Debian: 5,451 GB for every architecture, about 1,340 GB for amd64 + all + source; Ubuntu: about 3.6 TB | not started (index-polling adapter planned in Task 191) |
+| [`ansible`](#ansible) | [galaxy.ansible.com](https://galaxy.ansible.com) | **(c)** paginated listings only | collection versions, newest first | page | 4,686 collections, 54,484 collection versions; 37,920 roles | implemented (Task 191: follows the collection-version search (`order_by=-pulp_created`, `distribution_base_path` = the upstream's `repository`) down to a high-water mark and a day below it, versions younger than feed option `settle` held back (default 10m), after enumerating the repository's collection index; a search that lists nothing while the index lists collections fails. Versions from the versions list read from the registry (the pipeline takes no query). Roles are not followed. Feed option `url` names a Galaxy NG for an Artifactory or Nexus remote.) |
+| [`apt`](#apt) / `deb` | [deb.debian.org/debian](https://deb.debian.org/debian) | **(b)** complete index to poll and diff | Release and Packages indexes | validator | Debian: 5,451 GB for every architecture, about 1,340 GB for amd64 + all + source; Ubuntu: about 3.6 TB | implemented (Task 191: polls each suite's `InRelease` (or `Release`) conditionally and reads, by hash and verified, the `Packages` indexes whose SHA-256 changed, diffing a stored copy; versions and files from the index itself (dpkg order). Feed options `suites` (required), `components` (default `main`), `architectures` (default `amd64`; `all` reads `binary-all` where the Release lists it, and is skipped where it does not, as on Ubuntu), `url` (another archive root). The apt backend verifies a `.deb` only against a `Packages` file it served by name: mirrored `.deb`s are cached without that check (see the findings below).) |
 | [`bazel`](#bazel) | [bcr.bazel.build](https://bcr.bazel.build) | **(a)** incremental change feed | BCR commits | commit | metadata only; the archives live at their upstream URLs | implemented (Task 190: diffs the trees of bazel-central-registry's head commits once they have settled (feed option `settle`, default 10m), one change per version directory; versions from metadata.json read through the proxy, each with MODULE.bazel, the source archive and the patches and overlay files its source.json lists. Another registry needs feed option `url`, its Git repository.) |
 | [`cargo`](#cargo) | [index.crates.io](https://index.crates.io) | **(a)** incremental change feed | Git index commits | commit | 378,819 crates; more than 100 GB of crate files already in 2022 | implemented (Task 190: diffs the trees of the Git index's head commits (a blob-less smart-HTTP fetch, unaffected by the weekly squash); versions from the sparse index read through the proxy. A private registry needs feed option `url`, its Git index.) |
 | [`composer`](#composer) | [repo.packagist.org](https://repo.packagist.org) | **(a)** incremental change feed | metadata changes | timestamp | 481,164 packages, 6,077,934 versions (metadata only) | implemented (Task 190: follows Packagist `metadata/changes.json` from the stored `since` (a `resync` means a new enumeration from `packages/list.json`), `~dev` documents skipped; versions from `/p2/<vendor>/<package>.json` read through the proxy, metadata older than its update retried. A repository other than Packagist needs feed option `url`, a Packagist-compatible site.) |
 | [`conan`](#conan) | [center2.conan.io](https://center2.conan.io) | **(a)** incremental change feed | conan-center-index commits | commit | 9,729 recipe versions of 1,943 libraries; binaries not counted | implemented (Task 190: diffs the trees of conan-center-index's head commits once they have settled (feed option `settle`, default 1h), one change per recipe; versions from the remote's recipe search, each with the files of its latest recipe revision read through the proxy, binary packages per feed option `binaries` (none, all, or settings to match). Another remote needs feed option `url`, a Git repository laid out as conan-center-index.) |
-| [`conda`](#conda) | [conda.anaconda.org/conda-forge](https://conda.anaconda.org/conda-forge) | **(b)** complete index to poll and diff | repodata per subdir | validator | more than 3 TB (all subdirs; an old vendor figure) | not started (index-polling adapter planned in Task 191) |
+| [`conda`](#conda) | [conda.anaconda.org/conda-forge](https://conda.anaconda.org/conda-forge) | **(b)** complete index to poll and diff | repodata per subdir | validator | more than 3 TB (all subdirs; an old vendor figure) | implemented (Task 191: polls each followed subdir's `repodata.json.zst` (`repodata.json` where there is none, the `.zst` asked for again at every poll; a 403 counts as not found, as S3 answers) conditionally and diffs it against a stored copy, an unchanged subdir copied rather than read again, one that stops answering kept for 3 polls; a file is reported once listed for feed option `settle` (default 30m, from the poll that first saw it), so that the plain `repodata.json` the backend verifies against lists it. Versions from the stored copy, each with every file (every build, both formats) of the subdirs followed. Feed options `subdirs` (default noarch, linux-64, linux-aarch64, osx-64, osx-arm64, win-64), `index` (`repodata`, or `current`: `current_repodata.json`, the latest versions only), `settle` and `url` (another channel).) |
 | [`cpan`](#cpan) | [cpan.metacpan.org](https://cpan.metacpan.org) | **(a)** incremental change feed | RECENT files | timestamp | about 40 GB (all of CPAN); about 1 GB for the latest releases only | implemented (Task 190: follows `RECENT-1h.json` from the stored epoch (a longer interval file when the cursor is older than its `minmax.min`; a changed `dirtymark`, or a cursor no file within the read bound reaches, means a new enumeration) after listing what `02packages.details.txt.gz` indexes; an upload is reported once its author directory's `CHECKSUMS` is rewritten, and its versions come from that `CHECKSUMS` read through the proxy. Names are `AUTHOR/Distribution`. Feed option `url` names a full mirror for a minicpan or Pinto upstream.) |
-| [`cran`](#cran) | [cloud.r-project.org](https://cloud.r-project.org) | **(b)** complete index to poll and diff | PACKAGES index | validator | about 410 GB (sources, archive and binaries) | not started (index-polling adapter planned in Task 191) |
-| [`dart`](#dart) / `pub` | [pub.dev](https://pub.dev) | **(c)** paginated listings only | packages by publish time | page | 95,662 packages; bytes not published | not started (listing adapter planned in Task 191) |
+| [`cran`](#cran) | [cloud.r-project.org](https://cloud.r-project.org) | **(b)** complete index to poll and diff | PACKAGES index | validator | about 410 GB (sources, archive and binaries) | implemented (Task 191: polls `src/contrib/PACKAGES.gz` (`PACKAGES` where there is none, `PACKAGES.gz` asked for again at every poll; a 403 counts as not found) conditionally and diffs it against a stored copy; a version is reported once listed for feed option `settle` (default 45m, from the poll that first saw it; the version it supersedes is kept meanwhile), so that the plain `PACKAGES` the backend verifies against lists it. Each package's current version from the stored copy, with its source tarball where R downloads it. Archived versions (listed only in `Meta/archive.rds`) and Windows/macOS binaries are not followed. Feed options `settle` and `url` (another repository root).) |
+| [`dart`](#dart) / `pub` | [pub.dev](https://pub.dev) | **(c)** paginated listings only | packages by publish time | page | 95,662 packages; bytes not published | implemented (Task 191: follows the Atom feed of the 100 newest versions down to a high-water mark, and the live `/packages.json` listing where the feed does not reach back (the document of a page's last package tells where to stop; a page boundary pub.dev's instances may disagree on is kept in the cursor and looked at again 35 minutes later), by package name, versions younger than feed option `settle` held back (default 5m; 2h30m when the upstream is a server in front of pub.dev); Bootstrap lists `/api/package-names` and the feed's packages. Versions from the package document read through the proxy, retracted ones as yanked. Another pub server needs feed option `url`, a site that serves pub.dev's feed and listings.) |
 | [`docker`](#docker) | [registry-1.docker.io](https://registry-1.docker.io) | **(d)** no practical enumeration | tags of a named repository (partial) | validator | not published | not started (no registry-wide feed to follow) |
 | [`generic`](#generic) | operator-defined | **(d)** no practical enumeration | — | — | operator-defined | not applicable (operator-defined upstream) |
 | [`git`](#git) | [github.com](https://github.com) | **(d)** no practical enumeration | refs of a named repository (partial) | commit | not applicable | partial (named repositories are followed for the commit scan: `scanning.watch`) |
 | [`go`](#go) | [proxy.golang.org](https://proxy.golang.org) | **(a)** incremental change feed | module index | timestamp | 71.4 million module versions checksummed; no byte total published | implemented (Task 190: replays the module index from its start, then follows it by timestamp (the records already reported at the stored instant are dropped); tagged versions only, pseudo-versions are left to client pulls. Versions from `@v/list` read through the proxy. Other upstreams are taken to serve Athens' `/index`; feed option `url` names another index.) |
 | [`hackage`](#hackage) | [hackage.haskell.org](https://hackage.haskell.org) | **(a)** incremental change feed | index tarball tail | byte offset | 20.4 GB of package tarballs (155,731 package versions); the index is 1.05 GB | implemented (Task 190: follows `01-index.tar` with Range requests from the stored end (the hash of the last entry's header detects a replaced index), a change per new `package.json`, after listing `/packages/`; versions from `/package/{name}/preferred`, read from the repository (the backend serves neither JSON document), sdists in the short form clients request. Feed option `url` names a hackage-server for a static mirror.) |
-| [`helm`](#helm) | [charts.bitnami.com/bitnami](https://charts.bitnami.com/bitnami) | **(b)** complete index to poll and diff | repository `index.yaml` | validator | per repository (Bitnami's index alone is 27.6 MB) | not started (index-polling adapter planned in Task 191) |
-| [`hex`](#hex) | [repo.hex.pm](https://repo.hex.pm) | **(b)** complete index to poll and diff | names and versions | validator | not published | not started (index-polling adapter planned in Task 191) |
-| [`homebrew`](#homebrew) | [formulae.brew.sh](https://formulae.brew.sh) | **(a)** incremental change feed | homebrew-core commits | commit | not published | implemented (Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). A mirror of the JSON API needs feed option `url`, a clone of homebrew-core.) |
-| [`huggingface`](#huggingface) | [huggingface.co](https://huggingface.co) | **(c)** paginated listings only | repositories by last modification | page | more than 20 PB | not started (listing adapter planned in Task 191) |
-| [`jsr`](#jsr) | [jsr.io](https://jsr.io) | **(c)** paginated listings only | package list | page | 23,228 packages; bytes not published | not started (listing adapter planned in Task 191) |
+| [`helm`](#helm) | [charts.bitnami.com/bitnami](https://charts.bitnami.com/bitnami) | **(b)** complete index to poll and diff | repository `index.yaml` | validator | per repository (Bitnami's index alone is 27.6 MB) | implemented (Task 191: polls the repository's `index.yaml` conditionally (ETag/Last-Modified, redirects followed) and diffs it against a stored copy, one record per chart version (`created` left out: an index regenerated without `--merge` re-reports nothing); the index is read as a stream (one of at most 8 MiB the streaming reader does not handle is read whole with yaml.v3, a larger one is refused). A version is reported once listed for feed option `settle` (default 15m, from the poll that first saw it), so that the index the backend reads lists it too. Versions from the stored copy, each with its archive at the path the backend's rewritten index hands clients. Feed option `url` names another copy of the index; an OCI upstream (setting `oci`) cannot be followed.) |
+| [`hex`](#hex) | [repo.hex.pm](https://repo.hex.pm) | **(b)** complete index to poll and diff | names and versions | validator | not published | implemented (Task 191: polls the signed `/names` and `/versions` with conditional requests and diffs `/versions`, one change per version added, retired or gone; versions and their tarballs from the copy, retired versions yanked. `/versions` must verify (hex.pm's key, which also signs its organisations' repositories; feed option `publicKey` names another, or `none`) and name the repository (`hexpm`, an organisation's own name; feed option `repository`); `/names` gives only the head time. Feed option `url` names another repository.) |
+| [`homebrew`](#homebrew) | [formulae.brew.sh](https://formulae.brew.sh) | **(a)** incremental change feed | homebrew-core commits | commit | not published | implemented (Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). Task 191: a mirror of the JSON API is followed through its formula index, `/api/formula.json`, polled conditionally and diffed, one change per version added or rebottled; the version and its bottles from the copy of the index, at the paths the backend rewrites them to (feed option `mode`: `auto`, the default, `git` or `index`).) |
+| [`huggingface`](#huggingface) | [huggingface.co](https://huggingface.co) | **(c)** paginated listings only | repositories by last modification | page | more than 20 PB | partial (Task 191: follows the listing by last modification (`/api/models`, or datasets or spaces per feed option `kind`) for the scope feed options `author` (comma-separated, at most 32, one listing each, read in turn down to the mark's lookback window) and/or `search` name — the whole Hub is not enumerated; hf.co's listing is read at huggingface.co. The files of the commit main is at, from the metadata read through the proxy (feed option `files` keeps some; gated and private repositories are skipped unless feed option `restricted` is `include`). Feed option `url` names the listing API for an upstream that is not the Hub.) |
+| [`jsr`](#jsr) | [jsr.io](https://jsr.io) | **(c)** paginated listings only | package list | page | 23,228 packages; bytes not published | implemented (Task 191: reads every page of the management API's package list at each poll, to its first empty page, into a copy diffed against the last (a publish moves the version count, not `updatedAt`), changes by package; versions from `meta.json` and their module files from each version's manifest, read through the proxy (every package's file lists kept: a publish reads the new version's manifest only). Another upstream needs feed option `url`, an API that lists packages as api.jsr.io does.) |
 | [`julia`](#julia) | [pkg.julialang.org](https://pkg.julialang.org) | **(a)** incremental change feed | General registry commits | commit | not published | implemented (Task 190: diffs the Pkg server's registry snapshots (`/registries` in the flavour of feed option `flavor`, `conservative` or `eager`): each new registry tree is read through the proxy and its `Registry.toml` and `Versions.toml` files indexed in the state directory; versions from the stored index, package tarballs by uuid and git-tree-sha1. Package artifacts are not followed.) |
-| [`maven`](#maven) | [repo1.maven.org/maven2](https://repo1.maven.org/maven2) | **(b)** complete index to poll and diff | Maven Indexer index | validator | not published | not started (index-polling adapter planned in Task 191) |
+| [`maven`](#maven) | [repo1.maven.org/maven2](https://repo1.maven.org/maven2) | **(b)** complete index to poll and diff | Maven Indexer index | validator | not published | partial (Task 191: follows a repository manager's Maven Indexer index (`<url>/.index/`): the properties file read conditionally, the chunks after the stored one applied to the stored copy while its chain lasts (a chunk gone or malformed, a full index older than the properties, or another `classifiers` selection makes it a full read), otherwise the full index streamed and diffed; releases from the stored copy, each document standing for its file and its release's POM (a POM alone for the main artifact its packaging names), classifiers per feed option `classifiers`, snapshots skipped. Maven Central itself is refused, by its host names (Google's copies too) and at every read by its index id `central` or its chain id: its terms forbid mirroring it. Feed option `url` names another index directory.) |
 | [`nix`](#nix) | [cache.nixos.org](https://cache.nixos.org) | **(d)** no practical enumeration | channel store paths (partial) | validator | 636 TB, more than 1 billion objects | not started (no registry-wide feed to follow) |
 | [`npm`](#npm) | [registry.npmjs.org](https://registry.npmjs.org) | **(a)** incremental change feed | replication feed (`_changes`) | sequence | 4.6 million packages; no published byte total | implemented (Task 190: follows `_changes` from the stored sequence (one beyond `update_seq` means a reset and a new enumeration) after listing `_all_docs`; versions from the packument read through the proxy. Feed option `url` names a CouchDB replica for a private registry.) |
 | [`nuget`](#nuget) | [api.nuget.org](https://api.nuget.org) | **(a)** incremental change feed | catalog | timestamp | 594,190 packages, 14,044,198 versions; no byte total published | implemented (Task 190: follows the catalog (`Catalog/3.0.0` of the service index) by commit timestamp: the pages committed after the cursor, their newer leaves in commit order, each batch ending at a commit boundary and at commits older than feed option `settle` (default 10m: the flat container lists a version minutes after the catalog commits it); a cursor beyond the last commit (a rebuilt catalog) means a new replay from the first page. Versions from the flat container read through the proxy. Feed option `url` names a catalog index for a feed whose service index names none (Artifactory, Nexus, Azure Artifacts, GitHub Packages).) |
-| [`openvsx`](#openvsx) | [open-vsx.org](https://open-vsx.org) | **(b)** complete index to poll and diff | sitemap | validator | 21,414 extensions; bytes not published | not started (index-polling adapter planned in Task 191) |
+| [`openvsx`](#openvsx) | [open-vsx.org](https://open-vsx.org) | **(b)** complete index to poll and diff | sitemap | validator | 21,414 extensions; bytes not published | implemented (Task 191: polls the sitemap (conditionally, where the server sends validators) and diffs it, one change per extension whose date moved; the search listing by time, read at every poll, adds second publications on a day (a server re-dating every extension, as one in mirror mode does, is recognised). Versions from each target platform's version listing, up to 2,000 a platform, past pre-release lines; one `.vsix` per version and platform (feed option `platforms` keeps some). Feed option `url` names another sitemap.) |
 | [`pip`](#pip) | [pypi.org](https://pypi.org) | **(a)** incremental change feed | XML-RPC changelog | sequence | 51.6 TB (every file of every release) | implemented (Task 190: follows the XML-RPC changelog from the stored serial (one beyond `changelog_last_serial` means a reset and a new enumeration), rows older than feed option `settle` (default 5m: a release's simple page can reach the CDN later), after listing the PEP 691 project list; feed option `mode` `simple`, the fallback where XML-RPC is missing, diffs every project's `_last-serial` against a stored copy instead. Versions from the simple page read through the proxy; names are PEP 503-normalized. Feed option `url` names another Warehouse.) |
-| [`puppet`](#puppet) | [forgeapi.puppet.com](https://forgeapi.puppet.com) | **(c)** paginated listings only | releases by date | page | 7,707 modules, 54,827 releases; about 3 GB (estimate) | not started (listing adapter planned in Task 191) |
+| [`puppet`](#puppet) | [forgeapi.puppet.com](https://forgeapi.puppet.com) | **(c)** paginated listings only | releases by date | page | 7,707 modules, 54,827 releases; about 3 GB (estimate) | implemented (Task 191: follows `/v3/releases?sort_by=release_date` down to a high-water mark and a day below it, by module name, releases younger than feed option `settle` held back (default 90m: the CDN serves module documents up to an hour old; 3h30m when the upstream is a server in front of the Forge), after enumerating the modules from the same listing sorted by module; versions from the module document read through the proxy, deleted releases as yanked, premium and login-required modules only with credentials. Feed option `url` names the Forge for an Artifactory remote.) |
 | [`rubygems`](#rubygems) | [rubygems.org](https://rubygems.org) | **(a)** incremental change feed | compact index `/versions` | byte offset | 198,697 gems; no byte total published | implemented (Task 190: follows the compact index `/versions` with Range requests from the end of a stored copy (If-None-Match, Repr-Digest checked); a digest mismatch, a torn tail or another `created_at` (the monthly rewrite) fetches the whole file and diffs it against the copy. Versions from `/info/<gem>` read through the proxy, platform gems as files of their version. Feed option `url` names another compact-index base.) |
 | [`swift`](#swift) | [tuist.dev/api/registry/swift](https://tuist.dev/api/registry/swift) | **(d)** no practical enumeration | Swift Package Index package list (partial) | commit | about 10,000 packages and 160,000 releases | not started (no registry-wide feed to follow) |
 | [`terraform`](#terraform) | [registry.terraform.io](https://registry.terraform.io) | **(c)** paginated listings only | module listing | page | 7,761 providers, 24,770 modules; provider binaries are on GitHub | not applicable (no feed adapter (Task 191): the listings name only each module's and provider's latest version, so a new version surfaces only in a full pass over both listings (about 330 requests) and a version list per changed entry, and provider binaries are GitHub release assets outside the registry; full mirroring is refused, and tracked repositories pin the providers their lock files name) |
-| [`yum`](#yum) / `rpm` | [dl.fedoraproject.org/pub/fedora/linux](https://dl.fedoraproject.org/pub/fedora/linux) | **(b)** complete index to poll and diff | repomd.xml and primary | validator | 4.7 TB for all of Fedora Linux; one release's `Everything/x86_64` tree about 250 GB, plus 145 GB of its updates | not started (index-polling adapter planned in Task 191) |
+| [`yum`](#yum) / `rpm` | [dl.fedoraproject.org/pub/fedora/linux](https://dl.fedoraproject.org/pub/fedora/linux) | **(b)** complete index to poll and diff | repomd.xml and primary | validator | 4.7 TB for all of Fedora Linux; one release's `Everything/x86_64` tree about 250 GB, plus 145 GB of its updates | implemented (Task 191: polls `repodata/repomd.xml` conditionally and, when its primary changed, streams the primary (zstd, gzip or xz; size and checksums verified) into a stored copy it diffs; versions (`[epoch:]version-release`, rpm order) and files from the primary itself. One upstream is one repository root; feed option `url` names another mirror of it.) |
 
 ## Types by tier
 
@@ -481,7 +591,7 @@ full-mirror engine and its feed adapters land.
 
 ### ansible
 
-**Ansible Galaxy** — upstream type `ansible`, registry <https://galaxy.ansible.com>. Tier **(c) paginated listings only**. Implementation: not started (listing adapter planned in Task 191).
+**Ansible Galaxy** — upstream type `ansible`, registry <https://galaxy.ansible.com>. Tier **(c) paginated listings only**. Implementation: implemented (Task 191: follows the collection-version search (`order_by=-pulp_created`, `distribution_base_path` = the upstream's `repository`) down to a high-water mark and a day below it, versions younger than feed option `settle` held back (default 10m), after enumerating the repository's collection index; a search that lists nothing while the index lists collections fails. Versions from the versions list read from the registry (the pipeline takes no query). Roles are not followed. Feed option `url` names a Galaxy NG for an Artifactory or Nexus remote.).
 
 **Feeds**
 
@@ -505,7 +615,7 @@ full-mirror engine and its feed adapters land.
 
 ### apt
 
-**Debian / Ubuntu APT archives** — upstream type `apt` (also `deb`), registry <https://deb.debian.org/debian>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**Debian / Ubuntu APT archives** — upstream type `apt` (also `deb`), registry <https://deb.debian.org/debian>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls each suite's `InRelease` (or `Release`) conditionally and reads, by hash and verified, the `Packages` indexes whose SHA-256 changed, diffing a stored copy; versions and files from the index itself (dpkg order). Feed options `suites` (required), `components` (default `main`), `architectures` (default `amd64`; `all` reads `binary-all` where the Release lists it, and is skipped where it does not, as on Ubuntu), `url` (another archive root). The apt backend verifies a `.deb` only against a `Packages` file it served by name: mirrored `.deb`s are cached without that check (see the findings below).).
 
 **Feeds**
 
@@ -673,7 +783,7 @@ full-mirror engine and its feed adapters land.
 
 ### conda
 
-**conda-forge (anaconda.org)** — upstream type `conda`, registry <https://conda.anaconda.org/conda-forge>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**conda-forge (anaconda.org)** — upstream type `conda`, registry <https://conda.anaconda.org/conda-forge>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls each followed subdir's `repodata.json.zst` (`repodata.json` where there is none, the `.zst` asked for again at every poll; a 403 counts as not found, as S3 answers) conditionally and diffs it against a stored copy, an unchanged subdir copied rather than read again, one that stops answering kept for 3 polls; a file is reported once listed for feed option `settle` (default 30m, from the poll that first saw it), so that the plain `repodata.json` the backend verifies against lists it. Versions from the stored copy, each with every file (every build, both formats) of the subdirs followed. Feed options `subdirs` (default noarch, linux-64, linux-aarch64, osx-64, osx-arm64, win-64), `index` (`repodata`, or `current`: `current_repodata.json`, the latest versions only), `settle` and `url` (another channel).).
 
 **Feeds**
 
@@ -703,6 +813,7 @@ full-mirror engine and its feed adapters land.
 
 **Notes**
 
+- Measured on 2026-11-16: following conda-forge's six default subdirs reads 236 MB of zstd per poll that finds them all changed (about 1.6 GB of JSON, under a minute of CPU), and conda-forge changes every few minutes — about 17 GB a day at a 5-minute poll interval; `current_repodata.json` of the same subdirs is 41 MB.
 - Incremental repodata patches (JLAP) are not served: `repodata.jlap` → 404 on 2026-11-15.
 
 **Sources.** [conda: sharded repodata](https://docs.conda.io/projects/conda/en/stable/dev-guide/deep-dives/sharded.html) · [How we reduced conda's index fetch bandwidth by 99% (JLAP)](https://conda.discourse.group/t/how-we-reduced-condas-index-fetch-bandwidth-by-99/257) · [Anaconda Package Security Manager: mirrors](https://www.anaconda.com/docs/psm/on-prem/latest/admin/mirrors) · [conda-forge: total size of the conda-forge repo (2021)](https://groups.google.com/g/conda-forge/c/AlY_u8TCjO8)
@@ -741,7 +852,7 @@ full-mirror engine and its feed adapters land.
 
 ### cran
 
-**CRAN (R)** — upstream type `cran`, registry <https://cloud.r-project.org>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**CRAN (R)** — upstream type `cran`, registry <https://cloud.r-project.org>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls `src/contrib/PACKAGES.gz` (`PACKAGES` where there is none, `PACKAGES.gz` asked for again at every poll; a 403 counts as not found) conditionally and diffs it against a stored copy; a version is reported once listed for feed option `settle` (default 45m, from the poll that first saw it; the version it supersedes is kept meanwhile), so that the plain `PACKAGES` the backend verifies against lists it. Each package's current version from the stored copy, with its source tarball where R downloads it. Archived versions (listed only in `Meta/archive.rds`) and Windows/macOS binaries are not followed. Feed options `settle` and `url` (another repository root).).
 
 **Feeds**
 
@@ -773,7 +884,7 @@ full-mirror engine and its feed adapters land.
 
 ### dart
 
-**pub.dev (Dart and Flutter)** — upstream type `dart` (also `pub`), registry <https://pub.dev>. Tier **(c) paginated listings only**. Implementation: not started (listing adapter planned in Task 191).
+**pub.dev (Dart and Flutter)** — upstream type `dart` (also `pub`), registry <https://pub.dev>. Tier **(c) paginated listings only**. Implementation: implemented (Task 191: follows the Atom feed of the 100 newest versions down to a high-water mark, and the live `/packages.json` listing where the feed does not reach back (the document of a page's last package tells where to stop; a page boundary pub.dev's instances may disagree on is kept in the cursor and looked at again 35 minutes later), by package name, versions younger than feed option `settle` held back (default 5m; 2h30m when the upstream is a server in front of pub.dev); Bootstrap lists `/api/package-names` and the feed's packages. Versions from the package document read through the proxy, retracted ones as yanked. Another pub server needs feed option `url`, a site that serves pub.dev's feed and listings.).
 
 **Feeds**
 
@@ -784,6 +895,14 @@ full-mirror engine and its feed adapters land.
   100 packages per page with their latest version and pubspec, most recently published first (an undocumented endpoint that may change without notice); page until a package whose latest version is already known. `/api/packages/{name}` lists every version with its `archive_url` and `archive_sha256`.
 
   *Checked live:* 2026-11-15: page 1 → 100 packages, the first three published at 22:29Z, 22:29Z and 22:24Z (checked through `/api/packages/{name}`), `next_url` page 2.
+
+- **newest versions (Atom feed)** (partial) — cursor: timestamp
+
+  `https://pub.dev/feed.atom`
+
+  The 100 most recently published versions, newest first (retracted and moderated versions left out), each entry `v{version} of {package}` with its publication time in `<updated>` and a changelog excerpt escaped for markup only (control characters can occur). Built from a datastore query and cached for three minutes, it covers two to four hours of publishing: a follower reads it at every poll and falls back to the listing after a longer pause.
+
+  *Checked live:* 2026-11-16: 100 entries from 05:07:32Z to 07:23:56Z (2h16m, 87 packages), 80,092 bytes, `cache-control: no-store`.
 
 - **package names** (partial) — cursor: validator
 
@@ -800,6 +919,10 @@ full-mirror engine and its feed adapters land.
 **Full-mirror size.** 95,662 packages; bytes not published. Name count on 2026-11-15; the sum of the archives is not computed.
 
 **Private and self-hosted upstreams.** The hosted-repository specification v2 has no listing endpoint, so spec-only servers (unpub, OnePub) are tier (d) unless they add one. Artifactory (Pub) and Nexus (Pub/Flutter proxy/hosted/group) support the format; a listing is not documented.
+
+**Notes**
+
+- pub.dev serves its package listings (`/api/packages`, `/packages.json`) from an in-memory list on each server instance, refreshed every 15 minutes, so consecutive pages can come from instances that disagree: five requests for page 1 within ten seconds came back in three different states on 2026-11-16. A pass over the listing can skip a package at a page boundary unless the boundary is checked again later.
 
 **Sources.** [pub.dev API](https://pub.dev/help/api) · [Hosted pub repository specification v2](https://github.com/dart-lang/pub/blob/master/doc/repository-spec-v2.md)
 
@@ -961,7 +1084,7 @@ full-mirror engine and its feed adapters land.
 
 ### helm
 
-**Helm chart repositories** — upstream type `helm`, registry <https://charts.bitnami.com/bitnami>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**Helm chart repositories** — upstream type `helm`, registry <https://charts.bitnami.com/bitnami>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls the repository's `index.yaml` conditionally (ETag/Last-Modified, redirects followed) and diffs it against a stored copy, one record per chart version (`created` left out: an index regenerated without `--merge` re-reports nothing); the index is read as a stream (one of at most 8 MiB the streaming reader does not handle is read whole with yaml.v3, a larger one is refused). A version is reported once listed for feed option `settle` (default 15m, from the poll that first saw it), so that the index the backend reads lists it too. Versions from the stored copy, each with its archive at the path the backend's rewritten index hands clients. Feed option `url` names another copy of the index; an OCI upstream (setting `oci`) cannot be followed.).
 
 **Feeds**
 
@@ -1001,7 +1124,7 @@ full-mirror engine and its feed adapters land.
 
 ### hex
 
-**Hex (Elixir and Erlang)** — upstream type `hex`, registry <https://repo.hex.pm>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**Hex (Elixir and Erlang)** — upstream type `hex`, registry <https://repo.hex.pm>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls the signed `/names` and `/versions` with conditional requests and diffs `/versions`, one change per version added, retired or gone; versions and their tarballs from the copy, retired versions yanked. `/versions` must verify (hex.pm's key, which also signs its organisations' repositories; feed option `publicKey` names another, or `none`) and name the repository (`hexpm`, an organisation's own name; feed option `repository`); `/names` gives only the head time. Feed option `url` names another repository.).
 
 **Feeds**
 
@@ -1033,7 +1156,7 @@ full-mirror engine and its feed adapters land.
 
 ### homebrew
 
-**Homebrew (formulae.brew.sh, bottles on ghcr.io)** — upstream type `homebrew`, registry <https://formulae.brew.sh>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). A mirror of the JSON API needs feed option `url`, a clone of homebrew-core.).
+**Homebrew (formulae.brew.sh, bottles on ghcr.io)** — upstream type `homebrew`, registry <https://formulae.brew.sh>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). Task 191: a mirror of the JSON API is followed through its formula index, `/api/formula.json`, polled conditionally and diffed, one change per version added or rebottled; the version and its bottles from the copy of the index, at the paths the backend rewrites them to (feed option `mode`: `auto`, the default, `git` or `index`).).
 
 **Feeds**
 
@@ -1069,7 +1192,7 @@ full-mirror engine and its feed adapters land.
 
 ### huggingface
 
-**Hugging Face Hub** — upstream type `huggingface`, registry <https://huggingface.co>. Tier **(c) paginated listings only**. Implementation: not started (listing adapter planned in Task 191).
+**Hugging Face Hub** — upstream type `huggingface`, registry <https://huggingface.co>. Tier **(c) paginated listings only**. Implementation: partial (Task 191: follows the listing by last modification (`/api/models`, or datasets or spaces per feed option `kind`) for the scope feed options `author` (comma-separated, at most 32, one listing each, read in turn down to the mark's lookback window) and/or `search` name — the whole Hub is not enumerated; hf.co's listing is read at huggingface.co. The files of the commit main is at, from the metadata read through the proxy (feed option `files` keeps some; gated and private repositories are skipped unless feed option `restricted` is `include`). Feed option `url` names the listing API for an upstream that is not the Hub.).
 
 **Feeds**
 
@@ -1089,11 +1212,15 @@ full-mirror engine and its feed adapters land.
 
 **Private and self-hosted upstreams.** Artifactory (Hugging Face and Machine Learning repositories) and Nexus (Hugging Face proxy) cache models and datasets for clients; neither documents its upstream's `/api/models` listing. Hugging Face webhooks cover only the repositories or users one watches.
 
+**Notes**
+
+- At the anonymous limit of 500 API calls per 5 minutes a follower must stay below 1.7 requests a second (about 3 with a free account's token); its listing, metadata and file requests all count, and so do other clients behind the same egress address.
+
 **Sources.** [Hugging Face Hub API](https://huggingface.co/docs/hub/api) · [Hugging Face Hub rate limits](https://huggingface.co/docs/hub/rate-limits) · [Migrating the Hub to Xet (2025-07-15)](https://huggingface.co/blog/migrating-the-hub-to-xet)
 
 ### jsr
 
-**JSR (JavaScript Registry)** — upstream type `jsr`, registry <https://jsr.io>. Tier **(c) paginated listings only**. Implementation: not started (listing adapter planned in Task 191).
+**JSR (JavaScript Registry)** — upstream type `jsr`, registry <https://jsr.io>. Tier **(c) paginated listings only**. Implementation: implemented (Task 191: reads every page of the management API's package list at each poll, to its first empty page, into a copy diffed against the last (a publish moves the version count, not `updatedAt`), changes by package; versions from `meta.json` and their module files from each version's manifest, read through the proxy (every package's file lists kept: a publish reads the new version's manifest only). Another upstream needs feed option `url`, an API that lists packages as api.jsr.io does.).
 
 **Feeds**
 
@@ -1120,6 +1247,10 @@ full-mirror engine and its feed adapters land.
 **Full-mirror size.** 23,228 packages; bytes not published. Package total on 2026-11-15. JSR serves source files, so packages are small.
 
 **Private and self-hosted upstreams.** There is no self-hosted JSR server in common use.
+
+**Notes**
+
+- Measured on 2026-11-16: a full pass over the package list is 214 requests and about 11 MB, so polling every 5 minutes costs about 61,600 requests and 3.2 GB a day; an hourly poll about 5,100 requests and 260 MB.
 
 **Sources.** [JSR API](https://jsr.io/docs/api) · [JSR management API (OpenAPI)](https://api.jsr.io/.well-known/openapi)
 
@@ -1157,7 +1288,7 @@ full-mirror engine and its feed adapters land.
 
 ### maven
 
-**Maven Central** — upstream type `maven`, registry <https://repo1.maven.org/maven2>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**Maven Central** — upstream type `maven`, registry <https://repo1.maven.org/maven2>. Tier **(b) complete index to poll and diff**. Implementation: partial (Task 191: follows a repository manager's Maven Indexer index (`<url>/.index/`): the properties file read conditionally, the chunks after the stored one applied to the stored copy while its chain lasts (a chunk gone or malformed, a full index older than the properties, or another `classifiers` selection makes it a full read), otherwise the full index streamed and diffed; releases from the stored copy, each document standing for its file and its release's POM (a POM alone for the main artifact its packaging names), classifiers per feed option `classifiers`, snapshots skipped. Maven Central itself is refused, by its host names (Google's copies too) and at every read by its index id `central` or its chain id: its terms forbid mirroring it. Feed option `url` names another index directory.).
 
 **Feeds**
 
@@ -1286,7 +1417,7 @@ full-mirror engine and its feed adapters land.
 
 ### openvsx
 
-**Open VSX** — upstream type `openvsx`, registry <https://open-vsx.org>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**Open VSX** — upstream type `openvsx`, registry <https://open-vsx.org>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls the sitemap (conditionally, where the server sends validators) and diffs it, one change per extension whose date moved; the search listing by time, read at every poll, adds second publications on a day (a server re-dating every extension, as one in mirror mode does, is recognised). Versions from each target platform's version listing, up to 2,000 a platform, past pre-release lines; one `.vsix` per version and platform (feed option `platforms` keeps some). Feed option `url` names another sitemap.).
 
 **Feeds**
 
@@ -1313,6 +1444,10 @@ full-mirror engine and its feed adapters land.
 **Full-mirror size.** 21,414 extensions; bytes not published. Sitemap count on 2026-11-15. A full copy is every version (and target platform) of every extension's `.vsix` — not computed.
 
 **Private and self-hosted upstreams.** A self-hosted openvsx-server serves the same API and sitemap and can itself mirror open-vsx.org (`ovsx.data.mirror.enabled`). Artifactory documents a remote-only "AI Editor Extensions" repository type (whether it fronts Open VSX was not verified); Nexus documents no such format.
+
+**Notes**
+
+- open-vsx.org sends no validators for its sitemap (checked 2026-11-16), so every poll reads it whole, plus one to three pages of the search listing by time.
 
 **Sources.** [openvsx-server mirror mode (source)](https://github.com/eclipse-openvsx/openvsx/tree/master/server/src/main/java/org/eclipse/openvsx/mirror) · [Eclipse Foundation: Open VSX rate limiting (2026-02-11)](https://blogs.eclipse.org/node/8762)
 
@@ -1362,7 +1497,7 @@ full-mirror engine and its feed adapters land.
 
 ### puppet
 
-**Puppet Forge** — upstream type `puppet`, registry <https://forgeapi.puppet.com>. Tier **(c) paginated listings only**. Implementation: not started (listing adapter planned in Task 191).
+**Puppet Forge** — upstream type `puppet`, registry <https://forgeapi.puppet.com>. Tier **(c) paginated listings only**. Implementation: implemented (Task 191: follows `/v3/releases?sort_by=release_date` down to a high-water mark and a day below it, by module name, releases younger than feed option `settle` held back (default 90m: the CDN serves module documents up to an hour old; 3h30m when the upstream is a server in front of the Forge), after enumerating the modules from the same listing sorted by module; versions from the module document read through the proxy, deleted releases as yanked, premium and login-required modules only with credentials. Feed option `url` names the Forge for an Artifactory remote.).
 
 **Feeds**
 
@@ -1503,7 +1638,7 @@ full-mirror engine and its feed adapters land.
 
 ### yum
 
-**Fedora and RHEL-family YUM repositories** — upstream type `yum` (also `rpm`), registry <https://dl.fedoraproject.org/pub/fedora/linux>. Tier **(b) complete index to poll and diff**. Implementation: not started (index-polling adapter planned in Task 191).
+**Fedora and RHEL-family YUM repositories** — upstream type `yum` (also `rpm`), registry <https://dl.fedoraproject.org/pub/fedora/linux>. Tier **(b) complete index to poll and diff**. Implementation: implemented (Task 191: polls `repodata/repomd.xml` conditionally and, when its primary changed, streams the primary (zstd, gzip or xz; size and checksums verified) into a stored copy it diffs; versions (`[epoch:]version-release`, rpm order) and files from the primary itself. One upstream is one repository root; feed option `url` names another mirror of it.).
 
 **Feeds**
 
@@ -1533,7 +1668,7 @@ full-mirror engine and its feed adapters land.
 
 **Notes**
 
-- This proxy's yum backend decodes only gzip-compressed primaries (`internal/backends/yum/primary.go`). Against current Fedora repodata (`.zst`/`.zck` only) it records no package digests and serves RPMs unverified (counted by `pullthrough_yum_checksum_missing_total`, without an `X-Checksum-Verified` header); a follower — and that backend — needs a zstd decoder.
+- Until Task 191 this proxy's yum backend decoded only gzip-compressed primaries, so against current Fedora repodata (`.zst`/`.zck` only) it recorded no package digests and served RPMs unverified. It now decodes gzip, xz and zstd primaries and reads them as a stream, one package at a time (`internal/backends/yum/stream.go`); zchunk is not decoded, and `repomd.xml` lists a `.zst` (or `.gz`) primary beside it. It records a primary's digests only once it has verified the primary against `repomd.xml` (whose signature it checks when a keyring is configured) and parsed it whole; populations run one at a time, and none while `repomd.xml` still names the primary loaded.
 
 **Sources.** [Fedora infrastructure: mirroring](https://fedoraproject.org/wiki/Infrastructure/Mirroring) · [Fedora infrastructure: mirror tiering](https://fedoraproject.org/wiki/Infrastructure/Mirroring/Tiering) · [dl.fedoraproject.org directory sizes](https://dl.fedoraproject.org/pub/DIRECTORY_SIZES.txt)
 

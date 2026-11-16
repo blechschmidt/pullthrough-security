@@ -1,0 +1,12 @@
+[
+  {
+    "version": "2.10.0",
+    "published": "2026-10-26T14:35:21Z",
+    "artifacts": [
+      {
+        "path": "/win-arm64/micromamba-2.10.0-0.tar.bz2",
+        "size": 4811918
+      }
+    ]
+  }
+]

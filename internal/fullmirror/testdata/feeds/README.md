@@ -6,7 +6,21 @@ entries, keeping each format exactly as served: npm's replication feed and packu
 XML-RPC changelog and simple pages, the Go module index, the NuGet catalog, RubyGems' compact
 index, Packagist's change log and metadata, Hackage's index tail, CPAN's RECENT files and
 CHECKSUMS, the Julia General registry, the Bazel Central Registry's metadata, ConanCenter's
-revision API and Homebrew's formula JSON.
+revision API and Homebrew's formula JSON (Task 190); and Debian's and Ubuntu's `InRelease` and
+`Packages`, Fedora's, Rocky's and EPEL's `repomd.xml` and primaries, Helm repository indexes
+(prometheus-community, Bitnami, JFrog), conda-forge repodata, CRAN's `PACKAGES`, Hex's signed
+`/names`, `/versions` and `/packages/<name>`, Homebrew's formula index, Open VSX's sitemap, search
+listing and extension documents, Maven Indexer indexes and properties of Clojars, Jenkins and
+Apache (never Maven Central's), JSR's package list and metadata, the Hugging Face Hub's listings
+and revision metadata, Puppet Forge's release listings and module documents, Galaxy's
+collection-version search, collection index and version lists, and pub.dev's Atom feed, package
+listing, name list and package documents (Task 191).
+
+A few fixtures could not be kept byte for byte, and say so in their tests: Hex's `/names` and
+`/versions` trimmed to a few packages no longer carry hex.pm's signature (the tests sign them with
+a generated key; `hex/packages-aatree` keeps the real one), primaries and `Packages` files are
+compressed when a test runs (the hashes in `repomd.xml` and `InRelease` are rewritten to match), and
+e-mail addresses of maintainers and authors are replaced with example addresses.
 
 Where a document reaches an adapter through the proxy's gated pipeline (`Env.Read`), the
 fixture carries the rewrite the backend applies for clients: its download URLs point into the

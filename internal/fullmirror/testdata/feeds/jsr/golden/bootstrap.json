@@ -1,0 +1,58 @@
+[
+  {
+    "items": [
+      {
+        "name": "@0lib/0lib"
+      },
+      {
+        "name": "@fusionstrings/1729"
+      }
+    ],
+    "next": {
+      "format": "jsr/1",
+      "snap": "3a2a640cda47943521fe60a4405e9fa78f4971df7dbf72bacf1b5d7f2a0b67ae",
+      "listing": true,
+      "after": "@fusionstrings/1729",
+      "listed": 2,
+      "headTime": "0001-01-01T00:00:00Z"
+    },
+    "more": true,
+    "lag": 3,
+    "lagKnown": true
+  },
+  {
+    "items": [
+      {
+        "name": "@luca/flag"
+      },
+      {
+        "name": "@std/fmt"
+      }
+    ],
+    "next": {
+      "format": "jsr/1",
+      "snap": "3a2a640cda47943521fe60a4405e9fa78f4971df7dbf72bacf1b5d7f2a0b67ae",
+      "listing": true,
+      "after": "@std/fmt",
+      "listed": 4,
+      "headTime": "0001-01-01T00:00:00Z"
+    },
+    "more": true,
+    "lag": 1,
+    "lagKnown": true
+  },
+  {
+    "items": [
+      {
+        "name": "@std/path"
+      }
+    ],
+    "next": {
+      "format": "jsr/1",
+      "snap": "3a2a640cda47943521fe60a4405e9fa78f4971df7dbf72bacf1b5d7f2a0b67ae",
+      "headTime": "0001-01-01T00:00:00Z"
+    },
+    "more": false,
+    "lagKnown": true
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "items": [
+    {
+      "name": "curl",
+      "version": "8.14.1-2+deb13u6"
+    },
+    {
+      "name": "curl",
+      "version": "8.14.1-2+deb13u5",
+      "deleted": true
+    },
+    {
+      "name": "curl-doc"
+    },
+    {
+      "name": "vim",
+      "deleted": true
+    }
+  ],
+  "next": {
+    "format": "apt/1",
+    "snap": "e9e4ebd433d830b232a5831c48322e2d013f671983ae82df318f30f708e8aada",
+    "state": {
+      "config": "2c5ba90720db5e9e",
+      "suites": [
+        {
+          "suite": "trixie",
+          "file": "InRelease",
+          "validators": {
+            "etag": "\"r3\"",
+            "lastModified": "Sat, 12 Sep 2026 07:59:10 GMT"
+          },
+          "date": 1794816000,
+          "parts": {
+            "main/binary-amd64": "3dc28b19d52637d198e2daad1a7e587d5bbf52d6e42851fc607d6efd070d6c89"
+          }
+        }
+      ]
+    },
+    "head": "2026-11-16T08:00:00Z",
+    "headTime": "2026-11-16T08:00:00Z"
+  },
+  "more": false,
+  "head": "2026-11-16T08:00:00Z",
+  "lagKnown": true,
+  "headTime": "2026-11-16T08:00:00Z"
+}

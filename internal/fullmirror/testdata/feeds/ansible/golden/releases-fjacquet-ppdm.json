@@ -1,0 +1,29 @@
+[
+  {
+    "version": "0.1.0",
+    "published": "2026-11-15T16:41:40.403131Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/fjacquet-ppdm-0.1.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "published": "2026-11-15T17:29:39.913588Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/fjacquet-ppdm-0.2.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "0.3.0",
+    "published": "2026-11-15T21:46:34.317889Z",
+    "artifacts": [
+      {
+        "path": "/api/v3/plugin/ansible/content/published/collections/artifacts/fjacquet-ppdm-0.3.0.tar.gz"
+      }
+    ]
+  }
+]

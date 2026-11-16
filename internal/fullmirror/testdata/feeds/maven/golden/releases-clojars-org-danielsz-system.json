@@ -1,0 +1,15 @@
+[
+  {
+    "version": "0.5.8",
+    "published": "2026-10-16T17:21:36Z",
+    "artifacts": [
+      {
+        "path": "/org/danielsz/system/0.5.8/system-0.5.8.jar",
+        "size": 31975
+      },
+      {
+        "path": "/org/danielsz/system/0.5.8/system-0.5.8.pom"
+      }
+    ]
+  }
+]

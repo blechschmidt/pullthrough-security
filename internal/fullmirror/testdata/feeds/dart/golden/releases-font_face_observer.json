@@ -1,0 +1,155 @@
+[
+  {
+    "version": "2.0.4",
+    "published": "2017-12-06T19:59:19.419489Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.4.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.5",
+    "published": "2017-12-06T22:29:36.43985Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.5.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.6",
+    "published": "2017-12-06T23:55:02.148503Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.6.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.7",
+    "published": "2018-02-19T15:56:20.11741Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.7.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.8",
+    "published": "2018-02-28T21:48:43.614814Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.8.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.9",
+    "published": "2018-08-01T14:34:53.870968Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.9.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.10",
+    "published": "2019-10-03T14:54:49.066183Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.10.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.11",
+    "published": "2020-02-03T17:36:19.967184Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.11.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.12",
+    "published": "2020-02-03T17:36:56.991945Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.12.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "2.0.13",
+    "published": "2020-02-03T18:10:14.144769Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-2.0.13.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.0.0",
+    "published": "2021-05-14T20:20:50.160758Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.0.0.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.1.1",
+    "published": "2021-10-07T16:00:19.140116Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.1.1.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.1.2",
+    "published": "2021-12-20T22:47:49.345663Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.1.2.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.1.6",
+    "published": "2023-09-27T19:55:51.132881Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.1.6.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.1.9",
+    "published": "2024-12-07T00:15:55.155201Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.1.9.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.1.11",
+    "published": "2026-03-11T18:34:29.214161Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.1.11.tar.gz"
+      }
+    ]
+  },
+  {
+    "version": "3.1.12",
+    "published": "2026-11-16T03:45:24.306289Z",
+    "artifacts": [
+      {
+        "path": "/api/archives/font_face_observer-3.1.12.tar.gz"
+      }
+    ]
+  }
+]

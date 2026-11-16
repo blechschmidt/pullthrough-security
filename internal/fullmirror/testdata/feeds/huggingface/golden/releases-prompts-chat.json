@@ -1,0 +1,17 @@
+[
+  {
+    "version": "5137e6dc22bf915a19f1c013149da8f07c978e2e",
+    "published": "2026-11-16T03:14:26Z",
+    "artifacts": [
+      {
+        "path": "/datasets/fka/prompts.chat/resolve/5137e6dc22bf915a19f1c013149da8f07c978e2e/.gitattributes"
+      },
+      {
+        "path": "/datasets/fka/prompts.chat/resolve/5137e6dc22bf915a19f1c013149da8f07c978e2e/README.md"
+      },
+      {
+        "path": "/datasets/fka/prompts.chat/resolve/5137e6dc22bf915a19f1c013149da8f07c978e2e/prompts.csv"
+      }
+    ]
+  }
+]

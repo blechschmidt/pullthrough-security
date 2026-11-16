@@ -17,12 +17,13 @@
 // Security model: an RPM repository is a checksum chain rooted at the (optionally
 // GPG-signed) repomd.xml — repomd.xml publishes each metadata file's digest, and
 // primary.xml publishes each .rpm's digest. The backend records the
-// (rpm-path -> checksum) pairs from every primary.xml it parses and verifies a
-// fetched .rpm against the recorded digest as the bytes stream through; a mismatch
-// aborts the cache write and the response. When a trusted GPG keyring is
-// configured for the upstream, repomd.xml's signature is validated at the
-// client-facing boundary. This mirrors the checksum verification the Maven and
-// Helm backends perform.
+// (rpm-path -> checksum) pairs of every primary.xml it parses whole after
+// verifying it against repomd.xml (itself signature-checked when a keyring is
+// configured), and verifies a fetched .rpm against the recorded digest as the
+// bytes stream through; a mismatch aborts the cache write and the response.
+// When a trusted GPG keyring is configured for the upstream, repomd.xml's
+// signature is validated at the client-facing boundary too. This mirrors the
+// checksum verification the Maven and Helm backends perform.
 //
 // Client configuration points the .repo file's baseurl at "<publicBase>/v1/<name>"
 // (see docs/clients.md).
@@ -37,6 +38,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
@@ -102,6 +104,18 @@ type Backend struct {
 	metrics *Metrics
 	keyring *keyring
 	digests *digestStore
+
+	// populating admits one population of the digest store from the
+	// repository at a time (populateFromRepo): the misses that arrive while
+	// one runs wait for it, and then find the store loaded.
+	populating chan struct{}
+	// loadedMu guards loaded and loadedProbe: the primary whose digests were
+	// recorded last (its location and the checksum repomd.xml declared for
+	// it), and one path it lists — which the store holds as long as it holds
+	// that primary's digests (it is cleared wholesale when full).
+	loadedMu    sync.Mutex
+	loaded      string
+	loadedProbe string
 }
 
 var _ backends.Backend = (*Backend)(nil)
@@ -133,13 +147,14 @@ func New(opts Options) (*Backend, error) {
 		m = &Metrics{}
 	}
 	return &Backend{
-		name:    opts.Name,
-		base:    base,
-		client:  opts.Client,
-		creds:   opts.Credentials,
-		metrics: m,
-		keyring: kr,
-		digests: newDigestStore(opts.DigestStoreMax),
+		name:       opts.Name,
+		base:       base,
+		client:     opts.Client,
+		creds:      opts.Credentials,
+		metrics:    m,
+		keyring:    kr,
+		digests:    newDigestStore(opts.DigestStoreMax),
+		populating: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -241,17 +256,12 @@ func (b *Backend) fetchPassthrough(ctx context.Context, resolved *backends.Resol
 }
 
 // fetchRPM fetches a package and verifies it against the digest recorded from a
-// previously parsed primary.xml. On a cold cache (no primary parsed yet) it
-// performs a single on-demand population via repomd -> primary before giving up
-// and serving unverified (fail-open, observable via metrics).
+// previously parsed primary.xml. When the store holds none for it (a cold
+// cache, a package newer than the primary last parsed), and the upstream has
+// the package, it populates the store from the repository's own primary —
+// verified against repomd.xml — before giving up and serving unverified
+// (fail-open, observable via metrics).
 func (b *Backend) fetchRPM(ctx context.Context, resolved *backends.Resolved) (*backends.FetchResult, error) {
-	rpmPath := resolved.Metadata[metaRpmPath]
-	expected, ok := b.digests.get(rpmPath)
-	if !ok {
-		b.populateFromRepo(ctx)
-		expected, ok = b.digests.get(rpmPath)
-	}
-
 	resp, err := b.do(ctx, resolved.UpstreamURL, resolved.IfNoneMatch)
 	if err != nil {
 		return nil, err
@@ -261,6 +271,12 @@ func (b *Backend) fetchRPM(ctx context.Context, resolved *backends.Resolved) (*b
 	}
 	if !resp.IsSuccess() {
 		return nil, b.statusError(resp, resolved.UpstreamURL)
+	}
+	rpmPath := resolved.Metadata[metaRpmPath]
+	expected, ok := b.digests.get(rpmPath)
+	if !ok {
+		b.populateFromRepo(ctx)
+		expected, ok = b.digests.get(rpmPath)
 	}
 
 	header := upstreamHeader(resp)
@@ -330,6 +346,8 @@ func (b *Backend) fetchRepodata(ctx context.Context, resolved *backends.Resolved
 	repodataPath := resolved.Metadata[metaRepodataPath]
 
 	// Verify the file against repomd.xml when its digest is recoverable.
+	var declared RepoData
+	verified := false
 	if rm, ok := b.repomd(ctx); ok {
 		if d, ok := rm.FindByLocation(repodataPath); ok && d.HasSum {
 			if verr := verifyBytes(data, d.Checksum, resolved.UpstreamURL); verr != nil {
@@ -337,12 +355,15 @@ func (b *Backend) fetchRepodata(ctx context.Context, resolved *backends.Resolved
 				return nil, verr
 			}
 			b.metrics.incRepodataVerified()
+			declared, verified = d, true
 		}
 	}
 
-	// Parse primary.xml to record per-.rpm digests.
-	if isPrimary(repodataPath) {
-		b.populateFromPrimaryBytes(repodataPath, data)
+	// Parse primary.xml to record per-.rpm digests — only a primary repomd.xml
+	// declares, and this file verified against it: an unverified one records
+	// nothing (its .rpm fetches populate the store themselves).
+	if verified && isPrimary(repodataPath) {
+		b.populatePrimary(primaryKey(declared), repodataPath, data)
 	}
 
 	return &backends.FetchResult{
@@ -414,7 +435,12 @@ func (b *Backend) fetchRepomd(ctx context.Context, resolved *backends.Resolved) 
 // verifyRepomdSignature fetches the detached repomd.xml.asc and validates it over
 // the repomd.xml bytes against the configured keyring.
 func (b *Backend) verifyRepomdSignature(ctx context.Context, resolved *backends.Resolved, repomdData []byte) error {
-	sigURL := resolved.UpstreamURL + ".asc"
+	return b.checkRepomdSignature(ctx, resolved.UpstreamURL+".asc", repomdData)
+}
+
+// checkRepomdSignature fetches a detached signature from sigURL and validates
+// it over the repomd.xml bytes against the configured keyring.
+func (b *Backend) checkRepomdSignature(ctx context.Context, sigURL string, repomdData []byte) error {
 	resp, err := b.do(ctx, sigURL, "")
 	if err != nil {
 		return fmt.Errorf("yum %q: fetching repomd.xml.asc: %w", b.name, err)
@@ -432,7 +458,9 @@ func (b *Backend) verifyRepomdSignature(ctx context.Context, resolved *backends.
 }
 
 // repomd fetches and parses repomd.xml from the repository root for internal
-// verification lookups.
+// verification lookups. When a keyring is configured the document must carry a
+// valid signature (repomd.xml.asc), as it must for a client: the digests the
+// backend takes from the chain below it are no better anchored than it is.
 func (b *Backend) repomd(ctx context.Context) (*RepoMD, bool) {
 	u := b.joinPath("/" + repomdPath).String()
 	resp, err := b.do(ctx, u, "")
@@ -448,6 +476,11 @@ func (b *Backend) repomd(ctx context.Context) (*RepoMD, bool) {
 	if rerr != nil || int64(len(data)) > maxRepomdFetchBytes {
 		return nil, false
 	}
+	if b.keyring.enabled() {
+		if err := b.checkRepomdSignature(ctx, u+".asc", data); err != nil {
+			return nil, false
+		}
+	}
 	rm, perr := ParseRepoMD(data)
 	if perr != nil {
 		return nil, false
@@ -456,18 +489,33 @@ func (b *Backend) repomd(ctx context.Context) (*RepoMD, bool) {
 }
 
 // populateFromRepo performs an on-demand population of the digest store by
-// fetching repomd.xml, locating primary.xml, and parsing it. Used to verify an
-// .rpm requested before its primary.xml was proxied through the backend.
+// fetching repomd.xml, locating primary.xml, verifying it against the checksum
+// repomd.xml declares for it, and parsing it. Used to verify an .rpm requested
+// before its primary.xml was proxied through the backend. One population runs
+// at a time; it reads nothing more than repomd.xml when the store holds the
+// digests of the primary repomd.xml names already (the .rpm is not in it). A
+// primary repomd.xml declares no checksum for, or whose bytes do not match it,
+// records nothing.
 func (b *Backend) populateFromRepo(ctx context.Context) {
+	select {
+	case b.populating <- struct{}{}:
+		defer func() { <-b.populating }()
+	case <-ctx.Done():
+		return
+	}
 	rm, ok := b.repomd(ctx)
 	if !ok {
 		return
 	}
-	loc, ok := rm.PrimaryLocation()
-	if !ok {
+	d, ok := primaryData(rm)
+	if !ok || !d.HasSum {
 		return
 	}
-	u := b.joinPath("/" + loc).String()
+	key := primaryKey(d)
+	if b.holdsPrimary(key) {
+		return
+	}
+	u := b.joinPath("/" + d.Location).String()
 	resp, err := b.do(ctx, u, "")
 	if err != nil {
 		return
@@ -481,32 +529,125 @@ func (b *Backend) populateFromRepo(ctx context.Context) {
 	if rerr != nil || int64(len(data)) > maxPrimaryFetchBytes {
 		return
 	}
-	b.populateFromPrimaryBytes(loc, data)
+	if verifyBytes(data, d.Checksum, u) != nil {
+		b.metrics.incRepodataMismatch()
+		return
+	}
+	b.populatePrimary(key, d.Location, data)
 }
 
-// populateFromPrimaryBytes decompresses and parses a primary.xml and records
-// every (rpm-path -> checksum) it declares into the digest store.
-func (b *Backend) populateFromPrimaryBytes(location string, data []byte) {
+// primaryData returns repomd.xml's primary entry.
+func primaryData(rm *RepoMD) (RepoData, bool) {
+	for _, d := range rm.Data {
+		if d.Type == "primary" {
+			return d, true
+		}
+	}
+	return RepoData{}, false
+}
+
+// primaryKey names a primary: its location and the checksum repomd.xml
+// declares for it.
+func primaryKey(d RepoData) string {
+	return d.Location + "\x00" + d.Checksum.alg.name + ":" + d.Checksum.hex
+}
+
+// holdsPrimary reports whether the store holds the digests of the primary key
+// names: they were recorded last, and the store has not been cleared since.
+func (b *Backend) holdsPrimary(key string) bool {
+	b.loadedMu.Lock()
+	loaded, probe := b.loaded, b.loadedProbe
+	b.loadedMu.Unlock()
+	if key == "" || key != loaded {
+		return false
+	}
+	if probe == "" {
+		return true // a primary without a package
+	}
+	_, ok := b.digests.get(probe)
+	return ok
+}
+
+// populateFromPrimaryBytes records the digests a primary.xml declares (see
+// populatePrimary), for a primary repomd.xml was not consulted about.
+func (b *Backend) populateFromPrimaryBytes(location string, data []byte) bool {
+	return b.populatePrimary("", location, data)
+}
+
+// errTooManyDigests marks a primary declaring more packages than the digest
+// store holds.
+var errTooManyDigests = errors.New("yum: primary.xml declares more packages than the digest store holds (raise DigestStoreMax)")
+
+// populatePrimary decompresses and parses a primary.xml as a stream — gzip,
+// xz or zstd, one package at a time (see OpenPrimary and StreamPrimary) — and
+// records every (rpm-path -> checksum) it declares into the digest store: all
+// of them once the whole document parsed, or none (a document that breaks
+// off, or fails its decompressor's check at the end, is not the repository's
+// declaration). key names the primary (primaryKey; "" when unknown), so that a
+// later population can tell it is loaded. It reports whether it recorded.
+func (b *Backend) populatePrimary(key, location string, data []byte) bool {
 	filename := location
 	if i := strings.LastIndexByte(location, '/'); i >= 0 {
 		filename = location[i+1:]
 	}
-	plain, derr := decompressPrimary(filename, data)
+	r, release, derr := OpenPrimary(bytes.NewReader(data), filename, maxPrimaryBytes)
 	if derr != nil {
 		if !errors.Is(derr, errUnsupportedCompression) {
 			b.metrics.incPrimaryErrors()
 		}
-		return
+		return false
 	}
-	entries, perr := ParsePrimary(plain)
+	defer release()
+	staged := map[string]expectedChecksum{}
+	probe := ""
+	perr := StreamPrimary(r, func(e PrimaryEntry) error {
+		href := strings.TrimLeft(e.Location, "/")
+		if href == "" || strings.Contains(href, "..") {
+			return nil
+		}
+		c, ok := parseChecksum(e.ChecksumType, e.Checksum)
+		if !ok {
+			return nil
+		}
+		if _, dup := staged[href]; !dup && len(staged) >= b.digests.max {
+			return errTooManyDigests
+		}
+		if probe == "" {
+			probe = href
+		}
+		staged[href] = c
+		return nil
+	})
 	if perr != nil {
 		b.metrics.incPrimaryErrors()
-		return
+		return false
 	}
-	for _, e := range entries {
-		b.digests.put(e.Location, e.Checksum)
-	}
+	b.digests.putAll(staged)
+	b.loadedMu.Lock()
+	b.loaded, b.loadedProbe = key, probe
+	b.loadedMu.Unlock()
 	b.metrics.incPrimaryParsed()
+	return true
+}
+
+// putAll records a primary's digests at once. When they do not fit beside the
+// ones the store holds, the store starts over with them alone (as put does
+// when it is full), so that it holds every digest of the primary or none.
+func (s *digestStore) putAll(entries map[string]expectedChecksum) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	added := 0
+	for k := range entries {
+		if _, ok := s.entries[k]; !ok {
+			added++
+		}
+	}
+	if len(s.entries)+added > s.max {
+		s.entries = make(map[string]expectedChecksum, len(entries))
+	}
+	for k, c := range entries {
+		s.entries[k] = c
+	}
 }
 
 // isPrimary reports whether a repodata path is a primary.xml metadata file.

@@ -1,0 +1,137 @@
+{
+  "de.peass:peass-ci": [
+    {
+      "version": "2.3.5-SNAPSHOT-1220.v8e358d8be5c9",
+      "published": "2023-01-17T10:57:25Z",
+      "artifacts": [
+        {
+          "path": "/de/peass/peass-ci/2.3.5-SNAPSHOT-1220.v8e358d8be5c9/peass-ci-2.3.5-SNAPSHOT-1220.v8e358d8be5c9-javadoc.jar",
+          "size": 918411
+        },
+        {
+          "path": "/de/peass/peass-ci/2.3.5-SNAPSHOT-1220.v8e358d8be5c9/peass-ci-2.3.5-SNAPSHOT-1220.v8e358d8be5c9-sources.jar",
+          "size": 161838
+        },
+        {
+          "path": "/de/peass/peass-ci/2.3.5-SNAPSHOT-1220.v8e358d8be5c9/peass-ci-2.3.5-SNAPSHOT-1220.v8e358d8be5c9.hpi",
+          "size": 36767890
+        },
+        {
+          "path": "/de/peass/peass-ci/2.3.5-SNAPSHOT-1220.v8e358d8be5c9/peass-ci-2.3.5-SNAPSHOT-1220.v8e358d8be5c9.jar",
+          "size": 268110
+        },
+        {
+          "path": "/de/peass/peass-ci/2.3.5-SNAPSHOT-1220.v8e358d8be5c9/peass-ci-2.3.5-SNAPSHOT-1220.v8e358d8be5c9.pom"
+        }
+      ]
+    }
+  ],
+  "listed": [
+    {
+      "version": "de.peass:peass-ci org.jenkins-ci.plugins:kotlin-plugin org.jenkins-ci.plugins:nodelabelparameter org.jenkins-ci.tools:maven-jenkins-dev-plugin org.jvnet.hudson.main:hudson-war",
+      "artifacts": null
+    }
+  ],
+  "org.jenkins-ci.plugins:kotlin-plugin": [
+    {
+      "version": "1.1",
+      "published": "2019-01-21T13:29:41Z",
+      "artifacts": [
+        {
+          "path": "/org/jenkins-ci/plugins/kotlin-plugin/1.1/kotlin-plugin-1.1.pom",
+          "size": 6049
+        }
+      ]
+    }
+  ],
+  "org.jenkins-ci.plugins:nodelabelparameter": [
+    {
+      "version": "1.11.0",
+      "published": "2022-06-21T21:44:05Z",
+      "artifacts": [
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.11.0/nodelabelparameter-1.11.0-javadoc.jar",
+          "size": 603345
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.11.0/nodelabelparameter-1.11.0-sources.jar",
+          "size": 57004
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.11.0/nodelabelparameter-1.11.0.hpi",
+          "size": 69622
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.11.0/nodelabelparameter-1.11.0.jar",
+          "size": 91299
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.11.0/nodelabelparameter-1.11.0.pom"
+        }
+      ]
+    },
+    {
+      "version": "1.12.0",
+      "published": "2023-06-03T04:07:28Z",
+      "artifacts": [
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.12.0/nodelabelparameter-1.12.0-javadoc.jar",
+          "size": 492337
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.12.0/nodelabelparameter-1.12.0-sources.jar",
+          "size": 56818
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.12.0/nodelabelparameter-1.12.0.hpi",
+          "size": 69931
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.12.0/nodelabelparameter-1.12.0.jar",
+          "size": 91567
+        },
+        {
+          "path": "/org/jenkins-ci/plugins/nodelabelparameter/1.12.0/nodelabelparameter-1.12.0.pom"
+        }
+      ]
+    }
+  ],
+  "org.jenkins-ci.tools:maven-jenkins-dev-plugin": [
+    {
+      "version": "9.4.6.v20170502-jenkins-1",
+      "published": "2017-05-09T00:56:14Z",
+      "artifacts": [
+        {
+          "path": "/org/jenkins-ci/tools/maven-jenkins-dev-plugin/9.4.6.v20170502-jenkins-1/maven-jenkins-dev-plugin-9.4.6.v20170502-jenkins-1.jar",
+          "size": 105327
+        },
+        {
+          "path": "/org/jenkins-ci/tools/maven-jenkins-dev-plugin/9.4.6.v20170502-jenkins-1/maven-jenkins-dev-plugin-9.4.6.v20170502-jenkins-1.pom"
+        }
+      ]
+    }
+  ],
+  "org.jvnet.hudson.main:hudson-war": [
+    {
+      "version": "1.395",
+      "published": "2011-01-22T07:26:26Z",
+      "artifacts": [
+        {
+          "path": "/org/jvnet/hudson/main/hudson-war/1.395/hudson-war-1.395-javadoc.jar",
+          "size": 336
+        },
+        {
+          "path": "/org/jvnet/hudson/main/hudson-war/1.395/hudson-war-1.395-war-for-test.jar",
+          "size": 36655613
+        },
+        {
+          "path": "/org/jvnet/hudson/main/hudson-war/1.395/hudson-war-1.395.pom"
+        },
+        {
+          "path": "/org/jvnet/hudson/main/hudson-war/1.395/hudson-war-1.395.war",
+          "size": 36655613
+        }
+      ]
+    }
+  ]
+}

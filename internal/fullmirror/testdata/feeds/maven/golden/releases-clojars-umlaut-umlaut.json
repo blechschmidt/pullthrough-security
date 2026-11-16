@@ -1,0 +1,14 @@
+[
+  {
+    "version": "0.6.2",
+    "published": "2018-10-09T08:27:29Z",
+    "artifacts": [
+      {
+        "path": "/umlaut/umlaut/0.6.2/umlaut-0.6.2.jar"
+      },
+      {
+        "path": "/umlaut/umlaut/0.6.2/umlaut-0.6.2.pom"
+      }
+    ]
+  }
+]

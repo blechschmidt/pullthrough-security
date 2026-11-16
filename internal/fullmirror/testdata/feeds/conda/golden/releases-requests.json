@@ -1,0 +1,56 @@
+[
+  {
+    "version": "2.28.0",
+    "published": "2022-06-26T11:34:53Z",
+    "artifacts": [
+      {
+        "path": "/noarch/requests-2.28.0-pyhd8ed1ab_1.tar.bz2",
+        "size": 54391
+      }
+    ]
+  },
+  {
+    "version": "2.28.1",
+    "published": "2022-06-29T20:22:36Z",
+    "artifacts": [
+      {
+        "path": "/noarch/requests-2.28.1-pyhd8ed1ab_0.tar.bz2",
+        "size": 54464
+      },
+      {
+        "path": "/noarch/requests-2.28.1-pyhd8ed1ab_1.tar.bz2",
+        "size": 54568
+      }
+    ]
+  },
+  {
+    "version": "2.34.0",
+    "published": "2026-05-11T21:13:56Z",
+    "artifacts": [
+      {
+        "path": "/noarch/requests-2.34.0-pyhcf101f3_0.conda",
+        "size": 68658
+      }
+    ]
+  },
+  {
+    "version": "2.34.1",
+    "published": "2026-05-13T22:54:42Z",
+    "artifacts": [
+      {
+        "path": "/noarch/requests-2.34.1-pyhcf101f3_0.conda",
+        "size": 68706
+      }
+    ]
+  },
+  {
+    "version": "2.34.2",
+    "published": "2026-05-15T13:18:23Z",
+    "artifacts": [
+      {
+        "path": "/noarch/requests-2.34.2-pyhcf101f3_0.conda",
+        "size": 68709
+      }
+    ]
+  }
+]

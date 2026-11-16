@@ -319,3 +319,55 @@ func TestSnapReleases(t *testing.T) {
 		t.Errorf("snapReleases = %+v", rels)
 	}
 }
+
+// The engine follows an index adapter end to end: the Bootstrap's packages are
+// fetched through the gateway, then — after a restart, from the stored cursor
+// and copy — only the files a new copy of the index adds.
+func TestIndexFeedThroughTheEngine(t *testing.T) {
+	src := newFakeIndex()
+	src.set("a", pkgs("alpha@1", "beta@1")...)
+	src.set("b", pkgs("gamma@1")...)
+	feedDir, stateDir := t.TempDir(), t.TempDir()
+	fetcher := newFakeFetcher()
+	s := testSettings("idx")
+	run := func() {
+		t.Helper()
+		f := newIndexFeed("test", Env{Dir: feedDir}, src)
+		e, err := New(Options{
+			Dir: stateDir, Upstreams: []Upstream{{Settings: s, Feed: testIndexFeed{f}}}, Logger: discardLogger(),
+			MaxAttempts: 2, BaseBackoff: time.Millisecond, MaxBackoff: time.Millisecond, MaxRounds: 2,
+			RoundBackoff: time.Millisecond, PollBackoff: time.Millisecond, ControlRefresh: time.Millisecond,
+			PersistInterval: time.Millisecond, StandbyInterval: time.Millisecond,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer e.Close()
+		e.Attach(fetcher)
+		fl := e.followers[0]
+		for i := 0; i < 20; i++ {
+			wait := fl.safeStep(context.Background())
+			if wait > time.Second {
+				break
+			}
+			time.Sleep(wait)
+		}
+	}
+	run()
+	for _, p := range []string{"/f/alpha-1", "/f/beta-1", "/f/gamma-1"} {
+		if n := fetcher.fetchCount(p); n != 1 {
+			t.Errorf("%s fetched %d times after the Bootstrap, want 1", p, n)
+		}
+	}
+	src.set("a", pkgs("alpha@1", "alpha@2", "beta@1")...)
+	run()
+	if n := fetcher.fetchCount("/f/alpha-2"); n != 1 {
+		t.Errorf("the new version was fetched %d times, want 1", n)
+	}
+	if n := fetcher.totalFetches(); n != 4 {
+		t.Errorf("%d fetches in all, want 4 (nothing fetched twice)", n)
+	}
+	if src.reads != 2 {
+		t.Errorf("the index was read %d times, want 2", src.reads)
+	}
+}
