@@ -48,35 +48,37 @@ func (noFeed) Releases(context.Context, string) ([]fullmirror.Release, error) {
 	return nil, errors.New("no feed")
 }
 
-// Full mirroring is refused for a type no feed adapter follows (the tier-(b)
-// and (c) adapters follow in Task 191).
-func TestFullMirrorIsRefusedWithoutAnAdapter(t *testing.T) {
-	_, err := loadDownloadLogYAML(t, `
+// Full mirroring is refused, with a pointer to the page that says why, for
+// every type with no feed to follow: the tier-(d) registries and Terraform.
+func TestFullMirrorIsRefusedWithoutAFeed(t *testing.T) {
+	for typ, block := range map[string]string{
+		"docker":    `url: "https://registry-1.docker.io"`,
+		"terraform": `url: "https://registry.terraform.io"`,
+		"swift":     `url: "https://tuist.dev/api/registry/swift"`,
+		"nix":       `url: "https://cache.nixos.org"`,
+		"git":       `url: "https://github.com"`,
+		"generic": `url: "https://repo.example.com"
+    generic:
+      publicBaseURL: https://proxy.example.com/v1/u
+      routes:
+        - name: artifact
+          match: '^/dist/.+\.tar\.gz$'
+          cacheable: true`,
+	} {
+		_, err := loadDownloadLogYAML(t, `
 server:
   httpAddr: ":8080"
 cache: {backend: filesystem, dir: `+filepath.Join(t.TempDir(), "c")+`}
 upstreams:
-  cran:
-    type: cran
-    url: "https://cloud.r-project.org"
+  u:
+    type: `+typ+`
+    `+block+`
     fullMirror: {enabled: true, byteBudget: 1000000}
 `)
-	if err == nil || !strings.Contains(err.Error(), `upstream "cran": fullMirror.enabled: no feed adapter follows CRAN (R) yet (tier (b)`) {
-		t.Fatalf("enabled without an adapter: %v", err)
-	}
-	// A tier-(d) registry can never be followed.
-	doc := `
-server:
-  httpAddr: ":8080"
-cache: {backend: filesystem, dir: ` + filepath.Join(t.TempDir(), "c") + `}
-upstreams:
-  hub:
-    type: docker
-    url: "https://registry-1.docker.io"
-    fullMirror: {enabled: true, byteBudget: 1000000}
-`
-	if _, err := loadDownloadLogYAML(t, doc); err == nil || !strings.Contains(err.Error(), "Docker Hub cannot be followed: its tier is (d)") {
-		t.Errorf("tier (d): %v", err)
+		if err == nil || !strings.Contains(err.Error(), `upstream "u": fullMirror.enabled: `) ||
+			!strings.Contains(err.Error(), "cannot be followed") || !strings.Contains(err.Error(), "docs/full-mirroring.md#"+typ) {
+			t.Errorf("%s: %v, want a refusal pointing at docs/full-mirroring.md#%s", typ, err, typ)
+		}
 	}
 	// A disabled block is checked for syntax only.
 	cfg, err := loadFullMirrorYAML(t, `

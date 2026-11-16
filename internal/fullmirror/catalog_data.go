@@ -1209,7 +1209,7 @@ var catalog = []Entry{
 			{"Building the OpenTofu registry (2024-09-12)", "https://opentofu.org/blog/building-the-opentofu-registry/"},
 			{"opentofu/registry", "https://github.com/opentofu/registry"},
 		},
-		Status: ImplStatus{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotApplicable, "no feed adapter (Task 191): the listings name only each module's and provider's latest version, so a new version surfaces only in a full pass over both listings (about 330 requests) and a version list per changed entry, and provider binaries are GitHub release assets outside the registry; full mirroring is refused, and tracked repositories pin the providers their lock files name"},
 	},
 
 	// --- (d) no practical enumeration ---------------------------------------------------

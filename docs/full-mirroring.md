@@ -447,7 +447,7 @@ full-mirror engine and its feed adapters land.
 | [`puppet`](#puppet) | [forgeapi.puppet.com](https://forgeapi.puppet.com) | **(c)** paginated listings only | releases by date | page | 7,707 modules, 54,827 releases; about 3 GB (estimate) | not started (listing adapter planned in Task 191) |
 | [`rubygems`](#rubygems) | [rubygems.org](https://rubygems.org) | **(a)** incremental change feed | compact index `/versions` | byte offset | 198,697 gems; no byte total published | implemented (Task 190: follows the compact index `/versions` with Range requests from the end of a stored copy (If-None-Match, Repr-Digest checked); a digest mismatch, a torn tail or another `created_at` (the monthly rewrite) fetches the whole file and diffs it against the copy. Versions from `/info/<gem>` read through the proxy, platform gems as files of their version. Feed option `url` names another compact-index base.) |
 | [`swift`](#swift) | [tuist.dev/api/registry/swift](https://tuist.dev/api/registry/swift) | **(d)** no practical enumeration | Swift Package Index package list (partial) | commit | about 10,000 packages and 160,000 releases | not started (no registry-wide feed to follow) |
-| [`terraform`](#terraform) | [registry.terraform.io](https://registry.terraform.io) | **(c)** paginated listings only | module listing | page | 7,761 providers, 24,770 modules; provider binaries are on GitHub | not started (listing adapter planned in Task 191) |
+| [`terraform`](#terraform) | [registry.terraform.io](https://registry.terraform.io) | **(c)** paginated listings only | module listing | page | 7,761 providers, 24,770 modules; provider binaries are on GitHub | not applicable (no feed adapter (Task 191): the listings name only each module's and provider's latest version, so a new version surfaces only in a full pass over both listings (about 330 requests) and a version list per changed entry, and provider binaries are GitHub release assets outside the registry; full mirroring is refused, and tracked repositories pin the providers their lock files name) |
 | [`yum`](#yum) / `rpm` | [dl.fedoraproject.org/pub/fedora/linux](https://dl.fedoraproject.org/pub/fedora/linux) | **(b)** complete index to poll and diff | repomd.xml and primary | validator | 4.7 TB for all of Fedora Linux; one release's `Everything/x86_64` tree about 250 GB, plus 145 GB of its updates | not started (index-polling adapter planned in Task 191) |
 
 ## Types by tier
@@ -1458,7 +1458,7 @@ full-mirror engine and its feed adapters land.
 
 ### terraform
 
-**Terraform Registry (and the OpenTofu registry)** — upstream type `terraform`, registry <https://registry.terraform.io>. Tier **(c) paginated listings only**. Implementation: not started (listing adapter planned in Task 191).
+**Terraform Registry (and the OpenTofu registry)** — upstream type `terraform`, registry <https://registry.terraform.io>. Tier **(c) paginated listings only**. Implementation: not applicable (no feed adapter (Task 191): the listings name only each module's and provider's latest version, so a new version surfaces only in a full pass over both listings (about 330 requests) and a version list per changed entry, and provider binaries are GitHub release assets outside the registry; full mirroring is refused, and tracked repositories pin the providers their lock files name).
 
 **Feeds**
 

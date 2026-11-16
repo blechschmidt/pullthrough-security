@@ -1195,16 +1195,52 @@ func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("{}")), Request: r, Header: http.Header{}}, nil
 }
 
+// withoutAdapter removes the adapter registered for typ (if any) for the rest
+// of the test.
+func withoutAdapter(t *testing.T, typ string) {
+	t.Helper()
+	adaptersMu.Lock()
+	old, had := adapters[typ]
+	delete(adapters, typ)
+	adaptersMu.Unlock()
+	t.Cleanup(func() {
+		adaptersMu.Lock()
+		defer adaptersMu.Unlock()
+		if had {
+			adapters[typ] = old
+		}
+	})
+}
+
 func TestFollowableExplainsWhy(t *testing.T) {
+	withoutAdapter(t, "cran")
+	withoutAdapter(t, "apt")
 	for typ, want := range map[string]string{
-		"docker":  "Docker Hub cannot be followed: its tier is (d)",
-		"cran":    "no feed adapter follows CRAN (R) yet (tier (b)",
-		"deb":     "tier (b)",
-		"nothing": "knows no upstream type",
+		"docker":    "Docker Hub cannot be followed: its tier is (d), no practical enumeration (see docs/full-mirroring.md#docker)",
+		"terraform": "cannot be followed: no feed adapter",
+		"cran":      "no feed adapter follows CRAN (R) yet (tier (b)",
+		"deb":       "tier (b)",
+		"nothing":   "knows no upstream type",
 	} {
 		err := Followable(typ)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Followable(%q) = %v, want it to say %q", typ, err, want)
+		}
+	}
+}
+
+// Full mirroring is refused, pointing at the page that says why, for every
+// type with nothing to follow: the tier-(d) registries and those the catalog
+// marks not applicable.
+func TestFollowableRefusesTypesWithoutAFeed(t *testing.T) {
+	for _, typ := range []string{"docker", "terraform", "swift", "nix", "generic", "git"} {
+		err := Followable(typ)
+		if err == nil || !strings.Contains(err.Error(), "cannot be followed") || !strings.Contains(err.Error(), "docs/full-mirroring.md#"+typ) {
+			t.Errorf("Followable(%q) = %v, want a refusal pointing at docs/full-mirroring.md#%s", typ, err, typ)
+		}
+		e, _ := Lookup(typ)
+		if e.Tier != TierNone && e.Status.State != StateNotApplicable {
+			t.Errorf("%s is refused but neither tier (d) nor %q in the catalog", typ, StateNotApplicable)
 		}
 	}
 }
@@ -1226,6 +1262,7 @@ func TestEveryAdapterMatchesTheCatalogStatus(t *testing.T) {
 }
 
 func TestNewRefusesBadOptions(t *testing.T) {
+	withoutAdapter(t, "cran")
 	feed := newFakeFeed()
 	for name, opts := range map[string]Options{
 		"no dir":     {Upstreams: []Upstream{{Settings: testSettings("a"), Feed: feed}}},

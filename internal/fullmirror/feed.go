@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -291,6 +292,9 @@ func Followable(upstreamType string) error {
 	}
 	if e.Tier == TierNone {
 		return fmt.Errorf("%s cannot be followed: its tier is (%s), %s (see docs/full-mirroring.md#%s)", e.Title, e.Tier, e.Tier.Title(), e.Type)
+	}
+	if e.Status.State == StateNotApplicable {
+		return fmt.Errorf("%s cannot be followed: %s (see docs/full-mirroring.md#%s)", e.Title, strings.TrimSuffix(e.Status.Note, "."), e.Type)
 	}
 	adaptersMu.RLock()
 	_, ok = adapters[e.Type]
