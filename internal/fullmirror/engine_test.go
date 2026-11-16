@@ -1458,11 +1458,27 @@ func TestReservationsInFlightDoNotSpendTheBudget(t *testing.T) {
 	s := testSettings("npm")
 	s.Concurrency = 2
 	s.ByteBudget = 1000
+	// a must hold its reservation when b asks for its share: b's version
+	// list is answered only once a's fetch — after its reservation — has
+	// begun. (Left to the scheduler, b could go first, and then a correctly
+	// finds no room: the budget is spent with b's 600 bytes.)
+	aFetching := make(chan struct{})
+	var once sync.Once
 	fetcher.onFetch = func(path string, n int) error {
 		if path == tarball("a", "1.0.0") {
+			once.Do(func() { close(aFetching) })
 			time.Sleep(200 * time.Millisecond) // b asks for its share meanwhile
 		}
 		return nil
+	}
+	feed.relHook = func(name string) {
+		if name == "b" {
+			select {
+			case <-aFetching:
+			case <-time.After(10 * time.Second):
+				t.Errorf("a's fetch did not begin")
+			}
+		}
 	}
 	h := newHarness(t, t.TempDir(), feed, fetcher, s, nil)
 	h.steps(context.Background(), 5)
