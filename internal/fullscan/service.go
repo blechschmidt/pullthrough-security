@@ -501,7 +501,16 @@ func (s *Service) step(ctx context.Context) time.Duration {
 	s.applyRescans(ctx, ctl)
 	s.maybeSweep(ctx)
 	wait := s.work(ctx, ctl)
-	if err := s.persist(false); errors.Is(err, errFenced) {
+	// What this step changed is written before a wait longer than the
+	// persist interval, rather than at the step after it: the state file
+	// carries the figures the replicas that do not lead show
+	// (Status.Published), and a paused or blocked loop sleeps half a minute.
+	// (A paused leader that took in a follower's note within the persist
+	// interval of its last write left it unpublished that long; Task 194.)
+	s.mu.Lock()
+	force := s.dirty && wait > s.opts.PersistInterval
+	s.mu.Unlock()
+	if err := s.persist(force); errors.Is(err, errFenced) {
 		s.fence()
 		s.standby()
 		return s.opts.StandbyInterval
