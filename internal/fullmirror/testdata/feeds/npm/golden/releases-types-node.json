@@ -1,0 +1,26 @@
+[
+  {
+    "version": "20.14.9",
+    "artifacts": [
+      {
+        "path": "/@types/node/-/node-20.14.9.tgz"
+      }
+    ]
+  },
+  {
+    "version": "20.14.10",
+    "artifacts": [
+      {
+        "path": "/@types/node/-/node-20.14.10.tgz"
+      }
+    ]
+  },
+  {
+    "version": "22.0.0",
+    "artifacts": [
+      {
+        "path": "/@types/node/-/node-22.0.0.tgz"
+      }
+    ]
+  }
+]

@@ -71,7 +71,7 @@ var catalog = []Entry{
 			{"GitHub changelog: npm CouchDB upgrade will reset the sequence number (2021-09-08)", "https://github.blog/changelog/2021-09-08-npm-couchdb-upgrade-will-reset-sequence-number"},
 			{"npm Open-Source Terms", "https://docs.npmjs.com/policies/open-source-terms"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows `_changes` from the stored sequence (one beyond `update_seq` means a reset and a new enumeration) after listing `_all_docs`; versions from the packument read through the proxy. Feed option `url` names a CouchDB replica for a private registry."},
 	},
 	{
 		Type:     "pip",
@@ -189,7 +189,7 @@ var catalog = []Entry{
 			{"RFC 3463: crates.io policy update (data access, crawler rules)", "https://rust-lang.github.io/rfcs/3463-crates-io-policy-update.html"},
 			{"crates.io data access", "https://crates.io/data-access"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: diffs the trees of the Git index's head commits (a blob-less smart-HTTP fetch, unaffected by the weekly squash); versions from the sparse index read through the proxy. A private registry needs feed option `url`, its Git index."},
 	},
 	{
 		Type:     "go",

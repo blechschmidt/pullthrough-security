@@ -1,0 +1,156 @@
+[
+  {
+    "version": "0.1.0",
+    "published": "2015-07-08T01:11:24Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.0/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.1",
+    "published": "2017-06-08T16:18:35Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.1/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.2",
+    "published": "2017-07-05T14:50:25Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.2/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.3",
+    "published": "2018-05-03T13:50:58Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.3/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.4",
+    "published": "2018-06-27T15:54:57Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.4/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.5",
+    "published": "2018-08-13T02:04:53Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.5/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.6",
+    "published": "2018-10-20T02:28:41Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.6/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.7",
+    "published": "2019-03-04T21:18:17Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.7/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.8",
+    "published": "2019-05-15T00:43:20Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.8/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.9",
+    "published": "2019-05-15T00:43:43Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.9/download"
+      }
+    ]
+  },
+  {
+    "version": "0.1.10",
+    "published": "2019-09-24T15:27:21Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/0.1.10/download"
+      }
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "published": "2020-10-06T18:44:12Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/1.0.0/download"
+      }
+    ]
+  },
+  {
+    "version": "1.0.1",
+    "published": "2025-06-09T21:47:16Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/1.0.1/download"
+      }
+    ]
+  },
+  {
+    "version": "1.0.2",
+    "published": "2025-08-19T19:09:07Z",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/1.0.2/download"
+      }
+    ]
+  },
+  {
+    "version": "1.0.3",
+    "published": "2025-08-19T19:33:21Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/1.0.3/download"
+      }
+    ]
+  },
+  {
+    "version": "1.0.4",
+    "published": "2025-10-15T08:12:46Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/1.0.4/download"
+      }
+    ]
+  },
+  {
+    "version": "1.0.5",
+    "published": "2026-09-16T17:36:11Z",
+    "artifacts": [
+      {
+        "path": "/api/v1/crates/cfg-if/1.0.5/download"
+      }
+    ]
+  }
+]

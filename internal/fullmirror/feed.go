@@ -182,11 +182,20 @@ type Env struct {
 	Type     string
 	URL      string
 	Settings map[string]string
+	// Options are the adapter's own options (upstreams.<name>.fullMirror.feed):
+	// "url", the feed's location when it is not the one the adapter derives
+	// from URL, and type-specific choices. An adapter refuses a key it does
+	// not know.
+	Options map[string]string
 	// HTTP is the client for the feed's own requests to the registry. It goes
 	// through the proxy's outbound transport — the egress allowlist, the TLS
 	// policy and pins of the upstream — and is paced by the upstream's
 	// requestsPerSecond, like the engine's artifact fetches.
 	HTTP *http.Client
+	// Authorize, when set, adds the upstream's credentials to a request. An
+	// adapter calls it only for a request to the upstream's own origin (the
+	// scheme, host and port of URL): a feed on another host never sees them.
+	Authorize func(*http.Request)
 	// UserAgent identifies the proxy in the feed's requests.
 	UserAgent string
 	// Dir is a directory the adapter may keep files in (a copy of an index to
@@ -235,6 +244,30 @@ func Register(upstreamType string, f Factory) (unregister func()) {
 	}
 }
 
+// ReplaceAdapter installs f as the feed adapter of an upstream type in place of
+// the one registered (or as the first) and returns a function that puts the
+// previous one back. It exists for tests that drive the engine with a fake
+// feed through the real configuration and server wiring; the adapters
+// themselves register with Register.
+func ReplaceAdapter(upstreamType string, f Factory) (restore func()) {
+	if f == nil {
+		panic("fullmirror: ReplaceAdapter with a nil factory")
+	}
+	adaptersMu.Lock()
+	defer adaptersMu.Unlock()
+	old, had := adapters[upstreamType]
+	adapters[upstreamType] = f
+	return func() {
+		adaptersMu.Lock()
+		defer adaptersMu.Unlock()
+		if had {
+			adapters[upstreamType] = old
+		} else {
+			delete(adapters, upstreamType)
+		}
+	}
+}
+
 // Adapters lists the upstream types a feed adapter is registered for, sorted.
 func Adapters() []string {
 	adaptersMu.RLock()
@@ -267,6 +300,18 @@ func Followable(upstreamType string) error {
 			e.Title, e.Tier, e.Tier.Title(), statusText(e.Status), e.Type)
 	}
 	return nil
+}
+
+// Check validates an upstream's full-mirror feed configuration the way the
+// adapter will read it — its type, its URL, its settings and its feed options —
+// without building a client or touching the network. Config validation calls
+// it, so that a private upstream whose feed cannot be derived, or an unknown
+// option, is refused when the configuration is loaded rather than when the
+// mirror starts. Adapters do no I/O when they are built.
+func Check(env Env) error {
+	env.HTTP, env.Read, env.Authorize, env.Dir = nil, nil, nil, ""
+	_, err := NewFeed(env)
+	return err
 }
 
 // NewFeed builds the registered adapter for env.Type.

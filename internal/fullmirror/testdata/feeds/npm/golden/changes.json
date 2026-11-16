@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "name": "@synsema/cli-win32-x64"
+    },
+    {
+      "name": "@mark1russell7/rigor-testkit"
+    },
+    {
+      "name": "@carbonhq/oxfmt-binding-win32-ia32-msvc"
+    },
+    {
+      "name": "@twinsearth/dsh-session-format-v1-to-v2"
+    }
+  ],
+  "next": {
+    "format": "npm/1",
+    "since": "144855493"
+  },
+  "more": true,
+  "head": "144855492"
+}

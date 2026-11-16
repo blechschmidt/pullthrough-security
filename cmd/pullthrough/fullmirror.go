@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 
 	"github.com/blechschmidt/pullthrough-security/internal/audit"
 	"github.com/blechschmidt/pullthrough-security/internal/config"
@@ -69,7 +70,8 @@ func buildFullMirror(cfg *config.Config, egressGuard *egress.Guard, pinGuard *tl
 				MaxArtifactBytes: fm.MaxArtifactBytes, ByteBudget: fm.ByteBudget, Concurrency: fm.Concurrency,
 				RequestsPerSecond: fm.RequestsPerSecond, PollInterval: fm.PollInterval, Window: window, DryRun: fm.DryRun,
 			},
-			URL: up.URL, Config: up.Settings, HTTP: client.HTTPClient(), UserAgent: ua,
+			URL: up.URL, Config: up.Settings, Options: fm.Feed, HTTP: client.HTTPClient(), UserAgent: ua,
+			Authorize: upstreamAuthorizer(up.Credentials),
 		})
 	}
 	opts := fullmirror.Options{
@@ -87,6 +89,27 @@ func buildFullMirror(cfg *config.Config, egressGuard *egress.Guard, pinGuard *tl
 	}
 	logger.Info("full mirroring configured", "upstreams", names, "stateDir", opts.Dir, "tenant", opts.Tenant)
 	return e, nil
+}
+
+// upstreamAuthorizer returns what adds an upstream's credentials to a feed
+// adapter's request, as the backends add them to theirs: a token as a bearer
+// token, else a user name and password as basic authentication, never over an
+// Authorization header already set. It is nil when the upstream has none. The
+// adapters call it only for requests to the upstream's own origin.
+func upstreamAuthorizer(c config.Credentials) func(*http.Request) {
+	if c.Token == "" && c.Username == "" && c.Password == "" {
+		return nil
+	}
+	return func(r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			return
+		}
+		if c.Token != "" {
+			r.Header.Set("Authorization", "Bearer "+c.Token)
+			return
+		}
+		r.SetBasicAuth(c.Username, c.Password)
+	}
 }
 
 // wireFullMirror attaches the engine to the gateway's gated serve pipeline,

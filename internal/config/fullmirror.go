@@ -76,6 +76,14 @@ type UpstreamFullMirrorConfig struct {
 	// DryRun polls the feed and applies every policy and the cache check, but
 	// fetches nothing: what would be fetched is counted as skipped (dry-run).
 	DryRun bool `yaml:"dryRun"`
+	// Feed holds the feed adapter's options. "url" names the change feed
+	// when the adapter cannot derive it from the upstream's URL (a private
+	// registry's replication endpoint, a Git index): for the public
+	// registries it is known. Other keys are type-specific (pip "mode",
+	// julia "flavor", conan "binaries", homebrew "platforms", the Git-backed
+	// feeds' "branch"); an unknown key is refused. docs/full-mirroring.md
+	// lists them per type.
+	Feed map[string]string `yaml:"feed"`
 }
 
 // FullMirrorWindowConfig is a daily window: "HH:MM" bounds in an IANA time
@@ -164,6 +172,13 @@ func (c *Config) validateFullMirror() error {
 		// The catalog's tier, and whether a feed adapter follows it.
 		if err := fullmirror.Followable(up.Type); err != nil {
 			return fmt.Errorf("%s.enabled: %w", where, err)
+		}
+		// The adapter's reading of the upstream and its options: a feed it
+		// cannot locate, or an option it does not know, is refused now.
+		if err := fullmirror.Check(fullmirror.Env{
+			Upstream: name, Type: up.Type, URL: up.URL, Settings: up.Settings, Options: fm.Feed,
+		}); err != nil {
+			return fmt.Errorf("%s.feed: %w", where, err)
 		}
 		if fm.ByteBudget == 0 {
 			return fmt.Errorf("%s.byteBudget is required: the most bytes the mirror may add to the cache from this upstream", where)

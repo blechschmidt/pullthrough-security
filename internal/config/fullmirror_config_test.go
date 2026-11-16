@@ -28,11 +28,12 @@ func loadFullMirrorYAML(t *testing.T, upstreamBlock, extra string) (*Config, err
 	return loadDownloadLogYAML(t, doc)
 }
 
-// registerFakeAdapter makes npm followable for the test.
+// registerFakeAdapter has a fake feed follow typ for the test, in place of
+// the adapter registered for it (if any): the tests check the configuration,
+// not an adapter's reading of the upstream.
 func registerFakeAdapter(t *testing.T, typ string) {
 	t.Helper()
-	unregister := fullmirror.Register(typ, func(fullmirror.Env) (fullmirror.Feed, error) { return noFeed{}, nil })
-	t.Cleanup(unregister)
+	t.Cleanup(fullmirror.ReplaceAdapter(typ, func(fullmirror.Env) (fullmirror.Feed, error) { return noFeed{}, nil }))
 }
 
 type noFeed struct{}
@@ -47,13 +48,20 @@ func (noFeed) Releases(context.Context, string) ([]fullmirror.Release, error) {
 	return nil, errors.New("no feed")
 }
 
-// Full mirroring is refused for a type no feed adapter follows — today every
-// type: the engine exists, the adapters follow (Tasks 190, 191).
+// Full mirroring is refused for a type no feed adapter follows (the tier-(b)
+// and (c) adapters follow in Task 191).
 func TestFullMirrorIsRefusedWithoutAnAdapter(t *testing.T) {
-	_, err := loadFullMirrorYAML(t, `
+	_, err := loadDownloadLogYAML(t, `
+server:
+  httpAddr: ":8080"
+cache: {backend: filesystem, dir: `+filepath.Join(t.TempDir(), "c")+`}
+upstreams:
+  cran:
+    type: cran
+    url: "https://cloud.r-project.org"
     fullMirror: {enabled: true, byteBudget: 1000000}
-`, "")
-	if err == nil || !strings.Contains(err.Error(), `upstream "npm": fullMirror.enabled: no feed adapter follows npm registry yet (tier (a)`) {
+`)
+	if err == nil || !strings.Contains(err.Error(), `upstream "cran": fullMirror.enabled: no feed adapter follows CRAN (R) yet (tier (b)`) {
 		t.Fatalf("enabled without an adapter: %v", err)
 	}
 	// A tier-(d) registry can never be followed.

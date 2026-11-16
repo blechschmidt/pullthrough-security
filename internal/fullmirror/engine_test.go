@@ -1139,11 +1139,10 @@ func TestRequestsArePacedPerUpstream(t *testing.T) {
 
 func TestAdaptersGetAPacedClientAndAReadThroughTheGateway(t *testing.T) {
 	var built Env
-	unregister := Register("cargo", func(env Env) (Feed, error) {
+	swapAdapter(t, "cargo", func(env Env) (Feed, error) {
 		built = env
 		return newFakeFeed(), nil
 	})
-	defer unregister()
 	if err := Followable("cargo"); err != nil {
 		t.Fatalf("Followable after Register: %v", err)
 	}
@@ -1182,6 +1181,13 @@ func TestAdaptersGetAPacedClientAndAReadThroughTheGateway(t *testing.T) {
 	}
 }
 
+// swapAdapter replaces the adapter registered for a type for the rest of the
+// test (registering a second one panics).
+func swapAdapter(t *testing.T, typ string, f Factory) {
+	t.Helper()
+	t.Cleanup(ReplaceAdapter(typ, f))
+}
+
 type countingTransport struct{ n atomic.Int64 }
 
 func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -1192,7 +1198,7 @@ func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func TestFollowableExplainsWhy(t *testing.T) {
 	for typ, want := range map[string]string{
 		"docker":  "Docker Hub cannot be followed: its tier is (d)",
-		"npm":     "no feed adapter follows npm registry yet (tier (a)",
+		"cran":    "no feed adapter follows CRAN (R) yet (tier (b)",
 		"deb":     "tier (b)",
 		"nothing": "knows no upstream type",
 	} {
@@ -1225,7 +1231,7 @@ func TestNewRefusesBadOptions(t *testing.T) {
 		"no dir":     {Upstreams: []Upstream{{Settings: testSettings("a"), Feed: feed}}},
 		"no budget":  {Dir: t.TempDir(), Upstreams: []Upstream{{Settings: Settings{Upstream: "a", Type: "npm"}, Feed: feed}}},
 		"duplicate":  {Dir: t.TempDir(), Upstreams: []Upstream{{Settings: testSettings("a"), Feed: feed}, {Settings: testSettings("a"), Feed: feed}}},
-		"no adapter": {Dir: t.TempDir(), Upstreams: []Upstream{{Settings: testSettings("a")}}},
+		"no adapter": {Dir: t.TempDir(), Upstreams: []Upstream{{Settings: Settings{Upstream: "a", Type: "cran", ByteBudget: 1}}}},
 	} {
 		if _, err := New(opts); err == nil {
 			t.Errorf("%s: accepted", name)

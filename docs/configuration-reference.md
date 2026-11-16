@@ -211,6 +211,7 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `upstreams.<string>.fullMirror.offPeak.end` | string | — |
 | `upstreams.<string>.fullMirror.offPeak.timezone` | string | — |
 | `upstreams.<string>.fullMirror.dryRun` | bool | — |
+| `upstreams.<string>.fullMirror.feed` | map[string]string | {} |
 
 ## `git`
 

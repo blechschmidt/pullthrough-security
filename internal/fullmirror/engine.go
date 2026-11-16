@@ -120,11 +120,15 @@ type Upstream struct {
 	// Feed follows the registry. When nil the adapter registered for the
 	// type is built (NewFeed) with an Env made of the fields below.
 	Feed Feed
-	// URL, Config (the upstream's settings), HTTP (a client using the
-	// upstream's outbound transport) and UserAgent are handed to the adapter.
+	// URL, Config (the upstream's settings), Options (the adapter's options,
+	// fullMirror.feed), HTTP (a client using the upstream's outbound
+	// transport), Authorize (adds the upstream's credentials to a request to
+	// its own origin) and UserAgent are handed to the adapter.
 	URL       string
 	Config    map[string]string
+	Options   map[string]string
 	HTTP      *http.Client
+	Authorize func(*http.Request)
 	UserAgent string
 }
 
@@ -319,7 +323,9 @@ func (e *Engine) adapterEnv(f *follower) Env {
 		Type:      f.s.Type,
 		URL:       u.URL,
 		Settings:  u.Config,
+		Options:   u.Options,
 		HTTP:      client,
+		Authorize: u.Authorize,
 		UserAgent: u.UserAgent,
 		Dir:       dir,
 		Read: func(ctx context.Context, path, accept string, w io.Writer) (FetchResult, error) {

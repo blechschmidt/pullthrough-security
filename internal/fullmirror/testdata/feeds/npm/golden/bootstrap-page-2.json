@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "name": "left-pad"
+    },
+    {
+      "name": "left-pad-ai"
+    },
+    {
+      "name": "left-pad-ai-local"
+    }
+  ],
+  "next": {
+    "format": "npm/1",
+    "since": "144855492"
+  },
+  "more": false,
+  "head": "144855492"
+}

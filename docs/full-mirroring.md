@@ -315,7 +315,7 @@ full-mirror engine and its feed adapters land.
 | [`ansible`](#ansible) | [galaxy.ansible.com](https://galaxy.ansible.com) | **(c)** paginated listings only | collection versions, newest first | page | 4,686 collections, 54,484 collection versions; 37,920 roles | not started (listing adapter planned in Task 191) |
 | [`apt`](#apt) / `deb` | [deb.debian.org/debian](https://deb.debian.org/debian) | **(b)** complete index to poll and diff | Release and Packages indexes | validator | Debian: 5,451 GB for every architecture, about 1,340 GB for amd64 + all + source; Ubuntu: about 3.6 TB | not started (index-polling adapter planned in Task 191) |
 | [`bazel`](#bazel) | [bcr.bazel.build](https://bcr.bazel.build) | **(a)** incremental change feed | BCR commits | commit | metadata only; the archives live at their upstream URLs | not started (feed adapter planned in Task 190) |
-| [`cargo`](#cargo) | [index.crates.io](https://index.crates.io) | **(a)** incremental change feed | Git index commits | commit | 378,819 crates; more than 100 GB of crate files already in 2022 | not started (feed adapter planned in Task 190) |
+| [`cargo`](#cargo) | [index.crates.io](https://index.crates.io) | **(a)** incremental change feed | Git index commits | commit | 378,819 crates; more than 100 GB of crate files already in 2022 | implemented (Task 190: diffs the trees of the Git index's head commits (a blob-less smart-HTTP fetch, unaffected by the weekly squash); versions from the sparse index read through the proxy. A private registry needs feed option `url`, its Git index.) |
 | [`composer`](#composer) | [repo.packagist.org](https://repo.packagist.org) | **(a)** incremental change feed | metadata changes | timestamp | 481,164 packages, 6,077,934 versions (metadata only) | not started (feed adapter planned in Task 190) |
 | [`conan`](#conan) | [center2.conan.io](https://center2.conan.io) | **(a)** incremental change feed | conan-center-index commits | commit | 9,729 recipe versions of 1,943 libraries; binaries not counted | not started (feed adapter planned in Task 190) |
 | [`conda`](#conda) | [conda.anaconda.org/conda-forge](https://conda.anaconda.org/conda-forge) | **(b)** complete index to poll and diff | repodata per subdir | validator | more than 3 TB (all subdirs; an old vendor figure) | not started (index-polling adapter planned in Task 191) |
@@ -335,7 +335,7 @@ full-mirror engine and its feed adapters land.
 | [`julia`](#julia) | [pkg.julialang.org](https://pkg.julialang.org) | **(a)** incremental change feed | General registry commits | commit | not published | not started (feed adapter planned in Task 190) |
 | [`maven`](#maven) | [repo1.maven.org/maven2](https://repo1.maven.org/maven2) | **(b)** complete index to poll and diff | Maven Indexer index | validator | not published | not started (index-polling adapter planned in Task 191) |
 | [`nix`](#nix) | [cache.nixos.org](https://cache.nixos.org) | **(d)** no practical enumeration | channel store paths (partial) | validator | 636 TB, more than 1 billion objects | not started (no registry-wide feed to follow) |
-| [`npm`](#npm) | [registry.npmjs.org](https://registry.npmjs.org) | **(a)** incremental change feed | replication feed (`_changes`) | sequence | 4.6 million packages; no published byte total | not started (feed adapter planned in Task 190) |
+| [`npm`](#npm) | [registry.npmjs.org](https://registry.npmjs.org) | **(a)** incremental change feed | replication feed (`_changes`) | sequence | 4.6 million packages; no published byte total | implemented (Task 190: follows `_changes` from the stored sequence (one beyond `update_seq` means a reset and a new enumeration) after listing `_all_docs`; versions from the packument read through the proxy. Feed option `url` names a CouchDB replica for a private registry.) |
 | [`nuget`](#nuget) | [api.nuget.org](https://api.nuget.org) | **(a)** incremental change feed | catalog | timestamp | 594,190 packages, 14,044,198 versions; no byte total published | not started (feed adapter planned in Task 190) |
 | [`openvsx`](#openvsx) | [open-vsx.org](https://open-vsx.org) | **(b)** complete index to poll and diff | sitemap | validator | 21,414 extensions; bytes not published | not started (index-polling adapter planned in Task 191) |
 | [`pip`](#pip) | [pypi.org](https://pypi.org) | **(a)** incremental change feed | XML-RPC changelog | sequence | 51.6 TB (every file of every release) | not started (feed adapter planned in Task 190) |
@@ -464,7 +464,7 @@ full-mirror engine and its feed adapters land.
 
 ### cargo
 
-**crates.io (Cargo)** — upstream type `cargo`, registry <https://index.crates.io>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**crates.io (Cargo)** — upstream type `cargo`, registry <https://index.crates.io>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the trees of the Git index's head commits (a blob-less smart-HTTP fetch, unaffected by the weekly squash); versions from the sparse index read through the proxy. A private registry needs feed option `url`, its Git index.).
 
 **Feeds**
 
@@ -1116,7 +1116,7 @@ full-mirror engine and its feed adapters land.
 
 ### npm
 
-**npm registry** — upstream type `npm`, registry <https://registry.npmjs.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**npm registry** — upstream type `npm`, registry <https://registry.npmjs.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows `_changes` from the stored sequence (one beyond `update_seq` means a reset and a new enumeration) after listing `_all_docs`; versions from the packument read through the proxy. Feed option `url` names a CouchDB replica for a private registry.).
 
 **Feeds**
 

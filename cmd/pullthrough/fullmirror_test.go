@@ -72,11 +72,11 @@ func (f *crateFeed) Releases(_ context.Context, name string) ([]fullmirror.Relea
 func TestFullMirrorEndToEnd(t *testing.T) {
 	feed := &crateFeed{}
 	var env fullmirror.Env
-	unregister := fullmirror.Register("cargo", func(e fullmirror.Env) (fullmirror.Feed, error) {
+	restore := fullmirror.ReplaceAdapter("cargo", func(e fullmirror.Env) (fullmirror.Feed, error) {
 		env = e
 		return feed, nil
 	})
-	defer unregister()
+	defer restore()
 
 	stub := newStubRegistry(t)
 	good100, good110 := []byte("good 1.0.0 crate"), []byte("good 1.1.0 crate")
