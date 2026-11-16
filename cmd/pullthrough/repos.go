@@ -396,7 +396,7 @@ func (f gatewayReleaseFetcher) Fetch(ctx context.Context, req repos.FetchRequest
 	res, err := f.gw.SystemFetch(ctx, proxy.SystemFetchRequest{
 		Backend: req.Upstream, Path: req.Path, Accept: req.Accept,
 		Tenant: req.Tenant, Subject: req.Subject, Roles: req.Roles,
-		Hold: req.Hold, DeferLLMRefusal: req.DeferLLMRefusal,
+		Hold: req.Hold, DeferLLMRefusal: req.DeferLLMRefusal, DeferredTo: req.DeferredTo,
 	}, body)
 	out := repos.FetchResult{
 		Status: res.Status, Cache: res.Cache, CacheKey: res.CacheKey, Digest: res.Digest, Size: res.Size,

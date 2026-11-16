@@ -366,7 +366,12 @@ func (f *nugetFeed) newer(ctx context.Context, pages []nugetPage, since, horizon
 			// the index listed.
 			return leaves, p.TS, false, nil
 		}
-		reached := !p.TS.Before(horizon)
+		// reached: this page's last commit has not settled, and neither has
+		// any commit on the pages after it. A page whose last commit is the
+		// horizon itself — the catalog's newest commit, when it has settled
+		// — is not reached: that commit may continue on the next page, which
+		// is read before the commit is reported.
+		reached := p.TS.After(horizon)
 		if !reached && i+1 < f.pages && len(leaves) < f.leaves {
 			continue
 		}

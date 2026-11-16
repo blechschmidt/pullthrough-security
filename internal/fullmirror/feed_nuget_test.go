@@ -603,3 +603,70 @@ func TestNuGetLeavesNewerThanTheIndexWaitForTheNextPoll(t *testing.T) {
 		t.Errorf("second poll %s: D's commit and E must be reported", got)
 	}
 }
+
+func TestNuGetACommitOnTwoPagesIsReportedOnce(t *testing.T) {
+	// The catalog's newest commit (D, 10:05) continues from page p1 onto
+	// page p2, both stamped with it — NuGet's own catalog writer keeps a
+	// commit on one page, but the feed does not rely on that. The commit has
+	// settled, so it is reported in full and once: in the batch that reports
+	// the older commit before it (C), and in batches of one page, where it
+	// comes after C — and polls after it report nothing.
+	const index = `{"commitTimeStamp":"2026-11-16T10:05:00Z","items":[` +
+		`{"@id":"%[1]s/catalog/p1.json","commitTimeStamp":"2026-11-16T10:05:00Z"},` +
+		`{"@id":"%[1]s/catalog/p2.json","commitTimeStamp":"2026-11-16T10:05:00Z"}]}`
+	for _, tc := range []struct {
+		name    string
+		p1      string
+		pages   int
+		batches string
+	}{
+		{"after an older commit", `{"@type":"nuget:PackageDetails","nuget:id":"C","nuget:version":"1.0.0","commitTimeStamp":"2026-11-16T10:00:00Z"},`,
+			nugetPagesPerBatch, "[[C@1.0.0 D@1.0.0 D@2.0.0]]"},
+		{"after an older commit, a page a batch", `{"@type":"nuget:PackageDetails","nuget:id":"C","nuget:version":"1.0.0","commitTimeStamp":"2026-11-16T10:00:00Z"},`,
+			1, "[[C@1.0.0] [D@1.0.0 D@2.0.0]]"},
+		{"alone", ``, nugetPagesPerBatch, "[[D@1.0.0 D@2.0.0]]"},
+		{"alone, a page a batch", ``, 1, "[[D@1.0.0 D@2.0.0]]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			f, srv, _ := nugetTestFeed(t, nil)
+			f.pages = tc.pages
+			cat := srv.URL() + "/catalog/index.json"
+			f.fixed, _ = parseBaseURL("u", cat)
+			srv.on("GET", "/catalog/index.json").json(fmt.Sprintf(index, srv.URL()))
+			srv.on("GET", "/catalog/p1.json").json(`{"items":[` + tc.p1 +
+				`{"@type":"nuget:PackageDetails","nuget:id":"D","nuget:version":"1.0.0","commitTimeStamp":"2026-11-16T10:05:00Z"}]}`)
+			srv.on("GET", "/catalog/p2.json").json(`{"items":[` +
+				`{"@type":"nuget:PackageDetails","nuget:id":"D","nuget:version":"2.0.0","commitTimeStamp":"2026-11-16T10:05:00Z"}]}`)
+			cursor := f.cursor(nugetCursor{Catalog: cat, Since: "2026-11-16T09:00:00Z"})
+			var batches [][]string
+			for i := 0; ; i++ {
+				if i == 5 {
+					t.Fatalf("no end after %d batches: %v", i, batches)
+				}
+				b, err := f.Changes(ctx, cursor)
+				if err != nil {
+					t.Fatal(err)
+				}
+				batches = append(batches, names(b.Items))
+				cursor = b.Next
+				if !b.More {
+					break
+				}
+			}
+			if got := fmt.Sprint(batches); got != tc.batches {
+				t.Errorf("batches %s, want %s", got, tc.batches)
+			}
+			var c nugetCursor
+			if err := decodeCursor(cursor, f.format(), &c); err != nil || c.Since != "2026-11-16T10:05:00Z" {
+				t.Errorf("the cursor stands at %q (%v), want D's commit", c.Since, err)
+			}
+			for i := 0; i < 2; i++ {
+				b, err := f.Changes(ctx, cursor)
+				if err != nil || len(b.Items) != 0 || b.More || b.Next != cursor {
+					t.Fatalf("a poll after the commit: %v more=%v moved=%v (%v)", names(b.Items), b.More, b.Next != cursor, err)
+				}
+			}
+		})
+	}
+}

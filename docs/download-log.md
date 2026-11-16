@@ -46,7 +46,7 @@ weight file, an OS package, a Git fetch.
 | A request that never named a resource (unknown upstream, bad path), or was rejected by client authentication | no — that is the [audit log](access-control-and-audit.md)'s |
 | A Git ref listing (`ls-remote`, the first half of a clone) | no — only the fetch (see [Git](#git)) |
 | The proxy's own [pre-warm](prewarm.md) fetches | no — not a client |
-| The [full mirror](full-mirroring.md#running-the-full-mirror)'s fetches (Task 189) | yes — `via=system`, subject `system:full-mirror`, User-Agent `pullthrough-full-mirror` |
+| The [full mirror](full-mirroring.md#running-the-full-mirror)'s fetches (Task 189) | yes — `via=system`, subject `system:full-mirror`, User-Agent `pullthrough-full-mirror`; a file the LLM package scan refuses on its way in is `blocked` (below) |
 | The [full scan](full-mirroring.md#full-scan)'s scans and gate passes over cached artifacts (Task 192) | no — nothing is fetched or served; the gates' own decisions are in the audit log |
 | A sibling proxy reading this cache through [cache federation](cache-federation.md) | no — the sibling logs the download it serves to its client |
 
@@ -82,7 +82,7 @@ Two rules in that table deserve a sentence each:
 | `durationMs` | How long the proxy took, upstream fetch and every gate included |
 | `subject`, `tenant`, `authMethod` | The identified client: a user who downloads through a [personal cache link](user-links.md) (`authMethod: personal-link`), or the principal of a token, an OIDC JWT or a client certificate when [client authentication](access-control-and-audit.md) is on |
 | `link` | For a download through a personal cache link: the link's identifier — which of the user's links it was, hence which of their machines. Not a secret (it is derived from a hash of the link) |
-| `via` | How the request reached the proxy when the client did not address the proxy itself ([interception](intercept-mode.md)): `intercept` through the forward proxy, `nat` through a NAT listener. `system` for a request the proxy made of itself to pin a release's dependencies ([repositories.md](repositories.md)); its client is `system` and its subject `system:release-pinner`. Absent for a request sent to the proxy's own address |
+| `via` | How the request reached the proxy when the client did not address the proxy itself ([interception](intercept-mode.md)): `intercept` through the forward proxy, `nat` through a NAT listener. `system` for a request the proxy made of itself: to pin a release's dependencies ([repositories.md](repositories.md); subject `system:release-pinner`), or for the [full mirror](full-mirroring.md) (`system:full-mirror`); its client is `system`. Such a caller has the [LLM package scan](llm-package-scan.md)'s refusal deferred to it and applies the action ladder itself — the full scan evicts the file the mirror fetched, a release keeps its pinned bytes for forensics — so a refusal by a verdict is logged `blocked` (gate `llmpkgscan`, status 403, no bytes), as a client's pull of the object is told, though the caller received it; with a break-glass grant, or without a verdict (a provider outage), the fetch is `served`. Absent for a request sent to the proxy's own address |
 | `userAgent` | The client tool (`cargo/1.84.0 …`, `Go-http-client/1.1`, `npm/10.9.2 …`) |
 | `method`, `path` | The request (no query string: queries can carry credentials) |
 | `traceId` | The request's distributed-trace id, when [tracing](tracing.md) is on |

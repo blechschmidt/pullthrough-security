@@ -245,7 +245,7 @@ var catalog = []Entry{
 				Name:   "catalog",
 				URL:    "https://api.nuget.org/v3/catalog0/index.json",
 				Cursor: CursorTimestamp,
-				Semantics: "The append-only catalog (`Catalog/3.0.0` in the service index): pages of at most 550 leaves, each a `PackageDetails` " +
+				Semantics: "The append-only catalog (`Catalog/3.0.0` in the service index): pages of about 550 leaves (a commit is never split across pages, so one that starts a large commit holds more: 2,748 in the index read), each a `PackageDetails` " +
 					"(push, list/unlist, deprecation, vulnerability update) or `PackageDelete` with its `commitTimeStamp`. Read the pages whose " +
 					"`commitTimeStamp` is newer than the cursor, process their newer leaves, store the last timestamp processed (\"no catalog commit " +
 					"will ever be added with a time less than or equal to\" it). Leaves carry `packageHash` (SHA-512) and `packageSize`; the .nupkg " +
@@ -935,7 +935,7 @@ var catalog = []Entry{
 			{"Maven Central: 429 errors (rate limiting)", "https://central.sonatype.org/faq/429-error/"},
 			{"JFrog: 429 rate limits from Maven Central surface as 404s", "https://jfrog.com/help/r/artifactory-429-rate-limits-from-maven-central-public-upstreams-surface-as-404s"},
 		},
-		Status: ImplStatus{StatePartial, "Task 191: follows a repository manager's Maven Indexer index (`<url>/.index/`): the properties file read conditionally, the chunks after the stored one applied to the stored copy while its chain lasts (a chunk gone or malformed, a full index older than the properties, or another `classifiers` selection makes it a full read), otherwise the full index streamed and diffed; releases from the stored copy, each document standing for its file and its release's POM (a POM alone for the main artifact its packaging names), classifiers per feed option `classifiers`, snapshots skipped. Maven Central itself is refused, by its host names (Google's copies too) and at every read by its index id `central` or its chain id: its terms forbid mirroring it. Feed option `url` names another index directory."},
+		Status: ImplStatus{StatePartial, "Task 191: follows a repository manager's Maven Indexer index (`<url>/.index/`): the properties file read conditionally, the chunks after the stored one applied to the stored copy while its chain lasts (a chunk gone or malformed, a full index older than the properties, or another `classifiers` selection makes it a full read), otherwise the full index streamed and diffed — also when the properties' time stamp moved on a chain that lists no chunk (Task 194: a packer run without incremental chunks keeps the chain id and rewrites the full index alone); releases from the stored copy, each document standing for its file and its release's POM (a POM alone for the main artifact its packaging names), classifiers per feed option `classifiers`, snapshots skipped. Maven Central itself is refused, by its host names (Google's copies too) and at every read by its index id `central` or its chain id: its terms forbid mirroring it. Feed option `url` names another index directory."},
 	},
 	{
 		Type:     "openvsx",

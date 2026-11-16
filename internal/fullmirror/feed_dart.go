@@ -580,12 +580,22 @@ func (s *dartSource) listingPage(ctx context.Context, tok dartToken) (listingPag
 	if err != nil {
 		return listingPage{}, err
 	}
-	if !st.covers {
+	// A feed whose oldest version is younger than the listing settle period
+	// means a burst on pub.dev — more versions than the feed holds — and a
+	// pass over several pages cannot rely on their order then. But it is also
+	// what the feed of a registry younger than that period looks like (a new
+	// pub server, one that holds a few packages): a listing of one page
+	// relies on no order between pages, and is read (Task 194: such a
+	// registry could not be enumerated at all).
+	if !st.covers && tok.page > 1 {
 		return listingPage{}, s.burst()
 	}
 	lst, err := s.readListing(ctx, tok.page)
 	if err != nil {
 		return listingPage{}, err
+	}
+	if !st.covers && lst.more {
+		return listingPage{}, s.burst()
 	}
 	upper := tok.upper
 	if s.settle > 0 {

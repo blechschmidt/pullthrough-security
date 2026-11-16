@@ -8,6 +8,7 @@ default developer loop stays fast and deterministic.
 | Unit + component | _(none)_ | `make test` | every PR, locally |
 | Integration | `integration` | `make test-integration` | on demand (needs Git/MinIO fixtures); the hermetic per-ecosystem suites in `internal/e2e` run on every PR (`integration` job) |
 | LLM package scan, every ecosystem | `integration` | `make test-llm-package-scan` | every PR (`llm-package-scan` job; gates the image build) |
+| Full mirror and full scan, every followed registry | `integration` | `make test-full-mirror` | every PR (`full-mirror` job; gates the image build) |
 | Known malware vs a real model | `livellm` | `make test-live-llm-scan` | off until a repository variable and a credential are set (the gated `live-llm-scan` workflow); its hermetic twin, `make test-live-llm-scan-hermetic`, runs on every PR (`integration` job) |
 | Ecosystem (real package managers) | `ecosystem` | `make test-ecosystems` | every PR and nightly, one CI job per ecosystem (needs Docker + network) |
 | Client lab (the client guide, executed) | _(scripts)_ | `make client-lab` | nightly, on demand, and when the lab or the guide changes, one CI job per client image (needs Docker + network) |
@@ -66,6 +67,38 @@ fully passing row. Hermetic; CI runs it in its own `llm-package-scan` job. See
 ```sh
 make test-llm-package-scan                                 # go test -tags integration ./internal/e2e/pkgscan/
 make test-llm-package-scan PKGSCAN_ECOSYSTEMS="npm docker"  # a selection
+```
+
+The **full-mirror suite** (`internal/e2e/fullmirror`, Task 194) proves
+[full mirroring and the full scan](full-mirroring.md) for every registry a feed
+adapter follows. For each upstream type, the real `pullthrough` binary is
+started with `fullMirror.enabled` and `fullMirror.fullScan` on for one upstream
+and the LLM package scan on, in front of the LLM package-scan suite's stub
+registry for the type — which the suite builds again whenever it publishes a
+package — and, in front of that, the type's feed in the registry's own format:
+npm's `_changes`, PyPI's XML-RPC changelog, Git indexes served by the real
+`git http-backend` (Cargo, Bazel, Conan), the compact index's `/versions` read
+by `Range`, an APT `InRelease`, a Maven Indexer index, signed Hex resources, an
+Atom feed, listings by date. A package published before the proxy starts must
+be fetched by the enumeration; a benign and a malicious package published after
+must be found by a poll and fetched with no client request — the benign one
+cached, judged benign by the mock LLM and then served to a client from the
+cache, the malicious one refused by the gate and refused to a client from the
+stored verdict — with exact status counts in the mirror's and the full scan's
+status and a `via=system` entry in the download log for every fetch; after a
+restart, a package published meanwhile must be fetched from the stored cursor,
+with no new enumeration and nothing fetched twice. Every type nothing can
+follow (tier (d), and Terraform) must be refused at configuration validation.
+It writes a type × mirrored/scanned/blocked/logged/resumed matrix
+(`full-mirror-matrix.{md,json}`, to `PT_TEST_REPORT_DIR`) and fails when a type
+the catalog marks implemented or partial has no fully passing row, so an
+adapter added later cannot stay outside it. Hermetic; the Git-backed feeds
+commit with an identity of the suite's own, as CI's runner user has none. CI
+runs it in its own `full-mirror` job.
+
+```sh
+make test-full-mirror                                # go test -tags integration ./internal/e2e/fullmirror/
+make test-full-mirror FULLMIRROR_TYPES="npm cargo"   # a selection
 ```
 
 The **known-malware suite** (`internal/e2e/livescan`, Task 184) asks the

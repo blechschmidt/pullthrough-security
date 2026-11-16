@@ -237,6 +237,17 @@ func (g *Gateway) admitLLMPkgScan(w http.ResponseWriter, r *http.Request, sub ll
 			// is still judged, and refused, as always.
 			sl.Deferred = true
 			noteLLMScan(r.Context(), sl)
+			if report.Scanned() && sl.BreakGlass == "" {
+				// A verdict refuses the object, and no grant releases it: the
+				// caller's ladder refuses it too, and the download log says so.
+				// A reading without a verdict (a provider outage under
+				// failMode closed) or one a grant releases is the caller's to
+				// keep: logged as served.
+				pullRecordFrom(r.Context()).deferRefusal(deferredRefusal{
+					gate: "llmpkgscan", code: decision.Code, reason: decision.Reason,
+					to: firstNonEmptyString(deferredTo(r.Context()), "repository-scan"),
+				})
+			}
 			// The findings document of the request still carries the gate's
 			// reading: it is recorded after every gate ran, so it informs
 			// without refusing (recordFindings).

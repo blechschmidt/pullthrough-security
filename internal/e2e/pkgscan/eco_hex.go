@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Hex (hex.pm, registry v2): `mix deps.get` reads "/packages/<name>" to
@@ -49,8 +50,34 @@ func init() {
 // it serves are those of "hexpm".
 const hexpmRepository = "hexpm"
 
+// The repository key is made once per test process, like the OS repositories'
+// (osrepo_pgp.go): a registry rebuilt with more packages (the full-mirror
+// suite publishes packages one after another, Task 194) must keep signing with
+// the key the configuration pins.
+var (
+	hexpmKeyOnce sync.Once
+	hexpmKeyVal  *rsa.PrivateKey
+	hexpmKeyErr  error
+)
+
+// hexpmKey returns the repository signing key, generating it on first use.
+func hexpmKey() (*rsa.PrivateKey, error) {
+	hexpmKeyOnce.Do(func() { hexpmKeyVal, hexpmKeyErr = rsa.GenerateKey(rand.Reader, 2048) })
+	return hexpmKeyVal, hexpmKeyErr
+}
+
+// HexRepositoryKey returns the public half of the key every hex stub registry
+// of this test process signs its resources with.
+func HexRepositoryKey() (*rsa.PublicKey, error) {
+	key, err := hexpmKey()
+	if err != nil {
+		return nil, err
+	}
+	return &key.PublicKey, nil
+}
+
 func hexpmRegistry(env stubEnv) (*registry, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := hexpmKey()
 	if err != nil {
 		return nil, fmt.Errorf("generating the repository key: %w", err)
 	}

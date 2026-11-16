@@ -243,6 +243,10 @@ type mavenState struct {
 	// Chain and Last are the chain and the newest chunk the copy holds.
 	Chain string `json:"chain,omitempty"`
 	Last  int    `json:"last"`
+	// Stamp is the time stamp of the properties the copy was made with
+	// (nexus.index.timestamp; zero when they state none, or when an earlier
+	// version of the adapter made the copy).
+	Stamp time.Time `json:"stamp,omitzero"`
 	// Classifiers is the classifier selection the copy was made with.
 	Classifiers string `json:"classifiers,omitempty"`
 	// Partial marks a copy read from a full index older than the properties
@@ -268,11 +272,20 @@ func (s *mavenSource) readIndex(ctx context.Context, prev json.RawMessage, old *
 		}
 		return indexRead{}, err
 	}
-	next := mavenState{V: mavenStateVersion, Props: validators, Chain: props.chain, Last: props.last, Classifiers: s.selection()}
+	next := mavenState{V: mavenStateVersion, Props: validators, Chain: props.chain, Last: props.last, Stamp: props.timestamp, Classifiers: s.selection()}
 	rd := indexRead{Head: props.head(), HeadTime: props.timestamp}
 	if same && props.chain != "" && props.chain == st.Chain {
 		switch {
-		case props.last == st.Last:
+		case props.last == st.Last && (len(props.chunks) > 0 || props.timestamp.Equal(st.Stamp)):
+			// No new chunk, and nothing else new. A chain that lists
+			// chunks makes one for every change: a packing that found
+			// nothing to put in one moves the time stamp alone. On a chain
+			// that lists none, the packer writes the full index alone and
+			// keeps the chain id and last-incremental of the packing before
+			// (Maven Indexer's DefaultIndexPacker without incremental
+			// chunks): a new time stamp there is a new full index, read
+			// below — as Maven Indexer's own updater reads it, comparing
+			// the time stamps where no chunk can be applied.
 			next.Partial = st.Partial
 			rd.State, _ = json.Marshal(next)
 			rd.Unchanged = true

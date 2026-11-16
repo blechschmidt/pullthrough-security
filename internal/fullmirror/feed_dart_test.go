@@ -758,9 +758,67 @@ func TestDartGapPassBoundaryNotFoundAgain(t *testing.T) {
 func TestDartGapPassWaitsOutABurst(t *testing.T) {
 	f, srv, _ := dartTestFeed(t)
 	srv.on("GET", "/feed.atom").reply(200, dartFeedOf(dartEntry("new1", "1.0.0", "2026-11-16T06:59:00Z"), dartEntry("new2", "1.0.0", "2026-11-16T06:30:00Z"))).withHeader("Date", dartAt(7, 0))
+	var page []string
+	for i := 0; i < 50; i++ {
+		page = append(page, fmt.Sprintf("pkg%03d", i))
+	}
+	srv.on("GET", "/packages.json?page=1").json(dartListingOf(page, true)).withHeader("Date", dartAt(7, 0))
 	_, err := f.Changes(context.Background(), encodeCursor(&listingCursor{Format: "dart/1", Mark: time.Date(2026, 11, 16, 1, 0, 0, 0, time.UTC)}))
 	if d, ok := RetryAfterOf(err); !ok || d != dartBurstWait || !strings.Contains(err.Error(), "settled") {
 		t.Errorf("a burst: %v", err)
+	}
+	// Past the first page the listing is not even read.
+	before := len(srv.requests())
+	_, err = f.Changes(context.Background(), encodeCursor(&dartCursor{listingCursor: listingCursor{Format: "dart/1", Pass: true,
+		Mark: time.Date(2026, 11, 16, 1, 0, 0, 0, time.UTC), Token: dartToken{page: 2, upper: time.Date(2026, 11, 16, 6, 0, 0, 0, time.UTC), since: time.Date(2026, 11, 16, 7, 0, 0, 0, time.UTC)}.String()}}))
+	if _, ok := RetryAfterOf(err); !ok {
+		t.Errorf("a burst on page 2: %v", err)
+	}
+	for _, r := range srv.requests()[before:] {
+		if strings.Contains(r, "packages.json") {
+			t.Errorf("page 2 was read during a burst: %v", srv.requests()[before:])
+		}
+	}
+}
+
+// A registry younger than the listing settle period — a new pub server, one
+// that holds a few packages — has a feed whose oldest version is young too:
+// with a listing of one page there is no order between pages to rely on, so
+// it is enumerated and followed rather than taken for a burst on pub.dev
+// (found by the full-mirror end-to-end suite, Task 194).
+func TestDartYoungRegistryIsNotABurst(t *testing.T) {
+	f, srv, _ := dartTestFeed(t)
+	ctx := context.Background()
+	f.src.now = func() time.Time { return time.Date(2026, 11, 16, 7, 0, 0, 0, time.UTC) }
+	srv.on("GET", "/feed.atom").reply(200, dartFeedOf(dartEntry("seed", "1.0.0", "2026-11-16T06:59:00Z"))).withHeader("Date", dartAt(7, 0))
+	srv.on("GET", "/packages.json?page=1").json(dartListingOf([]string{"seed"}, false)).withHeader("Date", dartAt(7, 0))
+	srv.on("GET", "/api/packages/seed").json(dartDocOf("seed", "2026-11-16T06:59:00Z"))
+	dartServeNames(t, srv, []byte(`{"packages":["seed"]}`))
+	var got []string
+	cursor := ""
+	for i := 0; i < 10; i++ {
+		b, err := f.Bootstrap(ctx, cursor)
+		if err != nil {
+			t.Fatalf("the enumeration of a young registry: %v", err)
+		}
+		got = append(got, names(b.Items)...)
+		cursor = b.Next
+		if !b.More {
+			break
+		}
+	}
+	if !strings.Contains(" "+strings.Join(got, " ")+" ", " seed ") {
+		t.Fatalf("the enumeration of a young registry reported %v", got)
+	}
+	// A package published a minute later is found by a poll once it has
+	// settled (5 minutes), the registry still younger than 35.
+	f.src.now = func() time.Time { return time.Date(2026, 11, 16, 7, 10, 0, 0, time.UTC) }
+	srv.on("GET", "/feed.atom").reply(200, dartFeedOf(dartEntry("fresh", "1.0.0", "2026-11-16T07:00:30Z"), dartEntry("seed", "1.0.0", "2026-11-16T06:59:00Z"))).withHeader("Date", dartAt(7, 10))
+	srv.on("GET", "/packages.json?page=1").json(dartListingOf([]string{"fresh", "seed"}, false)).withHeader("Date", dartAt(7, 10))
+	srv.on("GET", "/api/packages/fresh").json(dartDocOf("fresh", "2026-11-16T07:00:30Z"))
+	b, err := f.Changes(ctx, cursor)
+	if err != nil || !strings.Contains(fmt.Sprint(names(b.Items)), "fresh") {
+		t.Fatalf("a poll of a young registry: %v %v", names(b.Items), err)
 	}
 }
 

@@ -104,6 +104,30 @@ PKGSCAN_ECOSYSTEMS ?=
 test-llm-package-scan: ## LLM package-scan e2e suite: every ecosystem through the real proxy with a mock LLM (hermetic)
 	PT_PKGSCAN_ECOSYSTEMS="$(PKGSCAN_ECOSYSTEMS)" $(GO) test -tags integration -count=1 -v ./internal/e2e/pkgscan/
 
+# --- Full mirror and full scan, every followed registry (Task 194) ------------
+#
+# For every upstream type a feed adapter follows, the real `pullthrough` binary
+# mirrors one upstream in full with the full scan on: a stub registry serves the
+# type's feed in its own format (npm's _changes, a Git index through the real
+# `git http-backend`, an APT Release file, an Atom feed, a listing by date, …)
+# and publishes a package before the proxy starts, a benign and a malicious one
+# after, and one more while the proxy is stopped. With no client request the
+# mirror must fetch them all — the benign ones cached and judged benign by the
+# mock LLM, the malicious one refused — with exact status counts and a
+# via=system download-log entry per fetch, and continue from its stored cursor
+# after the restart. Types nothing can follow must be refused at configuration
+# validation. Writes the type × mirrored/scanned/blocked/logged/resumed matrix
+# (full-mirror-matrix.{md,json}) to PT_TEST_REPORT_DIR and fails when a type the
+# catalog marks implemented or partial has no fully passing row. Hermetic
+# (loopback only, no LLM API). See docs/testing.md.
+#
+#   make test-full-mirror                                   # every followed type
+#   make test-full-mirror FULLMIRROR_TYPES="npm cargo"       # a selection
+FULLMIRROR_TYPES ?=
+.PHONY: test-full-mirror
+test-full-mirror: ## Full-mirror e2e suite: every followed registry mirrored, scanned and resumed through the real proxy (hermetic)
+	PT_FULLMIRROR_TYPES="$(FULLMIRROR_TYPES)" $(GO) test -tags integration -count=1 -parallel 8 -timeout 18m -v ./internal/e2e/fullmirror/
+
 # --- Personal cache links: who downloaded what (Task 177) ---------------------
 #
 # The integration suite of personal cache links: two users sign in at an OpenID

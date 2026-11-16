@@ -354,6 +354,12 @@ type stubMux struct {
 	routes    map[string]http.Handler
 	fallbacks []func(w http.ResponseWriter, r *http.Request) bool
 	requests  []string
+	// modTime, when set, is the modification time File serves instead of
+	// stubModTime, and etags has File send an ETag of the content: a registry
+	// rebuilt with more packages (MirrorStub.Publish) changes its index
+	// documents, and a client polling them conditionally must see that.
+	modTime time.Time
+	etags   bool
 }
 
 func newStubMux() *stubMux { return &stubMux{routes: map[string]http.Handler{}} }
@@ -367,9 +373,19 @@ func (m *stubMux) File(path string, body []byte, contentType string) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	etag := etagOf(body)
 	m.Handle(path, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", contentType)
-		http.ServeContent(w, r, "", stubModTime, bytes.NewReader(body))
+		m.mu.Lock()
+		modTime, etags := m.modTime, m.etags
+		m.mu.Unlock()
+		if modTime.IsZero() {
+			modTime = stubModTime
+		}
+		if etags {
+			w.Header().Set("ETag", etag)
+		}
+		http.ServeContent(w, r, "", modTime, bytes.NewReader(body))
 	})
 }
 
@@ -409,25 +425,28 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	return s.ResponseWriter.Write(b)
 }
 
-func (m *stubMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rec := &statusRecorder{ResponseWriter: w}
+// dispatch serves r with the route or the first fallback that takes it, and
+// reports whether one did. It writes nothing when none did.
+func (m *stubMux) dispatch(w http.ResponseWriter, r *http.Request) bool {
 	m.mu.Lock()
 	h := m.routes[r.URL.Path]
 	fallbacks := append([]func(http.ResponseWriter, *http.Request) bool(nil), m.fallbacks...)
 	m.mu.Unlock()
-
-	served := false
 	if h != nil {
-		h.ServeHTTP(rec, r)
-		served = true
-	} else {
-		for _, f := range fallbacks {
-			if f(rec, r) {
-				served = true
-				break
-			}
+		h.ServeHTTP(w, r)
+		return true
+	}
+	for _, f := range fallbacks {
+		if f(w, r) {
+			return true
 		}
 	}
+	return false
+}
+
+func (m *stubMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rec := &statusRecorder{ResponseWriter: w}
+	served := m.dispatch(rec, r)
 	if !served {
 		http.Error(rec, "the stub registry serves no such path", http.StatusNotFound)
 	}

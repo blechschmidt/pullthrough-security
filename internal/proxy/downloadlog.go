@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
@@ -49,8 +50,22 @@ type pullRecord struct {
 
 	// gate is the admission gate that refused the request, if one did.
 	gate string
+	// deferred is the refusal the LLM package-content scan gate deferred to
+	// the system caller that asked for the object (DeferLLMRefusal): the
+	// object reached the caller, which applies the action ladder itself — the
+	// full scan evicts a file the full mirror fetched. The log records the
+	// gate's refusal, as a client's pull of the object is told it.
+	deferred *deferredRefusal
 	// size is the full size of the artifact, when known.
 	size int64
+}
+
+// deferredRefusal is a gate's refusal of a system fetch, deferred to its
+// caller.
+type deferredRefusal struct {
+	gate, code, reason string
+	// to names the caller that applies the action ladder ("full-scan").
+	to string
 }
 
 type pullRecordKey struct{}
@@ -104,6 +119,13 @@ func (p *pullRecord) describeDownload(backend, ecosystem string, d backends.Down
 	p.artifact = d.Artifact
 	p.digest = d.Digest
 	p.kind = downloadlog.KindPackage
+}
+
+// deferRefusal notes a refusal the gate deferred to the system caller.
+func (p *pullRecord) deferRefusal(d deferredRefusal) {
+	if p != nil && p.deferred == nil {
+		p.deferred = &d
+	}
 }
 
 // blockedBy notes the gate that refused the request. The first refusal stands:
@@ -203,6 +225,15 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 		unanswered = true
 	}
 	blocked := rec.gate != ""
+	// A refusal the gate deferred to the system caller is a refusal all the
+	// same: the caller only applies the ladder itself, and a client's pull of
+	// the object is refused. Recording it as served would say the proxy let
+	// a flagged package through (the full mirror counts it refused, the full
+	// scan evicts it).
+	deferred := !blocked && rec.deferred != nil && status >= 200 && status < 300
+	if deferred {
+		blocked, status = true, http.StatusForbidden
+	}
 	outcome := downloadlog.Classify(status, blocked)
 	if unanswered {
 		outcome = downloadlog.OutcomeError
@@ -258,7 +289,12 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 	if via := systemVia(r.Context()); via != "" {
 		entry.Via = via
 	}
-	if blocked {
+	switch {
+	case deferred:
+		d := rec.deferred
+		entry.Gate, entry.Code = d.gate, d.code
+		entry.Reason = strings.TrimSpace(d.reason + " (deferred to " + d.to + ", which applies the action ladder)")
+	case blocked:
 		entry.Gate = rec.gate
 		entry.Code, entry.Reason = blockExplanation(mw.errBody)
 	}

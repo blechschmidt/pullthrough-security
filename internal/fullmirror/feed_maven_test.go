@@ -930,3 +930,71 @@ func TestMavenParseStopsWhenCancelled(t *testing.T) {
 		t.Errorf("a cancelled parse: %v", err)
 	}
 }
+
+// Maven Indexer's packer carries the properties of the packing before over
+// unless it makes a chunk (DefaultIndexPacker): packing without incremental
+// chunks — the indexer CLI without -c, its index directory kept between runs —
+// writes the full index again under the chain id and last-incremental of the
+// first packing, and only the time stamp moves. A new time stamp on a chain
+// that lists no chunk is therefore a new full index, which the adapter reads,
+// as Maven Indexer's own updater does: it compares the time stamps where no
+// chunk can be applied. Where the chain lists chunks, every change makes one,
+// and a time stamp that moved alone is a packing that found nothing new: no
+// change, and the full index is not read.
+func TestMavenFullIndexRewrittenOnItsChain(t *testing.T) {
+	f, srv := mavenTestFeed(t, nil)
+	stamped := func(props []byte, stamp string) []byte {
+		return []byte(strings.Replace(string(props), "20261115120852.150", stamp, 1))
+	}
+	fullReads := func() int {
+		n := 0
+		for _, r := range srv.requests() {
+			if r == "GET "+mavenIndexPath {
+				n++
+			}
+		}
+		return n
+	}
+	lib10 := mavenDocOf("com.example|lib|1.0|NA|jar", "jar|1700000000000|1000|0|0|0|jar", "1111111111111111111111111111111111111111")
+	lib11 := mavenDocOf("com.example|lib|1.1|NA|jar", "jar|1700000100000|1100|0|0|0|jar", "2222222222222222222222222222222222222222")
+	lib12 := mavenDocOf("com.example|lib|1.2|NA|jar", "jar|1700000200000|1200|0|0|0|jar", "3333333333333333333333333333333333333333")
+	srv.on("GET", mavenPropsPath).reply(200, mavenTestProps("100", 0)).withHeader("ETag", `"p1"`)
+	srv.on("GET", mavenIndexPath).reply(200, mavenTestIndex(1794744532150, lib10)).once()
+	listed, cursor := drainBootstrap(t, f)
+	if strings.Join(listed, ",") != "com.example:lib" {
+		t.Fatalf("listed %v", listed)
+	}
+
+	// The packer runs again, lib 1.1 published: the chain id and
+	// last-incremental carried over, a new time stamp, a new full index.
+	srv.on("GET", mavenPropsPath).reply(200, stamped(mavenTestProps("100", 0), "20261116120000.000")).withHeader("ETag", `"p2"`)
+	srv.on("GET", mavenIndexPath).reply(200, mavenTestIndex(1794830400000, lib10, lib11)).once()
+	got, next := drainChanges(t, f, cursor)
+	if strings.Join(got, ",") != "com.example:lib@1.1" {
+		t.Fatalf("a new full index on the chain, its time stamp moved: Changes = %v; want com.example:lib@1.1", got)
+	}
+	// The same properties again (without a 304: their ETag changed): no
+	// change, and no read of the full index.
+	srv.on("GET", mavenPropsPath).reply(200, stamped(mavenTestProps("100", 0), "20261116120000.000")).withHeader("ETag", `"p2b"`)
+	if got, next = drainChanges(t, f, next); len(got) != 0 {
+		t.Errorf("unchanged properties: Changes = %v", got)
+	}
+	if n := fullReads(); n != 2 {
+		t.Errorf("the full index was read %d times, want 2 (the enumeration, the new full index)", n)
+	}
+
+	// The chain lists chunks from here on: chunk 1 is applied; then a
+	// packing that found nothing new moves the time stamp alone.
+	srv.on("GET", mavenPropsPath).reply(200, stamped(mavenTestProps("100", 1, 1), "20261116130000.000")).withHeader("ETag", `"p3"`)
+	srv.on("GET", mavenChunkPath(1)).reply(200, mavenTestIndex(1794834000000, lib12)).once()
+	if got, next = drainChanges(t, f, next); strings.Join(got, ",") != "com.example:lib@1.2" {
+		t.Errorf("chunk 1: Changes = %v", got)
+	}
+	srv.on("GET", mavenPropsPath).reply(200, stamped(mavenTestProps("100", 1, 1), "20261116140000.000")).withHeader("ETag", `"p4"`)
+	if got, _ = drainChanges(t, f, next); len(got) != 0 {
+		t.Errorf("a time stamp moved alone on a chain that lists chunks: Changes = %v", got)
+	}
+	if n := fullReads(); n != 2 {
+		t.Errorf("the full index was read %d times, want 2: a chain that lists chunks makes one for every change", n)
+	}
+}

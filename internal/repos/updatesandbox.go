@@ -108,7 +108,8 @@ func (ss *sandboxSession) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	lw := &limitWriter{w: spool, max: maxSandboxBody}
 	res, err := ss.s.opts.Fetcher.Fetch(ctx, FetchRequest{Upstream: upstream, Path: p, Accept: r.Header.Get("Accept"),
-		Tenant: ss.repo.Tenant, Subject: ss.s.cfg.Update.Subject, Roles: ss.s.rolesFor(ss.repo), DeferLLMRefusal: true}, lw)
+		Tenant: ss.repo.Tenant, Subject: ss.s.cfg.Update.Subject, Roles: ss.s.rolesFor(ss.repo), DeferLLMRefusal: true,
+		DeferredTo: "maintenance-update"}, lw)
 	switch {
 	case err != nil:
 		http.Error(w, "the proxy could not fetch it: "+err.Error(), http.StatusBadGateway)

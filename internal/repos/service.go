@@ -98,6 +98,10 @@ type FetchRequest struct {
 	// (Task 181), and a release keeps the bytes of a dependency the gate
 	// refuses to serve, for forensics.
 	DeferLLMRefusal bool
+	// DeferredTo names the caller that applies the ladder, in the audit
+	// record and the download-log entry of a deferred refusal (empty: the
+	// repository scan).
+	DeferredTo string
 }
 
 // FetchResult is what the proxy did with a FetchRequest.
