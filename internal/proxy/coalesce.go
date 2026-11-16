@@ -65,6 +65,11 @@ func classifyUpstreamError(err error) coalesce.Verdict {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return coalesce.Verdict{Cache: false}
 	}
+	// A fill cut off at a system fetch's size limit (Task 189) says nothing
+	// about the artifact either: a client asking next must get it.
+	if isTooLarge(err) {
+		return coalesce.Verdict{Cache: false}
+	}
 	if se, ok := backends.AsStatusError(err); ok {
 		switch {
 		case se.Status == http.StatusNotFound:

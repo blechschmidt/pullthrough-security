@@ -23,6 +23,9 @@ type client struct {
 	token       string
 	tenant      string
 	http        *http.Client
+	// stepUp is a fresh WebAuthn step-up token (Task 161) sent with the
+	// request, for an action the proxy protects with one.
+	stepUp string
 }
 
 // newClient builds a client from the resolved global flags, returning a clear
@@ -101,12 +104,18 @@ func (c *client) adminURL(apiPath string, query map[string]string) string {
 type apiError struct {
 	Status int
 	Body   string
+	// StepUp reports that the proxy asked for a passkey step-up
+	// (X-StepUp-Required).
+	StepUp bool
 }
 
 func (e *apiError) Error() string {
 	msg := strings.TrimSpace(e.Body)
 	if msg == "" {
 		msg = http.StatusText(e.Status)
+	}
+	if e.StepUp {
+		return fmt.Sprintf("the proxy requires a fresh passkey step-up for this action (HTTP %d): %s — run it from the admin console, or pass a step-up token with --stepup-token or PULLTHROUGH_STEPUP_TOKEN", e.Status, msg)
 	}
 	switch e.Status {
 	case http.StatusUnauthorized, http.StatusForbidden:
@@ -137,7 +146,7 @@ func (c *client) getJSON(u string, out any) error {
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &apiError{Status: resp.StatusCode, Body: extractErrorMessage(body)}
+		return &apiError{Status: resp.StatusCode, Body: extractErrorMessage(body), StepUp: resp.Header.Get("X-StepUp-Required") != ""}
 	}
 	if out == nil {
 		return nil
@@ -173,7 +182,7 @@ func (c *client) postJSON(u string, in, out any) error {
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &apiError{Status: resp.StatusCode, Body: extractErrorMessage(body)}
+		return &apiError{Status: resp.StatusCode, Body: extractErrorMessage(body), StepUp: resp.Header.Get("X-StepUp-Required") != ""}
 	}
 	if out == nil {
 		return nil
@@ -236,6 +245,9 @@ func (c *client) getRaw(u string) ([]byte, http.Header, error) {
 func (c *client) authorize(req *http.Request) {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.stepUp != "" {
+		req.Header.Set("X-StepUp-Token", c.stepUp)
 	}
 }
 

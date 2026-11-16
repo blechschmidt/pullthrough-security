@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1135,6 +1136,18 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 	cacheCtx, cacheSpan := g.startSpan(ctx, "cache.fetch",
 		tracing.String("pullthrough.cache.key", resolved.CacheKey))
 
+	// A system fetch may carry a size limit (the full mirror's
+	// maxArtifactBytes and byte budget, Task 189): the fill is refused
+	// before the body is read when the upstream states a larger size, and cut
+	// off at the limit otherwise, so nothing larger is ever committed.
+	maxBytes := systemMaxBytes(ctx)
+	limit := func(content io.Reader) io.Reader {
+		if maxBytes <= 0 {
+			return content
+		}
+		return newSizeLimiter(content, maxBytes, func() { noteTooLarge(ctx) })
+	}
+
 	loader := func(lctx context.Context) (io.Reader, map[string]string, error) {
 		loaded = true
 		// Emergency freeze lockdown (Task 74): the loader only runs on a cache miss,
@@ -1152,7 +1165,7 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		// are additionally re-verified against the expected digest by the federation
 		// layer itself. A peer miss or any peer error falls through to the upstream.
 		if content, meta, ok := g.fetchFromPeer(lctx, resolved); ok {
-			return content, meta, nil
+			return limit(content), meta, nil
 		}
 		_, fetchSpan := g.deps.Tracer.Start(cacheCtx, "upstream.fetch",
 			tracing.WithSpanKind(tracing.SpanKindClient),
@@ -1178,6 +1191,12 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		if result.Size >= 0 {
 			fetchSpan.SetAttributes(tracing.Int64("pullthrough.upstream.bytes", result.Size))
 		}
+		if maxBytes > 0 && result.Size > maxBytes {
+			_ = result.Content.Close()
+			noteTooLarge(ctx)
+			loadErr = errArtifactTooLarge{limit: maxBytes}
+			return nil, nil, loadErr
+		}
 		// Stream the body to the cache through a content-digest verifier when the
 		// resolution stage knows the expected digest (Task 75). The hash is computed
 		// incrementally as the store copies the body to its staging file, so the
@@ -1191,7 +1210,7 @@ func (g *Gateway) serveCacheable(w http.ResponseWriter, r *http.Request, name st
 		}); on {
 			content = verifier
 		}
-		return content, metadataForFetch(resolved, result), nil
+		return limit(content), metadataForFetch(resolved, result), nil
 	}
 
 	// Coalesce concurrent misses for this artifact onto a single upstream fetch
@@ -1707,6 +1726,19 @@ func (g *Gateway) writeFetchError(w http.ResponseWriter, r *http.Request, name s
 		http.Error(w, "upstream fetch capacity exceeded, retry shortly", http.StatusServiceUnavailable)
 		return
 	}
+	if isTooLarge(err) {
+		if systemMaxBytes(r.Context()) > 0 {
+			// The system fetch's own size limit (Task 189).
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			return
+		}
+		// This request shared a fill that a system fetch cut off at its own
+		// limit, which says nothing about what this client may have. A
+		// repeat starts a fill of its own.
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "the upstream fetch this request was waiting for was interrupted; retry", http.StatusServiceUnavailable)
+		return
+	}
 	if se, ok := backends.AsStatusError(err); ok {
 		// A 404/410 is the signature of a name-enumeration sweep; feed it to the
 		// anomaly detectors (Task 43) so a burst of negative lookups from one
@@ -1720,12 +1752,55 @@ func (g *Gateway) writeFetchError(w http.ResponseWriter, r *http.Request, name s
 		if se.Location != "" && se.Status >= 300 && se.Status < 400 {
 			w.Header().Set("Location", se.Location)
 		}
+		// An upstream that throttles or is briefly unavailable says when to
+		// come back; the client (and the full mirror, Task 189) should hear
+		// it. Only a well-formed value is relayed.
+		if se.Status == http.StatusTooManyRequests || se.Status == http.StatusServiceUnavailable {
+			if ra := relayableRetryAfter(se.RetryAfter); ra != "" {
+				w.Header().Set("Retry-After", ra)
+			}
+		}
 		http.Error(w, fmt.Sprintf("upstream returned status %d", se.Status), se.Status)
 		return
 	}
 	g.deps.Logger.Error("upstream fetch failed",
 		"backend", name, "upstream", resolved.UpstreamURL, "error", err)
 	http.Error(w, "upstream fetch failed", http.StatusBadGateway)
+}
+
+// relayableRetryAfter returns an upstream's Retry-After value when it is
+// well formed (delay-seconds or an HTTP date), as delay-seconds bounded to a
+// day, else "".
+func relayableRetryAfter(v string) string {
+	return relayRetryAfterAt(v, time.Now())
+}
+
+func relayRetryAfterAt(v string, now time.Time) string {
+	v = strings.TrimSpace(v)
+	if v == "" || len(v) > 64 {
+		return ""
+	}
+	max := int64(maxRetryAfter / time.Second)
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if secs < 0 {
+			return ""
+		}
+		if secs > max {
+			secs = max
+		}
+		return strconv.FormatInt(secs, 10)
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		secs := int64(math.Ceil(t.Sub(now).Seconds()))
+		switch {
+		case secs <= 0:
+			return "0"
+		case secs > max:
+			secs = max
+		}
+		return strconv.FormatInt(secs, 10)
+	}
+	return ""
 }
 
 // metadataForFetch builds the cache metadata to persist alongside the fetched

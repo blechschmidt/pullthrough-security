@@ -150,7 +150,7 @@ func (b *Backend) refreshIndex(ctx context.Context, prev *indexSnapshot) (*index
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: req.URL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: req.URL, Body: snippet}
 	}
 
 	body, err := readIndexBody(resp)

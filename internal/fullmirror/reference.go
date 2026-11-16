@@ -164,7 +164,7 @@ func registryLink(registry string) string {
 	return "[" + host + "](" + registry + ")"
 }
 
-func statusText(s Status) string {
+func statusText(s ImplStatus) string {
 	if s.Note == "" {
 		return string(s.State)
 	}

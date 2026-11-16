@@ -127,8 +127,8 @@ func (k CursorKind) tier() Tier {
 	return TierListing
 }
 
-// Feed is one way to learn what a registry holds or what changed in it.
-type Feed struct {
+// FeedSpec is one way to learn what a registry holds or what changed in it.
+type FeedSpec struct {
 	// Name is a short label ("replication feed", "complete index").
 	Name string
 	// URL is the endpoint as a template: {placeholders} stand for the cursor
@@ -181,8 +181,8 @@ const (
 
 var states = map[State]bool{StateNotStarted: true, StatePartial: true, StateImplemented: true, StateNotApplicable: true}
 
-// Status is the implementation-status column of the generated page.
-type Status struct {
+// ImplStatus is the implementation-status column of the generated page.
+type ImplStatus struct {
 	State State
 	// Note says what is (or will be) implemented and where.
 	Note string
@@ -204,7 +204,7 @@ type Entry struct {
 	Tier Tier
 	// Feeds are the ways to follow or enumerate the registry, the
 	// recommended one first.
-	Feeds []Feed
+	Feeds []FeedSpec
 	// RateLimits states the published (or observed) request limits.
 	RateLimits string
 	// Terms states what the registry's terms of use and mirroring policy say
@@ -220,7 +220,7 @@ type Entry struct {
 	// Sources are the documents the entry rests on.
 	Sources []Source
 	// Status is how far the proxy implements it.
-	Status Status
+	Status ImplStatus
 }
 
 // Catalog returns the entries, sorted by type. The slice is a copy.
@@ -228,7 +228,7 @@ func Catalog() []Entry {
 	out := make([]Entry, len(catalog))
 	for i, e := range catalog {
 		e.Aliases = append([]string(nil), e.Aliases...)
-		e.Feeds = append([]Feed(nil), e.Feeds...)
+		e.Feeds = append([]FeedSpec(nil), e.Feeds...)
 		e.Notes = append([]string(nil), e.Notes...)
 		e.Sources = append([]Source(nil), e.Sources...)
 		out[i] = e
@@ -344,7 +344,7 @@ func validateEntry(e Entry) error {
 			return fmt.Errorf("feed %q: %w", f.Name, err)
 		}
 	}
-	var lead *Feed
+	var lead *FeedSpec
 	if len(e.Feeds) > 0 {
 		lead = &e.Feeds[0]
 	}

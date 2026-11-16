@@ -457,7 +457,7 @@ func (b *Backend) statusError(resp *upstream.Response, rawURL string, relayRedir
 	if !isRedirect(resp.Status) {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return &backends.StatusError{Status: resp.Status, URL: rawURL, Body: snippet}
+		return &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: rawURL, Body: snippet}
 	}
 	drainClose(resp.Body)
 	if !relayRedirect {
@@ -469,7 +469,7 @@ func (b *Backend) statusError(resp *upstream.Response, rawURL string, relayRedir
 		return fmt.Errorf("ansible %q: %w (status %d): its target is outside the registry",
 			b.name, errRedirectNotRelayed, resp.Status)
 	}
-	return &backends.StatusError{Status: resp.Status, URL: rawURL, Location: location}
+	return &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: rawURL, Location: location}
 }
 
 // isRedirect reports whether status is a redirect whose Location a client

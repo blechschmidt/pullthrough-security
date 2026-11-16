@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,6 +28,30 @@ type MetadataSource struct {
 	// (the source contributes no files). Almost every metadata store is optional
 	// because the corresponding subsystem may be disabled.
 	Optional bool
+	// Volatile marks a store the running proxy rewrites all the time — each
+	// file replaced atomically, by rename — such as the full mirror's cursor
+	// state (Task 189). Its files are read once, while the manifest is built,
+	// into a private spool copy, and the archive carries exactly those bytes:
+	// the second pass cannot find a file changed under it. A file that
+	// disappears between the directory walk and that read is left out. Each
+	// file is consistent in itself; the files of the store are not a
+	// snapshot of one instant together.
+	Volatile bool
+	// Ignore are base-name patterns (filepath.Match syntax) of files left
+	// out of the source: the temporary files a store writes before renaming
+	// them into place (".tmp-*").
+	Ignore []string
+}
+
+// ignored reports whether a file of the source is left out.
+func (s MetadataSource) ignored(relPath string) bool {
+	base := path.Base(relPath)
+	for _, pat := range s.Ignore {
+		if ok, err := path.Match(pat, base); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // validName reports whether a source name is safe to embed in a manifest and to
@@ -118,6 +143,9 @@ func scanSource(src MetadataSource) (kind string, files []scannedFile, err error
 		rel, rerr := filepath.Rel(root, path)
 		if rerr != nil {
 			return rerr
+		}
+		if src.ignored(filepath.ToSlash(rel)) {
+			return nil
 		}
 		files = append(files, scannedFile{
 			relPath: filepath.ToSlash(rel),

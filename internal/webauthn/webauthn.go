@@ -53,7 +53,8 @@ const (
 // defaultProtectedActions are the admin endpoint paths (relative to the mount
 // prefix) that require a fresh step-up assertion when enforcement is enabled.
 // They correspond to break-glass approvals (Task 50), emergency lockdown
-// (Task 74), policy-preset apply (Task 88), and key-rotation triggers (Task 148).
+// (Task 74), policy-preset apply (Task 88), key-rotation triggers (Task 148),
+// and the full mirror's controls (Task 189).
 var defaultProtectedActions = []string{
 	"/api/approvals/approve",
 	"/api/approvals/deny",
@@ -61,6 +62,9 @@ var defaultProtectedActions = []string{
 	"/api/lockdown/clear",
 	"/api/presets/apply",
 	"/api/keys/rotate",
+	"/api/fullmirror/pause",
+	"/api/fullmirror/resume",
+	"/api/fullmirror/resync",
 }
 
 // Typed errors so the admin layer can map ceremonies to HTTP status codes.

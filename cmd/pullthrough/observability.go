@@ -56,6 +56,7 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/extension"
 	"github.com/blechschmidt/pullthrough-security/internal/findings"
 	"github.com/blechschmidt/pullthrough-security/internal/fips"
+	"github.com/blechschmidt/pullthrough-security/internal/fullmirror"
 	"github.com/blechschmidt/pullthrough-security/internal/git"
 	"github.com/blechschmidt/pullthrough-security/internal/gitops"
 	"github.com/blechschmidt/pullthrough-security/internal/grpcapi"
@@ -226,6 +227,7 @@ func buildObservability(
 	downloads *downloadlog.Log,
 	userLinksSvc *userlinks.Service,
 	reposSvc *repos.Service,
+	fullMirror *fullmirror.Engine,
 	logger *slog.Logger,
 ) observability {
 	var obs observability
@@ -490,6 +492,9 @@ func buildObservability(
 		bindSIEMMetrics(collector, siemFwd)
 		bindSecretsMetrics(collector, secretsResolver)
 		bindPrewarmMetrics(collector, prewarmSvc)
+		// Full mirroring (Task 189): the series exist (empty) when nothing is
+		// mirrored, so dashboards and alerts find them.
+		fullmirror.BindMetrics(collector.Registry(), fullMirror)
 		bindSBOMExportMetrics(collector, sbomExporter)
 		bindRateLimitMetrics(collector, rateLimiter)
 		bindAuditMetrics(collector, auditLog)
@@ -539,7 +544,7 @@ func buildObservability(
 	}
 
 	if cfg.Observability.Admin && !adminClosed {
-		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, userLinksSvc, adminAuthSvc, vexExporter, reposSvc, logger)
+		srv, err := buildAdminServer(cfg, configSvc, registry, cacheImpl, commitScanner, provService, provResolver, vulnService, sigVerify, licenseService, pacEngine, rescanner, notifier, rateLimiter, auditLog, provGraph, coalescer, complianceSvc, riskEngine, repoScoreSvc, sbomDiffSvc, rebuildVerifySvc, buildProvSvc, pypiAttestSvc, extManager, anomalyEngine, approvalsSvc, malfeedSvc, maturitySvc, continuitySvc, depFirewallSvc, installHooksSvc, avScanSvc, contentScanSvc, llmPkgScanSvc, poolMgr, egressGuard, cacheGC, backupScheduler, findingsStore, suppressionLedger, simReplayRecorder, attestor, snapshotSvc, lockdownSvc, gitopsSvc, prewarmSvc, sbomExporter, tracerProvider, coordSvc, secopsHub, keyRotationSvc, webAuthnSvc, queryEngine, timelineEngine, mcpSrv, grpcSrv, meter, downloads, userLinksSvc, adminAuthSvc, vexExporter, reposSvc, fullMirror, logger)
 		if err != nil {
 			// Cache inspection is the admin minimum; if it cannot be wired we log and
 			// run without the surface rather than aborting the whole proxy.
@@ -5280,6 +5285,7 @@ func buildAdminServer(
 	adminAuthSvc *adminauth.Service,
 	vexExporter *vexexport.Service,
 	reposSvc *repos.Service,
+	fullMirror *fullmirror.Engine,
 	logger *slog.Logger,
 ) (*admin.Server, error) {
 	opts := admin.Options{
@@ -5422,6 +5428,9 @@ func buildAdminServer(
 	}
 	if prewarmSvc != nil {
 		opts.Prewarm = prewarmSvc
+	}
+	if fullMirror != nil {
+		opts.FullMirror = fullMirror
 	}
 	if sbomExporter != nil {
 		opts.SBOMExport = sbomExporter

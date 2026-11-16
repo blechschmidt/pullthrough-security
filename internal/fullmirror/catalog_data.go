@@ -27,7 +27,7 @@ var catalog = []Entry{
 		Title:    "npm registry",
 		Registry: "https://registry.npmjs.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "replication feed (`_changes`)",
 				URL:    "https://replicate.npmjs.com/_changes?since={seq}&limit=10000",
@@ -71,14 +71,14 @@ var catalog = []Entry{
 			{"GitHub changelog: npm CouchDB upgrade will reset the sequence number (2021-09-08)", "https://github.blog/changelog/2021-09-08-npm-couchdb-upgrade-will-reset-sequence-number"},
 			{"npm Open-Source Terms", "https://docs.npmjs.com/policies/open-source-terms"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "pip",
 		Title:    "Python Package Index (PyPI)",
 		Registry: "https://pypi.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "XML-RPC changelog",
 				URL:    "https://pypi.org/pypi",
@@ -135,14 +135,14 @@ var catalog = []Entry{
 			{"PyPI statistics", "https://pypi.org/stats/"},
 			{"bandersnatch, the PyPA mirror client", "https://github.com/pypa/bandersnatch"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "cargo",
 		Title:    "crates.io (Cargo)",
 		Registry: "https://index.crates.io",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "Git index commits",
 				URL:    "https://github.com/rust-lang/crates.io-index",
@@ -189,14 +189,14 @@ var catalog = []Entry{
 			{"RFC 3463: crates.io policy update (data access, crawler rules)", "https://rust-lang.github.io/rfcs/3463-crates-io-policy-update.html"},
 			{"crates.io data access", "https://crates.io/data-access"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "go",
 		Title:    "Go module mirror (proxy.golang.org)",
 		Registry: "https://proxy.golang.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "module index",
 				URL:    "https://index.golang.org/index?since={timestamp}&limit=2000",
@@ -237,14 +237,14 @@ var catalog = []Entry{
 			{"proxy.golang.org privacy", "https://proxy.golang.org/privacy"},
 			{"Go modules reference: checksum database", "https://go.dev/ref/mod#checksum-database"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "nuget",
 		Title:    "NuGet Gallery (nuget.org)",
 		Registry: "https://api.nuget.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "catalog",
 				URL:    "https://api.nuget.org/v3/catalog0/index.json",
@@ -273,14 +273,14 @@ var catalog = []Entry{
 			{"NuGet API rate limits", "https://learn.microsoft.com/en-us/nuget/api/rate-limits"},
 			{"nuget.org statistics", "https://www.nuget.org/stats"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "rubygems",
 		Title:    "RubyGems.org",
 		Registry: "https://rubygems.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "compact index `/versions`",
 				URL:    "https://rubygems.org/versions",
@@ -326,14 +326,14 @@ var catalog = []Entry{
 			{"RubyGems.org rate limits", "https://guides.rubygems.org/rubygems-org-rate-limits/"},
 			{"RubyGems.org statistics", "https://rubygems.org/stats"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "composer",
 		Title:    "Packagist (Composer)",
 		Registry: "https://repo.packagist.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "metadata changes",
 				URL:    "https://packagist.org/metadata/changes.json?since={since}",
@@ -366,14 +366,14 @@ var catalog = []Entry{
 			{"Packagist API documentation", "https://packagist.org/apidoc"},
 			{"Packagist statistics", "https://packagist.org/statistics"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "hackage",
 		Title:    "Hackage (Haskell)",
 		Registry: "https://hackage.haskell.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "index tarball tail",
 				URL:    "https://hackage.haskell.org/01-index.tar",
@@ -408,14 +408,14 @@ var catalog = []Entry{
 			{"hackage-security", "https://github.com/haskell/hackage-security"},
 			{"hackage-mirror-tool", "https://github.com/haskell-hvr/hackage-mirror-tool"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "cpan",
 		Title:    "CPAN (Perl)",
 		Registry: "https://cpan.metacpan.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "RECENT files",
 				URL:    "https://cpan.metacpan.org/RECENT-1h.json",
@@ -451,14 +451,14 @@ var catalog = []Entry{
 			{"How to mirror CPAN", "https://www.cpan.org/misc/how-to-mirror.html"},
 			{"MetaCPAN API documentation", "https://github.com/metacpan/metacpan-api/blob/master/docs/API-docs.md"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "julia",
 		Title:    "Julia General registry (Pkg servers)",
 		Registry: "https://pkg.julialang.org",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "General registry commits",
 				URL:    "https://github.com/JuliaRegistries/General",
@@ -497,14 +497,14 @@ var catalog = []Entry{
 			{"JuliaRegistries/General", "https://github.com/JuliaRegistries/General"},
 			{"PkgServer.jl", "https://github.com/JuliaPackaging/PkgServer.jl"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "bazel",
 		Title:    "Bazel Central Registry (BCR)",
 		Registry: "https://bcr.bazel.build",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "BCR commits",
 				URL:    "https://github.com/bazelbuild/bazel-central-registry",
@@ -531,14 +531,14 @@ var catalog = []Entry{
 			{"Bazel registries", "https://bazel.build/external/registry"},
 			{"bazelbuild/bazel-central-registry", "https://github.com/bazelbuild/bazel-central-registry"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	{
 		Type:     "conan",
 		Title:    "ConanCenter (center2.conan.io)",
 		Registry: "https://center2.conan.io",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "conan-center-index commits",
 				URL:    "https://github.com/conan-io/conan-center-index",
@@ -573,7 +573,7 @@ var catalog = []Entry{
 			{"Using ConanCenter (Conan 2 docs)", "https://docs.conan.io/2/devops/using_conancenter.html"},
 			{"Introducing the local-recipes-index remote", "https://blog.conan.io/2024/04/23/Introducing-local-recipes-index-remote.html"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 
 	{
@@ -581,7 +581,7 @@ var catalog = []Entry{
 		Title:    "Homebrew (formulae.brew.sh, bottles on ghcr.io)",
 		Registry: "https://formulae.brew.sh",
 		Tier:     TierFeed,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "homebrew-core commits",
 				URL:    "https://github.com/Homebrew/homebrew-core",
@@ -618,7 +618,7 @@ var catalog = []Entry{
 			{"brew: Library/Homebrew/api/formula.rb (signed JSON)", "https://github.com/Homebrew/brew/blob/HEAD/Library/Homebrew/api/formula.rb"},
 			{"Homebrew/homebrew-core", "https://github.com/Homebrew/homebrew-core"},
 		},
-		Status: Status{StateNotStarted, planFeed},
+		Status: ImplStatus{StateNotStarted, planFeed},
 	},
 	// --- (b) complete indexes to poll and diff ------------------------------------
 	{
@@ -627,7 +627,7 @@ var catalog = []Entry{
 		Title:    "Debian / Ubuntu APT archives",
 		Registry: "https://deb.debian.org/debian",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "Release and Packages indexes",
 				URL:    "https://deb.debian.org/debian/dists/{suite}/InRelease",
@@ -667,7 +667,7 @@ var catalog = []Entry{
 			{"Debian: mirror size", "https://www.debian.org/mirror/size"},
 			{"Ubuntu release team: mirrors", "https://documentation.ubuntu.com/project/release-team/mirrors"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "yum",
@@ -675,7 +675,7 @@ var catalog = []Entry{
 		Title:    "Fedora and RHEL-family YUM repositories",
 		Registry: "https://dl.fedoraproject.org/pub/fedora/linux",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "repomd.xml and primary",
 				URL:    "https://dl.fedoraproject.org/pub/fedora/linux/updates/{release}/Everything/{arch}/repodata/repomd.xml",
@@ -712,14 +712,14 @@ var catalog = []Entry{
 			{"Fedora infrastructure: mirror tiering", "https://fedoraproject.org/wiki/Infrastructure/Mirroring/Tiering"},
 			{"dl.fedoraproject.org directory sizes", "https://dl.fedoraproject.org/pub/DIRECTORY_SIZES.txt"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "helm",
 		Title:    "Helm chart repositories",
 		Registry: "https://charts.bitnami.com/bitnami",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "repository `index.yaml`",
 				URL:    "https://charts.bitnami.com/bitnami/index.yaml",
@@ -761,14 +761,14 @@ var catalog = []Entry{
 			{"Bitnami charts: upcoming changes (issue 35164)", "https://github.com/bitnami/charts/issues/35164"},
 			{"Helm: chart repository guide", "https://helm.sh/docs/topics/chart_repository/"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "conda",
 		Title:    "conda-forge (anaconda.org)",
 		Registry: "https://conda.anaconda.org/conda-forge",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "repodata per subdir",
 				URL:    "https://conda.anaconda.org/conda-forge/{subdir}/repodata.json.zst",
@@ -804,14 +804,14 @@ var catalog = []Entry{
 			{"Anaconda Package Security Manager: mirrors", "https://www.anaconda.com/docs/psm/on-prem/latest/admin/mirrors"},
 			{"conda-forge: total size of the conda-forge repo (2021)", "https://groups.google.com/g/conda-forge/c/AlY_u8TCjO8"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "cran",
 		Title:    "CRAN (R)",
 		Registry: "https://cloud.r-project.org",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "PACKAGES index",
 				URL:    "https://cloud.r-project.org/src/contrib/PACKAGES.gz",
@@ -841,14 +841,14 @@ var catalog = []Entry{
 			{"CRAN mirror HOWTO", "https://cran.r-project.org/mirror-howto.html"},
 			{"CRAN mirrors", "https://cran.r-project.org/mirrors.html"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "hex",
 		Title:    "Hex (Elixir and Erlang)",
 		Registry: "https://repo.hex.pm",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "names and versions",
 				URL:    "https://repo.hex.pm/names",
@@ -882,14 +882,14 @@ var catalog = []Entry{
 			{"Hex mirrors", "https://hex.pm/docs/mirrors"},
 			{"Artifactory Hex repositories", "https://docs.jfrog.com/artifactory/docs/hex-repositories"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "maven",
 		Title:    "Maven Central",
 		Registry: "https://repo1.maven.org/maven2",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "Maven Indexer index",
 				URL:    "https://repo1.maven.org/maven2/.index/nexus-maven-repository-index.properties",
@@ -938,14 +938,14 @@ var catalog = []Entry{
 			{"Maven Central: 429 errors (rate limiting)", "https://central.sonatype.org/faq/429-error/"},
 			{"JFrog: 429 rate limits from Maven Central surface as 404s", "https://jfrog.com/help/r/artifactory-429-rate-limits-from-maven-central-public-upstreams-surface-as-404s"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 	{
 		Type:     "openvsx",
 		Title:    "Open VSX",
 		Registry: "https://open-vsx.org",
 		Tier:     TierIndex,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "sitemap",
 				URL:    "https://open-vsx.org/sitemap.xml",
@@ -976,7 +976,7 @@ var catalog = []Entry{
 			{"openvsx-server mirror mode (source)", "https://github.com/eclipse-openvsx/openvsx/tree/master/server/src/main/java/org/eclipse/openvsx/mirror"},
 			{"Eclipse Foundation: Open VSX rate limiting (2026-02-11)", "https://blogs.eclipse.org/node/8762"},
 		},
-		Status: Status{StateNotStarted, planIndex},
+		Status: ImplStatus{StateNotStarted, planIndex},
 	},
 
 	// --- (c) paginated listings only ---------------------------------------------------
@@ -986,7 +986,7 @@ var catalog = []Entry{
 		Title:    "pub.dev (Dart and Flutter)",
 		Registry: "https://pub.dev",
 		Tier:     TierListing,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "packages by publish time",
 				URL:    "https://pub.dev/api/packages?page={page}",
@@ -1019,14 +1019,14 @@ var catalog = []Entry{
 			{"pub.dev API", "https://pub.dev/help/api"},
 			{"Hosted pub repository specification v2", "https://github.com/dart-lang/pub/blob/master/doc/repository-spec-v2.md"},
 		},
-		Status: Status{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotStarted, planListing},
 	},
 	{
 		Type:     "jsr",
 		Title:    "JSR (JavaScript Registry)",
 		Registry: "https://jsr.io",
 		Tier:     TierListing,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "package list",
 				URL:    "https://api.jsr.io/packages?limit=100&page={page}",
@@ -1056,14 +1056,14 @@ var catalog = []Entry{
 			{"JSR API", "https://jsr.io/docs/api"},
 			{"JSR management API (OpenAPI)", "https://api.jsr.io/.well-known/openapi"},
 		},
-		Status: Status{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotStarted, planListing},
 	},
 	{
 		Type:     "huggingface",
 		Title:    "Hugging Face Hub",
 		Registry: "https://huggingface.co",
 		Tier:     TierListing,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "repositories by last modification",
 				URL:    "https://huggingface.co/api/models?sort=lastModified&direction=-1&limit=100",
@@ -1091,14 +1091,14 @@ var catalog = []Entry{
 			{"Hugging Face Hub rate limits", "https://huggingface.co/docs/hub/rate-limits"},
 			{"Migrating the Hub to Xet (2025-07-15)", "https://huggingface.co/blog/migrating-the-hub-to-xet"},
 		},
-		Status: Status{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotStarted, planListing},
 	},
 	{
 		Type:     "puppet",
 		Title:    "Puppet Forge",
 		Registry: "https://forgeapi.puppet.com",
 		Tier:     TierListing,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "releases by date",
 				URL:    "https://forgeapi.puppet.com/v3/releases?sort_by=release_date&limit=100&offset={offset}&with_html=false&exclude_fields=readme+changelog+license+reference",
@@ -1120,14 +1120,14 @@ var catalog = []Entry{
 			{"Puppet Forge API v3", "https://forgeapi.puppet.com/"},
 			{"Puppet module developer EULA FAQ (2025)", "https://puppet.com/blog/puppet-module-developer-eula-faq"},
 		},
-		Status: Status{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotStarted, planListing},
 	},
 	{
 		Type:     "ansible",
 		Title:    "Ansible Galaxy",
 		Registry: "https://galaxy.ansible.com",
 		Tier:     TierListing,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "collection versions, newest first",
 				URL:    "https://galaxy.ansible.com/api/v3/plugin/ansible/search/collection-versions/?order_by=-pulp_created&limit=100&offset={offset}",
@@ -1152,14 +1152,14 @@ var catalog = []Entry{
 			{"pulp_ansible: collections", "https://pulpproject.org/pulp_ansible/docs/user/guides/collections/"},
 			{"Automation Hub: requirements file for galaxy.ansible.com remotes (AAH-2280)", "https://issues.redhat.com/browse/AAH-2280"},
 		},
-		Status: Status{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotStarted, planListing},
 	},
 	{
 		Type:     "terraform",
 		Title:    "Terraform Registry (and the OpenTofu registry)",
 		Registry: "https://registry.terraform.io",
 		Tier:     TierListing,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:   "module listing",
 				URL:    "https://registry.terraform.io/v1/modules?limit=100&offset={offset}",
@@ -1210,7 +1210,7 @@ var catalog = []Entry{
 			{"Building the OpenTofu registry (2024-09-12)", "https://opentofu.org/blog/building-the-opentofu-registry/"},
 			{"opentofu/registry", "https://github.com/opentofu/registry"},
 		},
-		Status: Status{StateNotStarted, planListing},
+		Status: ImplStatus{StateNotStarted, planListing},
 	},
 
 	// --- (d) no practical enumeration ---------------------------------------------------
@@ -1219,7 +1219,7 @@ var catalog = []Entry{
 		Title:    "Docker Hub",
 		Registry: "https://registry-1.docker.io",
 		Tier:     TierNone,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:    "tags of a named repository",
 				URL:     "https://registry-1.docker.io/v2/{namespace}/{repository}/tags/list?n=1000",
@@ -1257,14 +1257,14 @@ var catalog = []Entry{
 			{"Docker terms of service", "https://www.docker.com/legal/docker-terms-service/"},
 			{"OCI distribution specification", "https://github.com/opencontainers/distribution-spec/blob/main/spec.md"},
 		},
-		Status: Status{StateNotStarted, planPartial},
+		Status: ImplStatus{StateNotStarted, planPartial},
 	},
 	{
 		Type:     "swift",
 		Title:    "Swift package registries (Tuist's public registry)",
 		Registry: "https://tuist.dev/api/registry/swift",
 		Tier:     TierNone,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:    "Swift Package Index package list",
 				URL:     "https://github.com/SwiftPackageIndex/PackageList",
@@ -1292,14 +1292,14 @@ var catalog = []Entry{
 			{"Tuist: opening the registry (2025-11-26)", "https://tuist.dev/blog/2025/11/26/opening-registry"},
 			{"SwiftPackageIndex/PackageList", "https://github.com/SwiftPackageIndex/PackageList"},
 		},
-		Status: Status{StateNotStarted, planPartial},
+		Status: ImplStatus{StateNotStarted, planPartial},
 	},
 	{
 		Type:     "nix",
 		Title:    "Nix binary cache (cache.nixos.org)",
 		Registry: "https://cache.nixos.org",
 		Tier:     TierNone,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:    "channel store paths",
 				URL:     "https://channels.nixos.org/{channel}/store-paths.xz",
@@ -1324,7 +1324,7 @@ var catalog = []Entry{
 			{"NixOS: the Nix binary cache (2026-09-20)", "https://nixos.org/blog/stories/2026/nix-binary-cache/"},
 			{"NixOS Discourse: garbage collecting cache.nixos.org", "https://discourse.nixos.org/t/garbage-collecting-cache-nixos-org/74249"},
 		},
-		Status: Status{StateNotStarted, planPartial},
+		Status: ImplStatus{StateNotStarted, planPartial},
 	},
 	{
 		Type:       "generic",
@@ -1347,14 +1347,14 @@ var catalog = []Entry{
 			{"Artifactory: remote list browsing", "https://jfrog.com/help/r/jfrog-artifactory-documentation/remote-list-browsing"},
 			{"Nexus: components API", "https://help.sonatype.com/en/components-api.html"},
 		},
-		Status: Status{StateNotApplicable, "operator-defined upstream"},
+		Status: ImplStatus{StateNotApplicable, "operator-defined upstream"},
 	},
 	{
 		Type:     "git",
 		Title:    "Git hosting (GitHub and other forges)",
 		Registry: "https://github.com",
 		Tier:     TierNone,
-		Feeds: []Feed{
+		Feeds: []FeedSpec{
 			{
 				Name:    "refs of a named repository",
 				URL:     "https://github.com/{owner}/{repository}",
@@ -1391,6 +1391,6 @@ var catalog = []Entry{
 			{"GitLab system hooks", "https://docs.gitlab.com/administration/system_hooks/"},
 			{"Gitea webhooks", "https://docs.gitea.com/usage/webhooks"},
 		},
-		Status: Status{StatePartial, "named repositories are followed for the commit scan: `scanning.watch`"},
+		Status: ImplStatus{StatePartial, "named repositories are followed for the commit scan: `scanning.watch`"},
 	},
 }

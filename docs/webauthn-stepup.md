@@ -14,6 +14,7 @@ Protected operations (Task 161):
 | Emergency lockdown engage / clear (Task 74) | `POST /admin/api/lockdown/engage`, `.../clear` |
 | Apply a compliance policy preset (Task 88) | `POST /admin/api/presets/apply` |
 | Trigger a credential / signing-key rotation (Task 148) | `POST /admin/api/keys/rotate` |
+| Pause, resume or resync the full mirror (Task 189) | `POST /admin/api/fullmirror/pause`, `.../resume`, `.../resync` |
 
 ## How it works
 

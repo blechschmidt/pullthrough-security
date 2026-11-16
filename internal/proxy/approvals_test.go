@@ -147,3 +147,51 @@ type gwClock struct{ t time.Time }
 
 func (c *gwClock) now() time.Time          { return c.t }
 func (c *gwClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+// A system fetch with NoReview (the full mirror, Task 189) opens no
+// break-glass review for a refusal — nobody asked for the artifact — but is
+// served under a grant an operator gave.
+func TestSystemFetchWithNoReviewOpensNoReview(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ARTIFACT")
+	}))
+	defer srv.Close()
+	mf := malfeed.NewService(malfeed.Config{
+		InitialEntries: []malfeed.Entry{{ID: "MAL-2026-1", Ecosystem: "npm", Name: "evil-stealer", AllVersions: true, Source: "test"}},
+		InitialLoaded:  true,
+	})
+	defer mf.Close()
+	ap, err := approvals.New(approvals.Config{Enabled: true, RequiredApprovers: 1, GrantTTL: time.Hour},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := newApprovalsGateway(t, srv.URL, mf, ap)
+	ctx := context.Background()
+	req := SystemFetchRequest{Backend: "npm", Path: "/evil-stealer/-/evil-stealer-1.0.0.tgz", Subject: "system:full-mirror", NoReview: true}
+	res, err := g.SystemFetch(ctx, req, nil)
+	if err != nil || res.Gate != "malfeed" {
+		t.Fatalf("refusal %+v %v", res, err)
+	}
+	if n := len(ap.Pending()); n != 0 {
+		t.Fatalf("the mirror's refusal opened %d review(s)", n)
+	}
+	// A client's pull opens one; an operator grants it; the mirror is served
+	// under the grant without opening another.
+	rr := httptest.NewRecorder()
+	g.routes().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/npm/evil-stealer/-/evil-stealer-1.0.0.tgz", nil))
+	pending := ap.Pending()
+	if rr.Code != http.StatusForbidden || len(pending) != 1 {
+		t.Fatalf("client pull: %d, %d pending", rr.Code, len(pending))
+	}
+	if _, err := ap.Approve(ctx, pending[0].ID, approvals.ApproveInput{Approver: "ops", Justification: "false positive"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err = g.SystemFetch(ctx, req, nil)
+	if err != nil || res.Status != http.StatusOK || !res.Admitted {
+		t.Fatalf("under the grant: %+v %v", res, err)
+	}
+	if snap := ap.Snapshot(); snap.Open != 0 {
+		t.Errorf("%d open reviews", snap.Open)
+	}
+}

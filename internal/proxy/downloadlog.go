@@ -287,6 +287,21 @@ func (g *Gateway) recordDownload(r *http.Request, mw *meteredWriter) {
 // gate's refusal body. Every gate answers a refusal with a small JSON document
 // carrying "code" and "reason" (a Git LFS error carries "message"); a body that
 // is something else (or was cut off) simply yields nothing.
+// blockAction returns the "action" of a refusal's JSON body ("block",
+// "quarantine", "fail-closed"), or "".
+func blockAction(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var doc struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return ""
+	}
+	return doc.Action
+}
+
 func blockExplanation(body []byte) (code, reason string) {
 	if len(body) == 0 {
 		return "", ""

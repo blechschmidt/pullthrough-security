@@ -10,13 +10,13 @@ import (
 func validEntry() Entry {
 	return Entry{
 		Type: "npm", Title: "npm", Registry: "https://registry.npmjs.org", Tier: TierFeed,
-		Feeds: []Feed{{
+		Feeds: []FeedSpec{{
 			Name: "changes", URL: "https://replicate.npmjs.com/_changes?since={seq}", Cursor: CursorSequence,
 			Semantics: "ordered by seq", Verified: "2026-11-15: 200",
 		}},
 		RateLimits: "none", Terms: "allowed", Size: Size{Figure: "big", Basis: "count"}, Private: "none",
 		Sources: []Source{{Title: "docs", URL: "https://docs.npmjs.com/"}},
-		Status:  Status{State: StateNotStarted},
+		Status:  ImplStatus{State: StateNotStarted},
 	}
 }
 
@@ -55,7 +55,7 @@ func TestValidateRejectsBrokenEntries(t *testing.T) {
 		}, "https URL"},
 		{"a later complete feed outranks tier b", func(c []Entry) []Entry {
 			c[0].Tier = TierIndex
-			c[0].Feeds = []Feed{
+			c[0].Feeds = []FeedSpec{
 				{Name: "index", URL: "https://x.example/index", Cursor: CursorValidator, Semantics: "s", Verified: "2026-11-15: 200"},
 				{Name: "commits", URL: "https://x.example/git", Cursor: CursorCommit, Semantics: "s", Verified: "2026-11-15: 200"},
 			}
@@ -63,7 +63,7 @@ func TestValidateRejectsBrokenEntries(t *testing.T) {
 		}, "makes this a tier-(a) entry"},
 		{"a later complete index outranks tier c", func(c []Entry) []Entry {
 			c[0].Tier = TierListing
-			c[0].Feeds = []Feed{
+			c[0].Feeds = []FeedSpec{
 				{Name: "listing", URL: "https://x.example/list?page={page}", Cursor: CursorPage, Semantics: "s", Verified: "2026-11-15: 200"},
 				{Name: "index", URL: "https://x.example/index", Cursor: CursorValidator, Semantics: "s", Verified: "2026-11-15: 200"},
 			}
@@ -102,7 +102,7 @@ func TestValidateRejectsBrokenEntries(t *testing.T) {
 	// A partial feed may be better than the tier: it does not cover the registry.
 	partial := validEntry()
 	partial.Tier = TierListing
-	partial.Feeds = []Feed{
+	partial.Feeds = []FeedSpec{
 		{Name: "listing", URL: "https://x.example/list?page={page}", Cursor: CursorPage, Semantics: "s", Verified: "2026-11-15: 200"},
 		{Name: "other registry", URL: "https://x.example/git", Cursor: CursorCommit, Partial: true, Semantics: "s", Verified: "2026-11-15: 200"},
 	}

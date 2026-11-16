@@ -78,7 +78,11 @@ func requiredCapability(method, relPath string) adminauth.Capability {
 		// URL given, with the credentials it names, as the tenant it names;
 		// removing one ends its tracking. Both are the administrator's remit.
 		// (Syncing a repository or pinning a release is operational.)
-		"/api/repos", "/api/repos/remove":
+		"/api/repos", "/api/repos/remove",
+		// Resyncing an upstream's full mirror (Task 189) has the proxy
+		// enumerate the whole registry again: a burst of upstream requests
+		// and byte budget. (Pausing and resuming it are operational.)
+		"/api/fullmirror/resync":
 		return adminauth.CapAdminister
 
 	// Managing one's own passkeys and running the step-up ceremonies (Task 161)

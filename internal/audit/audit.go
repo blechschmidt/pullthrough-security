@@ -57,6 +57,7 @@ const (
 	EventReleasePin    EventType = "release_pin"       // a release's dependencies pinned (or not), a pinned object repaired or lost (Task 180)
 	EventRepoScan      EventType = "repository_scan"   // a tracked repository's dependencies scanned by the LLM package-content scan, a dependency flagged (Task 181)
 	EventRepoUpdate    EventType = "repository_update" // a maintenance branch pushed with vetted dependency updates, or a push refused (Task 182)
+	EventFullMirror    EventType = "full_mirror"       // the full mirror paused, resumed or resynced by an operator; a registry enumeration started or finished, a cursor lost, a byte budget spent (Task 189)
 )
 
 // Decision is the outcome recorded for authz/policy/quota events.

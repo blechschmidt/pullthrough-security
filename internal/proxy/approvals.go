@@ -58,7 +58,7 @@ func (g *Gateway) breakGlass(w http.ResponseWriter, r *http.Request, gate approv
 		tenant = p.Team
 		requester = p.Subject
 	}
-	disp := g.deps.Approvals.Consult(r.Context(), approvals.Scope{
+	scope := approvals.Scope{
 		Tenant:     tenant,
 		Ecosystem:  ecosystem,
 		Coordinate: coordinate,
@@ -66,7 +66,20 @@ func (g *Gateway) breakGlass(w http.ResponseWriter, r *http.Request, gate approv
 		Reason:     reason,
 		Backend:    backend,
 		Requester:  requester,
-	})
+	}
+	var disp approvals.Disposition
+	if systemNoReview(r.Context()) {
+		// A system fetch nobody asked for (the full mirror, Task 189) is
+		// served under a grant an operator already gave, but opens no review
+		// of its own.
+		grant, ok := g.deps.Approvals.Active(scope)
+		if !ok {
+			return false
+		}
+		disp = approvals.Disposition{Allow: true, RequestID: grant.ID}
+	} else {
+		disp = g.deps.Approvals.Consult(r.Context(), scope)
+	}
 	if !disp.Allow {
 		return false
 	}

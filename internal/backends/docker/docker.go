@@ -273,9 +273,10 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
 		return nil, &backends.StatusError{
-			Status: resp.Status,
-			URL:    resolved.UpstreamURL,
-			Body:   snippet,
+			Status:     resp.Status,
+			RetryAfter: resp.Header.Get("Retry-After"),
+			URL:        resolved.UpstreamURL,
+			Body:       snippet,
 		}
 	}
 
@@ -355,9 +356,10 @@ func (b *Backend) fetchReferrersFallback(ctx context.Context, resolved *backends
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
 		return nil, &backends.StatusError{
-			Status: resp.Status,
-			URL:    fallbackURL,
-			Body:   snippet,
+			Status:     resp.Status,
+			RetryAfter: resp.Header.Get("Retry-After"),
+			URL:        fallbackURL,
+			Body:       snippet,
 		}
 	}
 

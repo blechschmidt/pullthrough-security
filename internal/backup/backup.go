@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"time"
 
@@ -35,6 +36,10 @@ type Options struct {
 	AppVersion string
 	// Encryption, when set, wraps the snapshot in a streaming AES-256-GCM envelope.
 	Encryption EncryptionKey
+	// SpoolDir is where the files of Volatile sources are copied while the
+	// backup runs (default: the system's temporary directory). The copies
+	// are removed when the backup ends.
+	SpoolDir string
 }
 
 // Result summarizes a completed backup.
@@ -78,7 +83,9 @@ func (b *Backuper) Backup(ctx context.Context, w io.Writer, opts Options) (*Resu
 		return nil, err
 	}
 
-	manifest, scans, err := b.buildManifest(ctx, opts)
+	spool := &spool{parent: opts.SpoolDir}
+	defer spool.remove()
+	manifest, scans, err := b.buildManifest(ctx, opts, spool)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +154,7 @@ type scanIndex map[string]string
 
 // buildManifest performs the first pass: it hashes every cache blob and metadata
 // file, assembling the sorted manifest and the index used by the streaming pass.
-func (b *Backuper) buildManifest(ctx context.Context, opts Options) (*Manifest, scanIndex, error) {
+func (b *Backuper) buildManifest(ctx context.Context, opts Options, spool *spool) (*Manifest, scanIndex, error) {
 	createdAt := opts.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = b.now().UTC()
@@ -191,6 +198,27 @@ func (b *Backuper) buildManifest(ctx context.Context, opts Options) (*Manifest, 
 		}
 		sm := MetadataSourceManifest{Name: src.Name, Kind: kind}
 		for _, f := range files {
+			if src.Volatile {
+				copyPath, digest, fi, err := spool.capture(f.absPath)
+				if errors.Is(err, fs.ErrNotExist) {
+					continue // replaced or removed since the walk
+				}
+				if err != nil {
+					return nil, nil, fmt.Errorf("backup: copying %s/%s: %w", src.Name, f.relPath, err)
+				}
+				member := metaFileMember(src.Name, f.relPath)
+				sm.Files = append(sm.Files, MetadataFile{
+					RelPath: f.relPath,
+					Size:    fi.Size(),
+					Mode:    uint32(f.mode),
+					ModTime: fi.ModTime().UTC(),
+					Digest:  digest,
+					Member:  member,
+				})
+				scans[member] = copyPath
+				manifest.TotalMetaBytes += fi.Size()
+				continue
+			}
 			digest, err := hashFile(f.absPath)
 			if err != nil {
 				return nil, nil, fmt.Errorf("backup: hashing %s/%s: %w", src.Name, f.relPath, err)

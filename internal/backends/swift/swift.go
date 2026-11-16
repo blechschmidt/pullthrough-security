@@ -452,7 +452,7 @@ func (b *Backend) get(ctx context.Context, rawURL, accept, ifNoneMatch string) (
 func (b *Backend) statusError(resp *upstream.Response, url string) error {
 	snippet := readSnippet(resp.Body)
 	drainClose(resp.Body)
-	return &backends.StatusError{Status: resp.Status, URL: url, Body: snippet}
+	return &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: url, Body: snippet}
 }
 
 // joinPath appends the inbound Swift path to the upstream base, preserving any

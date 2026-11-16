@@ -329,9 +329,10 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 		snippet := readSnippet(resp.Body)
 		_ = resp.Body.Close()
 		return nil, &backends.StatusError{
-			Status: resp.Status,
-			URL:    resolved.UpstreamURL,
-			Body:   snippet,
+			Status:     resp.Status,
+			RetryAfter: resp.Header.Get("Retry-After"),
+			URL:        resolved.UpstreamURL,
+			Body:       snippet,
 		}
 	}
 

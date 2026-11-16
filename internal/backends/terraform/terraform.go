@@ -655,7 +655,7 @@ func (b *Backend) get(ctx context.Context, rawURL, ifNoneMatch string) (*upstrea
 func (b *Backend) statusError(resp *upstream.Response, url string) error {
 	snippet := readSnippet(resp.Body)
 	drainClose(resp.Body)
-	return &backends.StatusError{Status: resp.Status, URL: url, Body: snippet}
+	return &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: url, Body: snippet}
 }
 
 // moduleDownloadURL builds the upstream module download endpoint for a module

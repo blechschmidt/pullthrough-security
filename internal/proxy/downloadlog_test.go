@@ -76,6 +76,21 @@ func newRegistryStub(t *testing.T) *registryStub {
 			_, _ = io.WriteString(w, crateBody)
 		case "/api/v1/crates/broken/1.0.0/download":
 			http.Error(w, "upstream exploded", http.StatusInternalServerError)
+		case "/api/v1/crates/throttled/1.0.0/download":
+			w.Header().Set("Retry-After", "7")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		case "/api/v1/crates/garbled/1.0.0/download":
+			w.Header().Set("Retry-After", "soon, maybe")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		case "/api/v1/crates/streamed/1.0.0/download":
+			// No Content-Length: the size is known only once it is read.
+			w.Header().Set("Content-Type", "application/gzip")
+			for i := 0; i < 4; i++ {
+				_, _ = io.WriteString(w, crateBody)
+				if fl, ok := w.(http.Flusher); ok {
+					fl.Flush()
+				}
+			}
 		case "/rsc.io/quote/@v/list":
 			_, _ = io.WriteString(w, "v1.5.2\n")
 		case "/rsc.io/quote/@v/v1.5.2.info":

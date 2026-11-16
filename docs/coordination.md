@@ -28,6 +28,7 @@ named lease:
 | `cve-drift-rescan`  | CVE-drift re-scan (Task 18) | Mutates the shared quarantine state; emits notifications. |
 | `backup`            | Backup scheduler (Task 44)  | Writes a snapshot to a shared destination.          |
 | `audit-checkpoint`  | Audit Merkle log (Task 31)  | Signs and writes checkpoints to the shared store.   |
+| `full-mirror`       | Full mirror (Task 189)      | Polls the registries and fetches ahead of clients; writes the shared state directory (a stale leader that finds a newer write stands by). |
 
 **Not coordinated, by design:**
 

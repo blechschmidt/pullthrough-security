@@ -42,6 +42,11 @@ type metaSrc struct {
 	name   string
 	path   string
 	isFile bool
+	// volatile marks a store the running proxy rewrites all the time: the
+	// backup copies each file once (backup.MetadataSource.Volatile); ignore
+	// names the temporary files it leaves out.
+	volatile bool
+	ignore   []string
 }
 
 // backupMetadataSources derives the set of durable sidecar metadata stores to
@@ -114,7 +119,30 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 		}
 	}
 
+	// The full mirror (Task 189): per upstream the feed's cursor, the batch
+	// being worked on, the counters and the byte budget spent, the
+	// operators' pauses — without it a restored proxy would enumerate every
+	// registry again. The leader rewrites these files every few seconds, so
+	// the backup copies each one once (volatile) instead of failing on the
+	// change. Included whenever an upstream has a fullMirror block, enabled
+	// or not: a mirror paused by switching it off keeps its cursor.
+	if dir := cfg.FullMirrorStateDir(); dir != "" && (hasFullMirrorBlock(cfg) || strings.TrimSpace(cfg.FullMirror.StateDir) != "") {
+		// The engine writes each file aside (".tmp-*") and renames it into
+		// place; one caught mid-write is not part of the store.
+		srcs = append(srcs, metaSrc{name: "full-mirror", path: dir, volatile: true, ignore: []string{".tmp-*"}})
+	}
+
 	return srcs
+}
+
+// hasFullMirrorBlock reports whether any upstream configures full mirroring.
+func hasFullMirrorBlock(cfg *config.Config) bool {
+	for _, up := range cfg.Upstreams {
+		if up.FullMirror != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // backupSources projects the CLI sources onto the backup package's generic
@@ -122,7 +150,7 @@ func backupMetadataSources(cfg *config.Config) []metaSrc {
 func backupSources(srcs []metaSrc) []backup.MetadataSource {
 	out := make([]backup.MetadataSource, 0, len(srcs))
 	for _, s := range srcs {
-		out = append(out, backup.MetadataSource{Name: s.name, Path: s.path, Optional: true})
+		out = append(out, backup.MetadataSource{Name: s.name, Path: s.path, Optional: true, Volatile: s.volatile, Ignore: s.ignore})
 	}
 	return out
 }
@@ -271,6 +299,11 @@ func runBackup(args []string) error {
 		Sources:    sources,
 		AppVersion: version,
 		Encryption: key,
+	}
+	if *out != "-" {
+		// Volatile stores are copied next to the snapshot, where there is
+		// room for it, not into the system's temporary directory.
+		opts.SpoolDir = filepath.Dir(*out)
 	}
 
 	if *out == "-" {
@@ -526,6 +559,7 @@ func buildScheduledBackupRun(cfg *config.Config) backup.RunFunc {
 			Sources:    backupSources(backupMetadataSources(cfg)),
 			AppVersion: version,
 			Encryption: key,
+			SpoolDir:   cfg.Backup.Dir,
 		})
 		if err != nil {
 			return 0, err

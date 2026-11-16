@@ -364,7 +364,7 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: resolved.UpstreamURL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: resolved.UpstreamURL, Body: snippet}
 	}
 
 	b.recordKindMetric(resolved)
@@ -475,7 +475,7 @@ func (b *Backend) fetchLocation(ctx context.Context, resolved *backends.Resolved
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: fetchURL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: fetchURL, Body: snippet}
 	}
 
 	resolved.Metadata[MetaArchiveURL] = displayURL(target)

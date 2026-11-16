@@ -24,6 +24,10 @@ type StatusError struct {
 	// target cannot be expressed there, and the status is then relayed without a
 	// target rather than steering the client past the proxy.
 	Location string
+	// RetryAfter is the upstream's Retry-After header, as it sent it, on a
+	// 429 or 503: the proxy core relays a well-formed value, so a client —
+	// and the full mirror — waits as long as the upstream asked.
+	RetryAfter string
 }
 
 func (e *StatusError) Error() string {

@@ -225,7 +225,7 @@ func (b *Backend) fetchFormulaDoc(ctx context.Context, name string) (doc formula
 		return formulaDoc{}, false, nil
 	}
 	if !resp.IsSuccess() {
-		return formulaDoc{}, false, &backends.StatusError{Status: resp.Status, URL: rawURL}
+		return formulaDoc{}, false, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: rawURL}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxFormulaLookupBytes+1))
 	if err != nil {

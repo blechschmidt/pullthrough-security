@@ -446,3 +446,16 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// The full mirror's controls (Task 189) are step-up actions by default.
+func TestFullMirrorControlsAreProtectedByDefault(t *testing.T) {
+	svc, _ := newTestService(t)
+	for _, p := range []string{"/api/fullmirror/pause", "/api/fullmirror/resume", "/api/fullmirror/resync"} {
+		if !svc.StepUpRequired(p) {
+			t.Errorf("%s is not a step-up action", p)
+		}
+	}
+	if svc.StepUpRequired("/api/fullmirror/status") {
+		t.Error("reading the full mirror's status needs a step-up")
+	}
+}

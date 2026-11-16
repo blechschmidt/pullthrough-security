@@ -316,7 +316,7 @@ func (b *Backend) fetchDocument(ctx context.Context, resolved *backends.Resolved
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: resolved.UpstreamURL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: resolved.UpstreamURL, Body: snippet}
 	}
 
 	header := make(http.Header)
@@ -438,7 +438,7 @@ func (b *Backend) fetchDist(ctx context.Context, resolved *backends.Resolved) (*
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: entry.Dist.URL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: entry.Dist.URL, Body: snippet}
 	}
 
 	header := make(http.Header)
@@ -526,7 +526,7 @@ func (b *Backend) fetchMetadata(ctx context.Context, metadataURL string) (*Metad
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: metadataURL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: metadataURL, Body: snippet}
 	}
 	data, rerr := io.ReadAll(io.LimitReader(resp.Body, maxMetadataBytes+1))
 	drainClose(resp.Body)

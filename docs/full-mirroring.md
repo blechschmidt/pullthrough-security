@@ -13,16 +13,18 @@ and a disconnected site can be filled ahead of time (see [air-gapped.md](air-gap
 
 Whether a registry can be followed, and at what cost, depends on what it publishes. This page
 records that for every upstream type the proxy supports, checked against the live registries
-on 2026-11-15. It is the groundwork for the full-mirroring work planned to follow:
+on 2026-11-15, and describes the engine that follows them:
 
-- the engine: configuration, cursor state, and syncing through the gated pipeline (Task 189);
+- the engine: configuration, cursor state, and syncing through the gated pipeline (Task 189,
+  in place: see [Running the full mirror](#running-the-full-mirror));
 - adapters for the tier-(a) feeds (Task 190), and for tiers (b) and (c) (Task 191);
 - scanning everything mirrored (Task 192), a view in the admin console (Task 193) and an
   end-to-end test suite (Task 194).
 
-The **implementation status** column says how far that work has come. Today the proxy fetches
-ahead of time only three things: what tracked repositories pin
-([repositories.md](repositories.md)), what an operator lists in a pre-warm manifest
+The **implementation status** column says, per type, whether a feed adapter follows the
+registry yet; the configuration refuses full mirroring of a type nothing follows. Until the
+adapters arrive the proxy fetches ahead of time only three things: what tracked repositories
+pin ([repositories.md](repositories.md)), what an operator lists in a pre-warm manifest
 ([air-gapped.md](air-gapped.md)), and what predictive pre-warming guesses from past pulls
 ([prewarm.md](prewarm.md)). The last of these tries the next patch and minor version numbers;
 a feed says what was actually published.
@@ -77,6 +79,196 @@ Three things limit what "full" can mean. Each registry's section below spells th
   IP. crates.io and Packagist ask for a User-Agent that identifies the client and its
   operator. A follower must pace itself per registry, and an operator may need to supply
   contact details.
+
+## Running the full mirror
+
+The full-mirror engine (`internal/fullmirror`) follows the registry of every upstream that
+enables `fullMirror`, and fetches each new file through the proxy's own gated serve pipeline
+before any client asks for it. It needs a feed adapter for the upstream's type; until one is
+registered (the status column above), the configuration refuses to enable the type:
+
+```
+config: upstream "npm": fullMirror.enabled: no feed adapter follows npm registry yet (tier (a),
+incremental change feed; implementation status: not started (feed adapter planned in Task 190);
+see docs/full-mirroring.md#npm)
+```
+
+A tier-(d) registry is refused for good: it cannot be enumerated.
+
+### Configuration
+
+```yaml
+fullMirror:                    # shared by every mirrored upstream
+  stateDir: /var/lib/pullthrough/fullmirror   # default <cache.dir>/fullmirror
+  tenant: mirror               # who the mirror fetches as (default: the default tenant)
+  roles: [mirror]              # access-control roles; required with auth.enabled
+upstreams:
+  npm:
+    type: npm
+    url: https://registry.npmjs.org
+    fullMirror:
+      enabled: true
+      include: ["@acme/.*", "lodash", "react(-dom)?"]   # RE2, matched against the whole name
+      exclude: ["@acme/internal-.*"]
+      versions: latest         # "all" (the default) or "latest"
+      latest: 3
+      maxArtifactBytes: 268435456   # per file; 0 = no limit
+      byteBudget: 107374182400      # in total; required
+      concurrency: 2
+      requestsPerSecond: 2
+      pollInterval: 5m
+      offPeak: {start: "22:00", end: "06:00", timezone: Europe/Berlin}
+      dryRun: false
+```
+
+| Setting | Meaning |
+|---|---|
+| `enabled` | Follow the registry. Refused for a type no feed adapter follows. |
+| `include`, `exclude` | RE2 patterns matched against the **whole** package name (`lodash` does not match `lodash-evil`). A package is mirrored when it matches an include pattern (or none is given) and no exclude pattern. |
+| `versions`, `latest` | `all` mirrors every version a change concerns. `latest` with `latest: N` mirrors the N newest versions of each package, in the ecosystem's own version order where the proxy knows it (npm, cargo, pip, go, nuget, maven, rubygems), otherwise in the order the registry lists them. Yanked versions never count; pre-releases count only for a package that has no other version. |
+| `maxArtifactBytes` | The largest file fetched (0: no limit). A size the registry states is checked before anything is fetched; otherwise the cache fill is cut off at the limit and nothing is cached. Counted as skipped (`too-large`). |
+| `byteBudget` | Required. The most bytes the mirror adds to the cache from this upstream, in total. A file that does not fit in what is left is not fetched; the mirror then waits — its queue intact, the cursor where it was — until the budget is raised. (A file that fits once the other fetches in flight are done waits for them instead.) In flight at that moment, files of unknown size can take the total slightly past it. |
+| `concurrency` | Packages worked on at a time (default 2, at most 32). |
+| `requestsPerSecond` | Paces every request made to the upstream for the mirror — feed polls, version lists, file fetches (default 2). |
+| `pollInterval` | Time between two polls of a feed that has nothing more to give (default 5m, at least 10s). |
+| `offPeak` | A daily window (`HH:MM` bounds in an IANA time zone, default UTC; it may wrap midnight). Outside it the mirror neither polls nor fetches; a batch resumes where it stopped. |
+| `dryRun` | Poll the feed, apply every policy and check the cache, but fetch nothing: what would be fetched is counted as skipped (`dry-run`). |
+
+The configuration also refuses a full mirror with the in-memory cache (the cursor would
+outlive what it fetched), without a state directory when the cache is not a filesystem cache,
+and without `fullMirror.roles` when `auth.enabled`.
+
+### How it works
+
+- **One follower per upstream, on the leader.** In a multi-replica deployment only the
+  replica holding the `full-mirror` lease ([coordination.md](coordination.md)) polls and
+  fetches. The state directory must be shared: whichever replica leads continues from it. A
+  replica that finds the state written by someone else since it last read it stands by
+  instead of overwriting it.
+- **Bootstrap, then changes.** A follower that starts from nothing enumerates the registry
+  with the adapter's `Bootstrap`, page by page; after the last page it follows the registry's
+  changes from the cursor the enumeration started at, so nothing published meanwhile is
+  missed. A cursor the registry no longer knows (npm resetting its sequence, Packagist's
+  one-day log) starts the enumeration over, with an audit event.
+- **Batches survive restarts.** Each batch of changes is stored (`batch.json`) before work
+  starts, its progress as it goes, and the cursor only once every change of it is dealt with.
+  A restart, a lost leadership, a pause, the end of the window or a spent budget leaves the
+  batch to be resumed where it stopped; what a resumed batch finds in the cache is not fetched
+  again.
+- **Through the gated pipeline, never around it.** For each change the follower applies the
+  name patterns, asks the adapter for the package's versions and files, applies the version
+  policy, and asks the gateway whether the cache already holds each file (`SystemLookup`: no
+  fetch, no gate). The rest is fetched with `Gateway.SystemFetch` as the system principal
+  `system:full-mirror` of `fullMirror.tenant` with `fullMirror.roles`: the same resolution,
+  admission gates, digest checks and cache fill as a client pull. The engine never writes to
+  the cache itself. Each fetch is in the [download log](download-log.md) with `via=system`,
+  that subject, and the User-Agent `pullthrough-full-mirror`.
+- **A refusal is a verdict — when it is one.** A file an admission gate refuses is counted as
+  **refused**, by gate, and not asked for again — it is not a failure. Three kinds of refusal
+  are not verdicts:
+  - *"Not yet."* A refusal with a `Retry-After` (a version still in its
+    [maturity cooldown](maturity.md), an LLM scan still running) or by a gate that could not
+    judge the file (`fail-closed`: its scanner unavailable) **defers** the file: it waits in the
+    upstream's deferred queue (`deferred.json`, at most 20,000 files) and is asked for again when
+    the gate said it may pass, or after 15 minutes. The batch goes on. A file deferred 30 times
+    is counted as refused.
+  - *Every file would be refused.* A refusal by access control (the mirror's roles do not grant
+    the upstream) or by an [organization freeze](snapshots.md) **holds** the upstream: the batch
+    stops, the reason is recorded, and the mirror tries again after 5 minutes.
+  - *An emergency lockdown engaged mid-batch:* the batch stops and resumes once it is lifted.
+
+  The mirror's refusals open no [break-glass review](approvals.md): nobody asked for the file,
+  so no operator is asked to approve it. A grant an operator already gave applies.
+- **Retries, backoff, Retry-After.** A transient failure (a 5xx, a 429, a network error) is
+  retried up to five times, waiting 2s and doubling up to 1m. A `Retry-After` from the
+  upstream — the proxy now relays it on 429 and 503, as seconds, at most a day — holds every
+  request of the mirror to that upstream. A file that still fails stops the round and backs
+  the upstream off (1m, doubling up to 30m); after three such rounds it is counted as
+  **failed** and left behind — the package's other files go on — so one broken file cannot
+  stall a feed. A worker's failed round stops the batch without being charged to the other
+  workers' packages, and the files a package dealt with before its round failed are not
+  dealt with again.
+- **Rate limits.** Besides `requestsPerSecond`, the proxy's own rate limiter
+  (`rateLimit`, [configuration.md](configuration.md#ratelimit)) admits each fetch as the mirror's
+  tenant: its per-tenant and global request-rate and concurrency policies hold for the
+  mirror as for any client (a refusal is a wait, not a failure). Give the mirror a tenant of
+  its own (`fullMirror.tenant` with an `auth.teams` entry and its `rateLimit`) to keep it
+  from sharing the clients' allowance. `outbound.maxConnsPerHost` applies too: the fetches
+  use the upstream's transport.
+- **Kill-switch.** While an [emergency lockdown](lockdown.md) is engaged — any mode — the
+  mirror fetches nothing.
+
+### Status and controls
+
+`GET /admin/api/fullmirror/status` reports the mirror overall and each upstream: the state
+(`following`, `bootstrapping`, `paused`, `off-peak`, `budget-exhausted`, `backing-off`,
+`lockdown`, `standby`, `starting`, `error`), the cursor and phase, the feed's head and the lag
+behind it, the last and next poll, the batch still queued, the deferred queue and when its
+next file is due, the counters (packages mirrored, excluded, deleted; files fetched, refused by
+gate, failed, skipped by reason, deferred; retries), the budget spent, and the recent errors.
+`?upstream=<name>` returns one upstream.
+
+| Endpoint | Capability | Step-up |
+|---|---|---|
+| `GET /admin/api/fullmirror/status` | read | — |
+| `POST /admin/api/fullmirror/pause` `{"upstream": "npm", "reason": "…"}` (no upstream: every one) | operate | yes |
+| `POST /admin/api/fullmirror/resume` `{"upstream": "npm"}` (no upstream: the global pause and every upstream's) | operate | yes |
+| `POST /admin/api/fullmirror/resync` `{"upstream": "npm"}` | administer | yes |
+
+The full mirror is instance-wide: a tenant-bound identity may read its status but not steer
+it. Pauses are persisted (they hold across restarts and on every replica); a resync forgets
+the upstream's cursor and enumerates the registry again — the cache spares the refetch, the
+counters and the budget spent are kept. With `webauthn.enforce` the three controls need a
+fresh [passkey step-up](webauthn-stepup.md).
+
+```
+ptctl fullmirror status [--upstream npm] [--json]
+ptctl fullmirror pause  [--upstream npm] [--reason "upstream incident"]
+ptctl fullmirror resume [--upstream npm]
+ptctl fullmirror resync --upstream npm
+```
+
+`ptctl` passes a step-up token given with `--stepup-token` (or `PULLTHROUGH_STEPUP_TOKEN`);
+without one, a protected control is refused with an explanation.
+
+**Metrics** (`pullthrough_fullmirror_*`, per upstream): `upstreams`, `leader`, `paused`,
+`state{state}`, `packages_total{outcome}`, `artifacts_total{outcome}` (fetched, refused,
+failed, skipped), `skipped_total{reason}`, `refused_total{gate}`, `fetched_bytes_total`,
+`retries_total`, `polls_total{result}`, `queued`, `deferred`, `deferrals_total`, `in_flight`,
+`lag`, `lag_seconds`, `last_poll_timestamp_seconds`, `budget_bytes`, `budget_used_bytes`. The
+counters are the persisted tallies: they carry over restarts.
+
+**Audit events** (`full_mirror`): `paused`, `resumed`, `resync-requested` (with the
+operator), `resync`, `bootstrap-started`, `bootstrap-finished`, `cursor-reset`,
+`budget-exhausted`, `budget-raised`, `type-changed`.
+
+**Backup.** The state directory is a backup source (`full-mirror`). The leader rewrites its
+files every few seconds, so the backup copies each file once, while it builds the snapshot's
+manifest, instead of failing on the change ([backup-restore.md](backup-restore.md)). A restored
+proxy continues from the restored cursors.
+
+### Writing a feed adapter
+
+A feed adapter implements `fullmirror.Feed` and registers itself with `fullmirror.Register`
+from an `init` function of the `fullmirror` package, so that every binary that validates
+configuration knows it; the entry's `Status` in `catalog_data.go` must then say
+`implemented` or `partial` (a test holds the two together). The contract:
+
+- `Bootstrap(ctx, cursor)` enumerates the registry page by page (cursor `""` first); the last
+  page has `More` false and a `Next` cursor that `Changes` continues from, taken when the
+  enumeration began. `Changes(ctx, cursor)` returns what changed after the cursor. Every batch
+  has a non-empty `Next` (at most 64 KiB); a bigger state belongs in `Env.Dir`.
+- A cursor the registry no longer knows is reported with an error wrapping
+  `fullmirror.ErrCursorInvalid`; an error retrying cannot fix with `fullmirror.Permanent`; a
+  registry's requested wait with `fullmirror.RetryAfter`.
+- `Releases(ctx, name)` lists a package's versions, oldest first, each with its files as
+  paths of the upstream's mount (`/v1/<upstream><path>`), and their sizes when the registry
+  states them. A change may name a version, or only the package (the policy then decides).
+- `Env.HTTP` reaches the registry through the upstream's transport (egress allowlist, TLS
+  policy and pins), paced by `requestsPerSecond`; `Env.Read` fetches a path of the mount
+  through the gated pipeline (a metadata document as clients see it); `Env.Dir` is a directory
+  of the adapter's own, backed up with the state — file by file, so a cursor that does not
+  match the files there must be detected and answered with `ErrCursorInvalid`.
 
 ## Private and self-hosted upstreams
 

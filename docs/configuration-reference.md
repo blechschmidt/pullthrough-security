@@ -197,6 +197,20 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `upstreams.<string>.generic.routes[].mediaType` | string | — |
 | `upstreams.<string>.generic.publicBaseURL` | string | — |
 | `upstreams.<string>.generic.maxRewriteBytes` | int | — |
+| `upstreams.<string>.fullMirror.enabled` | bool | — |
+| `upstreams.<string>.fullMirror.include` | []string | — |
+| `upstreams.<string>.fullMirror.exclude` | []string | — |
+| `upstreams.<string>.fullMirror.versions` | string | — |
+| `upstreams.<string>.fullMirror.latest` | int | — |
+| `upstreams.<string>.fullMirror.maxArtifactBytes` | int | — |
+| `upstreams.<string>.fullMirror.byteBudget` | int | — |
+| `upstreams.<string>.fullMirror.concurrency` | int | — |
+| `upstreams.<string>.fullMirror.requestsPerSecond` | float | — |
+| `upstreams.<string>.fullMirror.pollInterval` | duration | — |
+| `upstreams.<string>.fullMirror.offPeak.start` | string | — |
+| `upstreams.<string>.fullMirror.offPeak.end` | string | — |
+| `upstreams.<string>.fullMirror.offPeak.timezone` | string | — |
+| `upstreams.<string>.fullMirror.dryRun` | bool | — |
 
 ## `git`
 
@@ -1345,6 +1359,14 @@ Validate a candidate config before rollout with `pullthrough verify-config
 | `repositories.repos[].updates.forgeApi` | string | — |
 | `repositories.repos[].updates.forgeRepo` | string | — |
 | `repositories.repos[].updates.forgeTokenRef` | string | — |
+
+## `fullMirror`
+
+| Setting | Type | Default |
+|---------|------|---------|
+| `fullMirror.stateDir` | string | — |
+| `fullMirror.tenant` | string | — |
+| `fullMirror.roles` | []string | [] |
 
 ## `secrets`
 

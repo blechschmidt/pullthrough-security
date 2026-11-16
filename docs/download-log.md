@@ -46,6 +46,7 @@ weight file, an OS package, a Git fetch.
 | A request that never named a resource (unknown upstream, bad path), or was rejected by client authentication | no — that is the [audit log](access-control-and-audit.md)'s |
 | A Git ref listing (`ls-remote`, the first half of a clone) | no — only the fetch (see [Git](#git)) |
 | The proxy's own [pre-warm](prewarm.md) fetches | no — not a client |
+| The [full mirror](full-mirroring.md#running-the-full-mirror)'s fetches (Task 189) | yes — `via=system`, subject `system:full-mirror`, User-Agent `pullthrough-full-mirror` |
 | A sibling proxy reading this cache through [cache federation](cache-federation.md) | no — the sibling logs the download it serves to its client |
 
 Two rules in that table deserve a sentence each:

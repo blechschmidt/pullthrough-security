@@ -206,7 +206,7 @@ func (b *Backend) Fetch(ctx context.Context, resolved *backends.Resolved) (*back
 	if !resp.IsSuccess() {
 		snippet := readSnippet(resp.Body)
 		drainClose(resp.Body)
-		return nil, &backends.StatusError{Status: resp.Status, URL: resolved.UpstreamURL, Body: snippet}
+		return nil, &backends.StatusError{Status: resp.Status, RetryAfter: resp.Header.Get("Retry-After"), URL: resolved.UpstreamURL, Body: snippet}
 	}
 
 	b.recordKindMetric(resolved)

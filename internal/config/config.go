@@ -341,6 +341,14 @@ type Config struct {
 	// Off by default.
 	Repositories RepositoriesConfig `yaml:"repositories"`
 
+	// FullMirror configures the full-mirror engine (Task 189) that the
+	// upstreams enabling upstreams.<name>.fullMirror share: its state
+	// directory and the identity it fetches as. The engine follows those
+	// upstreams' registries and fetches every new file through the gated
+	// serve pipeline before any client asks for it. See
+	// docs/full-mirroring.md.
+	FullMirror FullMirrorConfig `yaml:"fullMirror"`
+
 	// Secrets configures the master key used to decrypt secret values stored
 	// encrypted at rest.
 	Secrets SecretsConfig `yaml:"secrets"`
@@ -1320,6 +1328,11 @@ type UpstreamConfig struct {
 	// rejected before rollout). See internal/backends/generic and
 	// docs/generic-backend.md.
 	Generic *generic.BackendConfig `yaml:"generic"`
+	// FullMirror has the full-mirror engine (Task 189) follow this upstream's
+	// registry and fetch every new file ahead of client requests, through
+	// the same gated serve pipeline. Off unless enabled; refused for a type
+	// no feed adapter follows yet (docs/full-mirroring.md says which).
+	FullMirror *UpstreamFullMirrorConfig `yaml:"fullMirror"`
 }
 
 // MirrorConfig describes one additional upstream endpoint that mirrors the
@@ -5959,6 +5972,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateRepositories(); err != nil {
+		return err
+	}
+	if err := c.validateFullMirror(); err != nil {
 		return err
 	}
 	if err := c.validateTrustedProxies(); err != nil {

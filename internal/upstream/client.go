@@ -288,6 +288,12 @@ type Response struct {
 	NotModified   bool
 }
 
+// HTTPClient returns the client's underlying *http.Client — its transport
+// carries the egress guard, the TLS policy and the certificate pins it was
+// built with — for a caller that needs plain HTTP (the full mirror's feed
+// adapters, Task 189). The client is shared: copy it before changing it.
+func (c *Client) HTTPClient() *http.Client { return c.hc }
+
 // IsSuccess reports a 2xx status.
 func (r *Response) IsSuccess() bool { return r.Status >= 200 && r.Status < 300 }
 

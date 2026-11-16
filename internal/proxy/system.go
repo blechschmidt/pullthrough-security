@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/auth"
+	"github.com/blechschmidt/pullthrough-security/internal/backends"
 	"github.com/blechschmidt/pullthrough-security/internal/cache"
 	"github.com/blechschmidt/pullthrough-security/internal/clientip"
 	"github.com/blechschmidt/pullthrough-security/internal/downloadlog"
@@ -49,6 +52,22 @@ type SystemFetchRequest struct {
 	Tenant  string
 	Subject string
 	Roles   []string
+	// UserAgent is the request's User-Agent, as the download log shows it
+	// (default "pullthrough-release-pinner").
+	UserAgent string
+	// MaxBytes refuses an object larger than this before it is cached (0: no
+	// limit), for the full mirror's maxArtifactBytes and byte budget (Task
+	// 189): a size the upstream states is refused before the body is read;
+	// otherwise the cache fill is cut off at the limit and nothing is
+	// committed. The answer is 413 with Code "too-large". A client waiting on
+	// the same fill is asked to retry, and nothing is negatively cached.
+	MaxBytes int64
+	// NoReview keeps a refusal from opening a break-glass review (Task 50):
+	// an active grant still applies, but nobody asked for the object, so no
+	// operator is asked to approve it. The full mirror (Task 189) sets it — a
+	// registry's worth of refusals would flood the review queue and push out
+	// the grants teams depend on.
+	NoReview bool
 	// Hold, when set, is called with the cache key of a cacheable object once
 	// every admission gate has admitted it, before it is served.
 	Hold func(cacheKey string)
@@ -79,17 +98,29 @@ type SystemFetchResult struct {
 	Digest      string
 	Size        int64
 	ContentType string
-	// Gate, Code and Reason explain a refusal.
+	// Gate, Code and Reason explain a refusal; Action is the refusing gate's
+	// action ("block", "quarantine", or "fail-closed" for a gate that could
+	// not judge the object — its scanner unavailable).
 	Gate   string
 	Code   string
 	Reason string
+	Action string
 	// Verdicts are the gates that judged the object.
 	Verdicts []SystemGateVerdict
 	// LLMScan is the LLM package-content scan gate's reading of the object,
 	// when the gate looked at it: a verdict, the reason there is none, or why
 	// the gate does not examine the object at all.
 	LLMScan *SystemLLMScan
+	// Admitted reports that every admission gate admitted the object into the
+	// cache (CacheKey, Digest and Size describe it then).
+	Admitted bool
+	// RetryAfter is the wait the answer asked for: the upstream's relayed
+	// Retry-After on a 429 or 503, or the proxy's own.
+	RetryAfter time.Duration
 }
+
+// CodeTooLarge is the Code of a system fetch refused at its MaxBytes.
+const CodeTooLarge = "too-large"
 
 // systemReport collects what a system fetch learns along the pipeline.
 type systemReport struct {
@@ -108,6 +139,97 @@ type systemReport struct {
 	deferLLM       bool
 	llm            *SystemLLMScan
 	deferredSignal *policyengine.LLMPackageInput
+	// maxBytes is SystemFetchRequest.MaxBytes; tooLarge records that the
+	// object was refused for it.
+	maxBytes int64
+	tooLarge bool
+	// noReview is SystemFetchRequest.NoReview.
+	noReview bool
+}
+
+// systemNoReview reports a system fetch whose refusals open no break-glass
+// review.
+func systemNoReview(ctx context.Context) bool {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return false
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	return rep.noReview
+}
+
+// systemMaxBytes returns the size limit of a system fetch (0: none).
+func systemMaxBytes(ctx context.Context) int64 {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return 0
+	}
+	rep.mu.Lock()
+	defer rep.mu.Unlock()
+	return rep.maxBytes
+}
+
+// noteTooLarge records that a system fetch's object passed its size limit.
+func noteTooLarge(ctx context.Context) {
+	rep := systemReportFrom(ctx)
+	if rep == nil {
+		return
+	}
+	rep.mu.Lock()
+	rep.tooLarge = true
+	rep.mu.Unlock()
+}
+
+// errArtifactTooLarge is the refusal of a cache fill that passed a system
+// fetch's size limit.
+type errArtifactTooLarge struct{ limit int64 }
+
+func (e errArtifactTooLarge) Error() string {
+	return fmt.Sprintf("proxy: the object is larger than the %d bytes the request allows", e.limit)
+}
+
+// isTooLarge reports a fill refused at a system fetch's size limit.
+func isTooLarge(err error) bool {
+	var t errArtifactTooLarge
+	return errors.As(err, &t)
+}
+
+// sizeLimiter fails a cache fill once more than limit bytes have been read.
+type sizeLimiter struct {
+	r         io.Reader
+	limit     int64
+	remaining int64
+	onExceed  func()
+}
+
+func newSizeLimiter(r io.Reader, limit int64, onExceed func()) *sizeLimiter {
+	return &sizeLimiter{r: r, limit: limit, remaining: limit, onExceed: onExceed}
+}
+
+func (l *sizeLimiter) Read(p []byte) (int, error) {
+	if l.remaining < 0 {
+		return 0, errArtifactTooLarge{limit: l.limit}
+	}
+	if int64(len(p)) > l.remaining+1 {
+		p = p[:l.remaining+1]
+	}
+	n, err := l.r.Read(p)
+	l.remaining -= int64(n)
+	if l.remaining < 0 {
+		if l.onExceed != nil {
+			l.onExceed()
+		}
+		return n, errArtifactTooLarge{limit: l.limit}
+	}
+	return n, err
+}
+
+func (l *sizeLimiter) Close() error {
+	if c, ok := l.r.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
 }
 
 // noteDeferredLLMSignal keeps the admission section of a deferred LLM refusal
@@ -211,6 +333,9 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 	if body == nil {
 		body = io.Discard
 	}
+	if req.MaxBytes < 0 {
+		return SystemFetchResult{}, errors.New("proxy: a system fetch's size limit must not be negative")
+	}
 	subject := req.Subject
 	if subject == "" {
 		subject = "system:release-pinner"
@@ -222,8 +347,12 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 	if req.Accept != "" {
 		httpReq.Header.Set("Accept", req.Accept)
 	}
-	httpReq.Header.Set("User-Agent", "pullthrough-release-pinner")
-	rep := &systemReport{hold: req.Hold, deferLLM: req.DeferLLMRefusal}
+	ua := req.UserAgent
+	if ua == "" {
+		ua = "pullthrough-release-pinner"
+	}
+	httpReq.Header.Set("User-Agent", ua)
+	rep := &systemReport{hold: req.Hold, deferLLM: req.DeferLLMRefusal, maxBytes: req.MaxBytes, noReview: req.NoReview}
 	// No client address: the download log records "system", via "system".
 	rec := &pullRecord{start: time.Now(), source: clientip.Info{Client: downloadlog.ViaSystem}}
 	sctx := context.WithValue(httpReq.Context(), systemReportKey{}, rep)
@@ -239,7 +368,10 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 			g.auditDecision(httpReq, req.Backend, eco, auth.Result{
 				Principal: principal, Status: http.StatusForbidden, Reason: reason, Stage: auth.StageAuthz})
 			if len(principal.Roles) == 0 {
-				reason = "the release pinner holds no access-control role for this repository (repositories.roles, or the repository's roles)"
+				reason = "the system principal " + subject + " holds no access-control role for this upstream"
+				if subject == "system:release-pinner" {
+					reason = "the release pinner holds no access-control role for this repository (repositories.roles, or the repository's roles)"
+				}
 			}
 			return SystemFetchResult{Status: http.StatusForbidden, Gate: "access-control", Code: "forbidden", Reason: reason}, nil
 		}
@@ -249,12 +381,15 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 	g.withTracing(http.HandlerFunc(g.handleBackend)).ServeHTTP(w, httpReq)
 
 	res := SystemFetchResult{Status: w.statusOrOK(), Cache: w.header.Get("X-Cache"), ContentType: w.header.Get("Content-Type")}
+	res.RetryAfter = parseRetryAfter(w.header.Get("Retry-After"), time.Now())
 	rep.mu.Lock()
 	if rep.admitted {
+		res.Admitted = true
 		res.CacheKey = rep.cacheKey
 		res.Digest = rep.stat.Metadata[cache.MetaDigest]
 		res.Size = rep.stat.Size
 	}
+	tooLarge := rep.tooLarge
 	gates := append([]SystemGateVerdict(nil), rep.gates...)
 	rep.mu.Unlock()
 	if res.Cache == "" && res.Status == http.StatusOK && !rep.admitted {
@@ -263,6 +398,7 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 	res.Gate = rec.gate
 	if res.Gate != "" {
 		res.Code, res.Reason = blockExplanation(w.errBody)
+		res.Action = blockAction(w.errBody)
 	} else if res.Status >= http.StatusBadRequest {
 		_, res.Reason = blockExplanation(w.errBody)
 		if res.Reason == "" {
@@ -271,6 +407,9 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 				res.Reason = res.Reason[:300]
 			}
 		}
+	}
+	if tooLarge && res.Gate == "" {
+		res.Code = CodeTooLarge
 	}
 	rep.mu.Lock()
 	sig := rep.signals
@@ -281,6 +420,118 @@ func (g *Gateway) SystemFetch(ctx context.Context, req SystemFetchRequest, body 
 		return res, fmt.Errorf("proxy: reading the response body: %w", w.writeErr)
 	}
 	return res, nil
+}
+
+// maxRetryAfter bounds a relayed Retry-After.
+const maxRetryAfter = 24 * time.Hour
+
+// parseRetryAfter reads a Retry-After value: delay-seconds or an HTTP date
+// (RFC 9110 §10.2.3). Anything else, or a wait in the past, is zero; a wait
+// is at most a day.
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	var d time.Duration
+	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		if secs > int64(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
+		d = time.Duration(secs) * time.Second
+	} else if t, err := http.ParseTime(v); err == nil {
+		d = t.Sub(now)
+	}
+	if d <= 0 {
+		return 0
+	}
+	if d > maxRetryAfter {
+		d = maxRetryAfter
+	}
+	return d
+}
+
+// SystemLookupResult says what a system fetch of a path would serve, and
+// whether the cache already holds it.
+type SystemLookupResult struct {
+	// Cacheable is false for a path the pipeline serves without caching it
+	// (an index document, a Git exchange).
+	Cacheable bool
+	// Cached reports that the cache holds the object; CacheKey is its key and
+	// Size its size then.
+	Cached   bool
+	CacheKey string
+	Size     int64
+}
+
+// SystemLookup resolves a system fetch the way the serve pipeline would and
+// reports whether the cache already holds the object. It fetches nothing,
+// runs no admission gate and serves nothing: the full mirror (Task 189) asks
+// it before paying for a fetch of something already mirrored — or already
+// pulled by a client. The cache key is the one SystemFetch would fill,
+// namespaced by the request's tenant when cache namespacing is on.
+func (g *Gateway) SystemLookup(ctx context.Context, req SystemFetchRequest) (SystemLookupResult, error) {
+	if req.Backend == "" || !strings.HasPrefix(req.Path, "/") {
+		return SystemLookupResult{}, errors.New("proxy: a system lookup needs a backend and an absolute path")
+	}
+	if strings.ContainsAny(req.Path, "?#\r\n") {
+		return SystemLookupResult{}, errors.New("proxy: a system lookup path carries no query or fragment")
+	}
+	// The path as the serve pipeline will see it: SystemFetch requests
+	// "/v1/<backend><path>", and handleBackend resolves the decoded path of
+	// that URL ("%2B" is "+"), so the lookup must too, or it would predict
+	// another cache key.
+	u, err := url.Parse("/v1/" + req.Backend + req.Path)
+	if err != nil {
+		return SystemLookupResult{}, fmt.Errorf("proxy: a system lookup path: %w", err)
+	}
+	name, rest, ok := splitBackendPath(u.Path)
+	if !ok || name != req.Backend {
+		return SystemLookupResult{}, fmt.Errorf("proxy: %q is not a path of upstream %q", req.Path, req.Backend)
+	}
+	if backends.HasDotSegment(rest) {
+		return SystemLookupResult{}, errors.New(`proxy: "." and ".." path segments are not accepted`)
+	}
+	backend, ok := g.deps.Backends.Get(req.Backend)
+	if !ok {
+		return SystemLookupResult{}, fmt.Errorf("proxy: unknown backend %q", req.Backend)
+	}
+	if _, ok := backend.(backends.HTTPHandler); ok {
+		// Served by the backend itself (Git), never through the cacheable
+		// path a lookup can predict.
+		return SystemLookupResult{}, nil
+	}
+	header := http.Header{}
+	if req.Accept != "" {
+		header.Set("Accept", req.Accept)
+	}
+	resolved, err := backend.Resolve(ctx, &backends.Request{Method: http.MethodGet, Path: rest, Query: url.Values{}, Header: header})
+	if err != nil {
+		if errors.Is(err, backends.ErrNotSupported) {
+			return SystemLookupResult{}, nil
+		}
+		return SystemLookupResult{}, fmt.Errorf("proxy: resolving %s%s: %w", req.Backend, req.Path, err)
+	}
+	if resolved == nil || !resolved.Cacheable {
+		return SystemLookupResult{}, nil
+	}
+	key := resolved.CacheKey
+	if g.opts.CacheNamespacing {
+		key = auth.TeamNamespace(req.Tenant) + "/" + key
+	}
+	res := SystemLookupResult{Cacheable: true, CacheKey: key}
+	st, err := g.deps.Cache.Stat(ctx, key)
+	switch {
+	case err == nil:
+		res.Cached, res.Size = true, st.Size
+		return res, nil
+	case errors.Is(err, cache.ErrNotFound):
+		return res, nil
+	}
+	return res, fmt.Errorf("proxy: looking %s up in the cache: %w", key, err)
 }
 
 type systemViaKey struct{}

@@ -646,6 +646,10 @@ type Options struct {
 	Backends  BackendLister
 	Info      Info
 
+	// FullMirror is the full-mirror engine (Task 189); nil when nothing is
+	// mirrored.
+	FullMirror FullMirrorController
+
 	// Profiling, when Enabled, exposes the net/http/pprof and runtime/trace
 	// execution-trace endpoints under <prefix>/api/debug/pprof/, guarded by the
 	// same authentication and RBAC as the rest of the admin API (the operate
@@ -818,6 +822,12 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST "+s.prefix+"/api/gitops/rollback", s.handleGitopsRollback)
 	mux.HandleFunc("GET "+s.prefix+"/api/prewarm", s.handlePrewarm)
 	mux.HandleFunc("POST "+s.prefix+"/api/prewarm/run", s.handlePrewarmRun)
+	// Full mirroring (Task 189): status, and the operators' controls (behind
+	// RBAC and, when enforced, a WebAuthn step-up).
+	mux.HandleFunc("GET "+s.prefix+"/api/fullmirror/status", s.handleFullMirrorStatus)
+	mux.HandleFunc("POST "+s.prefix+"/api/fullmirror/pause", s.handleFullMirrorPause)
+	mux.HandleFunc("POST "+s.prefix+"/api/fullmirror/resume", s.handleFullMirrorResume)
+	mux.HandleFunc("POST "+s.prefix+"/api/fullmirror/resync", s.handleFullMirrorResync)
 	mux.HandleFunc("GET "+s.prefix+"/api/sbomexport", s.handleSBOMExport)
 	mux.HandleFunc("POST "+s.prefix+"/api/sbomexport/run", s.handleSBOMExportRun)
 	mux.HandleFunc("GET "+s.prefix+"/api/installhooks", s.handleInstallHooks)
