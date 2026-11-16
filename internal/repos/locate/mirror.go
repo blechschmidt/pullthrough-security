@@ -26,7 +26,8 @@ type PipFile struct {
 	Filename string
 	Version  string
 	// Path is the backend-relative path; empty when the page lists the file
-	// at a location the upstream does not serve.
+	// at a location the upstream does not serve, or at one that is not a
+	// plain path once decoded (a query, a fragment, a dot segment).
 	Path string
 	// SHA256 is the digest the page states (lower-case hex), Size the size
 	// and Uploaded the upload time when the page states them (PEP 700).
@@ -70,7 +71,7 @@ func PipFiles(up Upstream, project, page string, doc Document) ([]PipFile, []str
 			if v, ok := pipFileVersion(name, f.Filename); ok {
 				pf.Version = v
 			}
-			if p, ok := pipFilePath(up, page, f.URL); ok {
+			if p, ok := pipFilePath(up, page, f.URL); ok && validLocatedPath(p) {
 				pf.Path = p
 			}
 			if f.Size != nil && *f.Size > 0 {
@@ -92,7 +93,7 @@ func PipFiles(up Upstream, project, page string, doc Document) ([]PipFile, []str
 		if v, ok := pipFileVersion(name, f.Filename); ok {
 			pf.Version = v
 		}
-		if p, ok := pipFilePath(up, page, f.URL); ok {
+		if p, ok := pipFilePath(up, page, f.URL); ok && validLocatedPath(p) {
 			pf.Path = p
 		}
 		out = append(out, pf)

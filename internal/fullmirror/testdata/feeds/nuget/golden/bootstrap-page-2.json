@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "name": "AWSSDK.ChimeSDKMeetings"
+    },
+    {
+      "name": "AngleSharp.Xml"
+    },
+    {
+      "name": "Soenneker.Flywheel.Memory"
+    },
+    {
+      "name": "Moonwell.Objects"
+    },
+    {
+      "name": "ArcanaDevelopment.adTempus.Client"
+    },
+    {
+      "name": "Audacia.CodeAnalysis.Libraries"
+    }
+  ],
+  "next": {
+    "format": "nuget/1",
+    "catalog": "https://api.nuget.org/v3/catalog0/index.json",
+    "since": "2026-11-16T02:14:09.8253348Z",
+    "listing": true,
+    "page": 4,
+    "pages": 6,
+    "digest": "(the page list's SHA-256)"
+  },
+  "more": true,
+  "head": "2026-11-16T02:14:09.8253348Z",
+  "headTime": "2026-11-16T02:14:09.8253348Z"
+}

@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "name": "Altairis.Web.Security"
+    },
+    {
+      "name": "Antlr"
+    },
+    {
+      "name": "AjaxControlToolkit"
+    },
+    {
+      "name": "Amazon.CDK.AWS.KinesisFirehose"
+    },
+    {
+      "name": "Amazon.CDK.AWS.IAM"
+    }
+  ],
+  "next": {
+    "format": "nuget/1",
+    "catalog": "https://api.nuget.org/v3/catalog0/index.json",
+    "since": "2026-11-16T02:14:09.8253348Z",
+    "listing": true,
+    "page": 2,
+    "pages": 6,
+    "digest": "(the page list's SHA-256)"
+  },
+  "more": true,
+  "head": "2026-11-16T02:14:09.8253348Z",
+  "headTime": "2026-11-16T02:14:09.8253348Z"
+}

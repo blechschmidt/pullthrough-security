@@ -439,7 +439,60 @@ FUZZ_TARGETS := \
 	internal/lockfiles:FuzzNPMRequirements \
 	internal/lockfiles:FuzzCargoManifests \
 	internal/lockfiles:FuzzPythonRequirements \
-	internal/lockfiles:FuzzOverrides
+	internal/lockfiles:FuzzOverrides \
+	internal/fullmirror:FuzzBazelCoordinate \
+	internal/fullmirror:FuzzBazelMetadata \
+	internal/fullmirror:FuzzBazelSource \
+	internal/fullmirror:FuzzCargoIndexFile \
+	internal/fullmirror:FuzzComposerChanges \
+	internal/fullmirror:FuzzComposerList \
+	internal/fullmirror:FuzzConanBinaries \
+	internal/fullmirror:FuzzConanCoordinate \
+	internal/fullmirror:FuzzConanFiles \
+	internal/fullmirror:FuzzConanPackages \
+	internal/fullmirror:FuzzConanRevision \
+	internal/fullmirror:FuzzConanSearch \
+	internal/fullmirror:FuzzConanVersionCompare \
+	internal/fullmirror:FuzzCPANChecksums \
+	internal/fullmirror:FuzzCPANPackages \
+	internal/fullmirror:FuzzCPANPaths \
+	internal/fullmirror:FuzzCPANRecent \
+	internal/fullmirror:FuzzGitCapabilities \
+	internal/fullmirror:FuzzGitDelta \
+	internal/fullmirror:FuzzGitFetchResponse \
+	internal/fullmirror:FuzzGitLsRefs \
+	internal/fullmirror:FuzzGitPack \
+	internal/fullmirror:FuzzGitSettleCommit \
+	internal/fullmirror:FuzzGitTreeAndCommit \
+	internal/fullmirror:FuzzGoCursor \
+	internal/fullmirror:FuzzGoIndexPage \
+	internal/fullmirror:FuzzGoVersionList \
+	internal/fullmirror:FuzzHackageContentRange \
+	internal/fullmirror:FuzzHackageIndex \
+	internal/fullmirror:FuzzHackagePackages \
+	internal/fullmirror:FuzzHackagePreferred \
+	internal/fullmirror:FuzzHomebrewCoordinate \
+	internal/fullmirror:FuzzHomebrewFormula \
+	internal/fullmirror:FuzzHomebrewPlatforms \
+	internal/fullmirror:FuzzJuliaRegistries \
+	internal/fullmirror:FuzzJuliaRegistryTarball \
+	internal/fullmirror:FuzzJuliaRegistryTOML \
+	internal/fullmirror:FuzzJuliaVersionsTOML \
+	internal/fullmirror:FuzzNPMAllDocs \
+	internal/fullmirror:FuzzNPMChanges \
+	internal/fullmirror:FuzzNPMPackument \
+	internal/fullmirror:FuzzNuGetCatalogIndex \
+	internal/fullmirror:FuzzNuGetCatalogPage \
+	internal/fullmirror:FuzzNuGetServiceIndex \
+	internal/fullmirror:FuzzNuGetVersionList \
+	internal/fullmirror:FuzzPipCursor \
+	internal/fullmirror:FuzzPipProjectList \
+	internal/fullmirror:FuzzPipSimplePageReleases \
+	internal/fullmirror:FuzzPipStoreLine \
+	internal/fullmirror:FuzzPipXMLRPC \
+	internal/fullmirror:FuzzRubyGemsInfo \
+	internal/fullmirror:FuzzRubyGemsRangeHeaders \
+	internal/fullmirror:FuzzRubyGemsVersions
 
 # The targets can be split into FUZZ_SHARDS slices, FUZZ_SHARD (0-based)
 # selecting one: target i belongs to shard i mod FUZZ_SHARDS. The nightly CI

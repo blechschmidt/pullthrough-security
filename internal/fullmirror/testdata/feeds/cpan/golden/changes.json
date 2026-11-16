@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "name": "KIMOTO/SPVM-UV",
+      "version": "0.008"
+    }
+  ],
+  "next": {
+    "format": "cpan/1",
+    "epoch": "1794795306.63291",
+    "dirtymark": "1760942917.81368"
+  },
+  "more": false,
+  "head": "1794795306.63291",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:15:06.63291Z",
+  "cursorTime": "2026-11-16T02:15:06.63291Z"
+}

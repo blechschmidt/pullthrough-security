@@ -1,0 +1,34 @@
+{
+  "version": "3.0.0",
+  "resources": [
+    {
+      "@id": "https://azuresearch-usnc.nuget.org/query",
+      "@type": "SearchQueryService",
+      "comment": "Query endpoint of NuGet Search service (primary)"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/registration5-gz-semver2/",
+      "@type": "RegistrationsBaseUrl/3.6.0",
+      "comment": "Base URL of Azure storage where NuGet package registration info is stored in GZIP format. This base URL includes SemVer 2.0.0 packages."
+    },
+    {
+      "@id": "https://api.nuget.org/v3-flatcontainer/",
+      "@type": "PackageBaseAddress/3.0.0",
+      "comment": "Base URL of where NuGet packages are stored, in the format https://api.nuget.org/v3-flatcontainer/{id-lower}/{version-lower}/{id-lower}.{version-lower}.nupkg"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/index.json",
+      "@type": "Catalog/3.0.0",
+      "comment": "Index of the NuGet package catalog."
+    },
+    {
+      "@id": "https://api.nuget.org/v3-flatcontainer/{lower_id}/{lower_version}/readme",
+      "@type": "ReadmeUriTemplate/6.13.0",
+      "comment": "URI template used by NuGet Client to construct a URL for downloading a package's README."
+    }
+  ],
+  "@context": {
+    "@vocab": "http://schema.nuget.org/services#",
+    "comment": "http://www.w3.org/2000/01/rdf-schema#comment"
+  }
+}

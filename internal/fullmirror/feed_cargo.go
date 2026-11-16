@@ -157,6 +157,12 @@ func (f *cargoFeed) Releases(ctx context.Context, name string) ([]Release, error
 	}
 	rels := make([]Release, 0, len(entries))
 	for _, e := range entries {
+		if !strings.EqualFold(e.Name, name) {
+			// An index file speaks for its own crate only: a line naming
+			// another would have the mirror fetch that crate around the
+			// name patterns.
+			continue
+		}
 		arts, err := f.k.locate(ctx, lockfiles.Dependency{Name: e.Name, Version: e.Version}, nil)
 		if err != nil {
 			if IsPermanent(err) {

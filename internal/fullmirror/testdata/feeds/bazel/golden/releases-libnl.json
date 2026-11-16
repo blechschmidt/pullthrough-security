@@ -1,0 +1,19 @@
+[
+  {
+    "version": "3.7.0",
+    "artifacts": [
+      {
+        "path": "/modules/libnl/3.7.0/MODULE.bazel"
+      },
+      {
+        "path": "/modules/libnl/3.7.0/archive"
+      },
+      {
+        "path": "/modules/libnl/3.7.0/overlay/BUILD.bazel"
+      },
+      {
+        "path": "/modules/libnl/3.7.0/overlay/lib/defs.h"
+      }
+    ]
+  }
+]

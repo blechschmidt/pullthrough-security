@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "name": "0101"
+    },
+    {
+      "name": "requests"
+    },
+    {
+      "name": "six"
+    }
+  ],
+  "next": {
+    "format": "pip/1",
+    "mode": "xmlrpc",
+    "serial": 43707253
+  },
+  "more": false,
+  "head": "43707253"
+}

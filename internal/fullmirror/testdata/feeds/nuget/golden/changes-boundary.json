@@ -1,0 +1,30 @@
+{
+  "items": [
+    {
+      "name": "Audacia.CodeAnalysis",
+      "version": "2.2.0",
+      "deleted": true
+    },
+    {
+      "name": "Audacia.CodeAnalysis.Libraries",
+      "version": "2.2.0"
+    },
+    {
+      "name": "ArcanaDevelopment.adTempus.Client",
+      "version": "6.0.0-prerelease.1009"
+    },
+    {
+      "name": "Moonwell.Objects",
+      "version": "0.13.4"
+    }
+  ],
+  "next": {
+    "format": "nuget/1",
+    "catalog": "https://api.nuget.org/v3/catalog0/index.json",
+    "since": "2026-11-13T18:54:36.1239003Z"
+  },
+  "more": true,
+  "head": "2026-11-16T02:14:09.8253348Z",
+  "headTime": "2026-11-16T02:14:09.8253348Z",
+  "cursorTime": "2026-11-13T18:54:36.1239003Z"
+}

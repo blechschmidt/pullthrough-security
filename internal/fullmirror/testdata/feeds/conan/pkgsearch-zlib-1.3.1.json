@@ -1,0 +1,61 @@
+{
+  "2f813e311fb9c41521c47949c9a19c12f085829b" : {
+    "settings" : {
+      "os" : "Macos",
+      "arch" : "armv8",
+      "compiler" : "apple-clang",
+      "build_type" : "Release",
+      "compiler.version" : "17"
+    },
+    "options" : {
+      "shared" : "True"
+    },
+    "content" : "[settings]\narch=armv8\nbuild_type=Release\ncompiler=apple-clang\ncompiler.version=17\nos=Macos\n[options]\nshared=True\n",
+    "requires" : [ ]
+  },
+  "c81087b06d1a5beef0ad711fc32d45f7a425a8f3" : {
+    "settings" : {
+      "os" : "Linux",
+      "arch" : "x86_64",
+      "compiler" : "gcc",
+      "build_type" : "Release",
+      "compiler.version" : "13"
+    },
+    "options" : {
+      "shared" : "False",
+      "fPIC" : "True"
+    },
+    "content" : "[settings]\narch=x86_64\nbuild_type=Release\ncompiler=gcc\ncompiler.version=13\nos=Linux\n[options]\nfPIC=True\nshared=False\n",
+    "requires" : [ ]
+  },
+  "0d6dd492a7d31822b2f2686ec67bbaef586416a3" : {
+    "settings" : {
+      "os" : "Windows",
+      "compiler.runtime_type" : "Release",
+      "compiler.runtime" : "dynamic",
+      "arch" : "x86_64",
+      "compiler" : "msvc",
+      "build_type" : "Release",
+      "compiler.version" : "194"
+    },
+    "options" : {
+      "shared" : "False"
+    },
+    "content" : "[settings]\narch=x86_64\nbuild_type=Release\ncompiler=msvc\ncompiler.runtime=dynamic\ncompiler.runtime_type=Release\ncompiler.version=194\nos=Windows\n[options]\nshared=False\n",
+    "requires" : [ ]
+  },
+  "17561cbc2922b459119809d525458e11e7bcb047" : {
+    "settings" : {
+      "os" : "Linux",
+      "arch" : "x86_64",
+      "compiler" : "gcc",
+      "build_type" : "Release",
+      "compiler.version" : "13"
+    },
+    "options" : {
+      "shared" : "True"
+    },
+    "content" : "[settings]\narch=x86_64\nbuild_type=Release\ncompiler=gcc\ncompiler.version=13\nos=Linux\n[options]\nshared=True\n",
+    "requires" : [ ]
+  }
+}

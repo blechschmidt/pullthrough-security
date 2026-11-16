@@ -1,0 +1,30 @@
+[
+  {
+    "name": "audit-userspace",
+    "version": "4.2.1"
+  },
+  {
+    "name": "libcap-ng",
+    "version": "0.9.6"
+  },
+  {
+    "name": "libnl",
+    "version": "3.7.0"
+  },
+  {
+    "name": "linux-pam",
+    "version": "1.7.3"
+  },
+  {
+    "name": "openvpn",
+    "version": "2.7.7"
+  },
+  {
+    "name": "pkcs11-helper",
+    "version": "1.31.0"
+  },
+  {
+    "name": "wireguard-tools",
+    "version": "1.0.20260223"
+  }
+]

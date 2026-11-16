@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blechschmidt/pullthrough-security/internal/lockfiles"
 )
@@ -97,7 +99,7 @@ func (f *npmFeed) format() string { return cursorFormat("npm", npmFeedVersion) }
 func (f *npmFeed) Bootstrap(ctx context.Context, cursor string) (Batch, error) {
 	var c npmCursor
 	if cursor == "" {
-		head, err := f.head(ctx)
+		head, err := f.head(ctx, false)
 		if err != nil {
 			return Batch{}, err
 		}
@@ -107,12 +109,13 @@ func (f *npmFeed) Bootstrap(ctx context.Context, cursor string) (Batch, error) {
 	} else if !c.Listing {
 		return Batch{}, fmt.Errorf("%w: the npm cursor does not continue a listing", ErrCursorInvalid)
 	}
+	// startkey is inclusive: a page after the first starts with the name
+	// listed last. (The replica refuses a limit above 10000, so the page is
+	// not made one longer to make up for it.)
 	q := url.Values{"limit": {strconv.Itoa(f.limit)}}
 	if c.After != "" {
 		key, _ := json.Marshal(c.After)
 		q.Set("startkey", string(key))
-		// startkey is inclusive: the name listed last comes back first.
-		q.Set("limit", strconv.Itoa(f.limit+1))
 	}
 	body, _, err := f.k.get(ctx, join(f.feed, "_all_docs")+"?"+q.Encode(), nil, maxFeedPage)
 	if err != nil {
@@ -122,12 +125,9 @@ func (f *npmFeed) Bootstrap(ctx context.Context, cursor string) (Batch, error) {
 	if err != nil {
 		return Batch{}, Permanent(fmt.Errorf("listing the npm registry: %w", err))
 	}
-	full := len(ids) == f.limit
-	if c.After != "" {
-		full = len(ids) == f.limit+1
-		if len(ids) > 0 && ids[0] == c.After {
-			ids = ids[1:]
-		}
+	full := len(ids) >= f.limit
+	if c.After != "" && len(ids) > 0 && ids[0] == c.After {
+		ids = ids[1:]
 	}
 	b := Batch{Head: c.Since}
 	last := c.After
@@ -161,14 +161,23 @@ func (f *npmFeed) Changes(ctx context.Context, cursor string) (Batch, error) {
 	if c.Listing || c.Since == "" {
 		return Batch{}, fmt.Errorf("%w: the npm cursor names no change sequence", ErrCursorInvalid)
 	}
-	head, err := f.head(ctx)
+	head, err := f.head(ctx, false)
 	if err != nil {
 		return Batch{}, err
 	}
 	since, sinceOK := parseSeq(c.Since)
 	headN, headOK := parseSeq(head)
 	if sinceOK && headOK && since > headN {
-		return Batch{}, fmt.Errorf("%w: the stored sequence %d is beyond the registry's current %d (the registry reset its sequence)", ErrCursorInvalid, since, headN)
+		// A cached or lagging root read must not set off a new
+		// enumeration of millions of packages: read it again, past any
+		// cache, before calling the sequence reset.
+		if head, err = f.head(ctx, true); err != nil {
+			return Batch{}, err
+		}
+		headN, headOK = parseSeq(head)
+		if headOK && since > headN {
+			return Batch{}, fmt.Errorf("%w: the stored sequence %d is beyond the registry's current %d (the registry reset its sequence)", ErrCursorInvalid, since, headN)
+		}
 	}
 	q := url.Values{"since": {c.Since}, "limit": {strconv.Itoa(f.limit)}}
 	body, _, err := f.k.get(ctx, join(f.feed, "_changes")+"?"+q.Encode(), nil, maxFeedPage)
@@ -179,8 +188,16 @@ func (f *npmFeed) Changes(ctx context.Context, cursor string) (Batch, error) {
 	if err != nil {
 		return Batch{}, Permanent(fmt.Errorf("reading the npm change feed: %w", err))
 	}
+	if last == "" && len(changes) > 0 {
+		last = changes[len(changes)-1].Seq
+	}
 	if last == "" {
 		last = c.Since
+	}
+	if len(changes) >= f.limit && last == c.Since {
+		// A full page that does not move the cursor would be asked for
+		// again and again.
+		return Batch{}, Permanent(fmt.Errorf("reading the npm change feed: a full page after sequence %s names no later sequence", c.Since))
 	}
 	if lastN, ok := parseSeq(last); ok && sinceOK && lastN < since {
 		return Batch{}, fmt.Errorf("%w: the change feed went back from sequence %d to %d", ErrCursorInvalid, since, lastN)
@@ -199,9 +216,16 @@ func (f *npmFeed) Changes(ctx context.Context, cursor string) (Batch, error) {
 	return b, nil
 }
 
-// head reads the feed's current sequence (the root document's update_seq).
-func (f *npmFeed) head(ctx context.Context) (string, error) {
-	body, _, err := f.k.get(ctx, join(f.feed, ""), nil, 1<<20)
+// head reads the feed's current sequence (the root document's update_seq);
+// fresh asks past any cache in front of the replica (the public one's root is
+// cached at the CDN).
+func (f *npmFeed) head(ctx context.Context, fresh bool) (string, error) {
+	target, hdr := join(f.feed, ""), http.Header(nil)
+	if fresh {
+		target += "?" + url.Values{"fresh": {strconv.FormatInt(time.Now().UnixNano(), 10)}}.Encode()
+		hdr = http.Header{"Cache-Control": {"no-cache"}}
+	}
+	body, _, err := f.k.get(ctx, target, hdr, 1<<20)
 	if err != nil {
 		return "", fmt.Errorf("reading the npm feed's current sequence: %w", err)
 	}
@@ -221,6 +245,7 @@ func (f *npmFeed) head(ctx context.Context) (string, error) {
 // npmChange is one result of _changes.
 type npmChange struct {
 	ID      string
+	Seq     string
 	Deleted bool
 }
 
@@ -246,7 +271,8 @@ func parseNPMChanges(body []byte) ([]npmChange, string, error) {
 	}
 	out := make([]npmChange, 0, len(doc.Results))
 	for _, r := range doc.Results {
-		out = append(out, npmChange{ID: r.ID, Deleted: r.Deleted})
+		seq, _ := seqString(r.Seq)
+		out = append(out, npmChange{ID: r.ID, Seq: seq, Deleted: r.Deleted})
 	}
 	return out, last, nil
 }
@@ -339,7 +365,19 @@ func (f *npmFeed) Releases(ctx context.Context, name string) ([]Release, error) 
 			}
 			return nil, err
 		}
-		rels = append(rels, Release{Version: v.Version, Artifacts: arts})
+		// A packument names its tarballs; one naming another package's
+		// would have the mirror fetch that package around the name
+		// patterns. The backend serves a package's tarballs beneath
+		// "/<name>/-/".
+		ok := true
+		for _, a := range arts {
+			if !strings.HasPrefix(a.Path, "/"+name+"/-/") {
+				ok = false
+			}
+		}
+		if ok {
+			rels = append(rels, Release{Version: v.Version, Artifacts: arts})
+		}
 	}
 	orderReleases("npm", rels)
 	return rels, nil
@@ -369,7 +407,7 @@ func parseNPMPackument(body []byte) ([]npmVersion, error) {
 	}
 	out := make([]npmVersion, 0, len(doc.Versions))
 	for v, m := range doc.Versions {
-		if !cleanName(v) || len(v) > 256 || strings.ContainsAny(v, "/ ") || m.Dist.Tarball == "" {
+		if !cleanName(v) || len(v) > 256 || strings.ContainsAny(v, "/ ?#%\\") || m.Dist.Tarball == "" {
 			continue
 		}
 		out = append(out, npmVersion{Version: v, Tarball: m.Dist.Tarball})

@@ -1,0 +1,38 @@
+[
+  {
+    "version": "1.3.1",
+    "published": "2025-12-09T12:51:39.337Z",
+    "artifacts": [
+      {
+        "path": "/v2/conans/zlib/1.3.1/_/_/revisions/cac0f6daea041b0ccf42934163defb20/files/conan_export.tgz"
+      },
+      {
+        "path": "/v2/conans/zlib/1.3.1/_/_/revisions/cac0f6daea041b0ccf42934163defb20/files/conan_sources.tgz"
+      },
+      {
+        "path": "/v2/conans/zlib/1.3.1/_/_/revisions/cac0f6daea041b0ccf42934163defb20/files/conanfile.py"
+      },
+      {
+        "path": "/v2/conans/zlib/1.3.1/_/_/revisions/cac0f6daea041b0ccf42934163defb20/files/conanmanifest.txt"
+      }
+    ]
+  },
+  {
+    "version": "1.4",
+    "published": "2026-11-06T15:42:22.583Z",
+    "artifacts": [
+      {
+        "path": "/v2/conans/zlib/1.4/_/_/revisions/f51abf05ab684e2283b6d4c1243b624f/files/conan_export.tgz"
+      },
+      {
+        "path": "/v2/conans/zlib/1.4/_/_/revisions/f51abf05ab684e2283b6d4c1243b624f/files/conan_sources.tgz"
+      },
+      {
+        "path": "/v2/conans/zlib/1.4/_/_/revisions/f51abf05ab684e2283b6d4c1243b624f/files/conanfile.py"
+      },
+      {
+        "path": "/v2/conans/zlib/1.4/_/_/revisions/f51abf05ab684e2283b6d4c1243b624f/files/conanmanifest.txt"
+      }
+    ]
+  }
+]

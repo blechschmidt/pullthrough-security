@@ -1,0 +1,8 @@
+{
+  "files" : {
+    "conan_export.tgz" : { },
+    "conan_sources.tgz" : { },
+    "conanmanifest.txt" : { },
+    "conanfile.py" : { }
+  }
+}

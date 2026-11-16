@@ -1,0 +1,445 @@
+{
+  "meta": {
+    "aggregator": [
+      "1h",
+      "6h",
+      "1d",
+      "1W",
+      "1M",
+      "1Q",
+      "1Y",
+      "Z"
+    ],
+    "dirtymark": 1760942917.81368,
+    "filenameroot": "RECENT",
+    "interval": "6h",
+    "merged": {
+      "epoch": 1794792485.39637,
+      "into_interval": "1d"
+    },
+    "minmax": {
+      "max": 1794794646.21396,
+      "min": 1794773108.6859,
+      "mtime": 1794794650
+    },
+    "protocol": 1,
+    "serializer_suffix": ".json",
+    "Producers": {
+      "$0": "/app/rrr-server",
+      "github.com/abh/rrrgo": "v0.2.6/70dc55f (2026-05-23T08:49:24Z, go1.26.3)",
+      "time": 1794794650.08524
+    }
+  },
+  "recent": [
+    {
+      "epoch": 1794794646.21396,
+      "path": "authors/RECENT-1h.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794646.21395,
+      "path": "authors/02STAMP",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794646.21394,
+      "path": "modules/RECENT-1h.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794606.19666,
+      "path": "authors/RECENT-6h.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794501.11786,
+      "path": "indices/timestamp.txt",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794346.04464,
+      "path": "authors/00whois.xml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794346.04463,
+      "path": "authors/00whois.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794205.98887,
+      "path": "modules/RECENT-1d.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794185.98134,
+      "path": "modules/RECENT-Z.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794165.97422,
+      "path": "modules/RECENT-1W.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794145.96479,
+      "path": "modules/06perms.txt.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794145.96478,
+      "path": "modules/06perms.txt",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794065.9379,
+      "path": "modules/02packages.details.txt.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794065.93789,
+      "path": "modules/02packages.details.txt",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794045.93154,
+      "path": "authors/id/S/SH/SHINGO/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794005.91399,
+      "path": "authors/id/K/KI/KIMOTO/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793985.9077,
+      "path": "authors/id/C/CU/CUKEBOT/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793965.90152,
+      "path": "authors/id/C/CP/CPANIC/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793885.8714,
+      "path": "authors/id/K/KI/KIMOTO/SPVM-UV-0.008.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793885.87136,
+      "path": "authors/id/K/KI/KIMOTO/SPVM-UV-0.008.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793785.83092,
+      "path": "authors/id/K/KI/KIMOTO/SPVM-UV-0.008.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794792400.36997,
+      "path": "MIRRORING.FROM",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791915.21513,
+      "path": "indices/cpan-stats.json",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791885.20615,
+      "path": "authors/p6provides.json.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791825.18964,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.3.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791825.18963,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.3.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791745.16391,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.3.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791285.02194,
+      "path": "modules/02STAMP",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791270.01583,
+      "path": "authors/RECENT-1d.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794790404.6812,
+      "path": "authors/id/G/GE/GETTY/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794788799.29253,
+      "path": "indices/du-k.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794788764.28206,
+      "path": "indices/find-ls.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794788749.27652,
+      "path": "indices/ls-lR.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794788184.1354601,
+      "path": "index.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794788184.13543,
+      "path": "misc/how-to-mirror.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794788184.13542,
+      "path": "misc/cpan-faq.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794786768.69969,
+      "path": "authors/id/B/BR/BRONG/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794784703.15158,
+      "path": "modules/01modules.mtime.rss",
+      "type": "new"
+    },
+    {
+      "epoch": 1794784703.15157,
+      "path": "modules/01modules.mtime.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794784703.15156,
+      "path": "modules/01modules.index.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794784127.82459,
+      "path": "authors/id/L/LN/LNATION/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794783747.73671,
+      "path": "authors/id/L/LN/LNATION/Time-Keeper-Zone-0.07.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794783747.7367,
+      "path": "authors/id/L/LN/LNATION/Time-Keeper-Zone-0.07.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794783667.71658,
+      "path": "authors/id/L/LN/LNATION/Time-Keeper-Zone-0.07.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794783247.44255,
+      "path": "authors/id/D/DO/DONANGEL/LaTeX/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794783167.42578,
+      "path": "authors/id/A/AJ/AJWOOD/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794782907.3401802,
+      "path": "authors/id/A/AJ/AJWOOD/RT-Extension-TOTPMFA-0.20.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794782907.3401701,
+      "path": "authors/id/A/AJ/AJWOOD/RT-Extension-TOTPMFA-0.20.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794782827.32337,
+      "path": "authors/id/A/AJ/AJWOOD/RT-Extension-TOTPMFA-0.20.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794780846.35882,
+      "path": "authors/id/E/ET/ETHER/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794780186.06761,
+      "path": "authors/id/E/ET/ETHER/JSON-Schema-Modern-0.654.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794780186.0676,
+      "path": "authors/id/E/ET/ETHER/JSON-Schema-Modern-0.654.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794780086.02458,
+      "path": "authors/id/E/ET/ETHER/JSON-Schema-Modern-0.654.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794779625.84373,
+      "path": "authors/id/S/SA/SANKO/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794779585.8320801,
+      "path": "authors/id/K/KA/KAMENSKY/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794779565.82196,
+      "path": "authors/id/A/AS/ASB/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794777445.07944,
+      "path": "authors/id/A/AS/ASB/Spreadsheet-XLSX-0.21.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794777445.07943,
+      "path": "authors/id/A/AS/ASB/Spreadsheet-XLSX-0.21.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794777345.04695,
+      "path": "authors/id/A/AS/ASB/Spreadsheet-XLSX-0.21.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776964.88813,
+      "path": "authors/id/S/SA/SANKO/Alien-Build-Plugin-Build-Xrepo-v1.0.1.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776964.88812,
+      "path": "authors/id/S/SA/SANKO/Alien-Build-Plugin-Build-Xrepo-v1.0.1.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776884.86238,
+      "path": "authors/id/S/SA/SANKO/Alien-Build-Plugin-Build-Xrepo-v1.0.1.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776124.65296,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.2.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776124.65295,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.2.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776044.63298,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.2.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794776024.62798,
+      "path": "authors/id/N/NH/NHORNE/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794775984.61799,
+      "path": "authors/id/E/EG/EGOR/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794775984.61798,
+      "path": "authors/id/D/DC/DCON/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794775204.411,
+      "path": "authors/id/N/NH/NHORNE/App-FileSync-0.002.1.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794775204.41099,
+      "path": "authors/id/N/NH/NHORNE/App-FileSync-0.002.1.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794775124.39173,
+      "path": "authors/id/N/NH/NHORNE/App-FileSync-0.002.1.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794774364.20092,
+      "path": "authors/id/E/EG/EGOR/Alien-MySQL-0.01.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794774364.20091,
+      "path": "authors/id/E/EG/EGOR/Alien-MySQL-0.01.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794774284.17675,
+      "path": "authors/id/E/EG/EGOR/Alien-MySQL-0.01.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773963.93168,
+      "path": "authors/id/C/CP/CPANIC/Text-Redact-Secrets-v1.0.2.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773963.93164,
+      "path": "authors/id/C/CP/CPANIC/Text-Redact-Secrets-v1.0.2.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773903.90862,
+      "path": "RECENT",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773903.90861,
+      "path": "indices/RECENT-ls",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773903.90858,
+      "path": "RECENT.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773898.90372,
+      "path": "indices/RECENT-print",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773888.89794,
+      "path": "authors/id/C/CP/CPANIC/Text-Redact-Secrets-v1.0.2.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794773108.6859,
+      "path": "authors/RECENT-1W.yaml",
+      "type": "new"
+    }
+  ]
+}

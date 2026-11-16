@@ -1466,7 +1466,7 @@ func classifyRefusal(res FetchResult) refusal {
 // (stopping) or failed the round. deferrals is how often the file was
 // deferred before (0 for a file of a batch).
 func (f *follower) mirrorArtifact(ctx context.Context, fetcher Fetcher, c Coordinate, a Artifact, halt func() error, deferrals int) error {
-	if !strings.HasPrefix(a.Path, "/") || strings.ContainsAny(a.Path, "?#\r\n\x00") || len(a.Path) > 4096 {
+	if !validArtifactPath(a.Path) {
 		f.count(func(n *Counters) { n.Failed++ })
 		f.recordError(c.String(), cleanMessage(a.Path), errors.New("the feed named an invalid path"))
 		return nil

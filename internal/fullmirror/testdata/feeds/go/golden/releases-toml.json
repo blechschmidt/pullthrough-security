@@ -1,0 +1,226 @@
+[
+  {
+    "version": "v0.1.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.1.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.1.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.1.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v0.2.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.2.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.2.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.2.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v0.3.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.3.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.3.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.3.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v0.3.1",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.3.1.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.3.1.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.3.1.zip"
+      }
+    ]
+  },
+  {
+    "version": "v0.4.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.4.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.4.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.4.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v0.4.1",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.4.1.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.4.1.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v0.4.1.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.0.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.0.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.0.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.0.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.1.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.1.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.1.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.1.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.2.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.2.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.2.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.2.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.2.1",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.2.1.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.2.1.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.2.1.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.3.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.3.1",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.1.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.1.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.1.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.3.2",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.2.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.2.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.3.2.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.4.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.4.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.4.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.4.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.5.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.5.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.5.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.5.0.zip"
+      }
+    ]
+  },
+  {
+    "version": "v1.6.0",
+    "artifacts": [
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.6.0.info"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.6.0.mod"
+      },
+      {
+        "path": "/github.com/!burnt!sushi/toml/@v/v1.6.0.zip"
+      }
+    ]
+  }
+]

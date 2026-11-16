@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "name": "time-manager",
+      "version": "0.4.2"
+    }
+  ],
+  "next": {
+    "format": "hackage/1",
+    "end": 1054617088,
+    "header": 1054614528,
+    "sha256": "8adc5f5b91506205ed8380c05ba3b7d2e52c3882cda9d176288d4100fc444042"
+  },
+  "more": false,
+  "head": "1054618112",
+  "lagKnown": true,
+  "headTime": "2026-11-15T23:39:56Z",
+  "cursorTime": "2026-11-15T23:39:56Z"
+}

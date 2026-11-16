@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "name": "Soenneker.GitHub.Artifacts"
+    },
+    {
+      "name": "EggEncoder"
+    },
+    {
+      "name": "Credfeto.Build.Dotnet.Server"
+    },
+    {
+      "name": "Credfeto.Build.Dotnet.Server.linux-x64"
+    },
+    {
+      "name": "Intent.SoftwareFactory.CLI.nightly"
+    },
+    {
+      "name": "TianWen.Lib"
+    },
+    {
+      "name": "DIR.Lib"
+    },
+    {
+      "name": "Meshmakers.Octo.Services.Methods"
+    },
+    {
+      "name": "MinimalLambda.DurableExecution"
+    }
+  ],
+  "next": {
+    "format": "nuget/1",
+    "catalog": "https://api.nuget.org/v3/catalog0/index.json",
+    "since": "2026-11-16T02:14:09.8253348Z"
+  },
+  "more": false,
+  "head": "2026-11-16T02:14:09.8253348Z",
+  "headTime": "2026-11-16T02:14:09.8253348Z",
+  "cursorTime": "2026-11-16T02:14:09.8253348Z"
+}

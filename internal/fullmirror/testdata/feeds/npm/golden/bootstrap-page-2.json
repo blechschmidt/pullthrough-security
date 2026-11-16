@@ -12,8 +12,10 @@
   ],
   "next": {
     "format": "npm/1",
-    "since": "144855492"
+    "since": "144855492",
+    "listing": true,
+    "after": "left-pad-ai-local"
   },
-  "more": false,
+  "more": true,
   "head": "144855492"
 }

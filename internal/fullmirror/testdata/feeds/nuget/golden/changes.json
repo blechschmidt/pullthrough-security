@@ -1,0 +1,50 @@
+{
+  "items": [
+    {
+      "name": "Soenneker.GitHub.Artifacts",
+      "version": "11.0.1858"
+    },
+    {
+      "name": "Meshmakers.Octo.Services.Methods",
+      "version": "3.5.76"
+    },
+    {
+      "name": "MinimalLambda.DurableExecution",
+      "version": "2.8.0-preview.46"
+    },
+    {
+      "name": "DIR.Lib",
+      "version": "11.70.7051"
+    },
+    {
+      "name": "TianWen.Lib",
+      "version": "10.0.41851"
+    },
+    {
+      "name": "EggEncoder",
+      "version": "4.107.13"
+    },
+    {
+      "name": "Intent.SoftwareFactory.CLI.nightly",
+      "version": "5.4.999-nightly.2026-11-16-0103-utc.4e10f01"
+    },
+    {
+      "name": "Credfeto.Build.Dotnet.Server.linux-x64",
+      "version": "0.0.6.145-job-result-wait"
+    },
+    {
+      "name": "EggEncoder",
+      "version": "4.108.0"
+    }
+  ],
+  "next": {
+    "format": "nuget/1",
+    "catalog": "https://api.nuget.org/v3/catalog0/index.json",
+    "since": "2026-11-16T02:14:09.8253348Z"
+  },
+  "more": false,
+  "head": "2026-11-16T02:14:09.8253348Z",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:14:09.8253348Z",
+  "cursorTime": "2026-11-16T02:14:09.8253348Z"
+}

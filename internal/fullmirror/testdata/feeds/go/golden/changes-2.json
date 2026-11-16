@@ -1,0 +1,48 @@
+{
+  "items": [
+    {
+      "name": "github.com/cloudbusting/kanbanzai",
+      "version": "v0.22.0"
+    },
+    {
+      "name": "github.com/Mattermost/mattermost-server",
+      "version": "v4.4.0-rc1+incompatible"
+    },
+    {
+      "name": "proto.prod.wtf/gen/go/bufbuild/protovalidate/protocolbuffers/go",
+      "version": "v1.29.0-20240223195742-a1988d4576b3.7"
+    },
+    {
+      "name": "github.com/gasmod/gas/auth",
+      "version": "v0.10.0"
+    },
+    {
+      "name": "codeberg.org/forgeJo/forgejo",
+      "version": "v1.21.11-2"
+    },
+    {
+      "name": "github.com/Sigstore/fulcio",
+      "version": "v1.10.1"
+    },
+    {
+      "name": "github.com/SigStore/fulcio",
+      "version": "v1.10.1"
+    },
+    {
+      "name": "github.com/no42-org/blittermib",
+      "version": "v0.17.16"
+    }
+  ],
+  "next": {
+    "format": "go/1",
+    "since": "2026-11-16T02:40:34.736755Z",
+    "seen": [
+      "1ec224d0d2379369"
+    ]
+  },
+  "more": false,
+  "head": "2026-11-16T02:40:34.736755Z",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:40:34.736755Z",
+  "cursorTime": "2026-11-16T02:40:34.736755Z"
+}

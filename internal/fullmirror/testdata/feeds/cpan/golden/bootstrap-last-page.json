@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "name": "ETHER/Moose"
+    },
+    {
+      "name": "KIMOTO/SPVM-UV"
+    }
+  ],
+  "next": {
+    "format": "cpan/1",
+    "epoch": "1794788106.63291",
+    "dirtymark": "1760942917.81368"
+  },
+  "more": false,
+  "head": "1794788106.63291"
+}

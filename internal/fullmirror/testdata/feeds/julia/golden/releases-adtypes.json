@@ -1,0 +1,436 @@
+[
+  {
+    "version": "0.1.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/255e25d078cc61b9a6d82acc03731eb97e03e476"
+      }
+    ]
+  },
+  {
+    "version": "0.1.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/e6103228c92462a331003248fa31f00dcf41c577"
+      }
+    ]
+  },
+  {
+    "version": "0.1.2",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/17c76d3d02bff49534ee23560e8abcb840dfcc41"
+      }
+    ]
+  },
+  {
+    "version": "0.1.3",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/dcfdf328328f2645531c4ddebf841228aef74130"
+      }
+    ]
+  },
+  {
+    "version": "0.1.4",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/891771fcf2db8427453eed9eee66847fda5abcc3"
+      }
+    ]
+  },
+  {
+    "version": "0.1.5",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/e58c18d2312749847a74f5be80bb0fa53da102bd"
+      }
+    ]
+  },
+  {
+    "version": "0.1.6",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/f5c25e8a5b29b5e941b7408bc8cc79fea4d9ef9a"
+      }
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/9d6c8b145c6f3736d0961412a7a8887375779113"
+      }
+    ]
+  },
+  {
+    "version": "0.2.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/a4c8e0f8c09d4aa708289c1a5fc23e2d1970017a"
+      }
+    ]
+  },
+  {
+    "version": "0.2.2",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/d68758475ff90600488eb975b5ac222709a7dd6f"
+      }
+    ]
+  },
+  {
+    "version": "0.2.3",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/f2b16fe1a3491b295105cae080c2a5f77a842718"
+      }
+    ]
+  },
+  {
+    "version": "0.2.4",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/5d2e21d7b0d8c22f67483ef95ebdc39c0e6b6003"
+      }
+    ]
+  },
+  {
+    "version": "0.2.5",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/332e5d7baeff8497b923b730b994fa480601efc7"
+      }
+    ]
+  },
+  {
+    "version": "0.2.6",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/41c37aa88889c171f1300ceac1313c06e891d245"
+      }
+    ]
+  },
+  {
+    "version": "0.2.7",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/016833eb52ba2d6bea9fcb50ca295980e728ee24"
+      }
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/fcdb00b4d412b80ab08e39978e3bdef579e5e224"
+      }
+    ]
+  },
+  {
+    "version": "1.1.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/401c87ea437e9d5b74dc283a77198ad75e50811f"
+      }
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/9b3993053b87311e699ac9e1bcabec5ae7444f65"
+      }
+    ]
+  },
+  {
+    "version": "1.2.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/daf26bbdec60d9ca1c0003b70f389d821ddb4224"
+      }
+    ]
+  },
+  {
+    "version": "1.3.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/fc02d55798c1af91123d07915a990fbb9a10d146"
+      }
+    ]
+  },
+  {
+    "version": "1.4.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/fa0822e5baee6e23081c2685ae27265dabee23d8"
+      }
+    ]
+  },
+  {
+    "version": "1.5.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/2314e58e823f0fd6ee02dbbecb997370f501dd4a"
+      }
+    ]
+  },
+  {
+    "version": "1.5.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/3a6511b6e54550bcbc986c560921a8cd7761fcd8"
+      }
+    ]
+  },
+  {
+    "version": "1.5.2",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/ae44a0c3d68a420d4ac0fa1f7e0c034ccecb6dc5"
+      }
+    ]
+  },
+  {
+    "version": "1.5.3",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/7a6b285f217ba92b5b474b783b4c2e8cf8218aaa"
+      }
+    ]
+  },
+  {
+    "version": "1.5.4",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/1f3835083f5b40fc01a3c87e64bc3275cf447481"
+      }
+    ]
+  },
+  {
+    "version": "1.6.0",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/878aee357e230c375cc531952933889cbf9e9314"
+      }
+    ]
+  },
+  {
+    "version": "1.6.1",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/aa4d425271a914d8c4af6ad9fccb6eb3aec662c7"
+      }
+    ]
+  },
+  {
+    "version": "1.6.2",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/6778bcc27496dae5723ff37ee30af451db8b35fe"
+      }
+    ]
+  },
+  {
+    "version": "1.7.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/5908d630c495e3249cab29c5d5ea0b8de5e6e1fe"
+      }
+    ]
+  },
+  {
+    "version": "1.7.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/99a6f5d0ce1c7c6afdb759daa30226f71c54f6b0"
+      }
+    ]
+  },
+  {
+    "version": "1.8.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/5f205b5893c5bad5467365ec097249e9c26c2ca6"
+      }
+    ]
+  },
+  {
+    "version": "1.8.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/5a5eafb8344b81b8c2237f8a6f6b3602b3f6180e"
+      }
+    ]
+  },
+  {
+    "version": "1.9.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/eea5d80188827b35333801ef97a40c2ed653b081"
+      }
+    ]
+  },
+  {
+    "version": "1.10.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/30bb95a372787af850addf28ac937f1be7b79173"
+      }
+    ]
+  },
+  {
+    "version": "1.11.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/72af59f5b8f09faee36b4ec48e014a79210f2f4f"
+      }
+    ]
+  },
+  {
+    "version": "1.12.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/ab3815fc06f9c171ee81277f00ecee19b47e0b91"
+      }
+    ]
+  },
+  {
+    "version": "1.12.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/e1ce448a0d7f88168ffe2eeac4549c32d45a42d1"
+      }
+    ]
+  },
+  {
+    "version": "1.13.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/fb97701c117c8162e84dfcf80215caa904aef44f"
+      }
+    ]
+  },
+  {
+    "version": "1.14.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/e2478490447631aedba0823d4d7a80b2cc8cdb32"
+      }
+    ]
+  },
+  {
+    "version": "1.15.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/be7ae030256b8ef14a441726c4c37766b90b93a3"
+      }
+    ]
+  },
+  {
+    "version": "1.16.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/7927b9af540ee964cc5d1b73293f1eb0b761a3a1"
+      }
+    ]
+  },
+  {
+    "version": "1.17.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/60665b326b75db6517939d0e1875850bc4a54368"
+      }
+    ]
+  },
+  {
+    "version": "1.18.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/27cecae79e5cc9935255f90c53bb831cc3c870d7"
+      }
+    ]
+  },
+  {
+    "version": "1.19.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/8be2ae325471fc20b11c27bb34b518541d07dd3a"
+      }
+    ]
+  },
+  {
+    "version": "1.20.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/8b2b045b22740e4be20654175cc38291d48539db"
+      }
+    ]
+  },
+  {
+    "version": "1.21.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/f7304359109c768cf32dc5fa2d371565bb63b68a"
+      }
+    ]
+  },
+  {
+    "version": "1.22.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/bbc22a9a08a0ef6460041086d8a7b27940ed4ffd"
+      }
+    ]
+  },
+  {
+    "version": "1.22.1",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/d9aaef7c63466eee4de23b4d9dad03629df54bea"
+      }
+    ]
+  },
+  {
+    "version": "1.22.2",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/ec6be48a85c93d995563b84bff8a86bc98df45ce"
+      }
+    ]
+  },
+  {
+    "version": "1.22.3",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/0a81a018463de6c3f4f2c9360121c562e5add9e4"
+      }
+    ]
+  },
+  {
+    "version": "1.22.4",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/9b38b82a9fe131f3d331a53b7203d9d1a2a4602c"
+      }
+    ]
+  },
+  {
+    "version": "1.23.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/5970c86505ae9c07bf5bc521ef2bbbb3849e8b7b"
+      }
+    ]
+  },
+  {
+    "version": "1.24.0",
+    "artifacts": [
+      {
+        "path": "/package/47edcb42-4c32-4615-8424-f2b9edc5f35b/629de23e1c16911b439dabd2303c08af9575b226"
+      }
+    ]
+  }
+]

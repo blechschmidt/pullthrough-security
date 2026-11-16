@@ -22,8 +22,8 @@ import (
 	"github.com/blechschmidt/pullthrough-security/internal/upstream"
 )
 
-// crateFeed is a stand-in for a cargo feed adapter (Task 190 writes the real
-// one): a registry of three crates, enumerated in one batch.
+// crateFeed stands in for the cargo feed adapter (the real one follows the
+// crates.io Git index): a registry of three crates, enumerated in one batch.
 type crateFeed struct {
 	mu      sync.Mutex
 	changes []string

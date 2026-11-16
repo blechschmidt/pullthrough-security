@@ -1,0 +1,22 @@
+[
+  {
+    "version": "3.5.9",
+    "artifacts": [
+      {
+        "path": "/bottle/openssl@3/3.5.9/v2/homebrew/core/openssl/3/blobs/sha256:dcc989315a2efd06ca4a3fac5c33c237897a1059ed74f35c464a8967ffbb8aaf"
+      },
+      {
+        "path": "/bottle/openssl@3/3.5.9/v2/homebrew/core/openssl/3/blobs/sha256:6c0de70f833c6fee4630c17f3412d953eebfe181ef643e7a823633932d30ce16"
+      },
+      {
+        "path": "/bottle/openssl@3/3.5.9/v2/homebrew/core/openssl/3/blobs/sha256:82b33ce156b289eaf95657b9ec16e8f49cb49c882cdeaeaf57e3e7d67fa85e25"
+      },
+      {
+        "path": "/bottle/openssl@3/3.5.9/v2/homebrew/core/openssl/3/blobs/sha256:e8d7a91a0599aca7c82b63ff708bde97b6c1535f6b74c951ac89e4e55d571872"
+      },
+      {
+        "path": "/bottle/openssl@3/3.5.9/v2/homebrew/core/openssl/3/blobs/sha256:279da65bfd7a9d068fd0a21863af4a4ede5bc837130df9acca2729c3d9b9b8ef"
+      }
+    ]
+  }
+]

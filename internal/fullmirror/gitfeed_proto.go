@@ -28,8 +28,8 @@ import (
 // Limits on what a Git feed reads.
 const (
 	// maxGitPack bounds a fetch's pack: the crates.io index's trees, all of
-	// them, are about 14 MB.
-	maxGitPack = 1 << 30
+	// them, come to about 14 MB.
+	maxGitPack = 256 << 20
 	// maxGitRefs bounds the ref advertisement.
 	maxGitRefs = 4 << 20
 	// maxPktLine is the largest pkt-line payload (the format's own bound).
@@ -276,9 +276,14 @@ func isHexOID(s string) bool {
 // errGitIncrementalTooLarge reports an incremental fetch past its bound.
 var errGitIncrementalTooLarge = errors.New("the incremental fetch is larger than a fresh snapshot is worth")
 
-// maxGitIncremental bounds an incremental fetch: past it, a fresh snapshot of
-// the head's trees is cheaper (the crates.io index's is about 14 MB).
-const maxGitIncremental = 64 << 20
+// maxGitIncremental and maxGitIncrementalInflated bound an incremental fetch:
+// past either, a fresh snapshot of the head's trees is cheaper (the crates.io
+// index's comes to about 14 MB, inflating to about 30 MB, while a day of its
+// commits sent incrementally inflates to some 400 MB).
+var (
+	maxGitIncremental         = 64 << 20
+	maxGitIncrementalInflated = uint64(64 << 20)
+)
 
 // fetchTrees fetches the commit want and its trees — never blobs. Without
 // have it asks for a snapshot: the commit alone (depth 1) and all its trees.
@@ -305,7 +310,7 @@ func (g *gitRemote) fetchTrees(ctx context.Context, want, have string) (*gitObje
 		args = append(args, "deepen 1", "want "+want)
 	} else {
 		args = append(args, "want "+want, "have "+have)
-		limit = maxGitIncremental
+		limit = int64(maxGitIncremental)
 	}
 	args = append(args, "done")
 	body, err := g.command(ctx, "fetch", args)
@@ -320,11 +325,20 @@ func (g *gitRemote) fetchTrees(ctx context.Context, want, have string) (*gitObje
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s from %s: %w", want, g.repo.Redacted(), err)
 	}
-	objs, err := parsePack(pack)
-	if err != nil {
-		return nil, Permanent(fmt.Errorf("the pack %s sent for %s: %w", g.repo.Redacted(), want, err))
+	inflate := uint64(maxPackInflated)
+	if have != "" {
+		inflate = maxGitIncrementalInflated
 	}
-	return objs, nil
+	objs, err := parsePackBounded(ctx, pack, inflate)
+	switch {
+	case err == nil:
+		return objs, nil
+	case ctx.Err() != nil:
+		return nil, ctx.Err()
+	case errors.Is(err, errPackBound) && have != "":
+		return nil, errGitIncrementalTooLarge
+	}
+	return nil, Permanent(fmt.Errorf("the pack %s sent for %s: %w", g.repo.Redacted(), want, err))
 }
 
 // errGitPackTooLarge reports a pack past the read's bound.

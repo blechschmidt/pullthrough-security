@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "name": "jq"
+    },
+    {
+      "name": "legacy-flat"
+    },
+    {
+      "name": "openssl@3",
+      "deleted": true
+    },
+    {
+      "name": "wget"
+    }
+  ],
+  "next": {
+    "format": "homebrew-git/1",
+    "commit": "7ab9de29df6db91ba967930ddf90add8f668ce96"
+  },
+  "more": false,
+  "head": "7ab9de29df6db91ba967930ddf90add8f668ce96",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:01:00Z",
+  "cursorTime": "2026-11-16T02:01:00Z"
+}

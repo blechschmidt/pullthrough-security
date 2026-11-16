@@ -1,0 +1,84 @@
+[
+  {
+    "version": "0.2.0",
+    "published": "2011-02-14T08:49:42.64166Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/ba/bb/dfa0141a32d773c47e4dede1a617c59a23b74dd302e449cf85413fc96bc4/requests-0.2.0.tar.gz",
+        "size": 5533
+      }
+    ]
+  },
+  {
+    "version": "2.23.0",
+    "published": "2020-02-19T18:50:59.409378Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/1a/70/1935c770cb3be6e3a8b78ced23d7e0f3b187f5cbfab4749523ed65d7c9b1/requests-2.23.0-py2.py3-none-any.whl",
+        "size": 58406
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/f5/4f/280162d4bd4d8aad241a21aecff7a6e46891b905a4341e7ab549ebaf7915/requests-2.23.0.tar.gz",
+        "size": 114327
+      }
+    ]
+  },
+  {
+    "version": "2.31.0",
+    "published": "2023-05-22T15:12:42.31379Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/70/8e/0e2d847013cb52cd35b38c009bb167a1a26b2ce6cd6965bf26b47bc0bf44/requests-2.31.0-py3-none-any.whl",
+        "size": 62574
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/9d/be/10918a2eac4ae9f02f6cfe6414b7a155ccd8f7f9d4380d62fd5b955065c3/requests-2.31.0.tar.gz",
+        "size": 110794
+      }
+    ]
+  },
+  {
+    "version": "2.32.0",
+    "published": "2024-05-20T16:08:19.530618Z",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/24/e8/09e8d662a9675a4e4f5dd7a8e6127b463a091d2703ed931a64aa66d00065/requests-2.32.0-py3-none-any.whl",
+        "size": 63695
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/28/a2/423f4d16d6934ef502f10ad56673719dd4345e656aedbd6687ccc359ffc5/requests-2.32.0.tar.gz",
+        "size": 114373
+      }
+    ]
+  },
+  {
+    "version": "2.32.1",
+    "published": "2024-05-20T22:08:45.850542Z",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/9c/a6/b9bf71eeb6dc835311b5c47a7c90df57b08061091161639611252257768d/requests-2.32.1-py3-none-any.whl",
+        "size": 63711
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/d8/c1/f32fb7c02e7620928ef14756ff4840cae3b8ef1d62f7e596bc5413300a16/requests-2.32.1.tar.gz",
+        "size": 129920
+      }
+    ]
+  },
+  {
+    "version": "2.32.2",
+    "published": "2024-05-21T18:51:29.562156Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/c3/20/748e38b466e0819491f0ce6e90ebe4184966ee304fe483e2c414b0f4ef07/requests-2.32.2-py3-none-any.whl",
+        "size": 63902
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/86/ec/535bf6f9bd280de6a4637526602a146a68fde757100ecf8c9333173392db/requests-2.32.2.tar.gz",
+        "size": 130327
+      }
+    ]
+  }
+]

@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "name": "3scale-3scale_ws_api"
+    },
+    {
+      "name": "agent-evals"
+    },
+    {
+      "name": "oximg"
+    },
+    {
+      "name": "rack-test"
+    }
+  ],
+  "next": {
+    "format": "rubygems/1",
+    "gen": "c968d0d5aeca8616",
+    "size": 2146,
+    "sha256": "c968d0d5aeca8616e6a6a7e99540bfefca6b0ea4d33c9102c101138952c0d18e",
+    "created": "2026-11-01T00:00:04Z",
+    "etag": "\"c6ba42120713b5c94e0f1a6baf658d82\"",
+    "listing": true,
+    "offset": 8
+  },
+  "more": true,
+  "head": "2146"
+}

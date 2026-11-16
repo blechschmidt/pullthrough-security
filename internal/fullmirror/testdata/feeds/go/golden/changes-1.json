@@ -1,0 +1,64 @@
+{
+  "items": [
+    {
+      "name": "github.com/Mattermost/Mattermost-server",
+      "version": "v4.9.0-rc3+incompatible"
+    },
+    {
+      "name": "github.com/Mattermost/platform",
+      "version": "v3.8.3+incompatible"
+    },
+    {
+      "name": "github.com/Mattermost/Mattermost-server",
+      "version": "v3.6.2+incompatible"
+    },
+    {
+      "name": "github.com/senzing/go-common",
+      "version": "v0.8.0"
+    },
+    {
+      "name": "github.com/mattermost/Mattermost-server",
+      "version": "v4.9.0-rc3+incompatible"
+    },
+    {
+      "name": "proto.prod.wtf/gen/go/bufbuild/protovalidate/protocolbuffers/go",
+      "version": "v1.29.0-20231115131311-84653aae7151.7"
+    },
+    {
+      "name": "github.com/Mattermost/platform",
+      "version": "v3.7.2+incompatible"
+    },
+    {
+      "name": "go.l3.ai/gh",
+      "version": "v0.13.8"
+    },
+    {
+      "name": "github.com/Mattermost/mattermost-server",
+      "version": "v4.7.3+incompatible"
+    },
+    {
+      "name": "github.com/confighub/sdk/cliutil",
+      "version": "v0.11.4"
+    },
+    {
+      "name": "github.com/ashinpaugh/souin",
+      "version": "v1.6.30"
+    },
+    {
+      "name": "proto.prod.wtf/gen/go/bufbuild/protovalidate/protocolbuffers/go",
+      "version": "v1.29.0-20240212214536-30aaac4addc0.7"
+    }
+  ],
+  "next": {
+    "format": "go/1",
+    "since": "2026-11-16T02:40:18.170947Z",
+    "seen": [
+      "979e75c71965dde1"
+    ]
+  },
+  "more": false,
+  "head": "2026-11-16T02:40:18.170947Z",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:40:18.170947Z",
+  "cursorTime": "2026-11-16T02:40:18.170947Z"
+}

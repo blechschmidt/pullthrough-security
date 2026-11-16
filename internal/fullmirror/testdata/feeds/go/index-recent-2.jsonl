@@ -1,0 +1,16 @@
+{"Path":"proto.prod.wtf/gen/go/bufbuild/protovalidate/protocolbuffers/go","Version":"v1.29.0-20240212214536-30aaac4addc0.7","Timestamp":"2026-11-16T02:40:18.170947Z"}
+{"Path":"gitee.com/ameise84/e3net","Version":"v1.0.1-0.20261116023814-3a65176a7648","Timestamp":"2026-11-16T02:40:18.570876Z"}
+{"Path":"github.com/lib/pq/auth/kerberos","Version":"v0.0.0-20261116023512-5e0c05ba8427","Timestamp":"2026-11-16T02:40:18.959075Z"}
+{"Path":"github.com/cloudbusting/kanbanzai","Version":"v0.22.0","Timestamp":"2026-11-16T02:40:22.78339Z"}
+{"Path":"github.com/bex-co/bex","Version":"v0.0.0-20261116023806-a0266464aabd","Timestamp":"2026-11-16T02:40:23.540666Z"}
+{"Path":"github.com/carpetsage/egg","Version":"v0.0.0-20261115193530-01602375cd76","Timestamp":"2026-11-16T02:40:23.622389Z"}
+{"Path":"github.com/Mattermost/mattermost-server","Version":"v4.4.0-rc1+incompatible","Timestamp":"2026-11-16T02:40:24.153018Z"}
+{"Path":"git.erbs.dev/erbs.dev-public-code/iroh-go","Version":"v0.0.0-20261113193552-c607bbb0f47b","Timestamp":"2026-11-16T02:40:26.246086Z"}
+{"Path":"proto.prod.wtf/gen/go/bufbuild/protovalidate/protocolbuffers/go","Version":"v1.29.0-20240223195742-a1988d4576b3.7","Timestamp":"2026-11-16T02:40:26.631275Z"}
+{"Path":"github.com/henvic/gopick","Version":"v0.0.0-20261116023929-bd9700dd3d40","Timestamp":"2026-11-16T02:40:27.032308Z"}
+{"Path":"github.com/gasmod/gas/auth","Version":"v0.10.0","Timestamp":"2026-11-16T02:40:28.201034Z"}
+{"Path":"github.com/kchymet/agent-multiplexer","Version":"v0.0.0-20261116013302-b82f68d2cdef","Timestamp":"2026-11-16T02:40:29.406513Z"}
+{"Path":"codeberg.org/forgeJo/forgejo","Version":"v1.21.11-2","Timestamp":"2026-11-16T02:40:29.777042Z"}
+{"Path":"github.com/Sigstore/fulcio","Version":"v1.10.1","Timestamp":"2026-11-16T02:40:30.334818Z"}
+{"Path":"github.com/SigStore/fulcio","Version":"v1.10.1","Timestamp":"2026-11-16T02:40:33.143716Z"}
+{"Path":"github.com/no42-org/blittermib","Version":"v0.17.16","Timestamp":"2026-11-16T02:40:34.736755Z"}

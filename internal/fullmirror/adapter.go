@@ -144,7 +144,7 @@ func hostIs(u *url.URL, hosts ...string) bool {
 	return false
 }
 
-// join appends path segments (already escaped where needed) to a base URL.
+// join appends a path (literal: url.URL escapes it) to a base URL.
 func join(base *url.URL, path string) string {
 	b := *base
 	b.Path = strings.TrimRight(b.Path, "/") + "/" + strings.TrimLeft(path, "/")
@@ -190,10 +190,30 @@ func (k kit) do(ctx context.Context, method, rawURL string, body io.Reader, hdr 
 	if k.env.UserAgent != "" {
 		req.Header.Set("User-Agent", k.env.UserAgent)
 	}
+	client := k.env.HTTP
 	if k.env.Authorize != nil && k.sameOrigin(req.URL) {
 		k.env.Authorize(req)
+		// net/http forwards Authorization on a redirect to the same host on
+		// another port or scheme, and to a subdomain: the upstream's
+		// credentials must not leave its origin.
+		c := *client
+		next := client.CheckRedirect
+		c.CheckRedirect = func(r *http.Request, via []*http.Request) error {
+			if !k.sameOrigin(r.URL) {
+				r.Header.Del("Authorization")
+				r.Header.Del("Proxy-Authorization")
+			}
+			if next != nil {
+				return next(r, via)
+			}
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		client = &c
 	}
-	resp, err := k.env.HTTP.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", method, rawURL, err)
 	}
@@ -253,19 +273,31 @@ func readLimited(r io.Reader, limit int64) ([]byte, error) {
 }
 
 // httpStatusError classifies a registry's answer: a 404 or 410 is a package (or
-// a feed) the registry does not have, a 429 or 503 asks for a wait, another
-// 5xx is worth retrying, any other answer is not.
+// a feed) the registry does not have, a 401, 403 or 407 holds the upstream, a
+// 429 or 503 asks for a wait, a 408 or another 5xx is worth retrying, any
+// other answer is not.
 func httpStatusError(what string, resp *http.Response) error {
 	err := fmt.Errorf("%s: %s", what, resp.Status)
+	d, hasWait := retryAfter(resp.Header.Get("Retry-After"), time.Now())
+	return classifyStatus(err, resp.StatusCode, d, hasWait)
+}
+
+// classifyStatus classifies a status the registry (or the pipeline, relaying
+// it) answered. A refused authorization — an expired token, a firewall in the
+// way — is no verdict on the package: every request would be refused alike,
+// so the upstream is held rather than the package given up.
+func classifyStatus(err error, status int, wait time.Duration, hasWait bool) error {
 	switch {
-	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
+	case status == http.StatusNotFound || status == http.StatusGone:
 		return Permanent(fmt.Errorf("%w: not found", err))
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable:
-		if d, ok := retryAfter(resp.Header.Get("Retry-After"), time.Now()); ok {
-			return RetryAfter(err, d)
+	case status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusProxyAuthRequired:
+		return RetryAfter(err, holdAfterRefusal)
+	case status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable:
+		if hasWait {
+			return RetryAfter(err, wait)
 		}
 		return err
-	case resp.StatusCode >= 500:
+	case status == http.StatusRequestTimeout || status >= 500 || status == 0:
 		return err
 	}
 	return Permanent(err)
@@ -358,18 +390,7 @@ func readError(path string, res FetchResult) error {
 	if res.Reason != "" {
 		err = fmt.Errorf("%w: %s", err, cleanMessage(res.Reason))
 	}
-	switch {
-	case res.Status == http.StatusNotFound || res.Status == http.StatusGone:
-		return Permanent(fmt.Errorf("%w (not found)", err))
-	case res.Status == http.StatusTooManyRequests || res.Status == http.StatusServiceUnavailable:
-		if res.RetryAfter > 0 {
-			return RetryAfter(err, res.RetryAfter)
-		}
-		return err
-	case res.Status >= 500 || res.Status == 0:
-		return err
-	}
-	return Permanent(err)
+	return classifyStatus(err, res.Status, res.RetryAfter, res.RetryAfter > 0)
 }
 
 // readJSON reads a document through the pipeline and decodes it into v.
@@ -432,7 +453,10 @@ func (k kit) locate(ctx context.Context, dep lockfiles.Dependency, fetch locate.
 	dep.Upstream = k.env.Upstream
 	plan, err := locate.Locate(ctx, locate.Env{Upstreams: []locate.Upstream{k.locateUpstream()}, Fetch: fetch}, dep)
 	if err != nil {
-		if locate.IsUnsupported(err) {
+		// Without a fetcher the locator reads nothing: its error is about
+		// the coordinate (a name or version no registry path can carry),
+		// and asking again cannot change it.
+		if locate.IsUnsupported(err) || fetch == nil {
 			return nil, Permanent(err)
 		}
 		return nil, err
@@ -656,6 +680,51 @@ func (f files) prune(prefix string, keep ...string) {
 	for _, e := range entries {
 		if n := e.Name(); strings.HasPrefix(n, prefix) && !kept[n] {
 			_ = os.Remove(f.path(n))
+		}
+	}
+}
+
+// pruneKeepingNewest removes the files whose name starts with prefix, except
+// keep and the newest files of the prefix (by modification time). Keeping the
+// newest guards a store another replica wrote: a leader that lost its lease
+// while it polled may still prune, and must not delete what the new leader
+// just stored. Temporary files a crash left behind (older than an hour) go
+// too.
+func (f files) pruneKeepingNewest(prefix string, newest int, keep ...string) {
+	if f.dir == "" {
+		return
+	}
+	entries, err := os.ReadDir(f.dir)
+	if err != nil {
+		return
+	}
+	kept := map[string]bool{}
+	for _, k := range keep {
+		kept[k] = true
+	}
+	type cand struct {
+		name string
+		mod  time.Time
+	}
+	var cands []cand
+	for _, e := range entries {
+		n := e.Name()
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(n, "."+prefix) && strings.HasSuffix(n, ".tmp") && time.Since(info.ModTime()) > time.Hour {
+			_ = os.Remove(f.path(n))
+			continue
+		}
+		if strings.HasPrefix(n, prefix) && !kept[n] {
+			cands = append(cands, cand{n, info.ModTime()})
+		}
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].mod.After(cands[j].mod) })
+	for i, c := range cands {
+		if i >= newest {
+			_ = os.Remove(f.path(c.name))
 		}
 	}
 }

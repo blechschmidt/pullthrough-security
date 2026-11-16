@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "name": "000"
+    },
+    {
+      "name": "001-hello-uv"
+    },
+    {
+      "name": "00101s"
+    },
+    {
+      "name": "00print-lol"
+    },
+    {
+      "name": "00smalinux"
+    }
+  ],
+  "next": {
+    "format": "pip/1",
+    "mode": "xmlrpc",
+    "serial": 43707253,
+    "listing": true,
+    "skip": 10,
+    "store": "9418c9336f16440b06dbc99e3334827be5e83e0a329b6d2c62adc5fd5dd602b3"
+  },
+  "more": true,
+  "head": "43707253"
+}

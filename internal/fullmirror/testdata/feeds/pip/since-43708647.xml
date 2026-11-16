@@ -1,0 +1,133 @@
+<?xml version='1.0'?>
+<methodResponse>
+<params>
+<param>
+<value><array><data>
+<value><array><data>
+<value><string>aixand-suite-runner-client</string></value>
+<value><string>0.1.0a2</string></value>
+<value><int>1794797005</int></value>
+<value><string>new release</string></value>
+<value><int>43708648</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>aixand-suite-runner-client</string></value>
+<value><string>0.1.0a2</string></value>
+<value><int>1794797005</int></value>
+<value><string>add py3 file aixand_suite_runner_client-0.1.0a2-py3-none-any.whl</string></value>
+<value><int>43708649</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>mgm2-community</string></value>
+<value><nil/></value><value><int>1794797007</int></value>
+<value><string>create</string></value>
+<value><int>43708650</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>mgm2-community</string></value>
+<value><nil/></value><value><int>1794797007</int></value>
+<value><string>add Owner ludens_zhang</string></value>
+<value><int>43708651</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>mgm2-community</string></value>
+<value><string>2.1.0</string></value>
+<value><int>1794797007</int></value>
+<value><string>new release</string></value>
+<value><int>43708652</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>mgm2-community</string></value>
+<value><string>2.1.0</string></value>
+<value><int>1794797007</int></value>
+<value><string>add py3 file mgm2_community-2.1.0-py3-none-any.whl</string></value>
+<value><int>43708653</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>aixand-suite-runner-client</string></value>
+<value><string>0.1.0a2</string></value>
+<value><int>1794797006</int></value>
+<value><string>add source file aixand_suite_runner_client-0.1.0a2.tar.gz</string></value>
+<value><int>43708654</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>mgm2-community</string></value>
+<value><string>2.1.0</string></value>
+<value><int>1794797008</int></value>
+<value><string>add source file mgm2_community-2.1.0.tar.gz</string></value>
+<value><int>43708655</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>onefollowup-cli</string></value>
+<value><string>0.6.0</string></value>
+<value><int>1794797013</int></value>
+<value><string>add py3 file onefollowup_cli-0.6.0-py3-none-manylinux_2_39_x86_64.whl</string></value>
+<value><int>43708656</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>copyrust</string></value>
+<value><string>0.1.5</string></value>
+<value><int>1794797036</int></value>
+<value><string>new release</string></value>
+<value><int>43708657</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>copyrust</string></value>
+<value><string>0.1.5</string></value>
+<value><int>1794797036</int></value>
+<value><string>add cp39 file copyrust-0.1.5-cp39-abi3-macosx_12_0_arm64.whl</string></value>
+<value><int>43708658</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>labplotlib</string></value>
+<value><string>0.14.0</string></value>
+<value><int>1794797037</int></value>
+<value><string>new release</string></value>
+<value><int>43708659</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>labplotlib</string></value>
+<value><string>0.14.0</string></value>
+<value><int>1794797037</int></value>
+<value><string>add py3 file labplotlib-0.14.0-py3-none-any.whl</string></value>
+<value><int>43708660</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>probe-research-cli</string></value>
+<value><string>0.526.0</string></value>
+<value><int>1794797038</int></value>
+<value><string>remove release</string></value>
+<value><int>43708661</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>copyrust</string></value>
+<value><string>0.1.5</string></value>
+<value><int>1794797038</int></value>
+<value><string>add cp39 file copyrust-0.1.5-cp39-abi3-macosx_12_0_x86_64.whl</string></value>
+<value><int>43708662</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>labplotlib</string></value>
+<value><string>0.14.0</string></value>
+<value><int>1794797039</int></value>
+<value><string>add source file labplotlib-0.14.0.tar.gz</string></value>
+<value><int>43708663</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>copyrust</string></value>
+<value><string>0.1.5</string></value>
+<value><int>1794797039</int></value>
+<value><string>add cp39 file copyrust-0.1.5-cp39-abi3-manylinux_2_28_aarch64.whl</string></value>
+<value><int>43708664</int></value>
+</data></array></value>
+<value><array><data>
+<value><string>ai-tui-shell</string></value>
+<value><string>0.3.0</string></value>
+<value><int>1794797040</int></value>
+<value><string>new release</string></value>
+<value><int>43708665</int></value>
+</data></array></value>
+</data></array></value>
+</param>
+</params>
+</methodResponse>

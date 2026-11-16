@@ -1,0 +1,185 @@
+{
+  "meta": {
+    "aggregator": [
+      "1h",
+      "6h",
+      "1d",
+      "1W",
+      "1M",
+      "1Q",
+      "1Y",
+      "Z"
+    ],
+    "dirtymark": 1760942917.81368,
+    "filenameroot": "RECENT",
+    "interval": "1h",
+    "merged": {
+      "epoch": 1794794646.21396,
+      "into_interval": "6h"
+    },
+    "minmax": {
+      "max": 1794795306.63291,
+      "min": 1794791745.16391,
+      "mtime": 1794795306
+    },
+    "protocol": 1,
+    "serializer_suffix": ".json",
+    "Producers": {
+      "$0": "/app/rrr-server",
+      "github.com/abh/rrrgo": "v0.2.6/70dc55f (2026-05-23T08:49:24Z, go1.26.3)",
+      "time": 1794795306.63301
+    }
+  },
+  "recent": [
+    {
+      "epoch": 1794795306.63291,
+      "path": "authors/02STAMP",
+      "type": "new"
+    },
+    {
+      "epoch": 1794795306.6329,
+      "path": "modules/RECENT-1h.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794795306.63289,
+      "path": "authors/RECENT-1h.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794795266.60796,
+      "path": "authors/RECENT-6h.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794795101.52495,
+      "path": "indices/timestamp.txt",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794946.43923,
+      "path": "authors/RECENT-1W.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794926.43109,
+      "path": "authors/RECENT-1d.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794926.43107,
+      "path": "modules/RECENT-1d.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794901.41441,
+      "path": "modules/02STAMP",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794346.04464,
+      "path": "authors/00whois.xml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794346.04463,
+      "path": "authors/00whois.html",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794185.98134,
+      "path": "modules/RECENT-Z.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794165.97422,
+      "path": "modules/RECENT-1W.yaml",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794145.96479,
+      "path": "modules/06perms.txt.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794145.96478,
+      "path": "modules/06perms.txt",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794065.9379,
+      "path": "modules/02packages.details.txt.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794065.93789,
+      "path": "modules/02packages.details.txt",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794045.93154,
+      "path": "authors/id/S/SH/SHINGO/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794794005.91399,
+      "path": "authors/id/K/KI/KIMOTO/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793985.9077,
+      "path": "authors/id/C/CU/CUKEBOT/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793965.90152,
+      "path": "authors/id/C/CP/CPANIC/CHECKSUMS",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793885.8714,
+      "path": "authors/id/K/KI/KIMOTO/SPVM-UV-0.008.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793885.87136,
+      "path": "authors/id/K/KI/KIMOTO/SPVM-UV-0.008.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794793785.83092,
+      "path": "authors/id/K/KI/KIMOTO/SPVM-UV-0.008.tar.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794792400.36997,
+      "path": "MIRRORING.FROM",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791915.21513,
+      "path": "indices/cpan-stats.json",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791885.20615,
+      "path": "authors/p6provides.json.gz",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791825.18964,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.3.readme",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791825.18963,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.3.meta",
+      "type": "new"
+    },
+    {
+      "epoch": 1794791745.16391,
+      "path": "authors/id/C/CP/CPANIC/Ekorn-Pipeline-v0.3.3.tar.gz",
+      "type": "new"
+    }
+  ]
+}

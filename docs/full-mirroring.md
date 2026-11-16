@@ -17,7 +17,8 @@ on 2026-11-15, and describes the engine that follows them:
 
 - the engine: configuration, cursor state, and syncing through the gated pipeline (Task 189,
   in place: see [Running the full mirror](#running-the-full-mirror));
-- adapters for the tier-(a) feeds (Task 190), and for tiers (b) and (c) (Task 191);
+- adapters for the tier-(a) feeds (Task 190, in place: see [Feed adapters](#feed-adapters)),
+  and for tiers (b) and (c) (Task 191);
 - scanning everything mirrored (Task 192), a view in the admin console (Task 193) and an
   end-to-end test suite (Task 194).
 
@@ -84,13 +85,14 @@ Three things limit what "full" can mean. Each registry's section below spells th
 
 The full-mirror engine (`internal/fullmirror`) follows the registry of every upstream that
 enables `fullMirror`, and fetches each new file through the proxy's own gated serve pipeline
-before any client asks for it. It needs a feed adapter for the upstream's type; until one is
-registered (the status column above), the configuration refuses to enable the type:
+before any client asks for it. It needs a feed adapter for the upstream's type ([Feed adapters](#feed-adapters) below);
+until one is registered (the status column of the summary), the configuration refuses to
+enable the type:
 
 ```
-config: upstream "npm": fullMirror.enabled: no feed adapter follows npm registry yet (tier (a),
-incremental change feed; implementation status: not started (feed adapter planned in Task 190);
-see docs/full-mirroring.md#npm)
+config: upstream "cran": fullMirror.enabled: no feed adapter follows CRAN (R) yet (tier (b),
+complete index to poll and diff; implementation status: not started (index-polling adapter
+planned in Task 191); see docs/full-mirroring.md#cran)
 ```
 
 A tier-(d) registry is refused for good: it cannot be enumerated.
@@ -247,6 +249,109 @@ files every few seconds, so the backup copies each file once, while it builds th
 manifest, instead of failing on the change ([backup-restore.md](backup-restore.md)). A restored
 proxy continues from the restored cursors.
 
+### Feed adapters
+
+Every registry of tier (a) has a feed adapter (Task 190); the implementation-status column of
+the [summary](#summary) says what each one follows. They share these rules:
+
+- **The feed comes from the upstream's `url`.** For the public registry the adapter knows the
+  public feed (npm's replica at replicate.npmjs.com, index.golang.org, packagist.org's change
+  log, the Git repositories the Git-backed registries are built from). For another upstream it
+  takes the same feed under the upstream's own URL where that registry software serves one
+  (a CouchDB-backed npm registry, Athens, hackage-server, a CPAN mirror, PkgServer.jl), and
+  otherwise refuses the configuration until `fullMirror.feed.url` names the feed. The table
+  below says, per type, which private and self-hosted upstreams work.
+- **Package metadata is read through the gated pipeline,** as a client reads it — with the
+  upstream's credentials, mirrors and the backend's URL rewriting — and every artifact path
+  comes from the backend itself: its own path builders, the URLs it wrote into the documents
+  it served, or repos/locate, which the [release pinner](repositories.md) holds to every
+  backend's parser. The mirror fetches exactly the paths clients request, so what it caches is
+  what they are served. A gate's verdict on a metadata document is final for the package; a
+  refusal by access control, a lockdown or a refused authorization upstream (401, 403) holds
+  the upstream instead of giving the package up.
+- **Credentials stay on the upstream's origin.** The upstream's credentials go only with
+  requests to the scheme, host and port of its `url`, and are dropped from a redirect that
+  leaves it; a feed on another host (replicate.npmjs.com, index.golang.org, packagist.org,
+  github.com) never sees them.
+- **Every answer is untrusted input:** bodies are read up to a bound and refused past it,
+  names and versions are checked before they become a path, an item a registry got wrong is
+  dropped rather than failing its batch, and a cursor that does not read back (another
+  adapter's, a damaged state file's) starts the enumeration over.
+- **A change is picked up once.** An adapter reads a package's metadata when its feed reports
+  the change. Registries serve that metadata through CDNs (npm's packuments and crates.io's
+  sparse index are cached for minutes); a read that still gets the document from before the
+  publish mirrors what it lists, and the version it lacks follows with the package's next
+  change or a resync.
+
+Options go under `fullMirror.feed`; an unknown key is refused when the configuration loads:
+
+```yaml
+upstreams:
+  crates:
+    type: cargo
+    url: https://index.crates.io
+    fullMirror:
+      enabled: true
+      byteBudget: 107374182400
+      feed:
+        url: https://git.internal.example/cargo-index.git   # crates.io's is known; required for a private registry
+        branch: main                                        # default: the repository's HEAD
+```
+
+Per type, what is followed, what is mirrored for each version, how private and self-hosted
+upstreams fare, and the options (every adapter also takes `url`):
+
+| Type | Feed and cursor | Mirrored per version | Private and self-hosted upstreams | Options |
+|---|---|---|---|---|
+| `npm` | replicate.npmjs.com `_changes` from a sequence (one beyond `update_seq`, confirmed past the CDN, is a reset); `_all_docs` to start | the tarball the packument names | a CouchDB-backed registry at its own root; Verdaccio, Artifactory, Nexus and GitHub Packages serve no `_changes`: not followable unless `url` names a replica that does | — |
+| `pip` | PyPI's XML-RPC changelog from a serial; the PEP 691 project list (the 46 MB `/simple/`) to start | every file of the version the simple page lists (sizes, upload time, yanked) | another Warehouse as is; an index without XML-RPC is followed with `mode: simple` (it diffs every project's `_last-serial`, the 46 MB list per changed poll — set a long `pollInterval`); in `auto` mode the follower switches to it once three polls in a row find XML-RPC missing; Artifactory, Nexus and devpi serve no serials: not followable | `mode` (`auto`, `xmlrpc`, `simple`), `settle` (5m) |
+| `cargo` | the Git index's trees, diffed between head commits | the `.crate` | a registry with a Git index, named by `url`; one that serves only a sparse index cannot be followed | `branch` |
+| `go` | index.golang.org from a timestamp (records already reported at that instant are dropped); the whole index replayed to start | `.info`, `.mod` and `.zip` of each tagged version; pseudo-versions are left to client pulls | Athens' `/index` under the upstream's URL; goproxy.io and the other public GOPROXYs, Artifactory and Nexus have no index: `url` must name one | — |
+| `nuget` | the catalog by commit timestamp, each batch ending at a commit boundary (a cursor beyond the last commit restarts the replay); the whole catalog replayed to start | the `.nupkg` of each version the flat container lists (unlisted ones included) | a feed whose service index names a `Catalog/3.0.0`; Artifactory, Nexus, Azure Artifacts and GitHub Packages name none: `url` must name a catalog index | `settle` (10m) |
+| `rubygems` | the compact index `/versions` by Range requests from the end of a stored copy, checked against its digest (the monthly rewrite is diffed against the copy) | every platform's `.gem` of the version | any server of the compact index as is (Gemstash, a rubygems.org mirror) | — |
+| `composer` | Packagist's `changes.json` from `since` (a `resync` restarts the enumeration); `packages/list.json` to start | the dist archive of each tagged version (dev branches are not mirrored) | Satis, Artifactory and Nexus have no change log: a Packagist-compatible site must be named by `url` | — |
+| `hackage` | the index tarball's tail by Range requests (the last entry's header hash detects a replaced index); `/packages/` to start | the sdist, in the short form cabal requests; deprecated versions are marked yanked | a hackage-server as is; a static mirror needs `url` (a hackage-server to follow) | — |
+| `cpan` | the RECENT files from an epoch (a changed `dirtymark` restarts); `02packages.details.txt.gz` to start | every archive of the distribution its author's `CHECKSUMS` lists; names are `AUTHOR/Distribution` | a full CPAN mirror as is; minicpan, Pinto, Artifactory and Nexus have no RECENT files: `url` must name a full mirror | — |
+| `julia` | the Pkg server's registry snapshots, diffed: each new registry tree is read through the proxy and indexed | the package tarball by uuid and git-tree-sha1; the binaries a package's Artifacts.toml names are not followed | PkgServer.jl as is | `flavor` (`conservative`, `eager`) |
+| `bazel` | bazel-central-registry's trees, diffed between settled head commits | MODULE.bazel, the source archive, and the patches and overlay files its source.json lists | a registry with a Git history, named by `url`; a static tree without one cannot be followed | `branch`, `settle` (10m) |
+| `conan` | conan-center-index's trees, diffed between settled head commits; versions from the remote's recipe search | the files of each version's latest recipe revision; binary packages per `binaries` | Artifactory, Nexus and conan_server have no feed: `url` must name a repository laid out as conan-center-index | `branch`, `settle` (1h), `binaries` (`none`, `all`, or settings such as `os=Linux,arch=x86_64;os=Macos,arch=armv8`) |
+| `homebrew` | homebrew-core's `Formula` trees, diffed between settled head commits | the bottles of the formula's current version (the JSON API lists no other); disabled formulae are skipped | API and bottle mirrors are static copies: `url` must name a homebrew-core clone | `branch`, `settle` (30m), `platforms` (bottle tags) |
+
+`settle` holds a feed back from changes younger than the period, where what the feed reports
+reaches the documents clients read only minutes later: the registries built from a Git
+repository serve a commit's content after it is pushed (bcr.bazel.build is uploaded after a
+push, ConanCenter promotes merged recipes and serves its revision pointers from a CDN,
+formulae.brew.sh is regenerated and cached), NuGet's flat container lists a version minutes
+after the catalog commits it, and a PyPI simple page can reach the CDN after the changelog
+names the release. A change read before they have caught up would mirror the previous state —
+or, where the feed names the version, take the version for gone. `0` reports every change at
+once. For the Git-backed feeds the period runs from the commit time, which can be earlier than
+the moment the commit reached the branch (a merge queue stamps a commit when it queues it), so
+it is a lower bound; a commit stamped early atop one that has not settled waits for it. A
+Bootstrap lists the head without waiting, so a package whose metadata the enumeration reads
+within the period of a commit can miss that commit's change; a resync catches it. Other feeds
+wait in their own terms: CPAN's reports an upload once its author's `CHECKSUMS` lists it (or
+after two hours), and Go's keeps the versions the index announced in its last two batches —
+in the state directory, across restarts — while `@v/list` lags behind.
+
+#### Git-backed registries
+
+The crates.io index, the Bazel Central Registry, conan-center-index and homebrew-core are
+followed through the Git repositories they are built from. The adapter speaks Git's smart HTTP
+protocol (version 2) itself, over the upstream's HTTP client, rather than running a `git`
+binary, which would bypass the [egress policy](egress-ssrf.md) and the TLS pins: the egress
+allowlist must admit the repository's host (github.com for the public registries). It fetches
+trees only, never file contents. The first poll fetches the head commit's trees in one
+depth-1, blob-less fetch; later polls fetch only the trees changed since the commit whose trees
+the follower stores (in its directory under the state directory), and diff the two trees —
+pruning every subtree whose id did not change. The difference does not depend on the history
+in between: the crates.io index squashes its history weekly, and a squashed or force-pushed
+branch is just another tree to compare. When an incremental fetch would cost more than a
+fresh snapshot (a follower days behind a busy index), or names a tree the store lacks, the
+adapter asks for a snapshot instead. Every object's id is computed from its content as it is
+read, so each tree walked is the one the head commit names; packs are bounded in size, in
+what they inflate to, and in time.
+
 ### Writing a feed adapter
 
 A feed adapter implements `fullmirror.Feed` and registers itself with `fullmirror.Register`
@@ -314,33 +419,33 @@ full-mirror engine and its feed adapters land.
 |---|---|---|---|---|---|---|
 | [`ansible`](#ansible) | [galaxy.ansible.com](https://galaxy.ansible.com) | **(c)** paginated listings only | collection versions, newest first | page | 4,686 collections, 54,484 collection versions; 37,920 roles | not started (listing adapter planned in Task 191) |
 | [`apt`](#apt) / `deb` | [deb.debian.org/debian](https://deb.debian.org/debian) | **(b)** complete index to poll and diff | Release and Packages indexes | validator | Debian: 5,451 GB for every architecture, about 1,340 GB for amd64 + all + source; Ubuntu: about 3.6 TB | not started (index-polling adapter planned in Task 191) |
-| [`bazel`](#bazel) | [bcr.bazel.build](https://bcr.bazel.build) | **(a)** incremental change feed | BCR commits | commit | metadata only; the archives live at their upstream URLs | not started (feed adapter planned in Task 190) |
+| [`bazel`](#bazel) | [bcr.bazel.build](https://bcr.bazel.build) | **(a)** incremental change feed | BCR commits | commit | metadata only; the archives live at their upstream URLs | implemented (Task 190: diffs the trees of bazel-central-registry's head commits once they have settled (feed option `settle`, default 10m), one change per version directory; versions from metadata.json read through the proxy, each with MODULE.bazel, the source archive and the patches and overlay files its source.json lists. Another registry needs feed option `url`, its Git repository.) |
 | [`cargo`](#cargo) | [index.crates.io](https://index.crates.io) | **(a)** incremental change feed | Git index commits | commit | 378,819 crates; more than 100 GB of crate files already in 2022 | implemented (Task 190: diffs the trees of the Git index's head commits (a blob-less smart-HTTP fetch, unaffected by the weekly squash); versions from the sparse index read through the proxy. A private registry needs feed option `url`, its Git index.) |
-| [`composer`](#composer) | [repo.packagist.org](https://repo.packagist.org) | **(a)** incremental change feed | metadata changes | timestamp | 481,164 packages, 6,077,934 versions (metadata only) | not started (feed adapter planned in Task 190) |
-| [`conan`](#conan) | [center2.conan.io](https://center2.conan.io) | **(a)** incremental change feed | conan-center-index commits | commit | 9,729 recipe versions of 1,943 libraries; binaries not counted | not started (feed adapter planned in Task 190) |
+| [`composer`](#composer) | [repo.packagist.org](https://repo.packagist.org) | **(a)** incremental change feed | metadata changes | timestamp | 481,164 packages, 6,077,934 versions (metadata only) | implemented (Task 190: follows Packagist `metadata/changes.json` from the stored `since` (a `resync` means a new enumeration from `packages/list.json`), `~dev` documents skipped; versions from `/p2/<vendor>/<package>.json` read through the proxy, metadata older than its update retried. A repository other than Packagist needs feed option `url`, a Packagist-compatible site.) |
+| [`conan`](#conan) | [center2.conan.io](https://center2.conan.io) | **(a)** incremental change feed | conan-center-index commits | commit | 9,729 recipe versions of 1,943 libraries; binaries not counted | implemented (Task 190: diffs the trees of conan-center-index's head commits once they have settled (feed option `settle`, default 1h), one change per recipe; versions from the remote's recipe search, each with the files of its latest recipe revision read through the proxy, binary packages per feed option `binaries` (none, all, or settings to match). Another remote needs feed option `url`, a Git repository laid out as conan-center-index.) |
 | [`conda`](#conda) | [conda.anaconda.org/conda-forge](https://conda.anaconda.org/conda-forge) | **(b)** complete index to poll and diff | repodata per subdir | validator | more than 3 TB (all subdirs; an old vendor figure) | not started (index-polling adapter planned in Task 191) |
-| [`cpan`](#cpan) | [cpan.metacpan.org](https://cpan.metacpan.org) | **(a)** incremental change feed | RECENT files | timestamp | about 40 GB (all of CPAN); about 1 GB for the latest releases only | not started (feed adapter planned in Task 190) |
+| [`cpan`](#cpan) | [cpan.metacpan.org](https://cpan.metacpan.org) | **(a)** incremental change feed | RECENT files | timestamp | about 40 GB (all of CPAN); about 1 GB for the latest releases only | implemented (Task 190: follows `RECENT-1h.json` from the stored epoch (a longer interval file when the cursor is older than its `minmax.min`; a changed `dirtymark`, or a cursor no file within the read bound reaches, means a new enumeration) after listing what `02packages.details.txt.gz` indexes; an upload is reported once its author directory's `CHECKSUMS` is rewritten, and its versions come from that `CHECKSUMS` read through the proxy. Names are `AUTHOR/Distribution`. Feed option `url` names a full mirror for a minicpan or Pinto upstream.) |
 | [`cran`](#cran) | [cloud.r-project.org](https://cloud.r-project.org) | **(b)** complete index to poll and diff | PACKAGES index | validator | about 410 GB (sources, archive and binaries) | not started (index-polling adapter planned in Task 191) |
 | [`dart`](#dart) / `pub` | [pub.dev](https://pub.dev) | **(c)** paginated listings only | packages by publish time | page | 95,662 packages; bytes not published | not started (listing adapter planned in Task 191) |
 | [`docker`](#docker) | [registry-1.docker.io](https://registry-1.docker.io) | **(d)** no practical enumeration | tags of a named repository (partial) | validator | not published | not started (no registry-wide feed to follow) |
 | [`generic`](#generic) | operator-defined | **(d)** no practical enumeration | — | — | operator-defined | not applicable (operator-defined upstream) |
 | [`git`](#git) | [github.com](https://github.com) | **(d)** no practical enumeration | refs of a named repository (partial) | commit | not applicable | partial (named repositories are followed for the commit scan: `scanning.watch`) |
-| [`go`](#go) | [proxy.golang.org](https://proxy.golang.org) | **(a)** incremental change feed | module index | timestamp | 71.4 million module versions checksummed; no byte total published | not started (feed adapter planned in Task 190) |
-| [`hackage`](#hackage) | [hackage.haskell.org](https://hackage.haskell.org) | **(a)** incremental change feed | index tarball tail | byte offset | 20.4 GB of package tarballs (155,731 package versions); the index is 1.05 GB | not started (feed adapter planned in Task 190) |
+| [`go`](#go) | [proxy.golang.org](https://proxy.golang.org) | **(a)** incremental change feed | module index | timestamp | 71.4 million module versions checksummed; no byte total published | implemented (Task 190: replays the module index from its start, then follows it by timestamp (the records already reported at the stored instant are dropped); tagged versions only, pseudo-versions are left to client pulls. Versions from `@v/list` read through the proxy. Other upstreams are taken to serve Athens' `/index`; feed option `url` names another index.) |
+| [`hackage`](#hackage) | [hackage.haskell.org](https://hackage.haskell.org) | **(a)** incremental change feed | index tarball tail | byte offset | 20.4 GB of package tarballs (155,731 package versions); the index is 1.05 GB | implemented (Task 190: follows `01-index.tar` with Range requests from the stored end (the hash of the last entry's header detects a replaced index), a change per new `package.json`, after listing `/packages/`; versions from `/package/{name}/preferred`, read from the repository (the backend serves neither JSON document), sdists in the short form clients request. Feed option `url` names a hackage-server for a static mirror.) |
 | [`helm`](#helm) | [charts.bitnami.com/bitnami](https://charts.bitnami.com/bitnami) | **(b)** complete index to poll and diff | repository `index.yaml` | validator | per repository (Bitnami's index alone is 27.6 MB) | not started (index-polling adapter planned in Task 191) |
 | [`hex`](#hex) | [repo.hex.pm](https://repo.hex.pm) | **(b)** complete index to poll and diff | names and versions | validator | not published | not started (index-polling adapter planned in Task 191) |
-| [`homebrew`](#homebrew) | [formulae.brew.sh](https://formulae.brew.sh) | **(a)** incremental change feed | homebrew-core commits | commit | not published | not started (feed adapter planned in Task 190) |
+| [`homebrew`](#homebrew) | [formulae.brew.sh](https://formulae.brew.sh) | **(a)** incremental change feed | homebrew-core commits | commit | not published | implemented (Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). A mirror of the JSON API needs feed option `url`, a clone of homebrew-core.) |
 | [`huggingface`](#huggingface) | [huggingface.co](https://huggingface.co) | **(c)** paginated listings only | repositories by last modification | page | more than 20 PB | not started (listing adapter planned in Task 191) |
 | [`jsr`](#jsr) | [jsr.io](https://jsr.io) | **(c)** paginated listings only | package list | page | 23,228 packages; bytes not published | not started (listing adapter planned in Task 191) |
-| [`julia`](#julia) | [pkg.julialang.org](https://pkg.julialang.org) | **(a)** incremental change feed | General registry commits | commit | not published | not started (feed adapter planned in Task 190) |
+| [`julia`](#julia) | [pkg.julialang.org](https://pkg.julialang.org) | **(a)** incremental change feed | General registry commits | commit | not published | implemented (Task 190: diffs the Pkg server's registry snapshots (`/registries` in the flavour of feed option `flavor`, `conservative` or `eager`): each new registry tree is read through the proxy and its `Registry.toml` and `Versions.toml` files indexed in the state directory; versions from the stored index, package tarballs by uuid and git-tree-sha1. Package artifacts are not followed.) |
 | [`maven`](#maven) | [repo1.maven.org/maven2](https://repo1.maven.org/maven2) | **(b)** complete index to poll and diff | Maven Indexer index | validator | not published | not started (index-polling adapter planned in Task 191) |
 | [`nix`](#nix) | [cache.nixos.org](https://cache.nixos.org) | **(d)** no practical enumeration | channel store paths (partial) | validator | 636 TB, more than 1 billion objects | not started (no registry-wide feed to follow) |
 | [`npm`](#npm) | [registry.npmjs.org](https://registry.npmjs.org) | **(a)** incremental change feed | replication feed (`_changes`) | sequence | 4.6 million packages; no published byte total | implemented (Task 190: follows `_changes` from the stored sequence (one beyond `update_seq` means a reset and a new enumeration) after listing `_all_docs`; versions from the packument read through the proxy. Feed option `url` names a CouchDB replica for a private registry.) |
-| [`nuget`](#nuget) | [api.nuget.org](https://api.nuget.org) | **(a)** incremental change feed | catalog | timestamp | 594,190 packages, 14,044,198 versions; no byte total published | not started (feed adapter planned in Task 190) |
+| [`nuget`](#nuget) | [api.nuget.org](https://api.nuget.org) | **(a)** incremental change feed | catalog | timestamp | 594,190 packages, 14,044,198 versions; no byte total published | implemented (Task 190: follows the catalog (`Catalog/3.0.0` of the service index) by commit timestamp: the pages committed after the cursor, their newer leaves in commit order, each batch ending at a commit boundary and at commits older than feed option `settle` (default 10m: the flat container lists a version minutes after the catalog commits it); a cursor beyond the last commit (a rebuilt catalog) means a new replay from the first page. Versions from the flat container read through the proxy. Feed option `url` names a catalog index for a feed whose service index names none (Artifactory, Nexus, Azure Artifacts, GitHub Packages).) |
 | [`openvsx`](#openvsx) | [open-vsx.org](https://open-vsx.org) | **(b)** complete index to poll and diff | sitemap | validator | 21,414 extensions; bytes not published | not started (index-polling adapter planned in Task 191) |
-| [`pip`](#pip) | [pypi.org](https://pypi.org) | **(a)** incremental change feed | XML-RPC changelog | sequence | 51.6 TB (every file of every release) | not started (feed adapter planned in Task 190) |
+| [`pip`](#pip) | [pypi.org](https://pypi.org) | **(a)** incremental change feed | XML-RPC changelog | sequence | 51.6 TB (every file of every release) | implemented (Task 190: follows the XML-RPC changelog from the stored serial (one beyond `changelog_last_serial` means a reset and a new enumeration), rows older than feed option `settle` (default 5m: a release's simple page can reach the CDN later), after listing the PEP 691 project list; feed option `mode` `simple`, the fallback where XML-RPC is missing, diffs every project's `_last-serial` against a stored copy instead. Versions from the simple page read through the proxy; names are PEP 503-normalized. Feed option `url` names another Warehouse.) |
 | [`puppet`](#puppet) | [forgeapi.puppet.com](https://forgeapi.puppet.com) | **(c)** paginated listings only | releases by date | page | 7,707 modules, 54,827 releases; about 3 GB (estimate) | not started (listing adapter planned in Task 191) |
-| [`rubygems`](#rubygems) | [rubygems.org](https://rubygems.org) | **(a)** incremental change feed | compact index `/versions` | byte offset | 198,697 gems; no byte total published | not started (feed adapter planned in Task 190) |
+| [`rubygems`](#rubygems) | [rubygems.org](https://rubygems.org) | **(a)** incremental change feed | compact index `/versions` | byte offset | 198,697 gems; no byte total published | implemented (Task 190: follows the compact index `/versions` with Range requests from the end of a stored copy (If-None-Match, Repr-Digest checked); a digest mismatch, a torn tail or another `created_at` (the monthly rewrite) fetches the whole file and diffs it against the copy. Versions from `/info/<gem>` read through the proxy, platform gems as files of their version. Feed option `url` names another compact-index base.) |
 | [`swift`](#swift) | [tuist.dev/api/registry/swift](https://tuist.dev/api/registry/swift) | **(d)** no practical enumeration | Swift Package Index package list (partial) | commit | about 10,000 packages and 160,000 releases | not started (no registry-wide feed to follow) |
 | [`terraform`](#terraform) | [registry.terraform.io](https://registry.terraform.io) | **(c)** paginated listings only | module listing | page | 7,761 providers, 24,770 modules; provider binaries are on GitHub | not started (listing adapter planned in Task 191) |
 | [`yum`](#yum) / `rpm` | [dl.fedoraproject.org/pub/fedora/linux](https://dl.fedoraproject.org/pub/fedora/linux) | **(b)** complete index to poll and diff | repomd.xml and primary | validator | 4.7 TB for all of Fedora Linux; one release's `Everything/x86_64` tree about 250 GB, plus 145 GB of its updates | not started (index-polling adapter planned in Task 191) |
@@ -436,7 +541,7 @@ full-mirror engine and its feed adapters land.
 
 ### bazel
 
-**Bazel Central Registry (BCR)** — upstream type `bazel`, registry <https://bcr.bazel.build>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Bazel Central Registry (BCR)** — upstream type `bazel`, registry <https://bcr.bazel.build>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the trees of bazel-central-registry's head commits once they have settled (feed option `settle`, default 10m), one change per version directory; versions from metadata.json read through the proxy, each with MODULE.bazel, the source archive and the patches and overlay files its source.json lists. Another registry needs feed option `url`, its Git repository.).
 
 **Feeds**
 
@@ -504,7 +609,7 @@ full-mirror engine and its feed adapters land.
 
 ### composer
 
-**Packagist (Composer)** — upstream type `composer`, registry <https://repo.packagist.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Packagist (Composer)** — upstream type `composer`, registry <https://repo.packagist.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows Packagist `metadata/changes.json` from the stored `since` (a `resync` means a new enumeration from `packages/list.json`), `~dev` documents skipped; versions from `/p2/<vendor>/<package>.json` read through the proxy, metadata older than its update retried. A repository other than Packagist needs feed option `url`, a Packagist-compatible site.).
 
 **Feeds**
 
@@ -536,7 +641,7 @@ full-mirror engine and its feed adapters land.
 
 ### conan
 
-**ConanCenter (center2.conan.io)** — upstream type `conan`, registry <https://center2.conan.io>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**ConanCenter (center2.conan.io)** — upstream type `conan`, registry <https://center2.conan.io>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the trees of conan-center-index's head commits once they have settled (feed option `settle`, default 1h), one change per recipe; versions from the remote's recipe search, each with the files of its latest recipe revision read through the proxy, binary packages per feed option `binaries` (none, all, or settings to match). Another remote needs feed option `url`, a Git repository laid out as conan-center-index.).
 
 **Feeds**
 
@@ -604,7 +709,7 @@ full-mirror engine and its feed adapters land.
 
 ### cpan
 
-**CPAN (Perl)** — upstream type `cpan`, registry <https://cpan.metacpan.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**CPAN (Perl)** — upstream type `cpan`, registry <https://cpan.metacpan.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows `RECENT-1h.json` from the stored epoch (a longer interval file when the cursor is older than its `minmax.min`; a changed `dirtymark`, or a cursor no file within the read bound reaches, means a new enumeration) after listing what `02packages.details.txt.gz` indexes; an upload is reported once its author directory's `CHECKSUMS` is rewritten, and its versions come from that `CHECKSUMS` read through the proxy. Names are `AUTHOR/Distribution`. Feed option `url` names a full mirror for a minicpan or Pinto upstream.).
 
 **Feeds**
 
@@ -788,7 +893,7 @@ full-mirror engine and its feed adapters land.
 
 ### go
 
-**Go module mirror (proxy.golang.org)** — upstream type `go`, registry <https://proxy.golang.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Go module mirror (proxy.golang.org)** — upstream type `go`, registry <https://proxy.golang.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: replays the module index from its start, then follows it by timestamp (the records already reported at the stored instant are dropped); tagged versions only, pseudo-versions are left to client pulls. Versions from `@v/list` read through the proxy. Other upstreams are taken to serve Athens' `/index`; feed option `url` names another index.).
 
 **Feeds**
 
@@ -824,7 +929,7 @@ full-mirror engine and its feed adapters land.
 
 ### hackage
 
-**Hackage (Haskell)** — upstream type `hackage`, registry <https://hackage.haskell.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Hackage (Haskell)** — upstream type `hackage`, registry <https://hackage.haskell.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows `01-index.tar` with Range requests from the stored end (the hash of the last entry's header detects a replaced index), a change per new `package.json`, after listing `/packages/`; versions from `/package/{name}/preferred`, read from the repository (the backend serves neither JSON document), sdists in the short form clients request. Feed option `url` names a hackage-server for a static mirror.).
 
 **Feeds**
 
@@ -928,7 +1033,7 @@ full-mirror engine and its feed adapters land.
 
 ### homebrew
 
-**Homebrew (formulae.brew.sh, bottles on ghcr.io)** — upstream type `homebrew`, registry <https://formulae.brew.sh>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Homebrew (formulae.brew.sh, bottles on ghcr.io)** — upstream type `homebrew`, registry <https://formulae.brew.sh>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). A mirror of the JSON API needs feed option `url`, a clone of homebrew-core.).
 
 **Feeds**
 
@@ -1020,7 +1125,7 @@ full-mirror engine and its feed adapters land.
 
 ### julia
 
-**Julia General registry (Pkg servers)** — upstream type `julia`, registry <https://pkg.julialang.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Julia General registry (Pkg servers)** — upstream type `julia`, registry <https://pkg.julialang.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: diffs the Pkg server's registry snapshots (`/registries` in the flavour of feed option `flavor`, `conservative` or `eager`): each new registry tree is read through the proxy and its `Registry.toml` and `Versions.toml` files indexed in the state directory; versions from the stored index, package tarballs by uuid and git-tree-sha1. Package artifacts are not followed.).
 
 **Feeds**
 
@@ -1153,7 +1258,7 @@ full-mirror engine and its feed adapters land.
 
 ### nuget
 
-**NuGet Gallery (nuget.org)** — upstream type `nuget`, registry <https://api.nuget.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**NuGet Gallery (nuget.org)** — upstream type `nuget`, registry <https://api.nuget.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows the catalog (`Catalog/3.0.0` of the service index) by commit timestamp: the pages committed after the cursor, their newer leaves in commit order, each batch ending at a commit boundary and at commits older than feed option `settle` (default 10m: the flat container lists a version minutes after the catalog commits it); a cursor beyond the last commit (a rebuilt catalog) means a new replay from the first page. Versions from the flat container read through the proxy. Feed option `url` names a catalog index for a feed whose service index names none (Artifactory, Nexus, Azure Artifacts, GitHub Packages).).
 
 **Feeds**
 
@@ -1213,7 +1318,7 @@ full-mirror engine and its feed adapters land.
 
 ### pip
 
-**Python Package Index (PyPI)** — upstream type `pip`, registry <https://pypi.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**Python Package Index (PyPI)** — upstream type `pip`, registry <https://pypi.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows the XML-RPC changelog from the stored serial (one beyond `changelog_last_serial` means a reset and a new enumeration), rows older than feed option `settle` (default 5m: a release's simple page can reach the CDN later), after listing the PEP 691 project list; feed option `mode` `simple`, the fallback where XML-RPC is missing, diffs every project's `_last-serial` against a stored copy instead. Versions from the simple page read through the proxy; names are PEP 503-normalized. Feed option `url` names another Warehouse.).
 
 **Feeds**
 
@@ -1281,7 +1386,7 @@ full-mirror engine and its feed adapters land.
 
 ### rubygems
 
-**RubyGems.org** — upstream type `rubygems`, registry <https://rubygems.org>. Tier **(a) incremental change feed**. Implementation: not started (feed adapter planned in Task 190).
+**RubyGems.org** — upstream type `rubygems`, registry <https://rubygems.org>. Tier **(a) incremental change feed**. Implementation: implemented (Task 190: follows the compact index `/versions` with Range requests from the end of a stored copy (If-None-Match, Repr-Digest checked); a digest mismatch, a torn tail or another `created_at` (the monthly rewrite) fetches the whole file and diffs it against the copy. Versions from `/info/<gem>` read through the proxy, platform gems as files of their version. Feed option `url` names another compact-index base.).
 
 **Feeds**
 

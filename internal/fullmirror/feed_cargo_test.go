@@ -121,3 +121,22 @@ func TestCargoReleasesComeFromTheSparseIndex(t *testing.T) {
 	_, err = f.Releases(context.Background(), "../x")
 	mustErr(t, err, true, false, "not a crate name")
 }
+
+func TestCargoIndexFileSpeaksForItsOwnCrateOnly(t *testing.T) {
+	// A line naming another crate in syn's index file must not have the
+	// mirror fetch that crate.
+	reads := newFakeReads()
+	reads.set("/3/s/syn", []byte(`{"name":"syn","vers":"2.0.0","cksum":"x","yanked":false}`+"\n"+`{"name":"serde","vers":"1.0.0","cksum":"y","yanked":false}`+"\n"+`{"name":"Syn","vers":"2.0.1","cksum":"z","yanked":false}`+"\n"))
+	f := mustFeed(t, testEnv(t, "cargo", "https://index.crates.io", reads, nil)).(*cargoFeed)
+	rels, err := f.Releases(context.Background(), "syn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range rels {
+		got = append(got, r.Artifacts[0].Path)
+	}
+	if fmt.Sprint(got) != "[/api/v1/crates/syn/2.0.0/download /api/v1/crates/Syn/2.0.1/download]" {
+		t.Errorf("paths %v", got)
+	}
+}

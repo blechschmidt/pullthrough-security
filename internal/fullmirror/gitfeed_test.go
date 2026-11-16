@@ -678,7 +678,9 @@ func TestGitIndexBootstrapsThenFollowsTreeDifferences(t *testing.T) {
 	if fmt.Sprint(b5.Items) != fmt.Sprint([]Coordinate{{Name: "delta", Version: "1.0"}}) {
 		t.Errorf("after the squash %+v", b5.Items)
 	}
-	// Only the stores of the cursor in use and of the new head are kept.
+	// The stores of the cursor in use and of the new head are kept, and the
+	// newest other one (a replica that lost its lease mid-poll may still
+	// prune); the bootstrap's store is gone.
 	entries, _ := os.ReadDir(g.files.dir)
 	stores := 0
 	for _, e := range entries {
@@ -686,8 +688,19 @@ func TestGitIndexBootstrapsThenFollowsTreeDifferences(t *testing.T) {
 			stores++
 		}
 	}
-	if stores != 2 {
+	if stores != 3 {
 		t.Errorf("%d tree stores kept", stores)
+	}
+	files["pkgs/epsilon/1.0"] = "e"
+	repo.commit(files, t0.Add(3*time.Hour), false)
+	if _, err := g.changes(ctx, b5.Next); err != nil {
+		t.Fatal(err)
+	}
+	var first gitCursor
+	_ = decodeCursor(b2.Next, g.format(), &first)
+	firstID, _ := parseOID(first.Commit)
+	if _, err := os.Stat(g.files.path(gitStoreName(gitStorePrefix, firstID))); !os.IsNotExist(err) {
+		t.Errorf("the bootstrap's store was kept: %v", err)
 	}
 }
 
@@ -832,4 +845,94 @@ func TestGitFetchErrors(t *testing.T) {
 	mustErr(t, err, true, false, "not found")
 	_ = io.EOF
 	_ = path.Base
+}
+
+func TestRefDeltaChainsResolveInLinearTime(t *testing.T) {
+	// A chain of reference deltas stored child first: a resolver that makes
+	// one pass per link takes time quadratic in the chain.
+	const n = 4000
+	objs := make([][]byte, n)
+	objs[0] = []byte("base object of the chain, long enough to copy from")
+	for i := 1; i < n; i++ {
+		objs[i] = append(append([]byte(nil), objs[i-1]...), byte('a'+i%26))
+	}
+	var buf bytes.Buffer
+	buf.WriteString("PACK")
+	binary.Write(&buf, binary.BigEndian, uint32(2))
+	binary.Write(&buf, binary.BigEndian, uint32(n))
+	for i := n - 1; i >= 1; i-- {
+		d := makeDelta(objs[i-1], objs[i])
+		buf.Write(packHeader(gitRefDelta, len(d)))
+		id := hashObject(gitBlob, objs[i-1])
+		buf.Write(id[:])
+		buf.Write(zlibBytes(d))
+	}
+	buf.Write(packHeader(gitBlob, len(objs[0])))
+	buf.Write(zlibBytes(objs[0]))
+	sum := sha1.Sum(buf.Bytes()) //nolint:gosec
+	buf.Write(sum[:])
+	start := time.Now()
+	got, err := parsePack(buf.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.objs) != n {
+		t.Fatalf("%d objects resolved", len(got.objs))
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("a %d-link chain took %s", n, d)
+	}
+	// A cancelled context stops the parse.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := parsePackBounded(ctx, buf.Bytes(), maxPackInflated); !errors.Is(err, context.Canceled) {
+		t.Errorf("a cancelled parse: %v", err)
+	}
+	// So does a bound on what the pack inflates to.
+	if _, err := parsePackBounded(context.Background(), buf.Bytes(), 1<<10); !errors.Is(err, errPackBound) {
+		t.Errorf("past the inflation bound: %v", err)
+	}
+}
+
+func TestAnIncrementalFetchPastItsBoundFallsBackToASnapshot(t *testing.T) {
+	// Many commits since the stored one: the incremental pack inflates past
+	// what a snapshot would cost, so the follower asks for a snapshot.
+	repo := newGitTestRepo()
+	t0 := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)
+	files := map[string]string{"pkgs/a/1": "x"}
+	repo.commit(files, t0, false)
+	srv := newGitTestServer(t, repo)
+	g := newTestGitIndex(t, srv.URL())
+	ctx := context.Background()
+	b, err := g.bootstrap(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each commit adds a package whose name is long, so that every commit's
+	// trees (sent incrementally) add up past a small bound.
+	for i := 0; i < 50; i++ {
+		files[fmt.Sprintf("pkgs/p%03d-%s/1", i, strings.Repeat("n", 200))] = "y"
+		repo.commit(files, t0.Add(time.Duration(i+1)*time.Minute), false)
+	}
+	old := maxGitIncrementalInflatedForTest(t, 64<<10)
+	defer old()
+	nb, err := g.changes(ctx, b.Next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nb.Items) != 50 {
+		t.Errorf("%d changes", len(nb.Items))
+	}
+	if f := srv.lastFetch(); !f.deepen {
+		t.Errorf("no snapshot after an oversized incremental fetch: %+v", f)
+	}
+}
+
+// maxGitIncrementalInflatedForTest lowers the incremental fetch's inflation
+// bound for a test.
+func maxGitIncrementalInflatedForTest(t *testing.T, n uint64) (restore func()) {
+	t.Helper()
+	old := maxGitIncrementalInflated
+	maxGitIncrementalInflated = n
+	return func() { maxGitIncrementalInflated = old }
 }

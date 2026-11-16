@@ -1,0 +1,100 @@
+[
+  {
+    "version": "v0.2.0-rc2",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v0.2.0-rc2.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v0.2.0-rc2.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v0.2.0-rc2.zip"
+      }
+    ]
+  },
+  {
+    "version": "v0.4.6",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v0.4.6.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v0.4.6.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v0.4.6.zip"
+      }
+    ]
+  },
+  {
+    "version": "v2.2.0-alpha.1+incompatible",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v2.2.0-alpha.1+incompatible.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v2.2.0-alpha.1+incompatible.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v2.2.0-alpha.1+incompatible.zip"
+      }
+    ]
+  },
+  {
+    "version": "v2.3.8+incompatible",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v2.3.8+incompatible.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v2.3.8+incompatible.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v2.3.8+incompatible.zip"
+      }
+    ]
+  },
+  {
+    "version": "v3.2.30+incompatible",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.2.30+incompatible.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.2.30+incompatible.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.2.30+incompatible.zip"
+      }
+    ]
+  },
+  {
+    "version": "v3.3.0-rc.2+incompatible",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.3.0-rc.2+incompatible.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.3.0-rc.2+incompatible.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.3.0-rc.2+incompatible.zip"
+      }
+    ]
+  },
+  {
+    "version": "v3.3.3+incompatible",
+    "artifacts": [
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.3.3+incompatible.info"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.3.3+incompatible.mod"
+      },
+      {
+        "path": "/github.com/coreos/etcd/@v/v3.3.3+incompatible.zip"
+      }
+    ]
+  }
+]

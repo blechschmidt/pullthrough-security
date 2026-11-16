@@ -1,0 +1,43 @@
+{
+  "items": [
+    {
+      "name": "aixand-suite-runner-client",
+      "version": "0.1.0a2"
+    },
+    {
+      "name": "mgm2-community",
+      "version": "2.1.0"
+    },
+    {
+      "name": "onefollowup-cli",
+      "version": "0.6.0"
+    },
+    {
+      "name": "copyrust",
+      "version": "0.1.5"
+    },
+    {
+      "name": "labplotlib",
+      "version": "0.14.0"
+    },
+    {
+      "name": "probe-research-cli",
+      "version": "0.526.0",
+      "deleted": true
+    },
+    {
+      "name": "ai-tui-shell",
+      "version": "0.3.0"
+    }
+  ],
+  "next": {
+    "format": "pip/1",
+    "mode": "xmlrpc",
+    "serial": 43708665
+  },
+  "more": false,
+  "head": "43708665",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:44:00Z",
+  "cursorTime": "2026-11-16T02:44:00Z"
+}

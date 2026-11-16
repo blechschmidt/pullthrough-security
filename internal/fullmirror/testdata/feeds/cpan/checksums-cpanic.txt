@@ -1,0 +1,197 @@
+0&&<<''; # this PGP-signed message is also valid perl
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+# CHECKSUMS file written on Mon Nov 16 01:52:42 2026 GMT by CPAN::Checksums (v2.14)
+$cksum = {
+  'DBIx-Squirrel-v3.0.2-TRIAL.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '27f5ca114fd239aad690709909b313aa',
+    'md5-ungz' => '53afbd2d096a358722e7e564632db556',
+    'mtime' => '2026-11-14',
+    'sha256' => 'deaae2681b21683eda3fbf877c2f73167446d7fda28a301a3b8783ae32e5ce1d',
+    'sha256-ungz' => '241d3635a6f71e6ee32b3c20ca3fda3616220385ed9ab8f180952dc5399201ce',
+    'size' => 183874
+  },
+  'DBIx-Squirrel-v3.0.2.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '78d16ff6cf8f2f09dc5dab1f02d890eb',
+    'mtime' => '2026-11-14',
+    'sha256' => '9cc88783ddbbb83486526f1ae5849859c53d1419b3d624dcc062bc07c316637f',
+    'size' => 4241
+  },
+  'DBIx-Squirrel-v3.0.2.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '75e7820f18349bcf029d5125b9cfa3b8',
+    'md5-ungz' => 'a428663b0dcadf9054f6d9acc34f0651',
+    'mtime' => '2026-11-14',
+    'sha256' => '42bc3f7b287a79b5b345d5fbb67293831cda67ff255029a4fb293e022cfc9596',
+    'sha256-ungz' => '85a015a5bceaccbed40ba5b074ab4ceb6974980899f3acf1c1df03609813c14d',
+    'size' => 183885
+  },
+  'Ekorn-Pipeline-v0.1.0-TRIAL.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '9e79654a2f9b92fa91189940584de9b9',
+    'md5-ungz' => '3a9a4f5135454f7bfc59e0c1d97e89af',
+    'mtime' => '2026-11-07',
+    'sha256' => '2a67c85f1067fcfaa32693f09427ac4755dab530a9f28586fb02d2636966fdee',
+    'sha256-ungz' => '817579f068fe5822908634de0266713ef298538ef59e53775f41d4e08e083f28',
+    'size' => 33400
+  },
+  'Ekorn-Pipeline-v0.1.1-TRIAL.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => 'c8a086b50e92deebcfe20e05bea3a766',
+    'md5-ungz' => '84ab738ee13f5f61a5cc8912d1b6526a',
+    'mtime' => '2026-11-08',
+    'sha256' => 'a2e32438c9c037e64dd269ed4b1068e9fbf24eff03be61d245d760aea5e8a5b7',
+    'sha256-ungz' => 'b2ab6220231990e104392f86af79a6ae84ac2461dbaad65c5d509925896657f3',
+    'size' => 35118
+  },
+  'Ekorn-Pipeline-v0.1.1.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '403eabe45834547e6b9916c4cc3da7e9',
+    'mtime' => '2026-11-08',
+    'sha256' => '31eda1730d34f4808d74c4ef1e9684e679acd6c174b031e2dcb51f31cce296ab',
+    'size' => 3239
+  },
+  'Ekorn-Pipeline-v0.1.1.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => 'becb9d82e79d1c002a568fce4200f80e',
+    'md5-ungz' => '6dcd3c067cbdce26cb686ea02cb93482',
+    'mtime' => '2026-11-08',
+    'sha256' => 'd4058ccf8606ee282ef13e6898fd6b24b72ca03f9d491099abb801b1eb7592e3',
+    'sha256-ungz' => '064c119c4a8ab2dd8786e1600a05bcb7beaac6af480a37300090d492f3a5ca43',
+    'size' => 36754
+  },
+  'Ekorn-Pipeline-v0.1.2.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '2232d17ffc25eb30966090f123547881',
+    'mtime' => '2026-11-08',
+    'sha256' => 'c83f5d6e8005388ccdbd5e9eb8ba16a68bfe9af3afe79ef0677449343b053027',
+    'size' => 3239
+  },
+  'Ekorn-Pipeline-v0.1.2.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '3a2ac72fb62ff447dbc02f20674cf54f',
+    'md5-ungz' => '866e9f43d207d0187cd1a4e3d11bf033',
+    'mtime' => '2026-11-08',
+    'sha256' => '2032d02e387d447cf4c7a8b47863d02be1879cc970b569fb4b01a4c5a1ee9ab5',
+    'sha256-ungz' => '9687e7d27a3bffbb01df36a0a6823b7e42382234c8e501a76f46532a0013bd07',
+    'size' => 58970
+  },
+  'Ekorn-Pipeline-v0.1.3.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => 'de1aa2575cdd42516033f6841086ae53',
+    'mtime' => '2026-11-09',
+    'sha256' => 'be0a91bbee4bde9c8880e602051b45fbd7b4d54d8546b6bd657ee5c49393d30c',
+    'size' => 3239
+  },
+  'Ekorn-Pipeline-v0.1.3.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => 'a2e46a46b6f23e6be32c5f079bcf2042',
+    'md5-ungz' => '14a39505d46d1c30c0cd2925ff31af2c',
+    'mtime' => '2026-11-09',
+    'sha256' => '709f4eb1061e356481b4d126e96d40e21062690d0dc5dfa0fc318ea107d73cc2',
+    'sha256-ungz' => 'c80ac7149e48caf031d517e8f49f5c0c4bba66ea62cee562c653921c3724de59',
+    'size' => 68444
+  },
+  'Ekorn-Pipeline-v0.2.0.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '390471e446f376f6a8c673327278afd0',
+    'mtime' => '2026-11-09',
+    'sha256' => 'c8f8a6bcbb6d41a5bdf4122bcaf7f9060f77348020e575ad48f6e523581024ab',
+    'size' => 3239
+  },
+  'Ekorn-Pipeline-v0.2.0.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => 'c2dd73b5cbb749f6d7d3937d3e32dd88',
+    'md5-ungz' => 'a2d9f45ecf2f5719ac87e64fd954fe87',
+    'mtime' => '2026-11-09',
+    'sha256' => '11cd0edbe9d854633c594965e95300058072ffc41751903830fbe8f8b25f5963',
+    'sha256-ungz' => '0e4bc201285db2d3de55a3b148e1965a77d0365a61e23c05873d4eb2d576cef9',
+    'size' => 68672
+  },
+  'Ekorn-Pipeline-v0.3.0-TRIAL.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '2bfdd92847da15166da6c6c93197c691',
+    'md5-ungz' => 'b83c1911dac2248392ece75b8cb7cd38',
+    'mtime' => '2026-11-14',
+    'sha256' => '32e12278d8e8f7a7166876dea430f7145ee06d5ce39388e820ce8fe22597f8f3',
+    'sha256-ungz' => '1582701272e0a2c1f4b0a24ca0099931082234774447194f589e3821c884518c',
+    'size' => 194421
+  },
+  'Ekorn-Pipeline-v0.3.1-TRIAL.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '77d0cc0df544b6f9e2f91fe44c2c6d24',
+    'md5-ungz' => 'd0cc37e940882ce6d9f7fd0df3a8f256',
+    'mtime' => '2026-11-14',
+    'sha256' => 'b195fbe3c808482bb3e554d69a21b0fdf4232cfee0daf7af9d58150816cbd6af',
+    'sha256-ungz' => '7ff0beddcc50521b1d8ebd7356dc33049924d5a365f533a5c2651c4b58cd96cc',
+    'size' => 194811
+  },
+  'Ekorn-Pipeline-v0.3.1.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '8b59c37ff467fd576e9a6e20adb484f8',
+    'mtime' => '2026-11-14',
+    'sha256' => 'a5483acae5bd769b44d13f67f07fa9732999c5a864239b30e1b7723b4114f901',
+    'size' => 4890
+  },
+  'Ekorn-Pipeline-v0.3.1.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '9432ae028d4b9f6d3c37d6a563134cf9',
+    'md5-ungz' => 'd33cffee0494ca3f1e4803b234209661',
+    'mtime' => '2026-11-14',
+    'sha256' => '736ccc0765320a9457f9a2d6050e47d7da6b57147b715e1831d68f431bb4ad2f',
+    'sha256-ungz' => '36cc1717c021936bad8b0d4ba5be499fd2a2b32d160f57c2ee3ccb3fa20d5514',
+    'size' => 194905
+  },
+  'Ekorn-Pipeline-v0.3.2.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '6a544778e4bee4e6184b504d5f5cd8d7',
+    'mtime' => '2026-11-15',
+    'sha256' => '5291dc4cc27c862b64d082aa2714ce36b124c65216adb46e223d5a4652f3dad4',
+    'size' => 4988
+  },
+  'Ekorn-Pipeline-v0.3.2.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => 'c2edf13b3bbb5b42eff3388a3ac6151f',
+    'md5-ungz' => '707919f183e4f4f23856b2ccbceba51b',
+    'mtime' => '2026-11-15',
+    'sha256' => 'c784557ed79b6f087380df118b33cd7ce4c5e16f539d682a35a4147cdc54eaa3',
+    'sha256-ungz' => 'b02cdcb43b03c9880e2377c93b4a67b32191877583869c0da736569dce83dcb9',
+    'size' => 200297
+  },
+  'Ekorn-Pipeline-v0.3.3.meta' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '13a6ee3ff169db4545c4bb5e84f929b8',
+    'mtime' => '2026-11-16',
+    'sha256' => 'b2e3ae42dd9117a663582c9c0cab5f5210094dd4f734d7648f8456b2e440cc4d',
+    'size' => 4988
+  },
+  'Ekorn-Pipeline-v0.3.3.tar.gz' => {
+    'cpan_path' => 'C/CP/CPANIC',
+    'md5' => '55c2e030c6a1341de10c5eccd69b11f3',
+    'md5-ungz' => '2aeb078a45f972255e75fc35cfad8533',
+    'mtime' => '2026-11-16',
+    'sha256' => 'cee708fe7b4ead8a5b08ef9749e2a91179bfabd88ef23a4073c9774763613f96',
+    'sha256-ungz' => '121ce77f0c8e44e46a2449200a60fb852aafd03efdc712aa5d144c8814ca95b7',
+    'size' => 204005
+  }
+};
+__END__
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEERYTXieaC+fU7OS8YN9B5QSzJAy4FAmr6YeoACgkQN9B5QSzJ
+Ay5clg/+PJsR3lk82bd49n5b+2rkUITHJbSPW+PWRlt/54v0ZOfRc1Bjp/m6IElz
+oJ33Ii5kz4A/QM1i8u1FDtyUF0OhkUUTdTzCtZ2cmcSZmcq3Rj2qNyij+GaBU1vE
+BrVxFYcVJvyyGRl1PytbqxdSbQRo/f+npp/fraQCW77KNAQtwNGbdptXkGiJw53k
+3SGRmgNiXU5aB3vk84DVfxaf1P3/Q9A2VQpA/63zA4f7fdauLZr94kMJrY1U+WtB
+pZvKm+k9WEwMIQWS8GOuQsOqdM0XqDZyofA27cp3NltXnox3wPilUbI3WFwpDDXI
+qTG0uZ6A9OcDrJwqb1ZMhOV35GvKWQHp+zXuLPViBoYxkgy6gNtnXMT7Hrcgssoh
+ax0HW6LfHrDE0H6njs8kW0ke/jZuS3ZtVkI1uyd/5vVK25gZ9CpErl5Tg/7EivS9
+ICq2ombuv6dWiF8Tcl1wdDk/t59HMyP05qYIbwMBSvuIXdEBc4pies4vdphhCdfK
+EvSk+GEriflaiQrPnGeRsPVXUQcs8kyxsDkfzcKz3o3/OYBrWBQv2GjURJPTnorC
+Z2hOrqzguoRjnt1ALkxuXeybizziFgaLHizrBYbyagygz818EI2CoREHbRoG66hN
+SjdUbNmRunzLH2LYWBZVHQQlxvBIM2zBiD7rrotsFhH0gnVkyvQ=
+=0Qsb
+-----END PGP SIGNATURE-----

@@ -53,8 +53,8 @@ func TestNPMBootstrapListsEveryNameThenFollowsFromTheStart(t *testing.T) {
 	srv.on("GET", "/").reply(200, fixture(t, "npm", "root.json"))
 	srv.on("GET", "/_all_docs?limit=3").reply(200, fixture(t, "npm", "all-docs-first.json"))
 	// The second page starts at the last name of the first (startkey is
-	// inclusive) and asks for one more.
-	srv.on("GET", `/_all_docs?limit=4&startkey="-----hsad-----"`).reply(200, fixture(t, "npm", "all-docs-after-left-pad.json"))
+	// inclusive), with the same limit: the replica refuses one above 10000.
+	srv.on("GET", `/_all_docs?limit=3&startkey="-----hsad-----"`).reply(200, fixture(t, "npm", "all-docs-after-left-pad.json"))
 	ctx := context.Background()
 
 	first, err := f.Bootstrap(ctx, "")
@@ -65,15 +65,30 @@ func TestNPMBootstrapListsEveryNameThenFollowsFromTheStart(t *testing.T) {
 	if !first.More {
 		t.Fatalf("a full page must ask for more")
 	}
-	// The registry's left-pad page stands in for what follows "-----hsad-----";
-	// it is not full (3 rows of 4), so the listing ends there.
+	// The registry's left-pad page stands in for what follows "-----hsad-----"
+	// (its first row is not the name listed last, so none is dropped); a
+	// full page, so the listing goes on.
 	second, err := f.Bootstrap(ctx, first.Next)
 	if err != nil {
 		t.Fatal(err)
 	}
 	checkGolden(t, "npm", "bootstrap-page-2", viewBatch(t, second))
-	if second.More {
-		t.Fatalf("the last page asks for more")
+	if !second.More {
+		t.Fatalf("a full page must ask for more")
+	}
+	// The third page repeats the last name and ends the listing.
+	srv.on("GET", `/_all_docs?limit=3&startkey="left-pad-ai-local"`).json(`{"total_rows":5,"offset":4,"rows":[{"id":"left-pad-ai-local","key":"left-pad-ai-local","value":{"rev":"2-b"}},{"id":"left-pad2","key":"left-pad2","value":{"rev":"1-c"}}]}`)
+	second, err = f.Bootstrap(ctx, second.Next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.More || len(second.Items) != 1 || second.Items[0].Name != "left-pad2" {
+		t.Fatalf("the last page %+v", second)
+	}
+	for _, r := range srv.requests() {
+		if strings.Contains(r, "limit=4") || strings.Contains(r, "limit=10001") {
+			t.Errorf("a listing request above the limit: %s", r)
+		}
 	}
 	// The listing ends with the change cursor taken when it began.
 	var c npmCursor
@@ -219,3 +234,66 @@ func TestNPMReleasesComeFromTheRewrittenPackument(t *testing.T) {
 // keep the backends import used by expectServed's signature in this file's
 // build even when the helper moves.
 var _ backends.Backend = nil
+
+func TestNPMListingNeverAsksForMoreThanTheReplicaServes(t *testing.T) {
+	// replicate.npmjs.com answers 400 to a limit above 10000.
+	f, srv, _ := npmTestFeed(t, npmMaxLimit)
+	srv.on("GET", "/").json(`{"update_seq":7}`)
+	srv.on("GET", "/_all_docs").reply(400, []byte(`{"error":"bad_request"}`))
+	srv.on("GET", "/_all_docs?limit=10000").json(`{"rows":[{"id":"a"}]}`)
+	srv.on("GET", `/_all_docs?limit=10000&startkey="a"`).json(`{"rows":[{"id":"a"},{"id":"b"}]}`)
+	b, err := f.Bootstrap(context.Background(), "")
+	if err != nil || b.More {
+		t.Fatalf("%+v %v", b, err)
+	}
+	b, err = f.Bootstrap(context.Background(), encodeCursor(&npmCursor{Format: f.format(), Since: "7", Listing: true, After: "a"}))
+	if err != nil || len(b.Items) != 1 || b.Items[0].Name != "b" {
+		t.Fatalf("the page after a: %+v %v", b, err)
+	}
+}
+
+func TestNPMChangesWithoutLastSeq(t *testing.T) {
+	f, srv, _ := npmTestFeed(t, 2)
+	srv.on("GET", "/").json(`{"update_seq":50}`)
+	srv.on("GET", "/_changes?since=10&limit=2").json(`{"results":[{"seq":11,"id":"a"},{"seq":12,"id":"b"}]}`)
+	b, err := f.Changes(context.Background(), encodeCursor(&npmCursor{Format: f.format(), Since: "10"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c npmCursor
+	if decodeCursor(b.Next, f.format(), &c) != nil || c.Since != "12" || !b.More {
+		t.Errorf("without last_seq the cursor follows the last result: %+v (%s)", b, b.Next)
+	}
+	// A full page that names no sequence at all would loop.
+	srv.on("GET", "/_changes?since=12&limit=2").json(`{"results":[{"id":"c"},{"id":"d"}]}`)
+	_, err = f.Changes(context.Background(), b.Next)
+	mustErr(t, err, true, false, "names no later sequence")
+}
+
+func TestNPMResetIsConfirmedPastTheCache(t *testing.T) {
+	// The first root read is stale (a CDN copy from before the sequence
+	// moved on); the fresh read shows the cursor is fine.
+	f, srv, _ := npmTestFeed(t, 4)
+	srv.on("GET", "/").json(`{"update_seq":90}`)
+	srv.on("GET", "/").requireHeader("Cache-Control", "no-cache").json(`{"update_seq":120}`)
+	srv.on("GET", "/_changes?since=100&limit=4").json(`{"results":[{"seq":101,"id":"x"}],"last_seq":101}`)
+	b, err := f.Changes(context.Background(), encodeCursor(&npmCursor{Format: f.format(), Since: "100"}))
+	if err != nil || len(b.Items) != 1 {
+		t.Fatalf("a stale root read reset the cursor: %+v %v", b, err)
+	}
+}
+
+func TestNPMPackumentNamingAnotherPackagesTarball(t *testing.T) {
+	f, _, reads := npmTestFeed(t, 4)
+	reads.set("/evil", []byte(`{"versions":{
+		"1.0.0":{"dist":{"tarball":"http://proxy.example/v1/npm-test/lodash/-/lodash-4.17.21.tgz"}},
+		"1.0.1":{"dist":{"tarball":"http://proxy.example/v1/npm-test/evil/-/evil-1.0.1.tgz"}},
+		"1.0.2?x":{"dist":{"tarball":"http://proxy.example/v1/npm-test/evil/-/evil-1.0.2.tgz"}}}}`))
+	rels, err := f.Releases(context.Background(), "evil")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rels) != 1 || rels[0].Version != "1.0.1" {
+		t.Errorf("releases %+v: only the version naming its own tarball should be kept", viewReleases(rels))
+	}
+}

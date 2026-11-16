@@ -1,0 +1,105 @@
+{
+  "items": [
+    {
+      "name": "Example",
+      "version": "0.5.5"
+    },
+    {
+      "name": "Swizzling",
+      "deleted": true
+    },
+    {
+      "name": "TuringGLM",
+      "version": "1.0.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.0.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.0.1"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.1.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.1.2"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.2.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.3.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.4.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.5.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.6.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.7.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.8.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.8.1"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.9.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.10.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.11.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.12.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.13.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.14.0"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.14.1"
+    },
+    {
+      "name": "TuringGLM",
+      "version": "2.14.2"
+    }
+  ],
+  "next": {
+    "format": "julia/1",
+    "registries": [
+      "23338594-aafe-5451-b93e-139f81909106/d6419a1850d259a1145e4846c3bc71dea7fa09c2"
+    ]
+  },
+  "more": false,
+  "head": "d6419a1850d259a1145e4846c3bc71dea7fa09c2",
+  "lagKnown": true
+}

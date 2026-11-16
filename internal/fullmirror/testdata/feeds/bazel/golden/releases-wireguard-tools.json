@@ -1,0 +1,16 @@
+[
+  {
+    "version": "1.0.20260223",
+    "artifacts": [
+      {
+        "path": "/modules/wireguard-tools/1.0.20260223/MODULE.bazel"
+      },
+      {
+        "path": "/modules/wireguard-tools/1.0.20260223/archive"
+      },
+      {
+        "path": "/modules/wireguard-tools/1.0.20260223/overlay/BUILD.bazel"
+      }
+    ]
+  }
+]

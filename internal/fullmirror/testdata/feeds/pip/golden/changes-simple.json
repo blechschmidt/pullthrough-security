@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "name": "0101",
+      "deleted": true
+    },
+    {
+      "name": "requests"
+    },
+    {
+      "name": "unstuck"
+    }
+  ],
+  "next": {
+    "format": "pip/1",
+    "mode": "simple",
+    "serial": 43707967,
+    "store": "fa4dbc0f3d5673f8f1e9db4acb3d3b3dee02bf43584ca43c30fcf11b5812798f",
+    "etag": "\"later\""
+  },
+  "more": false,
+  "head": "43707967"
+}

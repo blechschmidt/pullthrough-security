@@ -1,0 +1,56 @@
+0&&<<''; # this PGP-signed message is also valid perl
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+# CHECKSUMS file written on Sun Nov 15 22:13:47 2026 GMT by CPAN::Checksums (v2.14)
+$cksum = {
+  'Acme-CPANAuthors-Canadian-0.0108.meta' => {
+    'cpan_path' => 'E/ET/ETHER',
+    'md5' => '4afb76c1b070bddc14ea54a8c8cb79ed',
+    'mtime' => '2022-01-04',
+    'sha256' => 'f3516dd7f38c3ffa9e54fbe4bca222475f34820181d2ad19260515fd593e2e8d',
+    'size' => 44299
+  },
+  'Acme-CPANAuthors-Canadian-0.0108.tar.gz' => {
+    'cpan_path' => 'E/ET/ETHER',
+    'md5' => 'ab4b1f23abf8dc9cdd26fca1dc09be9c',
+    'md5-ungz' => '99f8df76555fe8e7d2fe2d8b3ee47458',
+    'mtime' => '2022-01-04',
+    'sha256' => '7ad62d525bf89a1541cbfc50b85c18b70bdb3c4c3593cb51fb722e4f6817e1f5',
+    'sha256-ungz' => 'bf7a517c6a1577242f36d9a7a6580e0bbb3a0cb79043cf3184ba6b33741e867e',
+    'size' => 26874
+  },
+  'strictures-2.000005.meta' => {
+    'cpan_path' => 'E/ET/ETHER',
+    'md5' => 'b7c311e5b568840799997949664cdede',
+    'mtime' => '2018-04-20',
+    'sha256' => 'b6d93f1b396f3a493b43a1b6ff97884b8a0b8906b7bed6c9ddfecfd860c95fc9',
+    'size' => 2195
+  },
+  'strictures-2.000005.tar.gz' => {
+    'cpan_path' => 'E/ET/ETHER',
+    'md5' => '30e19bf51cf27df447ac7f2702750f02',
+    'md5-ungz' => '4c030b80ccd28d43d7691d90fc96c198',
+    'mtime' => '2018-04-20',
+    'sha256' => '960bdb9f82c8f09caebc417bce3fdf75b27de81f4408d0ba0b0a6d61ab86dd99',
+    'sha256-ungz' => '954d96cc6bbe225c2eae1ce7963c2a28cb20154a58a23dd20abce78de54019ac',
+    'size' => 15716
+  }
+};
+__END__
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEERYTXieaC+fU7OS8YN9B5QSzJAy4FAmr6LpsACgkQN9B5QSzJ
+Ay7ZcQ/8DvoFFS+i33qqo7VziSvmvSGuYFDj3cAthO0t26GjzqhKw+WtZeklwX2D
+QmR1E9fQyUt0hWV7OC919SWdWcowvIZ7e8ppXnochu+2efLjDh3cudXJlVa8foy5
+vH87I310tx/7pKfFBfFdC9RGXGggpyYXQVhTTou1Tehl7Ra97sW999hXiZN44WJe
+cD3BzcFUSn8F2kXvpt26qx0mgXtVoasrxPXkw2fWK7Sk5uvawfmrN2fa2Z+rK5ds
+zG1J2IXcj4QmXkJttAmHLBaXAMU80p6EiLzUqVhYlanLis+eVpWA9GDg/YTBmF3Q
+0URo4zTZINCE/2Kw2vbpo+O4lLa/EUgdOlu5M7hTUKGQDx8dxaGxZBV+htEipzYE
+/LxYeasdPinbSD82FuzplOaiCpHTVOmdJxofyxAAsdT88bPMgEb1W07V3jPVGgLA
+OC8fmesYfLTc3cfFVyeZBc5Br46DtoAS7O2W6KzkwdIBHkVVW5uVW0t21cLjFwb5
+OLpr7oeLaCOM++xYBzRvwGSUAFpuVYzxuV2sATeESV2WgBkRc9BjHBzM1O79OwmR
+okZn8lp6N0tT4nZASM/QMgRIut8nh+MLUboMu+tx619TnanBkYSuVp/73Fd8nIGJ
+Eaev/BErQaqlcnzjqRzz0HEV4Cj5WP15MZc/vGPiDx9WYiIro5c=
+=HTOJ
+-----END PGP SIGNATURE-----

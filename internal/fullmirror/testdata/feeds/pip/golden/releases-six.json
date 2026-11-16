@@ -1,0 +1,60 @@
+[
+  {
+    "version": "0.9.0",
+    "published": "2010-06-29T19:56:36.719942Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/0e/f9/66471f9b7e9291cca697b2e61a10645a537f389a9d5c0679d50dd86b20f7/six-0.9.0.tar.gz",
+        "size": 13292
+      }
+    ]
+  },
+  {
+    "version": "1.0b1",
+    "published": "2010-11-20T22:57:30.511044Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/8b/08/8f569ab2c81c1443ce43e29df2e7eec1ab7f005455f6c193793728b00f04/six-1.0b1.tar.gz",
+        "size": 11251
+      }
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "published": "2011-03-15T16:55:50.861613Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/a6/af/4506a069312018665b8936e5d51b3aa013971ef65eab5231ef151a482dcd/six-1.0.0.tar.gz",
+        "size": 11694
+      }
+    ]
+  },
+  {
+    "version": "1.16.0",
+    "published": "2021-05-05T14:18:17.237677Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl",
+        "size": 11053
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/71/39/171f1c67cd00715f190ba0b100d606d440a28c93c7714febeca8b79af85e/six-1.16.0.tar.gz",
+        "size": 34041
+      }
+    ]
+  },
+  {
+    "version": "1.17.0",
+    "published": "2024-12-04T17:35:26.475808Z",
+    "artifacts": [
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+        "size": 11050
+      },
+      {
+        "path": "/files/https/files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz",
+        "size": 34031
+      }
+    ]
+  }
+]

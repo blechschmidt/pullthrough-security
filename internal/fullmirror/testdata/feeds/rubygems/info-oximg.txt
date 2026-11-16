@@ -1,0 +1,17 @@
+---
+0.10.1 |checksum:ad73977f46d913489a22bcad30d060d50424253b42ddc7fc0d1860a49cef74e2,ruby:>= 3.1,created_at:2026-08-06T14:29:07Z
+0.10.1-x86_64-linux-gnu |checksum:ccc9217954c22b560a29df3e98c22ee7b8f69862adfbaed74994d823a178ed55,ruby:>= 3.1,created_at:2026-08-06T14:29:10Z
+0.10.1-aarch64-linux-gnu |checksum:67cc8f697095781e91bdc568491d78d59177a98e070db097fa3a298f6b80b73a,ruby:>= 3.1,created_at:2026-08-06T14:29:12Z
+0.10.1-arm64-darwin |checksum:fd88e95e9493d5486658ab4f9d61ac4a6d013d2866603f5a5549cf2f924dbef1,ruby:>= 3.1,created_at:2026-08-06T14:29:15Z
+0.11.0-aarch64-linux-gnu |checksum:07ec108c3dfd7066455eefac4236862558149f4bdbe8352a7852d52b6bcc5b8c,ruby:>= 3.1,created_at:2026-08-07T10:20:04Z
+0.11.0-aarch64-linux-musl |checksum:cf10821b1389256d06616ca242f5899c934f7c68c8fcf516ffc6f09d3705e147,ruby:>= 3.1,created_at:2026-08-07T10:20:05Z
+0.11.0-arm64-darwin |checksum:5eedb4ed3ec921618a340c8af1a3be6b04445331af2ffca3a05729ba8da7633f,ruby:>= 3.1,created_at:2026-08-07T10:20:06Z
+0.11.0 |checksum:b9723527810ce3db9c31ee1b6387aa1d8ef124fb1e20520cd998edf63c8c46c1,ruby:>= 3.1,created_at:2026-08-07T10:20:07Z
+0.11.0-x86_64-linux-gnu |checksum:46489108b7bd847f613806333597467e250603ebbcb2081b1cf6c2a772dd1e8b,ruby:>= 3.1,created_at:2026-08-07T10:20:09Z
+0.11.0-x86_64-linux-musl |checksum:d1dce86b9fa1eb8894112c46ce673ab309f2fe3671076c19aa357e08ce770b7e,ruby:>= 3.1,created_at:2026-08-07T10:20:10Z
+0.19.0-aarch64-linux-gnu ffi:~> 1.17|checksum:ce98349ea4f9418be079cd4047aa3307817d7a1481eb1d1828367204586509a0,ruby:>= 3.2,created_at:2026-11-03T03:50:41Z
+0.19.0-aarch64-linux-musl ffi:~> 1.17|checksum:39daeeca18467ac1c0104b21f9280be972cc8cc813da10117d6a63fab854791b,ruby:>= 3.2,created_at:2026-11-03T03:50:42Z
+0.19.0-arm64-darwin ffi:~> 1.17|checksum:174850637b7992859d0de05be77956c914f09e08ceabae2c37469b2c6fee1e81,ruby:>= 3.2,created_at:2026-11-03T03:50:44Z
+0.19.0 |checksum:2d42bde63843ea3b3b35e383cf8afd9f8423b7689f0159cb6eb0aeed9ac2d619,ruby:>= 3.2,created_at:2026-11-03T03:50:46Z
+0.19.0-x86_64-linux-gnu ffi:~> 1.17|checksum:b730fd2b4bb87a1befc6b545aef7e2c2e354693aaa28fcacc4fa7a567fcc4141,ruby:>= 3.2,created_at:2026-11-03T03:50:47Z
+0.19.0-x86_64-linux-musl ffi:~> 1.17|checksum:525213ce86fdf8107e6eb433f38bf8298d3340acbc9badda0f112c6d9071bbc5,ruby:>= 3.2,created_at:2026-11-03T03:50:49Z

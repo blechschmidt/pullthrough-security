@@ -10,7 +10,6 @@ package fullmirror
 
 // Implementation-status notes for the tasks planned to follow each tier.
 const (
-	planFeed    = "feed adapter planned in Task 190"
 	planIndex   = "index-polling adapter planned in Task 191"
 	planListing = "listing adapter planned in Task 191"
 	planPartial = "no registry-wide feed to follow"
@@ -135,7 +134,7 @@ var catalog = []Entry{
 			{"PyPI statistics", "https://pypi.org/stats/"},
 			{"bandersnatch, the PyPA mirror client", "https://github.com/pypa/bandersnatch"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows the XML-RPC changelog from the stored serial (one beyond `changelog_last_serial` means a reset and a new enumeration), rows older than feed option `settle` (default 5m: a release's simple page can reach the CDN later), after listing the PEP 691 project list; feed option `mode` `simple`, the fallback where XML-RPC is missing, diffs every project's `_last-serial` against a stored copy instead. Versions from the simple page read through the proxy; names are PEP 503-normalized. Feed option `url` names another Warehouse."},
 	},
 	{
 		Type:     "cargo",
@@ -237,7 +236,7 @@ var catalog = []Entry{
 			{"proxy.golang.org privacy", "https://proxy.golang.org/privacy"},
 			{"Go modules reference: checksum database", "https://go.dev/ref/mod#checksum-database"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: replays the module index from its start, then follows it by timestamp (the records already reported at the stored instant are dropped); tagged versions only, pseudo-versions are left to client pulls. Versions from `@v/list` read through the proxy. Other upstreams are taken to serve Athens' `/index`; feed option `url` names another index."},
 	},
 	{
 		Type:     "nuget",
@@ -273,7 +272,7 @@ var catalog = []Entry{
 			{"NuGet API rate limits", "https://learn.microsoft.com/en-us/nuget/api/rate-limits"},
 			{"nuget.org statistics", "https://www.nuget.org/stats"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows the catalog (`Catalog/3.0.0` of the service index) by commit timestamp: the pages committed after the cursor, their newer leaves in commit order, each batch ending at a commit boundary and at commits older than feed option `settle` (default 10m: the flat container lists a version minutes after the catalog commits it); a cursor beyond the last commit (a rebuilt catalog) means a new replay from the first page. Versions from the flat container read through the proxy. Feed option `url` names a catalog index for a feed whose service index names none (Artifactory, Nexus, Azure Artifacts, GitHub Packages)."},
 	},
 	{
 		Type:     "rubygems",
@@ -326,7 +325,7 @@ var catalog = []Entry{
 			{"RubyGems.org rate limits", "https://guides.rubygems.org/rubygems-org-rate-limits/"},
 			{"RubyGems.org statistics", "https://rubygems.org/stats"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows the compact index `/versions` with Range requests from the end of a stored copy (If-None-Match, Repr-Digest checked); a digest mismatch, a torn tail or another `created_at` (the monthly rewrite) fetches the whole file and diffs it against the copy. Versions from `/info/<gem>` read through the proxy, platform gems as files of their version. Feed option `url` names another compact-index base."},
 	},
 	{
 		Type:     "composer",
@@ -366,7 +365,7 @@ var catalog = []Entry{
 			{"Packagist API documentation", "https://packagist.org/apidoc"},
 			{"Packagist statistics", "https://packagist.org/statistics"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows Packagist `metadata/changes.json` from the stored `since` (a `resync` means a new enumeration from `packages/list.json`), `~dev` documents skipped; versions from `/p2/<vendor>/<package>.json` read through the proxy, metadata older than its update retried. A repository other than Packagist needs feed option `url`, a Packagist-compatible site."},
 	},
 	{
 		Type:     "hackage",
@@ -408,7 +407,7 @@ var catalog = []Entry{
 			{"hackage-security", "https://github.com/haskell/hackage-security"},
 			{"hackage-mirror-tool", "https://github.com/haskell-hvr/hackage-mirror-tool"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows `01-index.tar` with Range requests from the stored end (the hash of the last entry's header detects a replaced index), a change per new `package.json`, after listing `/packages/`; versions from `/package/{name}/preferred`, read from the repository (the backend serves neither JSON document), sdists in the short form clients request. Feed option `url` names a hackage-server for a static mirror."},
 	},
 	{
 		Type:     "cpan",
@@ -451,7 +450,7 @@ var catalog = []Entry{
 			{"How to mirror CPAN", "https://www.cpan.org/misc/how-to-mirror.html"},
 			{"MetaCPAN API documentation", "https://github.com/metacpan/metacpan-api/blob/master/docs/API-docs.md"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: follows `RECENT-1h.json` from the stored epoch (a longer interval file when the cursor is older than its `minmax.min`; a changed `dirtymark`, or a cursor no file within the read bound reaches, means a new enumeration) after listing what `02packages.details.txt.gz` indexes; an upload is reported once its author directory's `CHECKSUMS` is rewritten, and its versions come from that `CHECKSUMS` read through the proxy. Names are `AUTHOR/Distribution`. Feed option `url` names a full mirror for a minicpan or Pinto upstream."},
 	},
 	{
 		Type:     "julia",
@@ -497,7 +496,7 @@ var catalog = []Entry{
 			{"JuliaRegistries/General", "https://github.com/JuliaRegistries/General"},
 			{"PkgServer.jl", "https://github.com/JuliaPackaging/PkgServer.jl"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: diffs the Pkg server's registry snapshots (`/registries` in the flavour of feed option `flavor`, `conservative` or `eager`): each new registry tree is read through the proxy and its `Registry.toml` and `Versions.toml` files indexed in the state directory; versions from the stored index, package tarballs by uuid and git-tree-sha1. Package artifacts are not followed."},
 	},
 	{
 		Type:     "bazel",
@@ -531,7 +530,7 @@ var catalog = []Entry{
 			{"Bazel registries", "https://bazel.build/external/registry"},
 			{"bazelbuild/bazel-central-registry", "https://github.com/bazelbuild/bazel-central-registry"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: diffs the trees of bazel-central-registry's head commits once they have settled (feed option `settle`, default 10m), one change per version directory; versions from metadata.json read through the proxy, each with MODULE.bazel, the source archive and the patches and overlay files its source.json lists. Another registry needs feed option `url`, its Git repository."},
 	},
 	{
 		Type:     "conan",
@@ -573,7 +572,7 @@ var catalog = []Entry{
 			{"Using ConanCenter (Conan 2 docs)", "https://docs.conan.io/2/devops/using_conancenter.html"},
 			{"Introducing the local-recipes-index remote", "https://blog.conan.io/2024/04/23/Introducing-local-recipes-index-remote.html"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: diffs the trees of conan-center-index's head commits once they have settled (feed option `settle`, default 1h), one change per recipe; versions from the remote's recipe search, each with the files of its latest recipe revision read through the proxy, binary packages per feed option `binaries` (none, all, or settings to match). Another remote needs feed option `url`, a Git repository laid out as conan-center-index."},
 	},
 
 	{
@@ -618,7 +617,7 @@ var catalog = []Entry{
 			{"brew: Library/Homebrew/api/formula.rb (signed JSON)", "https://github.com/Homebrew/brew/blob/HEAD/Library/Homebrew/api/formula.rb"},
 			{"Homebrew/homebrew-core", "https://github.com/Homebrew/homebrew-core"},
 		},
-		Status: ImplStatus{StateNotStarted, planFeed},
+		Status: ImplStatus{StateImplemented, "Task 190: diffs the Formula trees of homebrew-core's head commits once they have settled (feed option `settle`, default 30m); the current version from the formula JSON read through the proxy, one artifact per bottle (feed option `platforms` keeps some; disabled formulae are skipped). A mirror of the JSON API needs feed option `url`, a clone of homebrew-core."},
 	},
 	// --- (b) complete indexes to poll and diff ------------------------------------
 	{

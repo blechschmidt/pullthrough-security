@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "name": "libnl",
+      "version": "3.7.0"
+    },
+    {
+      "name": "rules_cc",
+      "version": "0.0.9",
+      "deleted": true
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.1.bcr.5"
+    }
+  ],
+  "next": {
+    "format": "bazel-git/1",
+    "commit": "05c35340fc580ceb45512af52a37c8978040010f"
+  },
+  "more": false,
+  "head": "05c35340fc580ceb45512af52a37c8978040010f",
+  "lagKnown": true,
+  "headTime": "2026-11-15T18:01:00Z",
+  "cursorTime": "2026-11-15T18:01:00Z"
+}

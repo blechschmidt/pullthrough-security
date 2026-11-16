@@ -3,6 +3,7 @@ package fullmirror
 import (
 	"bytes"
 	"compress/zlib"
+	"context"
 	"crypto/sha1" //nolint:gosec // Git object ids are SHA-1; this is Git's own integrity check, not a security primitive of the proxy's.
 	"encoding/binary"
 	"encoding/hex"
@@ -34,8 +35,10 @@ const (
 	maxPackObjects = 4 << 20
 	// maxGitObject bounds one object (and one delta's result).
 	maxGitObject = 64 << 20
-	// maxDeltaDepth bounds a chain of deltas.
-	maxDeltaDepth = 4096
+	// maxPackInflated bounds what a pack inflates to, deltas applied: a
+	// compressed object can stand for a thousand times its size. The trees
+	// of the crates.io index inflate to about 30 MB.
+	maxPackInflated = 512 << 20
 )
 
 // gitOID is a Git object id.
@@ -106,8 +109,19 @@ type packEntry struct {
 	done    bool
 }
 
-// parsePack reads a pack and returns its objects.
+// errPackBound reports a pack past one of the reader's bounds (its object
+// count, an object's size, what it inflates to).
+var errPackBound = errors.New("the pack is past the reader's bounds")
+
+// parsePack reads a pack and returns its objects, within the default bounds.
 func parsePack(pack []byte) (*gitObjects, error) {
+	return parsePackBounded(context.Background(), pack, maxPackInflated)
+}
+
+// parsePackBounded reads a pack whose objects inflate to at most maxInflated
+// bytes, deltas applied. ctx is checked as it goes: a pack takes time to
+// inflate, and a poll's timeout must hold.
+func parsePackBounded(ctx context.Context, pack []byte, maxInflated uint64) (*gitObjects, error) {
 	if len(pack) < 32 || !bytes.Equal(pack[:4], []byte("PACK")) {
 		return nil, errors.New("not a Git pack")
 	}
@@ -116,7 +130,7 @@ func parsePack(pack []byte) (*gitObjects, error) {
 	}
 	count := binary.BigEndian.Uint32(pack[8:12])
 	if count > maxPackObjects || int(count) > len(pack) {
-		return nil, fmt.Errorf("the pack claims %d objects", count)
+		return nil, fmt.Errorf("%w: the pack claims %d objects", errPackBound, count)
 	}
 	sum := sha1.Sum(pack[:len(pack)-20]) //nolint:gosec // see the import
 	if !bytes.Equal(sum[:], pack[len(pack)-20:]) {
@@ -124,6 +138,7 @@ func parsePack(pack []byte) (*gitObjects, error) {
 	}
 	body := pack[:len(pack)-20]
 	entries := make([]packEntry, 0, count)
+	var inflated uint64
 	byOffset := make(map[int]int, count)
 	pos := 12
 	var zr io.ReadCloser
@@ -145,7 +160,15 @@ func parsePack(pack []byte) (*gitObjects, error) {
 			size |= uint64(c&0x7f) << shift
 		}
 		if size > maxGitObject {
-			return nil, fmt.Errorf("object %d is %d bytes, more than %d", i, size, maxGitObject)
+			return nil, fmt.Errorf("%w: object %d is %d bytes, more than %d", errPackBound, i, size, maxGitObject)
+		}
+		if inflated += size; inflated > maxInflated {
+			return nil, fmt.Errorf("%w: the pack inflates to more than %d bytes", errPackBound, maxInflated)
+		}
+		if i%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 		}
 		switch e.typ {
 		case gitCommit, gitTree, gitBlob, gitTag:
@@ -208,58 +231,55 @@ func parsePack(pack []byte) (*gitObjects, error) {
 	if pos != len(body) {
 		return nil, fmt.Errorf("%d bytes follow the last object", len(body)-pos)
 	}
+	// Resolve the deltas from their bases outwards: every object is
+	// resolved once, when its base is — an offset delta by the base's
+	// offset, a reference delta by the base's id — so a pack resolves in
+	// time proportional to its size whatever the order of its deltas.
 	objs := &gitObjects{objs: make(map[gitOID]gitObject, len(entries))}
-	for _, e := range entries {
-		if e.done {
-			objs.objs[hashObject(e.typ, e.data)] = gitObject{typ: e.typ, data: e.data}
+	byBaseOffset := map[int][]int{}
+	byBaseID := map[gitOID][]int{}
+	var queue []int
+	for i, e := range entries {
+		switch {
+		case e.done:
+			queue = append(queue, i)
+		case e.typ == gitOfsDelta:
+			byBaseOffset[e.baseOff] = append(byBaseOffset[e.baseOff], i)
+		default:
+			byBaseID[e.baseID] = append(byBaseID[e.baseID], i)
 		}
 	}
-	// Resolve the deltas: an offset delta through its chain, a reference
-	// delta once its base has been found; until nothing more resolves.
-	var resolve func(i, depth int) (bool, error)
-	resolve = func(i, depth int) (bool, error) {
-		e := &entries[i]
-		if e.done {
-			return true, nil
-		}
-		if depth > maxDeltaDepth {
-			return false, errors.New("a delta chain is too deep")
-		}
-		var base gitObject
-		switch e.typ {
-		case gitOfsDelta:
-			j := byOffset[e.baseOff]
-			ok, err := resolve(j, depth+1)
-			if err != nil || !ok {
-				return ok, err
-			}
-			base = gitObject{typ: entries[j].typ, data: entries[j].data}
-		case gitRefDelta:
-			b, ok := objs.objs[e.baseID]
-			if !ok {
-				return false, nil
-			}
-			base = b
-		}
-		data, err := applyDelta(base.data, e.data)
-		if err != nil {
-			return false, fmt.Errorf("the delta at offset %d: %w", e.offset, err)
-		}
-		e.typ, e.data, e.done = base.typ, data, true
-		objs.objs[hashObject(e.typ, e.data)] = gitObject{typ: e.typ, data: e.data}
-		return true, nil
-	}
-	for progress := true; progress; {
-		progress = false
-		for i := range entries {
-			if entries[i].done {
-				continue
-			}
-			ok, err := resolve(i, 0)
-			if err != nil {
+	resolved := 0
+	for len(queue) > 0 {
+		i := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if resolved++; resolved%1024 == 0 {
+			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			progress = progress || ok
+		}
+		e := &entries[i]
+		id := hashObject(e.typ, e.data)
+		if _, dup := objs.objs[id]; !dup {
+			objs.objs[id] = gitObject{typ: e.typ, data: e.data}
+		}
+		children := append(byBaseOffset[e.offset], byBaseID[id]...)
+		delete(byBaseOffset, e.offset)
+		delete(byBaseID, id)
+		for _, c := range children {
+			ce := &entries[c]
+			if ce.done {
+				continue
+			}
+			data, err := applyDelta(e.data, ce.data)
+			if err != nil {
+				return nil, fmt.Errorf("the delta at offset %d: %w", ce.offset, err)
+			}
+			if inflated += uint64(len(data)); inflated > maxInflated {
+				return nil, fmt.Errorf("%w: the pack inflates to more than %d bytes", errPackBound, maxInflated)
+			}
+			ce.typ, ce.data, ce.done = e.typ, data, true
+			queue = append(queue, c)
 		}
 	}
 	for _, e := range entries {

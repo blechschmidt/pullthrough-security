@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "name": "golang.org/x/text",
+      "version": "v0.3.0"
+    },
+    {
+      "name": "github.com/FiloSottile/mkcert",
+      "version": "v1.3.0"
+    }
+  ],
+  "next": {
+    "format": "go/1",
+    "since": "2019-04-10T20:30:31.325463Z",
+    "seen": [
+      "3aaf709bd69dd0fe"
+    ],
+    "replay": true
+  },
+  "more": true,
+  "cursorTime": "2019-04-10T20:30:31.325463Z"
+}

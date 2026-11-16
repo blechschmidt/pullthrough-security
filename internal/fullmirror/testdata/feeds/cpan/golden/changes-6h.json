@@ -1,0 +1,58 @@
+{
+  "items": [
+    {
+      "name": "CPANIC/Text-Redact-Secrets",
+      "version": "v1.0.2"
+    },
+    {
+      "name": "EGOR/Alien-MySQL",
+      "version": "0.01"
+    },
+    {
+      "name": "NHORNE/App-FileSync",
+      "version": "0.002.1"
+    },
+    {
+      "name": "CPANIC/Ekorn-Pipeline",
+      "version": "v0.3.2"
+    },
+    {
+      "name": "SANKO/Alien-Build-Plugin-Build-Xrepo",
+      "version": "v1.0.1"
+    },
+    {
+      "name": "ASB/Spreadsheet-XLSX",
+      "version": "0.21"
+    },
+    {
+      "name": "ETHER/JSON-Schema-Modern",
+      "version": "0.654"
+    },
+    {
+      "name": "AJWOOD/RT-Extension-TOTPMFA",
+      "version": "0.20"
+    },
+    {
+      "name": "LNATION/Time-Keeper-Zone",
+      "version": "0.07"
+    },
+    {
+      "name": "CPANIC/Ekorn-Pipeline",
+      "version": "v0.3.3"
+    },
+    {
+      "name": "KIMOTO/SPVM-UV",
+      "version": "0.008"
+    }
+  ],
+  "next": {
+    "format": "cpan/1",
+    "epoch": "1794795306.63291",
+    "dirtymark": "1760942917.81368"
+  },
+  "more": false,
+  "head": "1794795306.63291",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:15:06.63291Z",
+  "cursorTime": "2026-11-16T02:15:06.63291Z"
+}

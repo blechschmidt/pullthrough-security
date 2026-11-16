@@ -179,14 +179,22 @@ func (s *gitTreeStore) lookup(id gitOID) ([]byte, bool) {
 	return d, ok
 }
 
-// collectGitTrees gathers every tree reachable from root within the area.
+// collectGitTrees gathers every tree reachable from root within the area. A
+// tree is visited once per directory it appears at: the same tree can sit at
+// a path the area prunes and at one it descends into.
 func collectGitTrees(look gitLookup, area gitArea, root gitOID) (map[gitOID][]byte, error) {
 	out := map[gitOID][]byte{}
+	type at struct {
+		id  gitOID
+		dir string
+	}
+	seen := map[at]bool{}
 	var visit func(id gitOID, dir string) error
 	visit = func(id gitOID, dir string) error {
-		if _, seen := out[id]; seen {
+		if seen[at{id, dir}] {
 			return nil
 		}
+		seen[at{id, dir}] = true
 		data, ok := look(id)
 		if !ok {
 			return fmt.Errorf("%w: %s", errGitTreeMissing, id)
@@ -212,8 +220,9 @@ func collectGitTrees(look gitLookup, area gitArea, root gitOID) (map[gitOID][]by
 // and commit time, then (id, length, data) per tree.
 const gitStoreMagic = "pullthrough-git-trees-1\n"
 
-// maxGitStore bounds a tree store read back.
-const maxGitStore = 2 << 30
+// maxGitStore bounds a tree store read back (the crates.io index's trees,
+// all of them, come to about 30 MB).
+const maxGitStore = 512 << 20
 
 func gitStoreName(prefix string, commit gitOID) string { return prefix + commit.String() + ".gz" }
 
@@ -483,7 +492,7 @@ func (g *gitIndex) bootstrap(ctx context.Context, cursor string) (Batch, error) 
 		if err := saveGitTreeStore(g.files, gitStorePrefix, st); err != nil {
 			return Batch{}, fmt.Errorf("storing the trees of %s: %w", head, err)
 		}
-		g.files.prune(gitStorePrefix, gitStoreName(gitStorePrefix, head))
+		g.files.pruneKeepingNewest(gitStorePrefix, 1, gitStoreName(gitStorePrefix, head))
 		c = gitCursor{Commit: head.String(), Listing: true}
 	} else {
 		if err := decodeCursor(cursor, g.format(), &c); err != nil {
@@ -549,7 +558,7 @@ func (g *gitIndex) changes(ctx context.Context, cursor string) (Batch, error) {
 	}
 	// Keep the stored commit's trees (the engine may ask again from the same
 	// cursor after a restart) and the new head's.
-	g.files.prune(gitStorePrefix, gitStoreName(gitStorePrefix, from.commit), gitStoreName(gitStorePrefix, to.commit))
+	g.files.pruneKeepingNewest(gitStorePrefix, 1, gitStoreName(gitStorePrefix, from.commit), gitStoreName(gitStorePrefix, to.commit))
 	look := func(id gitOID) ([]byte, bool) {
 		if d, ok := to.lookup(id); ok {
 			return d, true

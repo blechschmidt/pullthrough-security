@@ -1,0 +1,58 @@
+[
+  {
+    "version": "0.0.7",
+    "yanked": true,
+    "artifacts": [
+      {
+        "path": "/modules/rules_license/0.0.7/MODULE.bazel"
+      },
+      {
+        "path": "/modules/rules_license/0.0.7/archive"
+      }
+    ]
+  },
+  {
+    "version": "0.0.8",
+    "artifacts": [
+      {
+        "path": "/modules/rules_license/0.0.8/MODULE.bazel"
+      },
+      {
+        "path": "/modules/rules_license/0.0.8/archive"
+      }
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "artifacts": [
+      {
+        "path": "/modules/rules_license/1.0.0/MODULE.bazel"
+      },
+      {
+        "path": "/modules/rules_license/1.0.0/archive"
+      }
+    ]
+  },
+  {
+    "version": "1.0.1",
+    "artifacts": [
+      {
+        "path": "/modules/rules_license/1.0.1/MODULE.bazel"
+      },
+      {
+        "path": "/modules/rules_license/1.0.1/archive"
+      }
+    ]
+  },
+  {
+    "version": "2.0.0",
+    "artifacts": [
+      {
+        "path": "/modules/rules_license/2.0.0/MODULE.bazel"
+      },
+      {
+        "path": "/modules/rules_license/2.0.0/patches/fix.patch"
+      }
+    ]
+  }
+]

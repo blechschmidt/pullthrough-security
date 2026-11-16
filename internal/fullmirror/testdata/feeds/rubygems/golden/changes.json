@@ -1,0 +1,57 @@
+{
+  "items": [
+    {
+      "name": "oximg",
+      "version": "0.19.0"
+    },
+    {
+      "name": "dependabot-sbt",
+      "version": "0.405.0"
+    },
+    {
+      "name": "dependabot-silent",
+      "version": "0.405.0"
+    },
+    {
+      "name": "dependabot-swift",
+      "version": "0.405.0"
+    },
+    {
+      "name": "dependabot-terraform",
+      "version": "0.405.0"
+    },
+    {
+      "name": "dependabot-uv",
+      "version": "0.405.0"
+    },
+    {
+      "name": "dependabot-vcpkg",
+      "version": "0.405.0"
+    },
+    {
+      "name": "phonemizer",
+      "version": "0.1.0"
+    },
+    {
+      "name": "cmu-web-qrnegie",
+      "version": "0.3.8"
+    },
+    {
+      "name": "etunnel",
+      "version": "1.7.8"
+    }
+  ],
+  "next": {
+    "format": "rubygems/1",
+    "gen": "c968d0d5aeca8616",
+    "size": 3269,
+    "sha256": "dc5ff502c4b49a40be400f2a76aa44c05985e3850afd948710676a5691a2cd40",
+    "created": "2026-11-01T00:00:04Z",
+    "etag": "\"6d9defe7e0682be56a54f15c138b9ddb\""
+  },
+  "more": false,
+  "head": "3269",
+  "lagKnown": true,
+  "headTime": "2026-11-16T02:11:03Z",
+  "cursorTime": "2026-11-16T02:11:03Z"
+}

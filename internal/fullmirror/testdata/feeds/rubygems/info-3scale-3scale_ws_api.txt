@@ -1,0 +1,2 @@
+---
+0.4.8 hpricot:>= 0.6.161|checksum:71d59943a9b69e0b7681fdaa3d7eb425142e7119cfee50d31d851e1400f3db48,created_at:2014-08-11T09:25:21Z

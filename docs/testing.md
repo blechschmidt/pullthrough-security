@@ -235,6 +235,17 @@ up by default.
 | `internal/repos/locate` | `FuzzLocatePaths` | a lock file's coordinates turned into request paths: never a dot segment, query or fragment |
 | `internal/repos/locate` | `FuzzCheckerModuleZip` | the Go module hash over an arbitrary zip: no panic, no made-up hash verifies |
 | `internal/lockfiles` | `FuzzProxyMapping` | lock-file URLs mapped back from the proxy: a personal link's token never survives |
+| `internal/fullmirror` | `FuzzNPMChanges`, `FuzzNPMAllDocs`, `FuzzNPMPackument` | the full mirror's npm feed: `_changes` pages, `_all_docs` listings, packuments (Task 190) |
+| `internal/fullmirror` | `FuzzPipXMLRPC`, `FuzzPipProjectList`, `FuzzPipStoreLine`, `FuzzPipSimplePageReleases`, `FuzzPipCursor` | PyPI's XML-RPC changelog answers and faults, the PEP 691 project list and its stored copy, simple pages turned into releases |
+| `internal/fullmirror` | `FuzzGoIndexPage`, `FuzzGoVersionList`, `FuzzGoCursor` | index.golang.org pages, `@v/list`, the Go feed's cursor |
+| `internal/fullmirror` | `FuzzNuGetServiceIndex`, `FuzzNuGetCatalogIndex`, `FuzzNuGetCatalogPage`, `FuzzNuGetVersionList` | NuGet's service index, catalog index and pages, flat-container version lists |
+| `internal/fullmirror` | `FuzzRubyGemsVersions`, `FuzzRubyGemsInfo`, `FuzzRubyGemsRangeHeaders` | the compact index `/versions` and `/info`, Range and digest headers |
+| `internal/fullmirror` | `FuzzComposerChanges`, `FuzzComposerList` | Packagist's `changes.json` and package list |
+| `internal/fullmirror` | `FuzzHackageIndex`, `FuzzHackageContentRange`, `FuzzHackagePackages`, `FuzzHackagePreferred` | Hackage's index tarball tail, `Content-Range`, package list, preferred versions |
+| `internal/fullmirror` | `FuzzCPANRecent`, `FuzzCPANPackages`, `FuzzCPANChecksums`, `FuzzCPANPaths` | CPAN's RECENT files, `02packages`, `CHECKSUMS`, author paths |
+| `internal/fullmirror` | `FuzzJuliaRegistries`, `FuzzJuliaRegistryTOML`, `FuzzJuliaVersionsTOML`, `FuzzJuliaRegistryTarball` | a Pkg server's registry list, `Registry.toml`, `Versions.toml`, registry tarballs |
+| `internal/fullmirror` | `FuzzCargoIndexFile`, `FuzzBazelMetadata`, `FuzzBazelSource`, `FuzzBazelCoordinate`, `FuzzConanSearch`, `FuzzConanRevision`, `FuzzConanFiles`, `FuzzConanPackages`, `FuzzConanBinaries`, `FuzzConanVersionCompare`, `FuzzConanCoordinate`, `FuzzHomebrewFormula`, `FuzzHomebrewPlatforms`, `FuzzHomebrewCoordinate` | the Git-backed registries' documents: sparse index files, BCR metadata and source.json, ConanCenter's search, revision and file answers, Homebrew's formula JSON, and the paths their trees name |
+| `internal/fullmirror` | `FuzzGitCapabilities`, `FuzzGitLsRefs`, `FuzzGitFetchResponse`, `FuzzGitPack`, `FuzzGitDelta`, `FuzzGitTreeAndCommit`, `FuzzGitSettleCommit` | the Git smart-HTTP client the Git-backed feeds use: capability advertisements, ref lists, fetch responses, packs and deltas (ids computed from content, inflation bounded), trees and commits |
 
 Each target seeds its corpus (`f.Add`) with real-world samples and a battery of
 known-malformed inputs (truncated archives, unterminated grammars, deeply nested

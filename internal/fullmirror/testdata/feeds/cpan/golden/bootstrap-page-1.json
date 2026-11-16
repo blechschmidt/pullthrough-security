@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "name": "CHANG-LIU/XML-Node"
+    },
+    {
+      "name": "CJCOLLIER/Google-Cloud/DBD-BigQuery"
+    },
+    {
+      "name": "CPANIC/DBIx-Squirrel"
+    }
+  ],
+  "next": {
+    "format": "cpan/1",
+    "epoch": "1794788106.63291",
+    "dirtymark": "1760942917.81368",
+    "listing": true,
+    "after": "CPANIC/DBIx-Squirrel"
+  },
+  "more": true,
+  "head": "1794788106.63291"
+}
